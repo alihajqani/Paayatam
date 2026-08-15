@@ -9,6 +9,6 @@
     "incremental": false,
     "allowJs": true
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "*.ts", "*.mts", "*.mjs"],
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "tools/**/*.ts", "*.ts", "*.mts", "*.mjs"],
   "exclude": ["**/node_modules/**", "**/dist/**", "packages/db/src/generated/**"]
 }

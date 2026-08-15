@@ -1,0 +1,20 @@
+{
+  "name": "@payetam/domain",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.2.1",
+    "@payetam/config": "workspace:*",
+    "@payetam/db": "workspace:*",
+    "@payetam/platform": "workspace:*",
+    "@payetam/shared": "workspace:*",
+    "jose": "^6.2.9",
+    "reflect-metadata": "^0.2.2"
+  }
+}

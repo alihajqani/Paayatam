@@ -126,5 +126,30 @@ jobs:
       - name: Apply migrations
         run: pnpm --filter @payetam/db db:migrate:deploy
 
+      # Some guarantees cannot be expressed in schema.prisma (partial unique
+      # indexes, append-only triggers). `prisma migrate dev` would happily generate
+      # a migration dropping them. Fail the build if one goes missing from a freshly
+      # migrated database, so the loss is loud rather than silent.
+      - name: Protect hand-written database guarantees
+        run: |
+          missing=0
+          check_index() {
+            found=$(psql "$DATABASE_URL" -tAc \
+              "SELECT count(*) FROM pg_indexes WHERE indexname = '$1';")
+            [ "$found" = "1" ] || { echo "::error::missing index $1"; missing=1; }
+          }
+          check_trigger() {
+            found=$(psql "$DATABASE_URL" -tAc \
+              "SELECT count(*) FROM pg_trigger WHERE tgname = '$1' AND NOT tgisinternal;")
+            [ "$found" = "1" ] || { echo "::error::missing trigger $1"; missing=1; }
+          }
+          check_index   policy_version_one_current_per_type
+          check_trigger audit_log_append_only
+          check_trigger consent_append_only
+          exit $missing
+        env:
+          DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam
+          PGPASSWORD: ci
+
       - name: Integration tests
         run: pnpm test --project integration

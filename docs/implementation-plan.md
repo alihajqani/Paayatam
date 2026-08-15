@@ -659,6 +659,25 @@ Tests: valid initData accepted; **tampered hash rejected; expired `auth_date` re
 rejected**; consent idempotent under 10 concurrent calls; banned user blocked; webhook rejects a wrong
 secret token. Acceptance: `/start` creates exactly one user; the terms gate blocks every other endpoint.
 
+**Deviations from this plan, decided during M2:**
+
+- **`policy_document` merged into `policy_version`.** A document row would have held
+  nothing but a type. "Exactly one current version per type" is instead a partial
+  unique index — a stronger guarantee than a parent row would have provided.
+- **Partial unique index is invisible to Prisma.** `@@unique([type], where: …)` is
+  rejected by the schema parser (`@@index` accepts `where`, `@@unique` does not), so
+  `migrate diff` reports it as drift and `migrate dev` would drop it. Kept anyway —
+  it is the only race-proof enforcement — and CI now fails if it or either
+  append-only trigger goes missing from a freshly migrated database.
+- **`consent` is append-only by trigger** and its FK to `user` is RESTRICT, not
+  CASCADE: account deletion anonymises (M15); it must not erase the record that
+  consent was given.
+- **Replay defence is separate from signature checking.** `InitDataValidator` is
+  pure (no Redis, no DI), so the cryptography is unit-testable with no
+  infrastructure; `InitDataReplayGuard` owns the Redis one-time-use claim.
+- **`packages/domain` added** to the workspace, plus `Clock` in `packages/platform`
+  (ADR-0008) so time-dependent policy is testable without sleeping.
+
 **M3 — Profiles, interests & ledger primitives** · *M*
 Files: `packages/domain/profile/*`, `catalog/*`, minimal `apps/miniapp` (Vue onboarding wizard, RTL,
 Telegram theming). Migration `0003_profile_catalog` + a minimal ledger slice (`coin_account`, `coin_ledger`)

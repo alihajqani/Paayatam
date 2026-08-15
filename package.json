@@ -22,10 +22,13 @@
     "db:generate": "pnpm --filter @payetam/db db:generate",
     "db:migrate": "pnpm --filter @payetam/db db:migrate",
     "db:studio": "pnpm --filter @payetam/db db:studio",
+    "seed:policies": "tsx --env-file=.env tools/seed-policies.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@payetam/db": "workspace:*",
+    "@prisma/adapter-pg": "^7.9.1",
     "@types/node": "^22.10.0",
     "eslint": "^10.8.1",
     "eslint-config-prettier": "^10.0.0",

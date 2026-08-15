@@ -1,5 +1,6 @@
 import { Controller, Get, HttpCode, HttpStatus, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { Public } from '../auth/auth.guard';
 import { HealthService } from './health.service';
 
 /**
@@ -9,6 +10,13 @@ import { HealthService } from './health.service';
  * the process, whereas a failing `/ready` should only stop routing traffic to it.
  * Conflating them means a brief database blip restarts an otherwise healthy API.
  */
+/**
+ * `@Public()` on the class: the global AuthGuard is deny-by-default, so without
+ * this the orchestrator's probes get 401 and the container is restarted forever.
+ * Neither endpoint discloses anything — liveness is a constant, readiness reports
+ * only up/down per dependency.
+ */
+@Public()
 @Controller()
 export class HealthController {
   constructor(private readonly health: HealthService) {}

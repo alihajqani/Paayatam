@@ -15,9 +15,11 @@
     "@nestjs/platform-fastify": "^11.2.1",
     "@payetam/config": "workspace:*",
     "@payetam/db": "workspace:*",
+    "@payetam/domain": "workspace:*",
     "@payetam/platform": "workspace:*",
     "@payetam/shared": "workspace:*",
     "fastify": "^5.12.0",
+    "zod": "^4.4.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   }

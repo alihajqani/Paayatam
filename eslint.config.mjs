@@ -99,6 +99,15 @@ export default tseslint.config(
     },
   },
 
+  // Developer CLI scripts. `console` is their user interface, not a stray debug
+  // statement, and they are never part of a deployed image.
+  {
+    files: ['tools/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+
   // Tests may be looser: fixtures and stubs legitimately need casts that
   // production code should never contain.
   {

@@ -28,6 +28,151 @@ datasource db {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Identity
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  DELETED
+
+  @@map("user_status")
+}
+
+enum OnboardingState {
+  NEW
+  TERMS_ACCEPTED
+  PROFILE_COMPLETE
+
+  @@map("onboarding_state")
+}
+
+/// The identity root.
+///
+/// `public_id` is a random UUIDv4 and is the ONLY identifier that may appear in an
+/// API response or a URL (invariant 7). `id` is UUIDv7 — time-ordered, so index
+/// locality stays good — and never leaves the backend.
+model User {
+  id              String          @id @default(uuid(7))
+  publicId        String          @unique @default(uuid(4)) @map("public_id")
+  status          UserStatus      @default(ACTIVE)
+  onboardingState OnboardingState @default(NEW) @map("onboarding_state")
+  locale          String          @default("fa-IR")
+  timezone        String          @default("Asia/Tehran")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(3)
+
+  telegramAccount TelegramAccount?
+  consents        Consent[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("user")
+}
+
+/// Telegram identity, deliberately in its own table.
+///
+/// This is the highest-value PII in the product. Keeping it here rather than as
+/// columns on `user` makes ADR-0009's rule structural: only the identity module
+/// ever selects this table, so a careless `include` elsewhere cannot leak a
+/// Telegram ID into a response.
+///
+/// `telegram_user_id` is BIGINT, which Prisma maps to `bigint`. That is a useful
+/// accident: `JSON.stringify` throws on a bigint, so serialising one into a
+/// response fails loudly instead of leaking silently.
+model TelegramAccount {
+  id              String   @id @default(uuid(7))
+  userId          String   @unique @map("user_id")
+  telegramUserId  BigInt   @unique @map("telegram_user_id")
+  usernameCached  String?  @map("username_cached")
+  firstNameCached String?  @map("first_name_cached")
+  languageCode    String?  @map("language_code")
+  /// Set when Telegram returns 403. Delivery stops rather than burning the global
+  /// rate budget on a user who cannot receive anything (ADR-0005).
+  botBlocked      Boolean  @default(false) @map("bot_blocked")
+  firstSeenAt     DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt      DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_account")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Policies and consent
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PolicyType {
+  TERMS
+  PRIVACY
+  COMMUNITY
+
+  @@map("policy_type")
+}
+
+/// Versioned policy text.
+///
+/// Deviation from the plan: `policy_document` and `policy_version` are merged. A
+/// document row would have carried nothing but a type, and the "exactly one current
+/// version per type" rule is enforced by a partial unique index in the migration —
+/// which is a stronger guarantee than a parent row would have given.
+model PolicyVersion {
+  id          String     @id @default(uuid(7))
+  type        PolicyType
+  version     Int
+  contentMd   String     @map("content_md")
+  summaryFa   String?    @map("summary_fa")
+  isCurrent   Boolean    @default(false) @map("is_current")
+  publishedAt DateTime   @default(now()) @map("published_at") @db.Timestamptz(3)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  consents Consent[]
+
+  @@unique([type, version])
+  @@index([type, isCurrent])
+  @@map("policy_version")
+}
+
+enum ConsentContext {
+  ONBOARDING
+  REACCEPT
+  CONTACT_SHARE
+
+  @@map("consent_context")
+}
+
+/// Proof that a specific user accepted a specific policy version.
+///
+/// Append-only, enforced by trigger — this is evidence, and evidence that can be
+/// edited is not evidence. The FK to `user` is RESTRICT rather than CASCADE for the
+/// same reason: account deletion anonymises (M15), it does not erase the record
+/// that consent was given.
+///
+/// `UNIQUE(user_id, policy_version_id, context)` is what makes accepting the terms
+/// idempotent under concurrent requests — the database rejects the second write, so
+/// no read-then-write race exists.
+///
+/// `ip_hash` is an HMAC with a server pepper. Raw IPs are never stored (ADR-0009).
+model Consent {
+  id              String         @id @default(uuid(7))
+  userId          String         @map("user_id")
+  policyVersionId String         @map("policy_version_id")
+  context         ConsentContext @default(ONBOARDING)
+  acceptedAt      DateTime       @default(now()) @map("accepted_at") @db.Timestamptz(3)
+  ipHash          String?        @map("ip_hash")
+  userAgentHash   String?        @map("user_agent_hash")
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  policyVersion PolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, policyVersionId, context])
+  @@index([userId, acceptedAt])
+  @@map("consent")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Platform configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
