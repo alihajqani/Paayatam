@@ -1,0 +1,17 @@
+{
+  "name": "@payetam/platform",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.2.1",
+    "@payetam/config": "workspace:*",
+    "ioredis": "^6.0.0",
+    "reflect-metadata": "^0.2.2"
+  }
+}

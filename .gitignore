@@ -1,0 +1,44 @@
+# Secrets — never commit. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Prisma generated client
+packages/db/src/generated/
+**/.prisma/
+
+# Test / coverage
+coverage/
+.vitest/
+*.lcov
+
+# Local data
+postgres-data/
+redis-data/
+uploads/
+backups/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.swp
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*

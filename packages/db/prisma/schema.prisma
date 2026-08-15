@@ -1,0 +1,107 @@
+// PayeTam database schema.
+//
+// Prisma 7: the datasource holds only the provider — connection URLs live in
+// prisma.config.ts. The generator is `prisma-client` (not the legacy
+// `prisma-client-js`) and its `output` is mandatory.
+//
+// Conventions (docs/implementation-plan.md §4):
+//   - UUIDv7 primary keys: time-ordered, so index locality stays good as tables grow.
+//   - `public_id` is a separate random UUID for anything exposed externally.
+//   - All timestamps are timestamptz, stored UTC (ADR-0008).
+//   - Money is integer Toman. Never a float.
+//   - snake_case in the database, camelCase in TypeScript, bridged by @map/@@map.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+
+  // The API and worker are CommonJS (NestJS convention). Prisma 7 defaults to ESM.
+  moduleFormat = "cjs"
+
+  // Needed for the partial indexes this schema relies on from M5 onward — e.g.
+  // "published, undeleted events" and "waitlisted participants" (ADR-0006).
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platform configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Runtime configuration. Every policy number in the product — penalty amounts,
+/// time thresholds, ranking weights, report thresholds — lives here rather than in
+/// code, so tuning is a config change with no deploy (ADR-0007, ADR-0011).
+model AppSetting {
+  key       String   @id
+  value     Json
+  /// JSON Schema used to validate `value` on write, so a typo in the admin panel
+  /// cannot put the economy into an impossible state.
+  valueSchema Json?  @map("value_schema")
+  version   Int      @default(1)
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("app_setting")
+}
+
+/// Feature flags. Cities and categories are gated by these so the Tehran-only,
+/// two-category launch is configuration rather than a branch (plan §2).
+model FeatureFlag {
+  key         String   @id
+  enabled     Boolean  @default(false)
+  description String?
+  /// Optional targeting rules, e.g. percentage rollout or an allowlist.
+  rollout     Json?
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("feature_flag")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ActorType {
+  USER
+  ADMIN
+  SYSTEM
+
+  @@map("actor_type")
+}
+
+/// Append-only audit trail. Every state transition and every admin mutation writes
+/// here (invariants 10 and 12).
+///
+/// Immutability is enforced by a database trigger installed in the migration, not
+/// by convention — see migration 0001. `before`/`after` hold the changed fields
+/// only, never whole rows, and never message bodies or Telegram identifiers
+/// (ADR-0009, T15).
+///
+/// NOTE: monthly partitioning is deferred to M15 alongside the retention jobs.
+/// The table is empty until then, so converting it is trivial; doing it now would
+/// mean fighting Prisma's schema diffing for no benefit at zero rows.
+model AuditLog {
+  id         String    @id @default(uuid(7))
+  actorType  ActorType @map("actor_type")
+  actorId    String?   @map("actor_id")
+  action     String
+  targetType String    @map("target_type")
+  targetId   String?   @map("target_id")
+  before     Json?
+  after      Json?
+  /// HMAC of the client IP with a server pepper. We never store a raw IP (ADR-0009).
+  ipHash     String?   @map("ip_hash")
+  requestId  String?   @map("request_id")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([actorType, actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([createdAt])
+  @@map("audit_log")
+}

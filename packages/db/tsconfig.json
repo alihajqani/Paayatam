@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    // The generated Prisma client is emitted as TypeScript source under src/.
+    // It is third-party output we do not control, so it is exempt from the
+    // strictness the rest of the workspace runs under.
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "exactOptionalPropertyTypes": false
+  },
+  "references": [{ "path": "../config" }, { "path": "../platform" }],
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
+}

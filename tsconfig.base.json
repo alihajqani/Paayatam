@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+
+    // NestJS resolves constructor dependencies from design:paramtypes metadata,
+    // so both of these are load-bearing, not stylistic (ADR-0001).
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    // Strictness. These are on deliberately: the invariants in docs/adr/README.md
+    // are much easier to hold when the type system refuses to look away.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Off intentionally: NestJS DI and Prisma's generated client both rely on
+    // patterns that strictPropertyInitialization rejects (injected properties are
+    // assigned by the container, not the constructor body).
+    "strictPropertyInitialization": false,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true,
+
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+
+    "types": ["node"]
+  },
+  "exclude": ["node_modules", "dist", "coverage"]
+}

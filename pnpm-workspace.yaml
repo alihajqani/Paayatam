@@ -1,0 +1,14 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# pnpm 10 blocks dependency postinstall scripts by default — a good default we keep.
+# Only these genuinely need to build or fetch a binary at install time. Anything not
+# listed here cannot run install scripts, which is the point.
+onlyBuiltDependencies:
+  - prisma # CLI preinstall step
+  - '@prisma/client' # generates the typed client
+  - '@prisma/engines' # downloads the query engine binaries
+  - argon2 # native module (password hashing, M12)
+  - sharp # native module (image re-encoding, M15)
+  - esbuild # used by vite and vitest

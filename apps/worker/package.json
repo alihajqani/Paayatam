@@ -1,0 +1,22 @@
+{
+  "name": "@payetam/worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "node --watch --env-file=../../.env dist/main.js",
+    "build": "tsc -b",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.2.1",
+    "@nestjs/core": "^11.2.1",
+    "@payetam/config": "workspace:*",
+    "@payetam/db": "workspace:*",
+    "@payetam/platform": "workspace:*",
+    "@payetam/shared": "workspace:*",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  }
+}

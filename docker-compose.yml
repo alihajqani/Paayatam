@@ -1,0 +1,62 @@
+# Local development stack: Postgres + Redis only.
+#
+# The api and worker processes run on the host via `pnpm dev` for fast reloads.
+# Production compose (api, worker, nginx, TLS) arrives in M16 as
+# docker/docker-compose.prod.yml — this file is development-only and binds to
+# 127.0.0.1 so nothing here is reachable from outside the machine.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: payetam-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: payetam
+      POSTGRES_PASSWORD: CHANGE_ME_LOCAL_ONLY
+      POSTGRES_DB: payetam
+      # Storage is UTC everywhere (ADR-0008). Asia/Tehran is applied at the
+      # application layer, never by the database session.
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - '127.0.0.1:55432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U payetam -d payetam']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    command:
+      - postgres
+      # Verbose enough to catch lock contention on the capacity path (ADR-0006)
+      # during development. Far too chatty for production.
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_duration_statement=200
+      - -c
+      - log_lock_waits=on
+
+  redis:
+    image: redis:7-alpine
+    container_name: payetam-redis
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:56379:6379'
+    volumes:
+      - redis-data:/data
+    # AOF everysec: BullMQ jobs survive a restart. Job loss is recoverable anyway
+    # because the transactional outbox lives in Postgres (ADR-0005), but there is
+    # no reason to make recovery work harder than it must.
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-data:

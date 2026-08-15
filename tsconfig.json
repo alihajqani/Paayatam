@@ -1,0 +1,15 @@
+{
+  // Solution-style root config: it contains no files of its own, only references.
+  // `tsc -b` from here builds every package in dependency order, which is also what
+  // makes cross-package imports (@payetam/db from apps/api) resolve — each package
+  // consumes its dependencies' emitted .d.ts rather than their source.
+  "files": [],
+  "references": [
+    { "path": "./packages/config" },
+    { "path": "./packages/shared" },
+    { "path": "./packages/db" },
+    { "path": "./packages/platform" },
+    { "path": "./apps/api" },
+    { "path": "./apps/worker" }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  // Lint-only project. The build tsconfigs deliberately exclude tests and config
+  // files so they are not emitted into dist — but typed linting still needs type
+  // information for them, so this config includes everything.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "incremental": false,
+    "allowJs": true
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "*.ts", "*.mts", "*.mjs"],
+  "exclude": ["**/node_modules/**", "**/dist/**", "packages/db/src/generated/**"]
+}

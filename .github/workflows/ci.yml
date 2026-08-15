@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Required by packages/config at import time. Not a real credential — CI never
+  # connects to a database in the unit job.
+  DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam?schema=public
+  REDIS_URL: redis://localhost:6379
+
+jobs:
+  check:
+    name: typecheck · lint · unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The Prisma client is generated, not committed. Everything that imports
+      # @payetam/db fails to type-check without this step.
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Unit tests
+        run: pnpm test --project unit
+
+      # T10: Prisma parameterises queries, but raw SQL is permitted via tagged
+      # $queryRaw templates. A concatenated or interpolated non-tagged query is an
+      # injection waiting to happen, so fail the build on one.
+      - name: Reject string-concatenated SQL
+        run: |
+          if grep -rnE '\$queryRawUnsafe|\$executeRawUnsafe' \
+               --include='*.ts' apps packages 2>/dev/null; then
+            echo "::error::Unsafe raw SQL detected. Use tagged \$queryRaw templates (ADR-0002, threat T10)."
+            exit 1
+          fi
+          echo "No unsafe raw SQL found."
+
+      # Belt and braces against committing a credential. .env is gitignored, but a
+      # forced add or a stray file should fail loudly rather than merge quietly.
+      - name: Reject committed secrets
+        run: |
+          if git ls-files | grep -E '^\.env$|^\.env\.(local|production|development)$'; then
+            echo "::error::An .env file is tracked by git. Secrets must never be committed."
+            exit 1
+          fi
+          echo "No tracked .env files."
+
+  integration:
+    name: integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # Real Postgres and Redis. The capacity (ADR-0006) and ledger (ADR-0007)
+    # guarantees are database guarantees — testing them against a mock would prove
+    # nothing about the property we actually care about.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: payetam
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: payetam
+          TZ: UTC
+          PGTZ: UTC
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U payetam -d payetam"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Apply migrations
+        run: pnpm --filter @payetam/db db:migrate:deploy
+
+      - name: Integration tests
+        run: pnpm test --project integration
