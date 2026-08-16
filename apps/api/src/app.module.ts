@@ -21,6 +21,7 @@ import { AuthService } from './auth/auth.service';
 import { AppExceptionFilter } from './common/app-exception.filter';
 import { CatalogController } from './catalog/catalog.controller';
 import { ChatController } from './chat/chat.controller';
+import { EconomyController } from './economy/economy.controller';
 import { DiscoveryController } from './discovery/discovery.controller';
 import { EventsController } from './events/events.controller';
 import { HealthModule } from './health/health.module';
@@ -63,6 +64,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     DiscoveryController,
     ParticipationController,
     ChatController,
+    EconomyController,
     TelegramWebhookController,
   ],
   providers: [

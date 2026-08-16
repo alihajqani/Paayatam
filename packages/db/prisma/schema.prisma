@@ -60,6 +60,12 @@ model User {
   onboardingState OnboardingState @default(NEW) @map("onboarding_state")
   locale          String          @default("fa-IR")
   timezone        String          @default("Asia/Tehran")
+  /// The code this user shares to invite others (M9). An addition to §4.5, which
+  /// gives `referral.code` — that column snapshots the code a referral *used*,
+  /// and the referrer still needs somewhere to keep the one they hand out.
+  /// Generated on first read rather than at signup, so it costs nothing for the
+  /// users who never open the invite screen. Nullable for the same reason.
+  referralCode    String?         @unique @map("referral_code")
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(3)
@@ -75,6 +81,10 @@ model User {
   chatMemberships ChatParticipant[]
   chatsClosed     AnonymousChat[]    @relation("ChatClosedBy")
   chatActions     ChatAction[]       @relation("ChatActionActor")
+  trustScore      TrustScore?
+  trustLedger     TrustScoreLedger[]
+  referralsMade   Referral[]         @relation("ReferralsMade")
+  referralReceived Referral?         @relation("ReferralReceived")
 
   @@index([status])
   @@index([createdAt])
@@ -409,6 +419,129 @@ model CoinLedger {
   @@index([userId, createdAt])
   @@index([type, createdAt])
   @@map("coin_ledger")
+}
+
+/// The same enum discipline as `CoinLedgerType`: every reason the score can move
+/// is declared now, so later milestones add rows rather than types. M9 writes
+/// INITIAL, PROFILE_COMPLETE and ADMIN_ADJUSTMENT; the rest belong to M10–M13.
+enum TrustLedgerType {
+  INITIAL
+  PROFILE_COMPLETE
+  ATTENDANCE
+  REVIEW
+  CANCELLATION
+  NO_SHOW
+  MODERATION
+  REHABILITATION
+  ADMIN_ADJUSTMENT
+  REVERSAL
+
+  @@map("trust_ledger_type")
+}
+
+/// The cached reputation number, 0–100 (ADR-0007).
+///
+/// A cache exactly as `coin_account` is: `score` must always equal
+/// `SUM(trust_score_ledger.delta)` for the user, which the reconciliation test
+/// asserts. A user with no row has not moved yet and reads as the configured
+/// starting score.
+model TrustScore {
+  userId      String   @id @map("user_id")
+  score       Int
+  /// Which version of the scoring rules produced the current value. Stored so a
+  /// future algorithm change is visible rather than retroactive.
+  algoVersion Int      @default(1) @map("algo_version")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("trust_score")
+}
+
+/// Append-only, trigger-enforced. **This is what makes the score explainable**:
+/// the admin panel renders these rows, not the number, so "why is my score 47?"
+/// has a complete answer with a reason and a policy version attached (ADR-0007).
+///
+/// `delta` is the **effective** movement — `score_after − score_before`, after
+/// clamping. A policy that says +3 for somebody already at 99 stores +1 here and
+/// records the 3 it wanted in `metadata`. Storing the requested delta instead
+/// would break `score == SUM(delta)` the first time anybody hit a bound, and that
+/// sum is the property the reconciliation test exists to check.
+model TrustScoreLedger {
+  id             String          @id @default(uuid(7))
+  userId         String          @map("user_id")
+  idempotencyKey String          @unique @map("idempotency_key")
+  type           TrustLedgerType
+  /// Effective, and permitted to be zero — unlike `coin_ledger.amount`. A rule
+  /// that fires against somebody already at 100 has no effect, and the row must
+  /// still be written because the row is what consumes the idempotency key: drop
+  /// it and a redelivered job pays out for real once the score has room again.
+  delta          Int
+  scoreBefore    Int             @map("score_before")
+  scoreAfter     Int             @map("score_after")
+  reasonCode     String          @map("reason_code")
+  algoVersion    Int             @map("algo_version")
+  actorType      ActorType       @map("actor_type")
+  actorId        String?         @map("actor_id")
+  refType        String?         @map("ref_type")
+  refId          String?         @map("ref_id")
+  /// UNIQUE, and Postgres treats NULLs as distinct — so this reads as "a row can
+  /// be reversed at most once".
+  reversesLedgerId String?       @unique @map("reverses_ledger_id")
+  metadata       Json?
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  reverses TrustScoreLedger? @relation("TrustLedgerReversal", fields: [reversesLedgerId], references: [id], onDelete: Restrict)
+  reversal TrustScoreLedger? @relation("TrustLedgerReversal")
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("trust_score_ledger")
+}
+
+enum ReferralStatus {
+  PENDING
+  QUALIFIED
+  REJECTED
+
+  @@map("referral_status")
+}
+
+/// Who invited whom (T6).
+///
+/// `referred_user_id` is UNIQUE, so a user has at most one referrer — for life,
+/// and enforced by the database rather than by a check somebody has to remember.
+/// The reward is not granted on signup but on **attendance**, because a referral
+/// that pays out for creating an account pays out for creating accounts.
+model Referral {
+  id             String         @id @default(uuid(7))
+  referrerUserId String         @map("referrer_user_id")
+  /// One referrer per person, ever.
+  referredUserId String         @unique @map("referred_user_id")
+  /// The code as it was used, snapshotted. The referrer's *current* code lives on
+  /// `user.referral_code` and may be rotated; this records what was actually
+  /// presented, the same way `cancellation_bucket` records the policy that
+  /// actually applied.
+  code           String
+  status         ReferralStatus @default(PENDING)
+  qualifiedAt    DateTime?      @map("qualified_at") @db.Timestamptz(3)
+  /// The referrer's reward row. The referred user's is found by its idempotency
+  /// key; only one of the two needs a column to make the pair traceable.
+  rewardLedgerId String?        @map("reward_ledger_id")
+  /// Velocity and pattern signals for admin review (T6). Never an automatic
+  /// rejection: a false positive here silently steals somebody's reward.
+  fraudSignals   Json?          @map("fraud_signals")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  referrer User @relation("ReferralsMade", fields: [referrerUserId], references: [id], onDelete: Restrict)
+  referred User @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: Restrict)
+
+  @@index([referrerUserId, createdAt])
+  @@index([status])
+  @@map("referral")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

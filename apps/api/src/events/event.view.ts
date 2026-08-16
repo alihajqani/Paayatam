@@ -34,6 +34,8 @@ export function toEventView(event: EventDetail): EventView {
     status: event.status,
     moderationStatus: event.moderationStatus,
     publishedAt: event.publishedAt?.toISOString() ?? null,
+    boostedUntil: event.boostedUntil?.toISOString() ?? null,
+    isVip: event.isVip,
     version: event.version,
     createdAt: event.createdAt.toISOString(),
   };

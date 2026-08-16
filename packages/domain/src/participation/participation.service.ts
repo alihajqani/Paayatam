@@ -506,9 +506,14 @@ export class ParticipationService {
     event: LockedEvent,
     now: Date,
   ): Promise<PromotedParticipant[]> {
+    // Read on `tx`. This runs inside the transaction that holds the event lock,
+    // and a settings read on the base client would take a *second* connection
+    // while holding the first — which under enough concurrent cancellations
+    // exhausts the pool and deadlocks it. Latent since M7; found by M9's
+    // twenty-way concurrency test, which hit the same shape.
     const [deadlineHours, minHoursBefore] = await Promise.all([
-      this.settings.getInt('waitlist.promotion_deadline_hours'),
-      this.settings.getInt('waitlist.min_hours_before_event'),
+      this.settings.getInt('waitlist.promotion_deadline_hours', tx),
+      this.settings.getInt('waitlist.min_hours_before_event', tx),
     ]);
 
     const promoted: PromotedParticipant[] = [];

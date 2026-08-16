@@ -21,6 +21,17 @@ export interface CoinMovementInput {
   refType?: string;
   refId?: string;
   metadata?: Prisma.InputJsonValue;
+  /**
+   * Set only by `reverse`. The schema requires this and `type = 'REVERSAL'` to
+   * agree, so a caller cannot produce a reversal that names nothing or a forward
+   * movement that claims to undo something.
+   */
+  reversesLedgerId?: string;
+}
+
+/** The exactly-once key for undoing a movement, derived from the movement itself. */
+export function reversalKey(ledgerId: string): string {
+  return `reversal:${ledgerId}`;
 }
 
 export interface CoinMovement {
@@ -29,6 +40,22 @@ export interface CoinMovement {
   ledgerId: string;
   /** The balance after this call, whether or not it applied anything. */
   balance: number;
+}
+
+/**
+ * One line of the statement.
+ *
+ * Deliberately not the whole row: `idempotency_key` names the internal cause,
+ * `actor_id` and `ref_id` are internal ids, and `metadata` is whatever a caller
+ * put there. None of that belongs in a response, and a projection is what stops a
+ * later column arriving in one (§3.6 layer 2).
+ */
+export interface CoinEntry {
+  amount: number;
+  balanceAfter: number;
+  type: CoinLedgerType;
+  reasonCode: string;
+  createdAt: Date;
 }
 
 /**
@@ -63,6 +90,32 @@ export class CoinService {
   }
 
   /**
+   * The statement, newest first.
+   *
+   * ADR-0007's answer to "where did my coins go?" — the reason a balance is a
+   * cache and these rows are the truth. Capped rather than paginated for now: a
+   * user with more than two hundred movements is a user M12's admin tooling
+   * should be looking at, and keyset pagination here would be a cursor nobody has
+   * yet asked for.
+   */
+  async historyOf(userId: string, limit = 50): Promise<CoinEntry[]> {
+    const rows = await this.prisma.coinLedger.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 200),
+      select: {
+        amount: true,
+        balanceAfter: true,
+        type: true,
+        reasonCode: true,
+        createdAt: true,
+      },
+    });
+
+    return rows;
+  }
+
+  /**
    * Applies a coin movement, or recognises that it already happened.
    *
    * Pass `tx` to join a caller's transaction — the ledger write must commit with
@@ -72,6 +125,78 @@ export class CoinService {
   async apply(input: CoinMovementInput, tx?: Prisma.TransactionClient): Promise<CoinMovement> {
     if (tx) return this.applyWithin(tx, input);
     return this.prisma.$transaction((transaction) => this.applyWithin(transaction, input));
+  }
+
+  /**
+   * Undoes a movement by writing its opposite (ADR-0007, rule 4).
+   *
+   * Nothing is edited and nothing is deleted, so the history stays complete: the
+   * original row survives and a `REVERSAL` points at it. Reversing twice is
+   * impossible because `reverses_ledger_id` is UNIQUE — Postgres treats NULLs as
+   * distinct, so the index reads as "a row can be reversed at most once", and a
+   * double-processed refund cannot pay twice.
+   *
+   * Two refusals worth knowing about:
+   *
+   *  - **A REVERSAL cannot itself be reversed.** Undoing an undo is a forward
+   *    movement with its own reason, not a chain of negations that nobody can
+   *    read back. Allowing it would also make "has this been reversed?" a graph
+   *    walk rather than a column.
+   *  - **Reversing a credit the user has already spent fails**, with
+   *    `INSUFFICIENT_COINS`, because taking it back would drive the balance
+   *    negative. That is the honest outcome rather than a silent overdraft: the
+   *    coins are gone, and an admin adjustment — which is a decision somebody
+   *    signs their name to — is the way to settle it.
+   */
+  async reverse(
+    input: {
+      ledgerId: string;
+      reasonCode: string;
+      actorType: ActorType;
+      actorId?: string;
+      metadata?: Prisma.InputJsonValue;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<CoinMovement> {
+    if (tx) return this.reverseWithin(tx, input);
+    return this.prisma.$transaction((transaction) => this.reverseWithin(transaction, input));
+  }
+
+  private async reverseWithin(
+    tx: Prisma.TransactionClient,
+    input: {
+      ledgerId: string;
+      reasonCode: string;
+      actorType: ActorType;
+      actorId?: string;
+      metadata?: Prisma.InputJsonValue;
+    },
+  ): Promise<CoinMovement> {
+    const original = await tx.coinLedger.findUnique({
+      where: { id: input.ledgerId },
+      select: { id: true, userId: true, amount: true, type: true, refType: true, refId: true },
+    });
+    if (!original) throw new AppError(ErrorCode.NOT_FOUND);
+    if (original.type === 'REVERSAL') throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
+
+    return this.applyWithin(tx, {
+      userId: original.userId,
+      amount: -original.amount,
+      type: 'REVERSAL',
+      reasonCode: input.reasonCode,
+      // Derived from what is being reversed, so a retried reversal collides on
+      // the same key. The UNIQUE on `reverses_ledger_id` is the second guard,
+      // and either one alone would be enough.
+      idempotencyKey: reversalKey(original.id),
+      actorType: input.actorType,
+      ...(input.actorId !== undefined ? { actorId: input.actorId } : {}),
+      // The reversal points at the same subject as the row it undoes, so a
+      // ledger filtered by ref shows the charge and its refund together.
+      ...(original.refType !== null ? { refType: original.refType } : {}),
+      ...(original.refId !== null ? { refId: original.refId } : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      reversesLedgerId: original.id,
+    });
   }
 
   private async applyWithin(
@@ -130,6 +255,7 @@ export class CoinService {
         actorId: input.actorId ?? null,
         refType: input.refType ?? null,
         refId: input.refId ?? null,
+        reversesLedgerId: input.reversesLedgerId ?? null,
         ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       },
       select: { id: true },

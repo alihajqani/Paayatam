@@ -1,8 +1,16 @@
+import { createHmac } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
-import { ChatService, SessionService, normalize } from '@payetam/domain';
+import { ENV } from '@payetam/platform';
+import {
+  ChatService,
+  CoinService,
+  ReferralService,
+  SessionService,
+  normalize,
+} from '@payetam/domain';
 import {
   createTestPrisma,
   resetDatabase,
@@ -48,6 +56,13 @@ let hostParticipantPublicId: string;
 let viewerParticipantPublicId: string;
 let chatPublicId: string;
 
+/** `METHOD /path/with/:params`, as Fastify registers them. */
+const registeredRoutes = new Set<string>();
+
+/** Counters for the two endpoints whose payload may be presented only once. */
+let authAttempt = 0;
+let refreshAttempt = 0;
+
 interface Endpoint {
   method: 'GET' | 'POST' | 'PATCH';
   url: string;
@@ -58,16 +73,40 @@ interface Endpoint {
    *
    * A record rather than `unknown`: narrowing `unknown` by `!== undefined` leaves
    * `{} | null`, and `null` is not a payload Fastify's `inject` accepts.
+   *
+   * A **function** for the endpoints whose payload may be used only once —
+   * `initData` is claimed as a one-time nonce by the replay guard. With a fixed
+   * payload only the first of the four passes would read the success body and the
+   * other three would read the refusal, which makes what actually gets scanned
+   * depend on the order of `LEAK_PATTERNS`. A security test should not be
+   * order-dependent.
    */
-  body?: Record<string, unknown>;
+  body?: Record<string, unknown> | (() => Record<string, unknown>);
+}
+
+/**
+ * Signs `initData` exactly the way Telegram does, so the scan reaches
+ * `POST /auth/telegram`'s success path rather than only its refusal.
+ */
+function signInitData(botToken: string, fields: Record<string, string>): string {
+  const dataCheckString = Object.entries(fields)
+    .map(([key, value]) => `${key}=${value}`)
+    .sort()
+    .join('\n');
+
+  const secret = createHmac('sha256', 'WebAppData').update(botToken).digest();
+  const params = new URLSearchParams(fields);
+  params.set('hash', createHmac('sha256', secret).update(dataCheckString).digest('hex'));
+  return params.toString();
 }
 
 /**
  * Every endpoint a client can reach.
  *
- * The Telegram webhook is deliberately absent: it is authenticated by a secret
- * token rather than a session, answers 200 with an empty body by design (§3.1),
- * and is not a surface any user reads.
+ * The reads that need no fixture are listed here; the rest are appended once the
+ * ids they address exist. The Telegram webhook is deliberately absent — it is
+ * authenticated by a secret token rather than a session, answers 200 with an
+ * empty body by design (§3.1), and is not a surface any user reads.
  */
 const ENDPOINTS: Endpoint[] = [
   { method: 'GET', url: '/health', anonymous: true },
@@ -260,6 +299,28 @@ beforeAll(async () => {
     new FastifyAdapter(),
     { logger: false },
   );
+
+  /**
+   * Every route the application actually registers, collected from Fastify as
+   * Nest declares them.
+   *
+   * The hook goes on before `init()` because that is when Nest walks the
+   * controllers. This is what makes the coverage assertion below real rather than
+   * a magic number: M9 added five endpoints and the old `toHaveLength(22)` stayed
+   * green, which is precisely the failure mode a leak scan cannot afford — it
+   * kept reporting clean about a surface it had stopped covering.
+   */
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addHook('onRoute', (route: { method: string | string[]; url: string }) => {
+      for (const method of [route.method].flat()) {
+        // Fastify synthesises these; neither returns a body worth scanning.
+        if (method === 'HEAD' || method === 'OPTIONS') continue;
+        registeredRoutes.add(`${method} ${route.url}`);
+      }
+    });
+
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
@@ -286,6 +347,71 @@ beforeAll(async () => {
   const chats = app.get(ChatService);
   await chats.send(host.id, chatPublicId, {
     text: `برای هماهنگی: ${PHONE} یا @${TELEGRAM_USERNAME} — https://t.me/${TELEGRAM_USERNAME}`,
+  });
+
+  /**
+   * The viewer needs coins, and the *leaky host* needs to be the one who invited
+   * them — both so M9's endpoints answer with real data rather than with an empty
+   * balance and a null referrer.
+   *
+   * The referral is the shape worth scanning: the referred user knows exactly who
+   * referred them in real life, but the API must still not hand over a Telegram
+   * handle for that person, and `GET /me/referral` on the *other* side counts
+   * invitees without naming any of them.
+   */
+  await app.get(CoinService).apply({
+    userId: user.id,
+    amount: 500,
+    type: 'ADMIN_ADJUSTMENT',
+    reasonCode: 'leak-scan.funding',
+    idempotencyKey: `leak-scan:${user.id}`,
+    actorType: 'ADMIN',
+  });
+  const hostReferralCode = (await app.get(ReferralService).summaryFor(host.id)).code;
+
+  /**
+   * `initData` for the **leaky host**, signed the way Telegram signs it.
+   *
+   * This is the one endpoint in the product that takes a raw Telegram user id as
+   * *input*, which makes it the likeliest place for one to come straight back
+   * out — and until now it was never scanned. Signed rather than faked so the
+   * response is a real session for a real account rather than a 401 that proves
+   * nothing about the success path.
+   *
+   * Freshly signed per call, because the replay guard claims each hash once. A
+   * fixed payload would leave the success body scanned by whichever pattern
+   * happens to run first and the refusal by the other three.
+   */
+  const env = app.get<{ TELEGRAM_BOT_TOKEN: string }>(ENV);
+  const hostInitData = (): Record<string, unknown> => ({
+    initData: signInitData(env.TELEGRAM_BOT_TOKEN, {
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      // A nonce, so each call is a distinct payload with a distinct hash rather
+      // than the same one presented again.
+      query_id: `leak-scan-${String(authAttempt++)}`,
+      user: JSON.stringify({
+        id: Number(TELEGRAM_USER_ID),
+        first_name: 'Leaky',
+        username: TELEGRAM_USERNAME,
+        language_code: 'fa',
+      }),
+    }),
+  });
+
+  // Fresh families for the same reason, and separate from the session every other
+  // endpoint in the scan authenticates with — consuming one must not disturb it.
+  const refreshTokens = await Promise.all(
+    Array.from({ length: LEAK_PATTERNS.length }, () =>
+      sessions.issue(user.publicId, user.onboardingState),
+    ),
+  );
+  const nextRefresh = (): Record<string, unknown> => ({
+    refreshToken: refreshTokens[refreshAttempt++ % refreshTokens.length]?.refreshToken ?? '',
+  });
+
+  const currentTerms = await prisma.policyVersion.findFirstOrThrow({
+    where: { type: 'TERMS', isCurrent: true },
+    select: { id: true },
   });
 
   ENDPOINTS.push(
@@ -315,6 +441,67 @@ beforeAll(async () => {
     },
     { method: 'POST', url: `/api/v1/chats/${chatPublicId}/share-contact` },
     { method: 'POST', url: `/api/v1/chats/${chatPublicId}/close`, body: {} },
+    /**
+     * The six the coverage check above found uncovered — every one of them a
+     * *write*, and every one of them there since M2 or M4.
+     *
+     * They matter more than their late arrival suggests: `auth/telegram` is the
+     * only endpoint that receives a Telegram user id, and `onboarding/profile`
+     * and `events` are where a user's own words enter the system. A write's
+     * response is a projection like any other, and nothing was reading them.
+     *
+     * The bodies are deliberately clean. Putting the leaky identifiers in a title
+     * or a bio here would make the scan fail on content the *caller* wrote about
+     * themselves, which is not a leak — the mistake M5 already had to correct.
+     */
+    { method: 'POST', url: '/api/v1/auth/telegram', anonymous: true, body: hostInitData },
+    { method: 'POST', url: '/api/v1/auth/refresh', anonymous: true, body: nextRefresh },
+    {
+      method: 'POST',
+      url: '/api/v1/onboarding/consent',
+      body: { policyVersionIds: [currentTerms.id] },
+    },
+    {
+      method: 'POST',
+      url: '/api/v1/onboarding/profile',
+      body: {
+        displayName: 'بازدیدکننده',
+        birthYear: 1996,
+        cityId: fixture.tehranId,
+        interestIds: [fixture.boardGamesId],
+      },
+    },
+    {
+      method: 'POST',
+      url: '/api/v1/events',
+      body: {
+        title: 'پیاده‌روی صبحگاهی',
+        description: 'یک پیاده‌روی آرام در پارک، مناسب همهٔ سطوح.',
+        categoryId: fixture.categoryId,
+        cityId: fixture.tehranId,
+        startsAt: new Date(Date.now() + 10 * 24 * 3_600_000).toISOString(),
+        endsAt: new Date(Date.now() + 10 * 24 * 3_600_000 + 2 * 3_600_000).toISOString(),
+        capacity: 5,
+        costType: 'FREE',
+      },
+    },
+    {
+      method: 'PATCH',
+      url: `/api/v1/events/${viewerEventPublicId}`,
+      body: { capacity: 7 },
+    },
+    // M9. `claim` names the leaky host's referral code, so the referral behind
+    // every read below genuinely points at the account carrying the identifiers.
+    // Repeated passes get ALREADY_REFERRED, which is a response too — a 409 that
+    // named the person it conflicted with would be just as much of a leak.
+    { method: 'POST', url: '/api/v1/referrals/claim', body: { code: hostReferralCode } },
+    { method: 'GET', url: '/api/v1/me/coins' },
+    { method: 'GET', url: '/api/v1/me/trust' },
+    { method: 'GET', url: '/api/v1/me/referral' },
+    // The only endpoint in the product that spends a user's own coins. Its
+    // response is the event, which carries the host's projection — the same one
+    // `GET /events/:id` is scanned for, reached by a different mapper.
+    { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/boost`, body: { kind: 'BOOST' } },
   );
 });
 
@@ -324,11 +511,13 @@ afterAll(async () => {
 });
 
 async function fetchBody(endpoint: Endpoint): Promise<string> {
+  const payload = typeof endpoint.body === 'function' ? endpoint.body() : endpoint.body;
+
   const response = await app.inject({
     method: endpoint.method,
     url: endpoint.url,
     ...(endpoint.anonymous === true ? {} : { headers: { authorization: `Bearer ${accessToken}` } }),
-    ...(endpoint.body === undefined ? {} : { payload: endpoint.body }),
+    ...(payload === undefined ? {} : { payload }),
   });
 
   // A 5xx means the endpoint did not really answer, so scanning its body would be
@@ -337,8 +526,14 @@ async function fetchBody(endpoint: Endpoint): Promise<string> {
     response.statusCode,
     `${endpoint.method} ${endpoint.url} → ${response.body.slice(0, 500)}`,
   ).toBeLessThan(500);
+
+  const key = `${endpoint.method} ${endpoint.url}`;
+  statuses.set(key, [...(statuses.get(key) ?? []), response.statusCode]);
   return response.body;
 }
+
+/** Every status each endpoint answered with, across all the passes. */
+const statuses = new Map<string, number[]>();
 
 /**
  * The four shapes from §3.6, each a distinct failure.
@@ -354,12 +549,42 @@ const LEAK_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: 'a phone number', pattern: /(?:\+98|0)9\d{9}/ },
 ];
 
+/**
+ * The webhook is deliberately uncovered: it is authenticated by a secret token
+ * rather than a session, answers 200 with an empty body by design (§3.1), and is
+ * not a surface any user reads.
+ */
+const UNCOVERED_BY_DESIGN = /^POST \/telegram\/webhook\//;
+
+/** Does a listed URL reach this route pattern? Query strings do not count. */
+function reaches(pattern: string, url: string): boolean {
+  const path = url.split('?')[0] ?? url;
+  const escaped = pattern.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  return new RegExp(`^${escaped.replaceAll(/:[^/]+/g, '[^/]+')}$`).test(path);
+}
+
 describe('the response-leak scan (§3.6 layer 5)', () => {
+  /**
+   * A scan that silently stops covering new endpoints is worse than no scan,
+   * because it still reports green. Derived from the routes the application
+   * actually registered rather than from a number somebody has to remember to
+   * bump — which is how M9's five endpoints went uncovered while this test passed.
+   */
   it('covers every endpoint the API exposes', () => {
-    // A scan that silently stops covering new endpoints is worse than no scan,
-    // because it still reports green. This fails when a route is added without
-    // being listed here.
-    expect(ENDPOINTS).toHaveLength(22);
+    const uncovered = [...registeredRoutes]
+      .filter((route) => !UNCOVERED_BY_DESIGN.test(route))
+      .filter((route) => {
+        const [method, ...rest] = route.split(' ');
+        const pattern = rest.join(' ');
+        return !ENDPOINTS.some(
+          (endpoint) => endpoint.method === method && reaches(pattern, endpoint.url),
+        );
+      });
+
+    expect(uncovered).toEqual([]);
+    // The routes were collected at all, so an empty list means "nothing missing"
+    // rather than "nothing looked at".
+    expect(registeredRoutes.size).toBeGreaterThan(ENDPOINTS.length / 2);
   });
 
   it.each(LEAK_PATTERNS)('never returns $name', async ({ pattern }) => {
@@ -376,20 +601,50 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
   });
 
   /**
+   * The other way this scan can pass for the wrong reason.
+   *
+   * A regex that matches nothing is one failure mode; a *session* that stopped
+   * working is the other. Every authenticated endpoint would then answer 401, and
+   * four clean passes over twenty error envelopes would report green while
+   * scanning none of the projections the whole exercise is about.
+   *
+   * Asserted on the reads, which have no legitimate reason to refuse. The writes
+   * are deliberately excluded: several of them 409 by design on the later passes —
+   * a chat closed by the pass before, a join that is already a duplicate — and
+   * those refusals are responses the scan wants to read, not failures.
+   */
+  it('read a real session rather than a wall of refusals', () => {
+    const refused = [...statuses.entries()]
+      .filter(([key]) => key.startsWith('GET '))
+      .filter(([, seen]) => !seen.some((status) => status < 400));
+
+    expect(refused.map(([key]) => key)).toEqual([]);
+    // `POST /auth/telegram` is the one write with a success path worth naming: it
+    // is the endpoint that receives a Telegram id, so a 401 on every pass would
+    // mean the id never entered the system and nothing was really tested.
+    expect(statuses.get('POST /api/v1/auth/telegram')).toContain(200);
+  });
+
+  /**
    * A leak test's characteristic failure is a regex that matches nothing: it
    * looks exactly like a passing test. This asserts the detectors against the raw
    * row, so "clean" above means "searched and found nothing" rather than
    * "searched for nothing".
    */
   it('would catch a leak, if one were there', async () => {
-    const account = await prisma.telegramAccount.findFirst({
+    // The *leaky* account by id, not `findFirst`. Two accounts exist and only one
+    // carries a username, so an unordered read can return the clean one — and the
+    // detectors would then be asserted against a row with nothing in it to
+    // detect, which passes for the wrong reason and fails for a worse one.
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: TELEGRAM_USER_ID },
       select: { telegramUserId: true, usernameCached: true },
     });
 
     const raw = JSON.stringify({
-      telegramUserId: String(account?.telegramUserId),
-      username: `@${account?.usernameCached}`,
-      link: `https://t.me/${account?.usernameCached}`,
+      telegramUserId: String(account.telegramUserId),
+      username: `@${account.usernameCached}`,
+      link: `https://t.me/${account.usernameCached}`,
       phone: PHONE,
     });
 

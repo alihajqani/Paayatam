@@ -176,6 +176,13 @@ export const eventView = z.object({
   status: eventStatus,
   moderationStatus: eventModerationStatus,
   publishedAt: z.iso.datetime().nullable(),
+  /**
+   * The host's own view of what they bought (M9). Discovery reduces the same
+   * column to a boolean `isBoosted` for strangers — when somebody else's
+   * promotion lapses is not a stranger's business.
+   */
+  boostedUntil: z.iso.datetime().nullable(),
+  isVip: z.boolean(),
   version: z.number().int(),
   createdAt: z.iso.datetime(),
 });

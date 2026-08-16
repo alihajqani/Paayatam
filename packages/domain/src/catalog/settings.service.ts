@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
+import type { Prisma } from '@payetam/db';
 
 /**
  * Reads policy numbers out of `app_setting`.
@@ -17,6 +18,43 @@ import { PrismaService } from '@payetam/db';
 export const SETTING_DEFAULTS = {
   /** Coins granted once, when a user first completes their profile. */
   'economy.onboarding_reward_coins': 50,
+
+  /**
+   * The referral pair (plan §11), paid only after the referred user **attends**
+   * an event — not on signup. A referral that pays out for creating an account
+   * pays out for creating accounts (T6).
+   */
+  'economy.referral_referrer_coins': 30,
+  'economy.referral_referred_coins': 10,
+
+  /**
+   * The two coin sinks in MVP (plan §2.9). Boost buys 24 hours near the top of
+   * discovery; VIP is a one-off placement flag.
+   */
+  'economy.boost_coins': 40,
+  'economy.boost_duration_hours': 24,
+  'economy.vip_coins': 100,
+
+  /**
+   * Where a new account starts (plan §11). The 0–100 *range* is deliberately not
+   * here: ADR-0007 writes it into the schema as a CHECK, and a configurable clamp
+   * over a fixed constraint would be a setting whose only possible effect is a
+   * constraint violation.
+   */
+  'trust.initial_score': 50,
+  /** Completing a profile is the first thing that moves the score (plan §11). */
+  'trust.profile_complete_delta': 5,
+
+  /**
+   * Referral velocity, recorded in `fraud_signals` rather than enforced.
+   *
+   * T6 asks for velocity limits and for `fraud_signals` for admin review, and the
+   * order matters: a false positive here silently steals somebody's reward, so
+   * this flags for a human instead of refusing. The real control is that the
+   * reward requires an attended event, which does not scale to a farm.
+   */
+  'referral.velocity_window_hours': 24,
+  'referral.velocity_threshold': 10,
   /** The legal minimum age for the platform. Enforced at profile write (plan §4.1). */
   'profile.min_age_years': 18,
   /** Events a host may create in one Tehran day (plan §11, T6.1). */
@@ -73,9 +111,15 @@ export class SettingsService {
    * the stored value is not an integer. A garbled `app_setting` row is an admin
    * mistake; letting it become `NaN` coins would turn that mistake into a
    * corrupted ledger, which no amount of later correction fully undoes.
+   *
+   * **Pass `tx` when reading inside a transaction.** Without it this borrows a
+   * second connection from the pool while the caller still holds the first, and
+   * N concurrent callers doing that exhaust the pool and wait on each other
+   * forever. It shows up as "Unable to start a transaction in the given time" —
+   * a message that describes the symptom and hides the cause completely.
    */
-  async getInt(key: SettingKey): Promise<number> {
-    return this.read(key, (value) => Number.isInteger(value));
+  async getInt(key: SettingKey, tx: Prisma.TransactionClient = this.prisma): Promise<number> {
+    return this.read(key, (value) => Number.isInteger(value), tx);
   }
 
   /**
@@ -85,13 +129,16 @@ export class SettingsService {
    * Kept as a separate method rather than relaxing `getInt`, because a coin
    * amount that arrives as 12.5 is a bug and should still be rejected.
    */
-  async getNumber(key: SettingKey): Promise<number> {
-    return this.read(key, (value) => Number.isFinite(value));
+  async getNumber(key: SettingKey, tx: Prisma.TransactionClient = this.prisma): Promise<number> {
+    return this.read(key, (value) => Number.isFinite(value), tx);
   }
 
   /** Reads several keys at once. One round trip instead of one per weight. */
-  async getNumbers<K extends SettingKey>(keys: readonly K[]): Promise<Record<K, number>> {
-    const rows = await this.prisma.appSetting.findMany({ where: { key: { in: [...keys] } } });
+  async getNumbers<K extends SettingKey>(
+    keys: readonly K[],
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<Record<K, number>> {
+    const rows = await tx.appSetting.findMany({ where: { key: { in: [...keys] } } });
     const stored = new Map(rows.map((row) => [row.key, row.value]));
 
     return Object.fromEntries(
@@ -105,8 +152,12 @@ export class SettingsService {
     ) as Record<K, number>;
   }
 
-  private async read(key: SettingKey, accept: (value: number) => boolean): Promise<number> {
-    const row = await this.prisma.appSetting.findUnique({ where: { key } });
+  private async read(
+    key: SettingKey,
+    accept: (value: number) => boolean,
+    tx: Prisma.TransactionClient,
+  ): Promise<number> {
+    const row = await tx.appSetting.findUnique({ where: { key } });
     if (!row) return SETTING_DEFAULTS[key];
 
     const value = row.value;

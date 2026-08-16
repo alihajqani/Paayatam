@@ -6,8 +6,10 @@ import {
   type UpdateEventInput,
 } from '@payetam/domain';
 import {
+  boostEventRequest,
   createEventRequest,
   updateEventRequest,
+  type BoostEventRequest,
   type CreateEventRequest,
   type EventView,
   type MyEventsResponse,
@@ -67,6 +69,25 @@ export class EventsController {
       expectedVersion,
     );
     return toEventView(event);
+  }
+
+  /**
+   * Spend coins to promote an event — the only two coin sinks in MVP (plan §2.9).
+   *
+   * The response is the event, so the caller sees the new `boostedUntil` or
+   * `isVip` rather than being told "ok" and having to refetch. The coins spent
+   * are in `GET /me/coins` as a ledger row with a reason and this event as its
+   * subject, which is the point of ADR-0007: a purchase somebody can look up
+   * later.
+   */
+  @Post('events/:publicId/boost')
+  async boost(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(boostEventRequest)) body: BoostEventRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<EventView> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    return toEventView(await this.events.boost(hostUserId, publicId, body.kind));
   }
 
   /**

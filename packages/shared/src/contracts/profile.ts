@@ -80,5 +80,13 @@ export const completeProfileResponse = z.object({
    * of the grant is visible rather than merely claimed.
    */
   rewardGranted: z.boolean(),
+  /**
+   * The score after the profile-completion movement (plan §11: +5).
+   *
+   * Reported alongside the coins because completing a profile moves both, and a
+   * response that mentions one half of what just happened reads as though the
+   * other did not. The full explanation is `GET /me/trust`.
+   */
+  trustScore: z.number().int().min(0).max(100),
 });
 export type CompleteProfileResponse = z.infer<typeof completeProfileResponse>;

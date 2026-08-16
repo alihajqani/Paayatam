@@ -54,6 +54,8 @@ const WEIGHT_KEYS = [
   'ranking.weight_boost',
   'ranking.weight_trust',
   'ranking.weight_interest_match',
+  // Not a weight, but read with them: the score an unrated host ranks as.
+  'trust.initial_score',
 ] as const;
 
 /**
@@ -226,6 +228,7 @@ export class DiscoveryService {
       boost: values['ranking.weight_boost'],
       trust: values['ranking.weight_trust'],
       interestMatch: values['ranking.weight_interest_match'],
+      neutralTrust: values['trust.initial_score'],
     };
   }
 }

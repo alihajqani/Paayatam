@@ -27,8 +27,28 @@ export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';
 export type { SettingKey } from './catalog/settings.service';
 export { CatalogModule } from './catalog/catalog.module';
 
-export { CoinService } from './economy/coin.service';
-export type { CoinMovement, CoinMovementInput } from './economy/coin.service';
+export { CoinService, reversalKey } from './economy/coin.service';
+export type { CoinEntry, CoinMovement, CoinMovementInput } from './economy/coin.service';
+export {
+  TrustService,
+  TRUST_ALGO_VERSION,
+  TRUST_MIN_SCORE,
+  TRUST_MAX_SCORE,
+  TRUST_INITIAL_REASON,
+  TRUST_PROFILE_COMPLETE_REASON,
+  clampScore,
+  trustInitialKey,
+} from './economy/trust.service';
+export type { TrustEntry, TrustMovement, TrustMovementInput } from './economy/trust.service';
+export {
+  ReferralService,
+  REFERRAL_REFERRER_REASON,
+  REFERRAL_REFERRED_REASON,
+  normalizeCode,
+  referredRewardKey,
+  referrerRewardKey,
+} from './economy/referral.service';
+export type { ReferralClaim, ReferralSummary } from './economy/referral.service';
 export { EconomyModule } from './economy/economy.module';
 
 export { ageFromBirthYear, gregorianYearIn, isOldEnough } from './profile/age';
@@ -74,8 +94,20 @@ export {
   ACTIVE_EVENT_STATUSES,
   assertEventTransition,
 } from './events/state-machine';
-export { EventService } from './events/event.service';
-export type { CreateEventInput, UpdateEventInput, EventDetail } from './events/event.service';
+export {
+  EventService,
+  EVENT_BOOST_REASON,
+  EVENT_VIP_REASON,
+  boostSpendKey,
+  extendedBoost,
+  vipSpendKey,
+} from './events/event.service';
+export type {
+  BoostKind,
+  CreateEventInput,
+  UpdateEventInput,
+  EventDetail,
+} from './events/event.service';
 export { EventsModule } from './events/events.module';
 
 export {

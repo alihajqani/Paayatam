@@ -83,6 +83,31 @@ export type {
 } from './contracts/participation';
 
 export {
+  coinLedgerType,
+  trustLedgerType,
+  coinEntryView,
+  coinsResponse,
+  trustEntryView,
+  trustResponse,
+  referralResponse,
+  claimReferralRequest,
+  claimReferralResponse,
+  boostEventRequest,
+} from './contracts/economy';
+export type {
+  CoinLedgerType,
+  TrustLedgerType,
+  CoinEntryView,
+  CoinsResponse,
+  TrustEntryView,
+  TrustResponse,
+  ReferralResponse,
+  ClaimReferralRequest,
+  ClaimReferralResponse,
+  BoostEventRequest,
+} from './contracts/economy';
+
+export {
   chatStatus,
   chatRole,
   chatMessageKind,

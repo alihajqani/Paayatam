@@ -13,6 +13,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
+import { CoinService } from '../economy/coin.service';
 import { ModerationService, type ContentScan } from '../moderation/moderation.service';
 import { startOfDayIn } from '../time';
 import { lockEventByPublicIdForUpdate } from './event-lock';
@@ -40,6 +41,42 @@ export interface CreateEventInput {
 /** Every field is optional; absent means "leave it as it is". */
 export type UpdateEventInput = Partial<CreateEventInput>;
 
+/** The two coin sinks (plan §2.9, §11): a 24-hour window, or a placement flag. */
+export type BoostKind = 'BOOST' | 'VIP';
+
+export const EVENT_BOOST_REASON = 'event.boost';
+export const EVENT_VIP_REASON = 'event.vip';
+
+/**
+ * The boost spend's exactly-once key, derived from the window it buys.
+ *
+ * Deterministic, so a request replayed *before* the first one committed collides
+ * — the event lock makes that the only interleaving where two calls compute the
+ * same window. A replay that arrives afterwards computes a later window and is
+ * treated as a second purchase, which is what plan §6's `Idempotency-Key` header
+ * exists to disambiguate and why its absence is recorded as a gap.
+ */
+export function boostSpendKey(eventId: string, boostedUntil: Date): string {
+  return `boost:${eventId}:${boostedUntil.toISOString()}`;
+}
+
+/** VIP is a flag, so its key is just the event: buying it twice is impossible. */
+export function vipSpendKey(eventId: string): string {
+  return `vip:${eventId}`;
+}
+
+/**
+ * Where a boost window ends after this purchase.
+ *
+ * Extends from the current expiry when one is still running, so buying a second
+ * window while the first is live adds a full 24 hours rather than overwriting
+ * four of them — a host who pays twice gets twice.
+ */
+export function extendedBoost(current: Date | null, now: Date, hours: number): Date {
+  const from = current !== null && current > now ? current : now;
+  return new Date(from.getTime() + hours * 3_600_000);
+}
+
 export interface EventDetail {
   publicId: string;
   title: string;
@@ -62,6 +99,16 @@ export interface EventDetail {
   status: EventStatus;
   moderationStatus: EventModerationStatus;
   publishedAt: Date | null;
+  /**
+   * What the host bought (M9), and only ever shown to the host.
+   *
+   * Discovery has its own mapper and reduces `boostedUntil` to a boolean
+   * `isBoosted`, because a stranger has no business knowing when somebody's
+   * promotion lapses. The owner does: this is the surface where they can see that
+   * the forty coins bought a window and when it ends.
+   */
+  boostedUntil: Date | null;
+  isVip: boolean;
   version: number;
   createdAt: Date;
 }
@@ -98,6 +145,7 @@ export class EventService {
     private readonly catalog: CatalogService,
     private readonly settings: SettingsService,
     private readonly moderation: ModerationService,
+    private readonly coins: CoinService,
     private readonly audit: AuditService,
   ) {}
 
@@ -390,6 +438,126 @@ export class EventService {
     return this.findOwned(hostUserId, publicId);
   }
 
+  /**
+   * Spend coins to promote an event — the only two coin sinks in MVP (plan §2.9).
+   *
+   * `BOOST` buys a window near the top of discovery; `VIP` is a one-off placement
+   * flag. Both go through `CoinService`, so the spend is a ledger row with a
+   * reason and a subject, and a host who asks "where did my forty coins go?" gets
+   * an answer rather than a shrug.
+   *
+   * **Lock ordering.** This takes the event lock first and the coin-account lock
+   * second, inside `CoinService`. ADR-0006 keeps the event row as the single lock
+   * of every *capacity* path, and boost is not one — it never touches
+   * `accepted_count`. But it is the first operation in the product to hold both,
+   * so it sets the order the rest must follow: **event → user → coin account**,
+   * which is already what profile completion does for the last two. M10's host
+   * cancellation needs exactly this pair to refund participants, and getting the
+   * order wrong there is a deadlock against this method.
+   *
+   * **On idempotency, honestly.** `VIP` is naturally exactly-once: its key is the
+   * event, and a flag can only be set. `BOOST` is not, and cannot be made so
+   * here — a second boost is a second purchase of a second window, which is a
+   * thing a host may legitimately want. Plan §6's `Idempotency-Key` header is what
+   * separates "the user asked twice" from "the request arrived twice", and it is
+   * not built yet. Until it is, double-charge protection for boost is the Mini
+   * App's in-flight disable and confirmation dialog (§3.7). This is a real gap,
+   * and boost is the first endpoint where it is visible to a user's wallet.
+   */
+  async boost(hostUserId: string, publicId: string, kind: BoostKind): Promise<EventDetail> {
+    const now = this.clock.now();
+
+    const [boostCoins, boostHours, vipCoins] = await Promise.all([
+      this.settings.getInt('economy.boost_coins'),
+      this.settings.getInt('economy.boost_duration_hours'),
+      this.settings.getInt('economy.vip_coins'),
+    ]);
+
+    const id = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await lockEventByPublicIdForUpdate(tx, publicId);
+        // Not-yours and not-found answer identically: a stranger must not be able
+        // to ask this endpoint whether an event exists (T3.3).
+        if (!locked || locked.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+        if (locked.hostUserId !== hostUserId) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+
+        // Promoting something nobody can join spends coins on nothing. A
+        // different code from "not found", because this one the host can act on.
+        if (locked.status !== 'PUBLISHED') throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
+        if (locked.startsAt <= now) throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
+
+        // Read after the lock rather than widening `LOCKED_COLUMNS`: that
+        // projection is narrow on purpose, and every capacity path pays for a
+        // column added there.
+        const current = await tx.event.findUniqueOrThrow({
+          where: { id: locked.id },
+          select: { boostedUntil: true, isVip: true },
+        });
+
+        const spend =
+          kind === 'VIP'
+            ? { amount: vipCoins, type: 'VIP_SPEND' as const, key: vipSpendKey(locked.id) }
+            : {
+                amount: boostCoins,
+                type: 'BOOST_SPEND' as const,
+                // Derived from the window this purchase produces, so it is
+                // deterministic — see the note above on what it does and does not
+                // protect against.
+                key: boostSpendKey(locked.id, extendedBoost(current.boostedUntil, now, boostHours)),
+              };
+
+        const movement = await this.coins.apply(
+          {
+            userId: hostUserId,
+            amount: -spend.amount,
+            type: spend.type,
+            reasonCode: kind === 'VIP' ? EVENT_VIP_REASON : EVENT_BOOST_REASON,
+            idempotencyKey: spend.key,
+            actorType: 'USER',
+            actorId: hostUserId,
+            refType: 'event',
+            refId: locked.id,
+          },
+          tx,
+        );
+
+        // A replayed key means the placement was already bought and applied.
+        // Charging nothing and changing nothing is the correct pair.
+        if (movement.applied) {
+          await tx.event.update({
+            where: { id: locked.id },
+            data:
+              kind === 'VIP'
+                ? { isVip: true }
+                : { boostedUntil: extendedBoost(current.boostedUntil, now, boostHours) },
+          });
+
+          await this.audit.record(
+            {
+              actorType: 'USER',
+              actorId: hostUserId,
+              action: kind === 'VIP' ? 'event.vip_purchased' : 'event.boosted',
+              targetType: 'event',
+              targetId: locked.id,
+              before: { isVip: current.isVip, boostedUntil: current.boostedUntil?.toISOString() },
+              after: { coinsSpent: spend.amount, balance: movement.balance },
+            },
+            tx,
+          );
+        }
+
+        return locked.id;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+
+    const event = await this.prisma.event.findUniqueOrThrow({
+      where: { id },
+      include: EVENT_INCLUDE,
+    });
+    return toEventDetail(event);
+  }
+
   /** The host's own events, including ones discovery will never show them. */
   async listOwned(hostUserId: string): Promise<EventDetail[]> {
     const events = await this.prisma.event.findMany({
@@ -469,9 +637,11 @@ export class EventService {
     hostUserId: string,
     now: Date,
   ): Promise<void> {
+    // On `tx`: this runs inside the create transaction, and a settings read on
+    // the base client would hold one pool connection while asking for a second.
     const [maxPerDay, maxConcurrent] = await Promise.all([
-      this.settings.getInt('events.max_per_day'),
-      this.settings.getInt('events.max_concurrent_active'),
+      this.settings.getInt('events.max_per_day', tx),
+      this.settings.getInt('events.max_concurrent_active', tx),
     ]);
 
     const since = startOfDayIn(now, this.env.APP_TIMEZONE);
@@ -608,6 +778,8 @@ function toEventDetail(event: EventRow): EventDetail {
     status: event.status,
     moderationStatus: event.moderationStatus,
     publishedAt: event.publishedAt,
+    boostedUntil: event.boostedUntil,
+    isVip: event.isVip,
     version: event.version,
     createdAt: event.createdAt,
   };

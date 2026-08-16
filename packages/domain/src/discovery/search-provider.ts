@@ -55,6 +55,16 @@ export interface RankingWeights {
   boost: number;
   trust: number;
   interestMatch: number;
+  /**
+   * The score a host with no trust row ranks as — the "neutral bucket" plan §11
+   * requires so a new host is never buried for having done nothing yet.
+   *
+   * Carried alongside the weights rather than hardcoded in the SQL because it is
+   * the same `trust.initial_score` the ledger seeds with, and two copies of that
+   * number would eventually disagree: a host would rank as though they had 50
+   * while their profile showed something else.
+   */
+  neutralTrust: number;
 }
 
 /** The row shape discovery returns. Deliberately narrower than the host's view. */

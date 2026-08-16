@@ -54,6 +54,10 @@ export const ErrorCode = {
 
   // Economy (ADR-0007)
   INSUFFICIENT_COINS: 'INSUFFICIENT_COINS',
+  INVALID_REFERRAL_CODE: 'INVALID_REFERRAL_CODE',
+  SELF_REFERRAL: 'SELF_REFERRAL',
+  ALREADY_REFERRED: 'ALREADY_REFERRED',
+  EVENT_NOT_BOOSTABLE: 'EVENT_NOT_BOOSTABLE',
 
   // Reviews (ADR-0011)
   ALREADY_REVIEWED: 'ALREADY_REVIEWED',
@@ -116,6 +120,10 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
     'رد و بدل کردن اطلاعات تماس وجود ندارد.',
 
   INSUFFICIENT_COINS: 'سکهٔ کافی ندارید.',
+  INVALID_REFERRAL_CODE: 'این کد دعوت معتبر نیست.',
+  SELF_REFERRAL: 'نمی‌توانید کد دعوت خودتان را استفاده کنید.',
+  ALREADY_REFERRED: 'شما قبلاً با کد دعوت دیگری ثبت شده‌اید.',
+  EVENT_NOT_BOOSTABLE: 'این فعالیت قابل نردبان کردن نیست.',
 
   ALREADY_REVIEWED: 'شما قبلاً بازخورد خود را ثبت کرده‌اید.',
   REVIEW_WINDOW_CLOSED: 'مهلت ثبت بازخورد به پایان رسیده است.',
@@ -144,6 +152,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   NOT_FOUND: 404,
   EVENT_NOT_FOUND: 404,
   DUPLICATE_REQUEST: 409,
+  ALREADY_REFERRED: 409,
   ALREADY_REVIEWED: 409,
   ALREADY_REPORTED: 409,
   CAPACITY_EXCEEDED: 409,

@@ -444,6 +444,88 @@ describe('a brand-new host', () => {
     expect(newHost.components.trust).toBe(oldHost.components.trust);
     expect(newHost.components.trust).toBeGreaterThan(0);
   });
+
+  /**
+   * The neutral bucket is the *configured starting score*, not an invented
+   * constant.
+   *
+   * Two copies of that number would eventually disagree — a host ranking as
+   * though they had 50 while their profile showed something else — which is the
+   * bug `RankingWeights.neutralTrust` exists to make impossible.
+   */
+  it('ranks at the configured starting score, not at zero', async () => {
+    await prisma.appSetting.create({ data: { key: 'trust.initial_score', value: 80 } });
+    const newcomer = await createProfiledUser();
+    const theirs = await publish({ hostUserId: newcomer });
+
+    const explained = await discovery.explainRank(viewerId, theirs);
+    expect(explained.components.trust).toBeCloseTo(0.8, 5);
+  });
+});
+
+/**
+ * M9 turned the trust term from a constant into a column read.
+ *
+ * Until this milestone every host scored 0.5 whatever they had done, so the term
+ * was configurable and visible but carried no information. These are the tests
+ * that would fail if it silently went back to being a constant — which is the
+ * regression worth guarding, because a ranking that ignores reputation looks
+ * exactly like one that uses it.
+ */
+describe('the trust term reads the score (plan §11)', () => {
+  async function setScore(userId: string, score: number): Promise<void> {
+    await prisma.trustScore.create({ data: { userId, score, algoVersion: 1 } });
+  }
+
+  it('reports the host’s own score, normalised to 0–1', async () => {
+    await setScore(hostId, 90);
+    const publicId = await publish({ hostUserId: hostId });
+
+    const explained = await discovery.explainRank(viewerId, publicId);
+    expect(explained.components.trust).toBeCloseTo(0.9, 5);
+  });
+
+  it('puts a trusted host above an untrusted one, all else equal', async () => {
+    const trusted = await createProfiledUser();
+    const untrusted = await createProfiledUser();
+    await setScore(trusted, 100);
+    await setScore(untrusted, 0);
+
+    // Same title, same start, same district — so trust is the only term that
+    // differs and the ordering is attributable to it alone.
+    const theirs = await publish({ hostUserId: trusted, title: 'کارگاه سفالگری' });
+    const others = await publish({ hostUserId: untrusted, title: 'کارگاه سفالگری' });
+
+    const page = await discovery.search(viewerId, { q: 'کارگاه سفالگری', limit: 10 });
+    const ids = page.events.map((event) => event.publicId);
+    expect(ids.indexOf(theirs)).toBeLessThan(ids.indexOf(others));
+  });
+
+  /**
+   * Trust is capped at a tenth of the signal (plan §12), so a spotless host does
+   * not bury a better-matched event. The cap is the resolution of "reputation in
+   * ranking" against "no unfair discrimination", and it only holds if the weight
+   * is actually applied to the term rather than the term standing alone.
+   */
+  it('cannot outweigh a much sooner event', async () => {
+    const trusted = await createProfiledUser();
+    await setScore(trusted, 100);
+    await setScore(hostId, 0);
+
+    const soonest = await publish({
+      hostUserId: hostId,
+      title: 'کارگاه سفالگری',
+      startsAt: new Date(NOW.getTime() + 6 * 3_600_000),
+    });
+    await publish({
+      hostUserId: trusted,
+      title: 'کارگاه سفالگری',
+      startsAt: new Date(NOW.getTime() + 40 * 24 * 3_600_000),
+    });
+
+    const page = await discovery.search(viewerId, { q: 'کارگاه سفالگری', limit: 10 });
+    expect(page.events[0]?.publicId).toBe(soonest);
+  });
 });
 
 describe('the detail endpoint', () => {

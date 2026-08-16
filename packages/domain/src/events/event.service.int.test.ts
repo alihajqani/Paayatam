@@ -10,6 +10,7 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { CoinService } from '../economy/coin.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { BlacklistService } from '../moderation/blacklist.service';
@@ -37,7 +38,8 @@ const settings = new SettingsService(service);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
 const audit = new AuditService(service, clock);
-const events = new EventService(service, clock, env, catalog, settings, moderation, audit);
+const coins = new CoinService(service);
+const events = new EventService(service, clock, env, catalog, settings, moderation, coins, audit);
 
 let fixture: CatalogFixture;
 let hostId: string;
@@ -492,6 +494,161 @@ describe('EventService.listOwned', () => {
     await events.create(hostId, validInput());
     const stranger = await createUser(prisma, 'PROFILE_COMPLETE');
     await expect(events.listOwned(stranger)).resolves.toEqual([]);
+  });
+});
+
+/**
+ * The two coin sinks (plan §2.9, §11), and the only place in the MVP where a
+ * user's own balance goes down because they asked it to.
+ *
+ * What is worth a database here is the pairing: the coins leave and the placement
+ * arrives in one transaction, or neither happens. A host charged forty coins for a
+ * boost that did not apply has no way to tell the difference between that and a
+ * boost that expired, so the failure is invisible to exactly the person it robs.
+ */
+describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
+  /** Coins in hand, granted the only way anything may: through the ledger. */
+  async function fund(userId: string, amount: number): Promise<void> {
+    await coins.apply({
+      userId,
+      amount,
+      type: 'ADMIN_ADJUSTMENT',
+      reasonCode: 'test.funding',
+      idempotencyKey: `fund:${userId}:${String(amount)}`,
+      actorType: 'ADMIN',
+    });
+  }
+
+  it('opens a window and charges the configured price', async () => {
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+
+    const boosted = await events.boost(hostId, created.publicId, 'BOOST');
+
+    // 40 coins for 24 hours, from `SETTING_DEFAULTS`.
+    expect(boosted.boostedUntil).toEqual(new Date(NOW.getTime() + 24 * 3_600_000));
+    await expect(coins.balanceOf(hostId)).resolves.toBe(60);
+  });
+
+  /**
+   * A host who pays twice gets twice.
+   *
+   * Overwriting would silently sell the second window at a discount of however
+   * much of the first one was left — the kind of arithmetic a user notices only
+   * as "I paid and nothing happened".
+   */
+  it('extends a live window rather than overwriting it', async () => {
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+
+    await events.boost(hostId, created.publicId, 'BOOST');
+    clock.set(new Date(NOW.getTime() + 6 * 3_600_000));
+    const second = await events.boost(hostId, created.publicId, 'BOOST');
+
+    // 24 h remaining at purchase + 24 h bought, measured from the first expiry.
+    expect(second.boostedUntil).toEqual(new Date(NOW.getTime() + 48 * 3_600_000));
+    await expect(coins.balanceOf(hostId)).resolves.toBe(20);
+  });
+
+  it('starts a lapsed window from now, not from the old expiry', async () => {
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+
+    await events.boost(hostId, created.publicId, 'BOOST');
+    const later = new Date(NOW.getTime() + 30 * 3_600_000);
+    clock.set(later);
+    const second = await events.boost(hostId, created.publicId, 'BOOST');
+
+    expect(second.boostedUntil).toEqual(new Date(later.getTime() + 24 * 3_600_000));
+  });
+
+  /**
+   * VIP is a flag, so its idempotency key is just the event — which makes buying
+   * it twice structurally impossible rather than merely discouraged. This is the
+   * property boost cannot have, because a second boost is a second window.
+   */
+  it('charges for VIP once, however many times it is bought', async () => {
+    await fund(hostId, 250);
+    const created = await events.create(hostId, validInput());
+
+    const first = await events.boost(hostId, created.publicId, 'VIP');
+    const second = await events.boost(hostId, created.publicId, 'VIP');
+
+    expect(first.isVip).toBe(true);
+    expect(second.isVip).toBe(true);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(150);
+    await expect(prisma.coinLedger.count({ where: { type: 'VIP_SPEND' } })).resolves.toBe(1);
+  });
+
+  it('leaves the event untouched when the host cannot afford it', async () => {
+    await fund(hostId, 10);
+    const created = await events.create(hostId, validInput());
+
+    await expect(events.boost(hostId, created.publicId, 'BOOST')).rejects.toMatchObject({
+      code: 'INSUFFICIENT_COINS',
+    });
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    expect(row.boostedUntil).toBeNull();
+    await expect(coins.balanceOf(hostId)).resolves.toBe(10);
+  });
+
+  /**
+   * The spend is traceable to what it bought.
+   *
+   * ADR-0007's whole point applied to the one purchase a user makes with their
+   * own coins: "where did my forty coins go?" is answered by a row that names the
+   * event, not by a reason code they have to interpret.
+   */
+  it('records the spend against the event that was promoted', async () => {
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+    await events.boost(hostId, created.publicId, 'BOOST');
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    const entry = await prisma.coinLedger.findFirstOrThrow({ where: { type: 'BOOST_SPEND' } });
+
+    expect(entry.amount).toBe(-40);
+    expect(entry.refType).toBe('event');
+    expect(entry.refId).toBe(row.id);
+    expect(entry.actorType).toBe('USER');
+    await expect(
+      prisma.auditLog.count({ where: { targetId: row.id, action: 'event.boosted' } }),
+    ).resolves.toBe(1);
+  });
+
+  it('tells a stranger the event does not exist, and charges them nothing', async () => {
+    const created = await events.create(hostId, validInput());
+    const stranger = await createUser(prisma, 'PROFILE_COMPLETE');
+    await fund(stranger, 100);
+
+    await expect(events.boost(stranger, created.publicId, 'BOOST')).rejects.toMatchObject({
+      code: 'EVENT_NOT_FOUND',
+    });
+    await expect(coins.balanceOf(stranger)).resolves.toBe(100);
+  });
+
+  it('refuses to promote something nobody can see', async () => {
+    await fund(hostId, 100);
+    // A BLOCK verdict lands in PENDING_MODERATION, which discovery never shows.
+    const blocked = await events.create(hostId, validInput({ title: 'دورهمی با مشروب' }));
+    expect(blocked.status).toBe('PENDING_MODERATION');
+
+    await expect(events.boost(hostId, blocked.publicId, 'BOOST')).rejects.toMatchObject({
+      code: 'EVENT_NOT_BOOSTABLE',
+    });
+    await expect(coins.balanceOf(hostId)).resolves.toBe(100);
+  });
+
+  it('refuses to promote an event that has already started', async () => {
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+    clock.set(new Date('2026-08-20T16:00:00.000Z'));
+
+    await expect(events.boost(hostId, created.publicId, 'BOOST')).rejects.toMatchObject({
+      code: 'EVENT_NOT_BOOSTABLE',
+    });
+    await expect(coins.balanceOf(hostId)).resolves.toBe(100);
   });
 });
 

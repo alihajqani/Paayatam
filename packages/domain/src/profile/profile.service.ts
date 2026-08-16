@@ -7,6 +7,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import { CatalogService, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
+import { TRUST_PROFILE_COMPLETE_REASON, TrustService } from '../economy/trust.service';
 import { AuditService } from '../audit/audit.service';
 import { isOldEnough } from './age';
 
@@ -37,6 +38,8 @@ export interface ProfileCompletion {
   balance: number;
   /** True only for the call that actually granted the coins. */
   rewardGranted: boolean;
+  /** The score after the profile-completion movement (plan §11: +5). */
+  trustScore: number;
 }
 
 /** The reason code written to the ledger. Stable: the admin panel renders it. */
@@ -51,6 +54,11 @@ export const ONBOARDING_REWARD_REASON = 'onboarding.profile_completed';
  */
 export function onboardingRewardKey(userId: string): string {
   return `onboarding:${userId}`;
+}
+
+/** The same discipline for the trust half: one key, one movement, ever. */
+export function profileTrustKey(userId: string): string {
+  return `trust-profile:${userId}`;
 }
 
 /**
@@ -69,6 +77,7 @@ export class ProfileService {
     private readonly catalog: CatalogService,
     private readonly settings: SettingsService,
     private readonly coins: CoinService,
+    private readonly trust: TrustService,
     private readonly audit: AuditService,
   ) {}
 
@@ -123,7 +132,10 @@ export class ProfileService {
       throw new AppError(ErrorCode.AGE_BELOW_MINIMUM);
     }
 
-    const rewardCoins = await this.settings.getInt('economy.onboarding_reward_coins');
+    const [rewardCoins, trustDelta] = await Promise.all([
+      this.settings.getInt('economy.onboarding_reward_coins'),
+      this.settings.getInt('trust.profile_complete_delta'),
+    ]);
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Lock ordering: user row first, then the coin account inside CoinService.
@@ -203,6 +215,29 @@ export class ProfileService {
         tx,
       );
 
+      /**
+       * The first thing that ever moves a reputation (plan §11: +5).
+       *
+       * Same key discipline as the coins, and the same transaction: a profile
+       * that commits without its trust movement is a user whose score never
+       * catches up, and there is no later event that would notice. It also seeds
+       * the score, so most users' trust ledger opens with the starting fifty and
+       * this five, which is exactly the history the admin panel should show.
+       */
+      const trust = await this.trust.apply(
+        {
+          userId,
+          delta: trustDelta,
+          type: 'PROFILE_COMPLETE',
+          reasonCode: TRUST_PROFILE_COMPLETE_REASON,
+          idempotencyKey: profileTrustKey(userId),
+          actorType: 'SYSTEM',
+          refType: 'user_profile',
+          refId: userId,
+        },
+        tx,
+      );
+
       await this.audit.record(
         {
           actorType: 'USER',
@@ -219,12 +254,17 @@ export class ProfileService {
             districtId: location.districtId,
             interestCount: interestIds.length,
             rewardGranted: movement.applied,
+            trustScore: trust.score,
           },
         },
         tx,
       );
 
-      return { balance: movement.balance, rewardGranted: movement.applied };
+      return {
+        balance: movement.balance,
+        rewardGranted: movement.applied,
+        trustScore: trust.score,
+      };
     });
 
     const profile = await this.find(userId);
@@ -238,6 +278,7 @@ export class ProfileService {
       onboardingState: 'PROFILE_COMPLETE',
       balance: result.balance,
       rewardGranted: result.rewardGranted,
+      trustScore: result.trustScore,
     };
   }
 }

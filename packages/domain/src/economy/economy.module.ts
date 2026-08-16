@@ -1,15 +1,23 @@
 import { Module } from '@nestjs/common';
+import { CatalogModule } from '../catalog/catalog.module';
 import { CoinService } from './coin.service';
+import { ReferralService } from './referral.service';
+import { TrustService } from './trust.service';
 
 /**
  * The economy module (plan §3.3).
  *
- * M3 ships the ledger slice only — enough to grant the onboarding reward exactly
- * once. Trust Score, referrals and reversals arrive in M9 alongside the
- * reconciliation test.
+ * M3 shipped the ledger slice alone, because the onboarding reward could not be
+ * granted exactly once without it. M9 completes it: the Trust Score ledger beside
+ * the coin one, reversals, and the referral that spends both.
+ *
+ * `CatalogModule` for `SettingsService` — every amount here is a policy number
+ * read from `app_setting` rather than a constant, so tuning the economy is a
+ * config change with no deploy (ADR-0007).
  */
 @Module({
-  providers: [CoinService],
-  exports: [CoinService],
+  imports: [CatalogModule],
+  providers: [CoinService, TrustService, ReferralService],
+  exports: [CoinService, TrustService, ReferralService],
 })
 export class EconomyModule {}

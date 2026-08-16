@@ -123,6 +123,7 @@ export class OnboardingController {
       profile: toProfileView(completion.profile),
       coins: { balance: completion.balance },
       rewardGranted: completion.rewardGranted,
+      trustScore: completion.trustScore,
     };
   }
 }

@@ -182,6 +182,24 @@ jobs:
           check_constraint coin_account_balance_non_negative
           check_constraint coin_ledger_arithmetic
           check_constraint coin_ledger_amount_non_zero
+          # The trust half of ADR-0007 (M9). The score is *defined* as the sum of
+          # these rows, so a deleted one is not lost history — it is a wrong
+          # number with nothing left to discover that it is wrong.
+          check_trigger    trust_score_ledger_append_only
+          check_constraint trust_score_within_range
+          check_constraint trust_score_ledger_arithmetic
+          check_constraint trust_score_ledger_within_range
+          check_constraint trust_score_ledger_reversal_pairing
+          check_index      trust_score_ledger_idempotency_key_key
+          check_index      trust_score_ledger_reverses_ledger_id_key
+          # T6. One referrer per person for life, and inviting yourself is not a
+          # referral — both decided by the database, because the service checks
+          # are one refactor away from being skipped.
+          check_index      referral_referred_user_id_key
+          check_index      user_referral_code_key
+          check_constraint referral_not_self
+          check_constraint referral_qualified_at_matches_status
+          check_constraint referral_reward_needs_qualification
           check_constraint event_accepted_count_within_capacity
           check_constraint event_cost_amount_matches_type
           check_constraint event_external_link_https

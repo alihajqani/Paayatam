@@ -13,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
+import { TrustService } from '../economy/trust.service';
 import { ProfileService, onboardingRewardKey } from './profile.service';
 
 /**
@@ -36,8 +37,9 @@ const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 const catalog = new CatalogService(service);
 const settings = new SettingsService(service);
 const coins = new CoinService(service);
+const trust = new TrustService(service, settings);
 const audit = new AuditService(service, clock);
-const profiles = new ProfileService(service, clock, env, catalog, settings, coins, audit);
+const profiles = new ProfileService(service, clock, env, catalog, settings, coins, trust, audit);
 
 let fixture: CatalogFixture;
 

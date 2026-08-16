@@ -97,11 +97,16 @@ export class PostgresSearchProvider implements SearchProvider {
           ${POPULARITY_SQL}                          AS "popularity",
           ${this.recencySql(request.epoch)}          AS "recency",
           ${this.boostSql(request.epoch)}            AS "boost",
-          ${TRUST_SQL}                               AS "trust",
+          ${trustSql(request.weights.neutralTrust)}   AS "trust",
           ${this.interestMatchSql(request.viewerCategoryIds)} AS "interestMatch",
           ${this.textRelevanceSql(request.filters.query)}     AS "textRelevance",
           ${this.scoreSql(full)}                     AS "score"
         FROM "event" e
+        -- The one join this query needs. It does not use the shared JOINS,
+        -- because category and city names are not part of any score component --
+        -- but the trust term reads a column, so the row it reads has to be here
+        -- or the explanation would not compile.
+        LEFT JOIN "trust_score" ts ON ts."user_id" = e."host_user_id"
         WHERE e."public_id" = ${publicId}
           AND e."status" = 'PUBLISHED'
           AND e."deleted_at" IS NULL
@@ -144,7 +149,7 @@ export class PostgresSearchProvider implements SearchProvider {
       + ${w.popularity}::double precision    * ${POPULARITY_SQL}
       + ${w.recency}::double precision       * ${this.recencySql(request.epoch)}
       + ${w.boost}::double precision         * ${this.boostSql(request.epoch)}
-      + ${w.trust}::double precision         * ${TRUST_SQL}
+      + ${w.trust}::double precision         * ${trustSql(w.neutralTrust)}
       + ${w.interestMatch}::double precision * ${this.interestMatchSql(request.viewerCategoryIds)}
     )`;
 
@@ -393,6 +398,10 @@ const JOINS = Prisma.sql`
   LEFT JOIN "district" d ON d."id" = e."district_id"
   JOIN "user" hu      ON hu."id" = e."host_user_id"
   LEFT JOIN "user_profile" hp ON hp."user_id" = e."host_user_id"
+  -- LEFT, because a host with no trust row is the common case: the row is
+  -- created lazily by the first movement, so every host who has not completed a
+  -- profile yet has none. They rank at the neutral score, not at zero.
+  LEFT JOIN "trust_score" ts ON ts."user_id" = e."host_user_id"
 `;
 
 /**
@@ -410,15 +419,23 @@ const JOINS = Prisma.sql`
 const POPULARITY_SQL = Prisma.sql`LEAST(ln(1 + e."request_count") / ln(51.0), 1.0)::double precision`;
 
 /**
- * Trust, neutral for everyone until M9 builds `trust_score`.
+ * The host's reputation, normalised to 0–1 (M9).
  *
- * Present in the formula from the start rather than added later, so the weight
- * is real, configurable and visible in `explain-rank` from day one — and so M9's
- * change is this constant becoming a column read, not a re-derivation of the
- * ranking. A constant also happens to be exactly the "neutral bucket" plan §11
- * requires for new hosts.
+ * This was a constant `0.5` from M5 until now, deliberately: keeping the term in
+ * the formula from the start meant the weight was real, configurable and visible
+ * in `explain-rank` before there was anything to read, so this milestone changes
+ * a constant into a column read rather than re-deriving the ranking.
+ *
+ * `COALESCE` to the neutral score is the part that matters for fairness. A host
+ * with no `trust_score` row has not been judged, not been judged badly — and
+ * plan §12 resolves "Trust Score in ranking" against "no unfair discrimination"
+ * by capping trust at a tenth of the signal *and* giving new hosts a neutral
+ * bucket. Reading a missing row as zero would bury every new host on the
+ * platform, which is exactly the outcome that resolution exists to prevent.
  */
-const TRUST_SQL = Prisma.sql`0.5::double precision`;
+function trustSql(neutralTrust: number): Prisma.Sql {
+  return Prisma.sql`(COALESCE(ts."score", ${neutralTrust}::int)::double precision / 100.0)`;
+}
 
 interface SearchRow {
   publicId: string;

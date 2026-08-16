@@ -1036,6 +1036,108 @@ immutable (UPDATE/DELETE raise); reversal restores the balance exactly; referral
 self-referral rejected; trust clamps to [0,100]; **sum of ledger deltas = current score**.
 Acceptance: a reconciliation test over 1000 random operations proves `balance == SUM(amount)`.
 
+**Deviations from this plan, decided during M9:**
+
+- **The starting Trust Score is a ledger row, not a column default.** §11 gives "Trust start 50", and the
+  obvious implementation seeds `trust_score.score = 50` — which makes `score = SUM(delta)` false for every
+  user from the moment they exist, repairable only by a "plus fifty" fudge factor in the reconciliation.
+  Instead an `INITIAL` entry is written lazily on the first movement, so the identity holds from the first
+  row with nothing added on the side. Lazy rather than at signup so a user who never does anything costs no
+  rows, and keyed so it happens at most once.
+- **`trust_score_ledger.delta` stores the *effective* movement, and the requested one goes in `metadata`.**
+  A rule worth +3 against somebody at 99 stores +1. Storing what the policy asked for would break
+  `score = SUM(delta)` the first time anybody reached a bound, and that sum is what ADR-0007's reconciliation
+  exists to check. ADR-0007 rule 5 writes the identity as `score == clamp(SUM(delta))`; under this reading
+  the clamp is a no-op, which is the stronger of the two statements and the one the CHECK enforces.
+- **A trust movement clamped to nothing still writes a row**, where a zero *coin* movement is rejected as a
+  bug. The row is what consumes the idempotency key: without it, a redelivered job would find the key unused
+  and pay out for real the moment the score dropped enough to have room. It is also the honest answer to
+  "why didn't my score go up?" — the rule fired and the cap ate it.
+- **`user.referral_code` added** to §4.5's field list. `referral.code` snapshots the code a referral *used*;
+  the referrer still needs somewhere to keep the one they hand out. Generated on first read, so it costs
+  nothing for the users who never open the invite screen.
+- **T6's velocity limits are recorded, not enforced.** T6 asks for both velocity limits and `fraud_signals`
+  for admin review, and the order matters: a wrong automatic rejection silently steals a real user's reward
+  and nobody ever finds out. The signals go in front of a human; the hard limits are M15's rate limiting.
+  The control that actually does the work is the one §11 already specifies — the reward requires an attended
+  event, which does not scale to a farm.
+- **`ReferralService.qualifyForAttendance` has no production caller.** The payout is complete, tested and
+  idempotent, but the condition it checks is `event_participant.status = 'COMPLETED'` — and **nothing in the
+  product writes that status yet**. `ACCEPTED → COMPLETED` belongs to the event-lifecycle sweep, which is
+  M13's repeatable job, with no-show finalisation in M10. So the referral programme is reachable up to the
+  claim and pays out only in tests. **This is a real gap between what §11 promises and what runs today**,
+  stated rather than left for somebody to discover when the first invite fails to pay. Whichever milestone
+  first writes `COMPLETED` must call this, and it decides the attendance question for itself rather than
+  trusting the caller.
+- **Boost cannot be made idempotent here, and VIP is idempotent for free.** VIP's key is the event, so buying
+  it twice is structurally impossible. A second *boost* is a second purchase of a second window, which a host
+  may legitimately want, so the key is derived from the window the purchase produces — deterministic enough
+  that a replay arriving before the first commit collides, and no help at all for one arriving after. §6's
+  `Idempotency-Key` header is what separates "asked twice" from "arrived twice" and is not built. Until it
+  is, double-charge protection for boost is the Mini App's in-flight disable (§3.7). **Boost is the first
+  endpoint where that missing header is visible in a user's wallet.**
+- **A second boost extends the live window rather than replacing it.** Overwriting would sell the second
+  window at a silent discount of however much of the first was left. A host who pays twice gets twice.
+- **Boost sets the lock ordering for the rest of the product: event → user → coin account.** ADR-0006 keeps
+  the event row as the single lock of every *capacity* path and boost is not one — it never touches
+  `accepted_count` — but it is the first operation to hold two locks at once. M10's host cancellation needs
+  exactly this pair to refund participants, and taking them in the other order there would deadlock against
+  this method.
+- **`CoinService.reverse` refuses to reverse a credit the user has already spent**, with `INSUFFICIENT_COINS`
+  rather than a silent overdraft. The coins are gone; an admin adjustment — a decision somebody signs their
+  name to — is the way to settle it. A `REVERSAL` also cannot itself be reversed: undoing an undo is a
+  forward movement with its own reason, and allowing the chain would make "has this been reversed?" a graph
+  walk rather than a column.
+- **`EventDetail` and `EventView` gained `boostedUntil` and `isVip`.** The boost endpoint returns the event
+  so the host can see what they bought, and the shape had no field capable of showing it — the response
+  agreed with itself and told the buyer nothing. Discovery keeps its own narrower mapper, which reduces the
+  same column to a boolean `isBoosted`: when somebody else's promotion lapses is not a stranger's business.
+- **`POST /onboarding/profile` now reports the new trust score beside the coins.** Completing a profile moves
+  both (§11: +50 coins, +5 trust), and a response naming one half reads as though the other did not happen.
+  The full explanation stays at `GET /me/trust`.
+- **The ranking's trust term became a column read, and the neutral score travels with the weights.** M5 kept
+  the term as a constant `0.5` precisely so this milestone would change a constant rather than re-derive the
+  ranking. `COALESCE(ts.score, trust.initial_score)` is the fairness half: a host with no row has not been
+  judged, not been judged badly, and reading a missing row as zero would bury every new host — the exact
+  outcome §12's resolution exists to prevent. The neutral value is carried through `RankingWeights` rather
+  than hardcoded in the SQL, because two copies of `trust.initial_score` would eventually disagree.
+- **The trust deltas §11 lists for attendance, reviews, cancellation, no-show and rehabilitation are not
+  written here.** M9 builds the ledger and writes `INITIAL` and `PROFILE_COMPLETE`; the rest belong to the
+  milestones that own the events causing them — M10 (cancellation, no-show), M11 (reviews), M13 (the
+  rehabilitation job). `TrustLedgerType` declares all of them now, so those milestones add rows rather than
+  migrations.
+- **A latent M7 bug, found by M9's concurrency tests.** `SettingsService` read on the base Prisma client, so
+  a caller inside a transaction borrowed a *second* pool connection while still holding the first; enough
+  concurrent callers exhausted the pool and waited on each other forever. It surfaced as "Unable to start a
+  transaction in the given time", a message that describes the symptom and hides the cause completely.
+  `getInt`/`getNumber`/`getNumbers` now take an optional `tx`, and the three in-transaction call sites —
+  waitlist promotion (M7), the event quota (M4) and the trust seed — pass it.
+- **The leak scan's coverage guard was a magic number and did not work.** `expect(ENDPOINTS).toHaveLength(22)`
+  claimed to fail when a route was added without being listed, and M9 added five endpoints while it stayed
+  green — a scan reporting clean about a surface it had stopped covering, which is worse than no scan. It now
+  derives the list from the routes the application actually registers with Fastify, with the webhook excluded
+  by name and for a stated reason.
+- **That guard immediately found six endpoints the scan had never covered**, dating to M2 and M4:
+  `POST /auth/telegram`, `POST /auth/refresh`, `POST /onboarding/consent`, `POST /onboarding/profile`,
+  `POST /events` and `PATCH /events/:publicId` — every one of them a write. `POST /auth/telegram` is the
+  worst of the six to have missed: it is the only endpoint in the product that takes a raw
+  `telegram_user_id` as input, so it is the likeliest place for one to come straight back out. It is now
+  scanned with **validly signed** `initData` for the leaky fixture account, re-signed per pass because the
+  replay guard claims each hash once.
+- **Two ways the scan could have passed for the wrong reason are now asserted against.** A regex matching
+  nothing was already covered; a *session* that quietly stopped working was not — every authenticated
+  endpoint would answer 401 and four clean passes over thirty-three error envelopes would report green
+  having scanned none of the projections. The scan now records every status it saw and fails if a read never
+  answered below 400, or if `POST /auth/telegram` never reached 200.
+- **CI's hand-written-guarantee check gained the M9 objects**: the `trust_score_ledger` append-only trigger
+  and its three CHECKs, both unique indexes, and the referral constraints that make one-referrer-per-person
+  and no-self-referral database facts rather than service checks.
+- **No admin surface.** `ADMIN_ADJUSTMENT` exists in both ledgers and both services accept it, but
+  `POST /admin/v1/coins/adjust` and the trust-ledger views are M12. Nothing outside a test writes an admin
+  movement yet.
+- **No Mini App work**, as in M4, M5 and M8. The coins, trust and invite screens are not built; M9 is the
+  domain, the API and the reconciliation.
+
 **M10 — Cancellation & penalties** · *L*
 Tests: a **parameterised table across every threshold** — inside grace, 25 h, 23 h, 3 h 01 m, 2 h 59 m,
 no-show — each asserting exact coin + trust deltas; **`Asia/Tehran` boundary tests**; a manipulated client
