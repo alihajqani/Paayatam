@@ -180,3 +180,26 @@ export { PostgresSearchProvider } from './discovery/postgres-search.provider';
 export { DiscoveryService } from './discovery/discovery.service';
 export type { DiscoveryPage, DiscoveryQuery } from './discovery/discovery.service';
 export { DiscoveryModule } from './discovery/discovery.module';
+
+export {
+  ReviewService,
+  REVIEW_REWARD_REASON,
+  REVIEW_RATING_REASON,
+  reviewRewardKey,
+  reviewTrustKey,
+} from './reviews/review.service';
+export type {
+  OwnReview,
+  PendingReview,
+  RevealedReview,
+  ReviewerRole,
+  SubmitReviewInput,
+} from './reviews/review.service';
+export {
+  REVIEW_TRANSITIONS,
+  REVIEW_PAIR_TRANSITIONS,
+  REVEALED_PAIR_STATUSES,
+  assertReviewTransition,
+  assertReviewPairTransition,
+} from './reviews/state-machine';
+export { ReviewsModule } from './reviews/reviews.module';

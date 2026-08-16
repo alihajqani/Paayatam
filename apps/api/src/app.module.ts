@@ -8,6 +8,7 @@ import {
   DiscoveryModule,
   EconomyModule,
   EventsModule,
+  ReviewsModule,
   IdentityModule,
   ModerationModule,
   OutboxModule,
@@ -25,6 +26,7 @@ import { EconomyController } from './economy/economy.controller';
 import { DiscoveryController } from './discovery/discovery.controller';
 import { EventsController } from './events/events.controller';
 import { HealthModule } from './health/health.module';
+import { ReviewsController } from './reviews/reviews.controller';
 import { OnboardingController } from './onboarding/onboarding.controller';
 import { ParticipationController } from './participation/participation.controller';
 import { TelegramWebhookController } from './telegram/webhook.controller';
@@ -48,6 +50,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     IdentityModule,
     CatalogModule,
     EconomyModule,
+    ReviewsModule,
     ProfileModule,
     ModerationModule,
     EventsModule,
@@ -65,6 +68,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     ParticipationController,
     ChatController,
     EconomyController,
+    ReviewsController,
     TelegramWebhookController,
   ],
   providers: [

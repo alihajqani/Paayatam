@@ -158,3 +158,24 @@ export type {
   DiscoveryResponse,
   RankExplanationResponse,
 } from './contracts/discovery';
+
+export {
+  reviewerRole,
+  reviewTag,
+  submitReviewRequest,
+  pendingReviewView,
+  pendingReviewsResponse,
+  ownReviewView,
+  revealedReviewView,
+  userReviewsResponse,
+} from './contracts/reviews';
+export type {
+  ReviewerRole,
+  ReviewTag,
+  SubmitReviewRequest,
+  PendingReviewView,
+  PendingReviewsResponse,
+  OwnReviewView,
+  RevealedReviewView,
+  UserReviewsResponse,
+} from './contracts/reviews';

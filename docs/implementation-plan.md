@@ -1261,6 +1261,86 @@ Tests: **the counterparty review is unreadable before reveal — asserted at the
 both submitted ⇒ immediate reveal; deadline with one side ⇒ `EXPIRED_PARTIAL` (D7a); duplicate ⇒ 409;
 editing after reveal ⇒ 409; the T+24 h notification fires once even if the job runs twice.
 
+**Deviations from this plan, decided during M11:**
+
+- **Migration `0011`, with no `0010`.** The numbers track milestones, and M10 needed no schema change — the
+  gap says so rather than hiding it.
+- **Readability is a property of the *pair*, not of the review.** Every public read joins through
+  `review_pair` and filters on `REVEALED_PAIR_STATUSES`, so an unrevealed review is **absent from the
+  response** rather than filtered out of one that briefly contained it. A `WHERE` on the review's own status
+  would be true only by accident: a review is `SUBMITTED` both before its counterparty writes and while the
+  pair waits, so the review alone cannot answer "may anybody read this?".
+- **`PENDING → REVEALED` is deliberately absent from the pair's state machine.** Two sides cannot arrive at
+  once — each submission is its own transaction — so the second always finds the first and moves
+  `PARTIAL → REVEALED`. Admitting the edge would admit a path that says a pair went from empty to complete in
+  one step, which would hide a bug rather than describe one.
+- **`SUBMITTED → HIDDEN` is in the review's table though §7 draws only `REVEALED → HIDDEN`.** Moderation has
+  to be able to take down a review that never reached reveal — a comment reported inside the edit window is
+  exactly that case — and routing it through REVEALED to do so would mean publishing the thing being taken
+  down.
+- **The reward is paid on submission, not at reveal.** §11 says "completed review +10 coins"; paying at
+  reveal would make the reward depend on whether somebody *else* did their part, which is both unfair and the
+  precise incentive D7 removes elsewhere — it would give a reviewer a reason to care what the counterparty
+  does.
+- **Trust moves at reveal, and D7a is where it bites.** A pair that revealed because both sides wrote moves
+  both scores. One that expired with a single side written reveals that review — the reviewer's effort stays
+  visible — and moves nothing, overridable at runtime through `review.partial_reveal_affects_trust`, the flag
+  §0 explicitly says is there to be overridden. Three stars writes no movement at all, because it is worth
+  zero and `TrustService` rejects a zero delta as a bug.
+- **Editing is refused after reveal even inside the hour.** §11 gives a one-hour edit window and §7 says
+  "only while SUBMITTED"; the two agree, and the reason is worth stating: once the counterparty can see what
+  you wrote, an edit is a *reply*, which is the exact dynamic D7 exists to prevent.
+- **The window opens at attendance settlement, in M10's transaction.** That placement is what makes "you may
+  only review an evening you were actually at" structural rather than a check somebody has to remember: a
+  completed participation always has a pair, and **a no-show or a cancellation never gets one**. Reviewing
+  somebody for not turning up is what the no-show penalty already is; asking two people to rate an evening
+  that did not happen produces a rating about nothing.
+- **Both dates are measured from the event's `ends_at`, not from the sweep.** §11's "opens T+24 h, deadline
+  T+7 d" is about when the thing being reviewed finished, so a sweep that runs late does not shorten
+  anybody's window.
+- **`review.moderation_status` is now written, which closes a gap this milestone would otherwise have
+  shipped.** §4.6 gives the column and the read path filters on it, but nothing set it. A review comment is
+  public free text about another person, so it gets the same blacklist an event description does, mapped
+  ADR-0012's way: FLAG stays visible and opens a case, BLOCK does not become visible and opens a case. Edits
+  are re-judged, or "submit something clean then edit it" would be the obvious way past the scanner.
+- **A blocked comment does not refuse the submission**, which is the one place this differs from event
+  authoring. The review is half of a pair, and refusing it would let one party's bad language stop the other
+  party's review from ever revealing. The rating counts, the pair completes, and only the text is withheld.
+- **`review_pair_due_idx` is composite, not partial.** Prisma's `@@index` where-clause supports only equality
+  and `not`, so `status IN ('PENDING','PARTIAL')` is not expressible — and an index Prisma cannot see is one
+  `migrate dev` would happily drop. `(status, deadline_at)` prunes to the same rows through its leading
+  column. This is the opposite call from M2's partial unique index, and deliberately: that one enforced an
+  invariant and was worth the drift, this one is a performance index and is not.
+- **A revealed review carries no reviewer on the public read.** A reader is entitled to know what was said
+  about this person, not who said it. The author's own read is a separate endpoint with a separate shape,
+  because it answers a different question.
+- **The average is computed over revealed reviews only.** An average that moved when an unrevealed rating
+  landed would leak the rating through arithmetic without ever returning it — the subtle way invariant 8
+  gets broken.
+- **Tags are a fixed vocabulary, not free text.** A closed list needs no moderation and no normalisation and
+  makes ratings comparable across reviewers. Free text still exists in `comment`, and that is the field the
+  scanner reads.
+- **Two endpoints beyond §6's list**: `PUT /participants/:publicId/review` (the edit §7 requires but §6 never
+  names) and `GET /participants/:publicId/review` (reading back your own, which the edit screen needs). §6
+  gives `GET /me/reviews/pending`, `POST /participants/:id/review` and `GET /users/:publicId/reviews`, all
+  built as specified.
+- **The deadline sweep is a domain method; scheduling it is M13**, exactly as M6 left `expireOverdue` and M10
+  left the attendance sweep. **The plan's "T+24 h notification fires once even if the job runs twice" is
+  therefore not tested here**: the reveal emits one outbox row per pair and `settleExpired` is idempotent,
+  which is the half M11 owns — but the notification itself does not exist until M13 builds the relay and
+  `notification.dedupe_key`. Stated rather than quietly counted as done.
+- **The test harness caps its connection pool, and adding one file is what forced it.** Every integration
+  file builds its own Prisma client, and the driver's default pool is `cpus * 2 + 1` — thirty-three on a
+  sixteen-core machine, against Postgres's default hundred. Vitest keeps finished workers alive, so three or
+  four live clients exhaust the server. **The failure does not look like exhaustion**: `TRUNCATE` in a
+  `beforeEach` fails, the fixture is left stale, and every test after it falls over on a foreign key pointing
+  at a row the reset never removed — 289 failures reading like a logic bug in whichever milestone happened to
+  add the file that tipped it over. The integration project passed alone the whole time; only the combined
+  run failed, which is what identified it. Capped at ten per client, which is far more than any one file
+  needs and leaves the concurrency suites queueing at the pool instead of at Postgres — they contend on row
+  locks, and the lock is the thing under test.
+- **No Mini App work**, as in M4, M5 and M8–M10. The review screens are not built.
+
 **M12 — Reports & admin moderation** · *L*
 Tests: the same user cannot report twice (DB-enforced); the **3rd distinct** reporter hides the event and
 opens a case (threshold read from config, also tested at 2 and 4); the owner is notified **without any

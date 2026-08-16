@@ -11,6 +11,7 @@ import { ReferralService } from '../economy/referral.service';
 import { TrustService } from '../economy/trust.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { assertParticipantTransition } from '../participation/state-machine';
+import { ReviewService } from '../reviews/review.service';
 import { startOfDayIn } from '../time';
 import {
   lockEventByParticipantPublicIdForUpdate,
@@ -69,6 +70,7 @@ export class EventLifecycleService {
     private readonly trust: TrustService,
     private readonly referrals: ReferralService,
     private readonly penalties: PenaltyService,
+    private readonly reviews: ReviewService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
   ) {}
@@ -212,6 +214,11 @@ export class EventLifecycleService {
         const locked = await lockEventByPublicIdForUpdate(tx, publicId);
         if (!locked || locked.deletedAt !== null) return [];
 
+        const ends = await tx.event.findUniqueOrThrow({
+          where: { id: locked.id },
+          select: { endsAt: true },
+        });
+
         const attendees = await tx.eventParticipant.findMany({
           where: { eventId: locked.id, status: 'ACCEPTED' },
           select: { id: true, publicId: true, userId: true, status: true },
@@ -227,6 +234,22 @@ export class EventLifecycleService {
           });
 
           await this.creditAttendance(tx, attendee.userId, attendee.id, now);
+
+          /**
+           * The review window opens here, in the transaction that decided somebody
+           * attended (M11).
+           *
+           * This placement is what makes "you may only review an evening you were
+           * actually at" structural rather than a check somebody has to remember:
+           * a participation that completed always has a pair, and one that was
+           * cancelled or reported as a no-show never gets one. Reviewing somebody
+           * for not turning up is what the no-show penalty already is.
+           */
+          await this.reviews.openForParticipant(tx, {
+            participantId: attendee.id,
+            eventId: locked.id,
+            endsAt: ends.endsAt,
+          });
 
           await this.audit.record(
             {

@@ -256,6 +256,21 @@ jobs:
           # `chat_action` records a consent decision made inside a private
           # conversation. Evidence that can be edited is not evidence.
           check_trigger    chat_action_append_only
+          # Blind reviews (M11). Invariant 6 is the unique index; the rest keep a
+          # pair from claiming a state its contents contradict — a REVEALED pair
+          # holding nothing would render as a profile with no reviews and no
+          # explanation, which is indistinguishable from the feature being broken.
+          check_index      review_participant_id_reviewer_user_id_key
+          check_index      review_pair_participant_id_key
+          check_index      review_pair_due_idx
+          check_constraint review_rating_within_scale
+          check_constraint review_not_self
+          check_constraint review_comment_length
+          check_constraint review_tags_bounded
+          check_constraint review_revealed_at_matches_status
+          check_constraint review_pair_window_ordered
+          check_constraint review_pair_status_matches_contents
+          check_constraint review_pair_revealed_at_matches_status
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

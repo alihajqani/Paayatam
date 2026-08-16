@@ -55,6 +55,8 @@ let viewerEventPublicId: string;
 let hostParticipantPublicId: string;
 let viewerParticipantPublicId: string;
 let chatPublicId: string;
+let reviewedParticipantPublicId: string;
+let hostPublicId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
@@ -64,7 +66,7 @@ let authAttempt = 0;
 let refreshAttempt = 0;
 
 interface Endpoint {
-  method: 'GET' | 'POST' | 'PATCH';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT';
   url: string;
   /** Endpoints that answer without a session; the rest are sent one. */
   anonymous?: boolean;
@@ -156,8 +158,9 @@ beforeAll(async () => {
         },
       },
     },
-    select: { id: true },
+    select: { id: true, publicId: true },
   });
+  hostPublicId = host.publicId;
 
   const user = await prisma.user.create({
     data: {
@@ -242,6 +245,100 @@ beforeAll(async () => {
     select: { id: true, publicId: true },
   });
   viewerParticipantPublicId = viewerRequest.publicId;
+
+  /**
+   * A finished meeting between the two of them, reviewed on both sides (M11).
+   *
+   * `GET /users/:publicId/reviews` is **public** and returns free text one user
+   * wrote about another, which makes it the highest-risk read this milestone adds.
+   * It needs real revealed rows to be worth scanning at all — an empty list proves
+   * nothing — so a third event is settled and reviewed here.
+   *
+   * The comment is deliberately clean. A review comment containing a phone number
+   * is a *moderation* question, not a leak-scan one: the scan's job is to catch the
+   * platform leaking identity, not to catch a user publishing their own. What is
+   * being asserted is that the envelope carries no reviewer id, no internal id and
+   * no Telegram handle.
+   */
+  const pastEvent = await prisma.event.create({
+    data: {
+      hostUserId: host.id,
+      title,
+      description,
+      titleNormalized: normalize(title),
+      descriptionNormalized: normalize(description),
+      categoryId: fixture.categoryId,
+      cityId: fixture.tehranId,
+      startsAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+      endsAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000 + 3 * 60 * 60 * 1000),
+      capacity: 6,
+      costType: 'FREE',
+      status: 'COMPLETED',
+      moderationStatus: 'APPROVED',
+      publishedAt: new Date(),
+      acceptedCount: 1,
+    },
+    select: { id: true },
+  });
+
+  const pastRequest = await prisma.eventParticipant.create({
+    data: {
+      eventId: pastEvent.id,
+      userId: user.id,
+      status: 'COMPLETED',
+      acceptedAt: new Date(Date.now() - 11 * 24 * 60 * 60 * 1000),
+      attended: true,
+    },
+    select: { id: true, publicId: true },
+  });
+  reviewedParticipantPublicId = pastRequest.publicId;
+
+  const revealedAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [aboutViewer, aboutHost] = await Promise.all([
+    prisma.review.create({
+      data: {
+        eventId: pastEvent.id,
+        participantId: pastRequest.id,
+        reviewerUserId: host.id,
+        revieweeUserId: user.id,
+        rating: 5,
+        tags: ['PUNCTUAL', 'FRIENDLY'],
+        comment: 'همراه بسیار خوبی بود.',
+        status: 'REVEALED',
+        revealedAt,
+        editDeadlineAt: revealedAt,
+      },
+      select: { id: true },
+    }),
+    prisma.review.create({
+      data: {
+        eventId: pastEvent.id,
+        participantId: pastRequest.id,
+        reviewerUserId: user.id,
+        revieweeUserId: host.id,
+        rating: 4,
+        tags: ['WELL_ORGANISED'],
+        comment: 'برنامهٔ منظمی بود.',
+        status: 'REVEALED',
+        revealedAt,
+        editDeadlineAt: revealedAt,
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  await prisma.reviewPair.create({
+    data: {
+      participantId: pastRequest.id,
+      eventId: pastEvent.id,
+      hostReviewId: aboutViewer.id,
+      guestReviewId: aboutHost.id,
+      status: 'REVEALED',
+      revealedAt,
+      opensAt: new Date(revealedAt.getTime() - 24 * 60 * 60 * 1000),
+      deadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
 
   /**
    * The chat M8 introduces, between the viewer and the leaky host.
@@ -517,6 +614,30 @@ beforeAll(async () => {
      */
     { method: 'GET', url: `/api/v1/events/${viewerEventPublicId}/cancel-preview` },
     { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/no-show` },
+    /**
+     * M11. `users/:id/reviews` returns free text one user wrote about another to
+     * any signed-in caller, which makes it the highest-risk read this milestone
+     * adds — so it is scanned against a real revealed pair rather than an empty
+     * list, which would have proved nothing.
+     *
+     * The two writes address the *revealed* participation, so they refuse — the
+     * window is closed and the review already exists. Both refusals are responses,
+     * and a 409 that named the counterparty would leak exactly as much as a
+     * success body that did.
+     */
+    { method: 'GET', url: `/api/v1/users/${hostPublicId}/reviews` },
+    { method: 'GET', url: '/api/v1/me/reviews/pending' },
+    { method: 'GET', url: `/api/v1/participants/${reviewedParticipantPublicId}/review` },
+    {
+      method: 'POST',
+      url: `/api/v1/participants/${reviewedParticipantPublicId}/review`,
+      body: { rating: 5, tags: [], comment: 'دوباره هم می‌آیم.' },
+    },
+    {
+      method: 'PUT',
+      url: `/api/v1/participants/${reviewedParticipantPublicId}/review`,
+      body: { rating: 4, tags: [] },
+    },
     // Last of all: it retires the viewer's event, and the passes that follow then
     // read the refusals — which are responses too.
     { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/cancel`, body: {} },

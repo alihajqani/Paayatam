@@ -66,6 +66,26 @@ export class ModerationService {
   }
 
   /**
+   * Scans a single free-text field — a review comment (M11).
+   *
+   * Separate from `scanEventContent` because there is only one field and no
+   * normalized columns to produce: a review has no search vector and is never
+   * matched against a query. The blacklist and the verdict rules are identical,
+   * which is the point — a term that cannot appear in an event description cannot
+   * appear in a review of one either.
+   */
+  async scanText(text: string, tx: Prisma.TransactionClient = this.prisma): Promise<ContentScan> {
+    const blacklist = await this.blacklist.load(tx);
+    const matches = this.blacklist.match(text, blacklist.rules);
+
+    return {
+      decision: decisionFor(matches),
+      matches,
+      blacklistVersion: blacklist.version,
+    };
+  }
+
+  /**
    * Opens an `AUTO_BLACKLIST` case for a scan that was not clean.
    *
    * Takes the caller's transaction: the case must commit with the content it

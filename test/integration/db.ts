@@ -20,8 +20,28 @@ export function createTestPrisma(): PrismaClient {
   if (!connectionString) {
     throw new Error('No test database URL is set; see test/integration/setup.ts');
   }
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  return new PrismaClient({
+    adapter: new PrismaPg({ connectionString, max: TEST_POOL_SIZE }),
+  });
 }
+
+/**
+ * Connections per test client, capped well below Postgres's default 100.
+ *
+ * Every integration file builds its own client, and the driver's default pool is
+ * `cpus * 2 + 1` — thirty-three on a sixteen-core machine. Vitest keeps finished
+ * workers alive, so three or four live clients exhaust the server, and the failure
+ * does not look like exhaustion: `TRUNCATE` in a `beforeEach` fails, the fixture
+ * is left stale, and the tests that follow fall over on foreign keys pointing at
+ * rows the reset never removed. Two hours of that reads as a logic bug in
+ * whatever milestone happened to add the file that tipped it over.
+ *
+ * Ten is comfortably above what any single file needs. The concurrency suites
+ * (twenty simultaneous joins, ten simultaneous referral settlements) queue at the
+ * pool instead of at Postgres, which changes nothing they assert: they contend on
+ * row locks, and the lock is the thing under test.
+ */
+const TEST_POOL_SIZE = 10;
 
 /**
  * Empties every table, in one statement.
@@ -41,7 +61,8 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE TABLE
       "outbox_event", "moderation_case", "chat_action", "chat_message",
-      "chat_participant", "anonymous_chat", "event_participant", "event", "blacklist_term",
+      "chat_participant", "anonymous_chat", "review_pair", "review",
+      "event_participant", "event", "blacklist_term",
       "blacklist_version", "user_interest", "user_profile", "referral",
       "trust_score_ledger", "trust_score", "coin_ledger",
       "coin_account", "consent", "telegram_account", "audit_log", "user",

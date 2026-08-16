@@ -18,8 +18,11 @@ import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { ReferralService } from '../economy/referral.service';
 import { TrustService } from '../economy/trust.service';
+import { BlacklistService } from '../moderation/blacklist.service';
+import { ModerationService } from '../moderation/moderation.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { ParticipationService } from '../participation/participation.service';
+import { ReviewService } from '../reviews/review.service';
 import { EventLifecycleService } from './lifecycle.service';
 
 /**
@@ -48,7 +51,19 @@ const chat = new ChatService(service, clock, cipher, audit, outbox);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
+const blacklist = new BlacklistService(service);
+const moderation = new ModerationService(service, blacklist);
 const referrals = new ReferralService(service, clock, settings, coins, audit);
+const reviews = new ReviewService(
+  service,
+  clock,
+  settings,
+  coins,
+  trust,
+  moderation,
+  audit,
+  outbox,
+);
 const lifecycle = new EventLifecycleService(
   service,
   clock,
@@ -57,6 +72,7 @@ const lifecycle = new EventLifecycleService(
   trust,
   referrals,
   penalties,
+  reviews,
   audit,
   outbox,
 );

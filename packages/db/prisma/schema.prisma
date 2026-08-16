@@ -84,6 +84,8 @@ model User {
   trustScore      TrustScore?
   trustLedger     TrustScoreLedger[]
   referralsMade   Referral[]         @relation("ReferralsMade")
+  reviewsWritten  Review[]           @relation("ReviewsWritten")
+  reviewsReceived Review[]           @relation("ReviewsReceived")
   referralReceived Referral?         @relation("ReferralReceived")
 
   @@index([status])
@@ -667,6 +669,8 @@ model Event {
   city         City               @relation(fields: [cityId], references: [id], onDelete: Restrict)
   district     District?          @relation(fields: [districtId], references: [id], onDelete: Restrict)
   participants EventParticipant[]
+  reviews      Review[]
+  reviewPairs  ReviewPair[]
   chats        AnonymousChat[]
 
   @@index([status, startsAt])
@@ -779,6 +783,9 @@ model EventParticipant {
   penalty CoinLedger? @relation(fields: [penaltyLedgerId], references: [id], onDelete: Restrict)
   /// Created with the request, not with the acceptance (plan §2.5).
   chat    AnonymousChat?
+  /// Both sides' reviews of this participation, and the window they share (M11).
+  reviews    Review[]
+  reviewPair ReviewPair?
 
   /// Invariant 4, and the duplicate-request guard the join path relies on.
   @@unique([eventId, userId])
@@ -1273,4 +1280,124 @@ model AuditLog {
   @@index([targetType, targetId, createdAt])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reviews (ADR-0011, D7/D7a)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ReviewStatus {
+  SUBMITTED
+  REVEALED
+  HIDDEN
+
+  @@map("review_status")
+}
+
+/// The pair's lifecycle (plan §7). `EXPIRED_PARTIAL` is D7a: the deadline passed
+/// with one side written, so that side *is* revealed — the reviewer's effort stays
+/// visible — but it is excluded from Trust Score, because somebody who never
+/// reviewed cannot have their score moved by a counterparty they had no
+/// opportunity to answer.
+enum ReviewPairStatus {
+  PENDING
+  PARTIAL
+  REVEALED
+  EXPIRED_PARTIAL
+  EXPIRED_EMPTY
+
+  @@map("review_pair_status")
+}
+
+/// One side's review of the other (ADR-0011, D7).
+///
+/// **Nothing here is readable by the counterparty until the pair reveals**, and
+/// that is enforced in the service layer rather than in the interface: the read
+/// path filters on the *pair's* status, so an unrevealed review is absent from the
+/// response rather than merely hidden in it (invariant 8).
+model Review {
+  id       String @id @default(uuid(7))
+  /// Exposed in URLs, so a random UUIDv4 like every other external identifier.
+  publicId String @unique @default(uuid(4)) @map("public_id")
+
+  eventId       String @map("event_id")
+  /// The participation being reviewed. Both sides of one participation share it,
+  /// which is what makes `review_pair` a single row.
+  participantId String @map("participant_id")
+  reviewerUserId String @map("reviewer_user_id")
+  revieweeUserId String @map("reviewee_user_id")
+
+  rating  Int
+  /// Fixed vocabulary chosen by the client from a list the API publishes. Free
+  /// text lives in `comment`, which is moderated; tags are not free text and so
+  /// need no moderation of their own.
+  tags    String[] @default([])
+  comment String?
+
+  status           ReviewStatus           @default(SUBMITTED)
+  moderationStatus EventModerationStatus  @default(APPROVED) @map("moderation_status")
+
+  submittedAt    DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(3)
+  revealedAt     DateTime? @map("revealed_at") @db.Timestamptz(3)
+  /// Editable only while SUBMITTED and before this (plan §11: one hour). Stored
+  /// rather than recomputed, so an edit is judged against the window the reviewer
+  /// was actually given — the same reasoning as `grace_expires_at`.
+  editDeadlineAt DateTime  @map("edit_deadline_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  event       Event            @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  participant EventParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  reviewer    User             @relation("ReviewsWritten", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+  reviewee    User             @relation("ReviewsReceived", fields: [revieweeUserId], references: [id], onDelete: Restrict)
+  pairAsHost  ReviewPair?      @relation("PairHostReview")
+  pairAsGuest ReviewPair?      @relation("PairGuestReview")
+
+  /// Invariant 6, in the database rather than in a check somebody has to remember.
+  @@unique([participantId, reviewerUserId])
+  /// The public read: everything revealed about one person, newest first.
+  @@index([revieweeUserId, status, submittedAt])
+  @@index([eventId])
+  @@map("review")
+}
+
+/// Both sides of one participation, plus the window they share (ADR-0011).
+///
+/// The single row is what makes "reveal both at once" atomic. Two independent
+/// review rows with their own deadlines would need a second source of truth for
+/// "has the other side written yet?", and the answer would be read at least once
+/// while it was wrong.
+model ReviewPair {
+  id            String @id @default(uuid(7))
+  /// One pair per participation, for life.
+  participantId String @unique @map("participant_id")
+  eventId       String @map("event_id")
+
+  hostReviewId  String? @unique @map("host_review_id")
+  guestReviewId String? @unique @map("guest_review_id")
+
+  /// Event end + 24 h, and event end + 7 d (plan §11).
+  opensAt    DateTime @map("opens_at") @db.Timestamptz(3)
+  deadlineAt DateTime @map("deadline_at") @db.Timestamptz(3)
+
+  status     ReviewPairStatus @default(PENDING)
+  revealedAt DateTime?        @map("revealed_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  participant EventParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  event       Event            @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  hostReview  Review?          @relation("PairHostReview", fields: [hostReviewId], references: [id], onDelete: Restrict)
+  guestReview Review?          @relation("PairGuestReview", fields: [guestReviewId], references: [id], onDelete: Restrict)
+
+  /// The reveal sweep's read: `status IN ('PENDING','PARTIAL') AND deadline_at <=
+  /// now`. Composite rather than partial because Prisma's `@@index` where-clause
+  /// supports only equality and `not`, so a two-value `IN` predicate is not
+  /// expressible — and an index Prisma cannot see is one `migrate dev` would
+  /// happily drop. Leading on `status` prunes to the pairs still in play, which is
+  /// what the partial predicate would have done.
+  @@index([status, deadlineAt], map: "review_pair_due_idx")
+  @@map("review_pair")
 }

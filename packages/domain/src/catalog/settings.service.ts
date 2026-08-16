@@ -135,6 +135,42 @@ export const SETTING_DEFAULTS = {
   'trust.attendance_daily_cap': 2,
 
   /**
+   * The blind-review window (ADR-0011, D7). Measured from the event's **end**.
+   *
+   * It opens a day later rather than immediately because a review written in the
+   * car park is a review of the last five minutes. Seven days to write one, and
+   * one hour to change your mind about what you wrote.
+   */
+  'review.window_opens_hours': 24,
+  'review.window_deadline_days': 7,
+  'review.edit_window_minutes': 60,
+  /**
+   * D7a, and the one sub-decision the plan explicitly flags for override.
+   *
+   * At the deadline with only one side written, that review **is** revealed —
+   * the reviewer's effort stays visible — but by default it does not move the
+   * score, because somebody who never reviewed cannot have their reputation moved
+   * by a counterparty they had no opportunity to answer. Set this true to change
+   * that, with no deploy.
+   */
+  'review.partial_reveal_affects_trust': 0,
+  /** Coins for writing one (plan §11). Paid on submission — see `ReviewService`. */
+  'economy.review_reward_coins': 10,
+  /**
+   * What a star is worth to the person receiving it (plan §11).
+   *
+   * Stored **signed**, unlike the cancellation penalties: these are not "how much
+   * does it cost", they are "which way does it move", and a table where three of
+   * five entries are negative reads more honestly with the signs in it than with
+   * a magnitude and a rule about when to negate.
+   */
+  'trust.review_rating_5': 3,
+  'trust.review_rating_4': 1,
+  'trust.review_rating_3': 0,
+  'trust.review_rating_2': -2,
+  'trust.review_rating_1': -5,
+
+  /**
    * How long after an event ends before attendance is settled.
    *
    * A window rather than "immediately at the end": the host has to be able to
