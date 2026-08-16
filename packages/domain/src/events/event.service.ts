@@ -15,6 +15,7 @@ import { CatalogService, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { ModerationService, type ContentScan } from '../moderation/moderation.service';
 import { startOfDayIn } from '../time';
+import { lockEventByPublicIdForUpdate } from './event-lock';
 import { ACTIVE_EVENT_STATUSES, assertEventTransition } from './state-machine';
 
 export interface CreateEventInput {
@@ -229,6 +230,18 @@ export class EventService {
     const now = this.clock.now();
 
     await this.prisma.$transaction(async (tx) => {
+      // An edit that changes `capacity` changes the bound `accepted_count` is
+      // checked against, so it contends with every join for the same invariant
+      // and takes the same lock first (ADR-0006). Without it, lowering capacity
+      // while a join is in flight can commit `accepted_count > capacity` — the
+      // CHECK then turns a race into a 500 rather than into overbooking, which
+      // is better but still wrong. Conditional because an edit that leaves
+      // capacity alone cannot move either side of the comparison, and locking
+      // unconditionally would put every title fix in the queue behind joiners.
+      if (input.capacity !== undefined) {
+        await lockEventByPublicIdForUpdate(tx, publicId);
+      }
+
       const existing = await tx.event.findUnique({
         where: { publicId },
         select: {

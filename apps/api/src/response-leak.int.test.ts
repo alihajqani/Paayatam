@@ -43,12 +43,17 @@ let app: NestFastifyApplication;
 let fixture: CatalogFixture;
 let accessToken: string;
 let eventPublicId: string;
+let viewerEventPublicId: string;
+let hostParticipantPublicId: string;
+let viewerParticipantPublicId: string;
 
 interface Endpoint {
   method: 'GET' | 'POST' | 'PATCH';
   url: string;
   /** Endpoints that answer without a session; the rest are sent one. */
   anonymous?: boolean;
+  /** Sent as JSON for the endpoints that read one. */
+  body?: unknown;
 }
 
 /**
@@ -141,9 +146,66 @@ beforeAll(async () => {
       moderationStatus: 'APPROVED',
       publishedAt: new Date(),
     },
-    select: { publicId: true },
+    select: { id: true, publicId: true },
   });
   eventPublicId = event.publicId;
+
+  /**
+   * A second event, hosted by the *viewer*, so the scan can read the surface M6
+   * introduces: the list a host sees of everyone who asked to join. That list is
+   * the first place in the product where one user is shown rows describing
+   * another, which makes it the highest-risk projection built so far.
+   *
+   * The leaky user is the one who asks to join it, so their identifiers are
+   * genuinely present in the data behind the response.
+   */
+  const viewerEvent = await prisma.event.create({
+    data: {
+      hostUserId: user.id,
+      title,
+      description,
+      titleNormalized: normalize(title),
+      descriptionNormalized: normalize(description),
+      categoryId: fixture.categoryId,
+      cityId: fixture.tehranId,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 3 * 60 * 60 * 1000),
+      capacity: 6,
+      costType: 'FREE',
+      status: 'PUBLISHED',
+      moderationStatus: 'APPROVED',
+      publishedAt: new Date(),
+    },
+    select: { id: true, publicId: true },
+  });
+  viewerEventPublicId = viewerEvent.publicId;
+
+  const hostRequest = await prisma.eventParticipant.create({
+    data: { eventId: viewerEvent.id, userId: host.id, status: 'PENDING' },
+    select: { publicId: true },
+  });
+  hostParticipantPublicId = hostRequest.publicId;
+
+  const viewerRequest = await prisma.eventParticipant.create({
+    data: {
+      eventId: event.id,
+      userId: user.id,
+      status: 'ACCEPTED',
+      acceptedAt: new Date(),
+      graceExpiresAt: new Date(Date.now() + 15 * 60_000),
+    },
+    select: { publicId: true },
+  });
+  viewerParticipantPublicId = viewerRequest.publicId;
+
+  // Both participations above hold a seat (PENDING and ACCEPTED both do), so the
+  // counter has to say so. Seeding the rows without it would leave the fixture
+  // describing a state the product cannot reach, and the first cancellation
+  // would try to release a seat from a count of zero.
+  await prisma.event.updateMany({
+    where: { id: { in: [event.id, viewerEvent.id] } },
+    data: { acceptedCount: 1 },
+  });
 
   await prisma.policyVersion.create({
     data: {
@@ -178,6 +240,17 @@ beforeAll(async () => {
   ENDPOINTS.push(
     { method: 'GET', url: `/api/v1/events/${eventPublicId}` },
     { method: 'GET', url: `/api/v1/events/${eventPublicId}/explain-rank` },
+    // M6. The two reads are the ones that matter: `participants` shows a host
+    // rows describing other people, and `me/participations` is the same data
+    // from the other side. The writes are included because §3.6 says *every*
+    // endpoint, and because an error body is a response too — a 409 that named
+    // the person it conflicted with would be just as much of a leak.
+    { method: 'GET', url: '/api/v1/me/participations' },
+    { method: 'GET', url: `/api/v1/events/${viewerEventPublicId}/participants` },
+    { method: 'POST', url: `/api/v1/events/${eventPublicId}/join` },
+    { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/accept` },
+    { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/reject` },
+    { method: 'POST', url: `/api/v1/participants/${viewerParticipantPublicId}/cancel`, body: {} },
   );
 });
 
@@ -191,11 +264,15 @@ async function fetchBody(endpoint: Endpoint): Promise<string> {
     method: endpoint.method,
     url: endpoint.url,
     ...(endpoint.anonymous === true ? {} : { headers: { authorization: `Bearer ${accessToken}` } }),
+    ...(endpoint.body === undefined ? {} : { payload: endpoint.body }),
   });
 
   // A 5xx means the endpoint did not really answer, so scanning its body would be
   // scanning an error page and reporting a false clean.
-  expect(response.statusCode, `${endpoint.method} ${endpoint.url}`).toBeLessThan(500);
+  expect(
+    response.statusCode,
+    `${endpoint.method} ${endpoint.url} → ${response.body.slice(0, 500)}`,
+  ).toBeLessThan(500);
   return response.body;
 }
 
@@ -218,7 +295,7 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
     // A scan that silently stops covering new endpoints is worse than no scan,
     // because it still reports green. This fails when a route is added without
     // being listed here.
-    expect(ENDPOINTS).toHaveLength(11);
+    expect(ENDPOINTS).toHaveLength(17);
   });
 
   it.each(LEAK_PATTERNS)('never returns $name', async ({ pattern }) => {

@@ -4,7 +4,6 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { EnvValidationError, loadEnv } from '@payetam/config';
 import { AppModule } from './app.module';
-import { AppExceptionFilter } from './common/app-exception.filter';
 
 async function bootstrap(): Promise<void> {
   // Validate the environment before Nest constructs anything. A misconfigured
@@ -27,11 +26,16 @@ async function bootstrap(): Promise<void> {
     bufferLogs: true,
   });
 
-  // Request validation arrives in M2 as a zod pipe over the shared schemas in
-  // @payetam/shared. Deliberately not Nest's class-validator ValidationPipe: the
-  // frontends already validate with those zod schemas (ADR-0003), and a second
-  // validation system would be a second set of rules to keep in sync.
-  app.useGlobalFilters(new AppExceptionFilter());
+  // The exception filter is registered inside AppModule via APP_FILTER, not
+  // here: it belongs to the application rather than to this entry point, and
+  // registering it here meant anything else that composed AppModule got Nest's
+  // generic 500 instead of the error catalogue.
+  //
+  // Request validation is a zod pipe over the shared schemas in
+  // @payetam/shared, applied per route. Deliberately not Nest's class-validator
+  // ValidationPipe: the frontends already validate with those zod schemas
+  // (ADR-0003), and a second validation system would be a second set of rules
+  // to keep in sync.
   app.enableShutdownHooks();
 
   // 0.0.0.0 so the process is reachable from outside its container. Exposure is

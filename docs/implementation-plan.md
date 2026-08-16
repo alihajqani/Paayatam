@@ -838,6 +838,54 @@ Tests (the heart of the suite): **20 concurrent joins on capacity=5 ⇒ exactly 
 `accepted_count=5`**, against real Postgres via Testcontainers, repeated 50×; duplicate ⇒ 409; host cannot
 join own event; accept after the last seat vanished ⇒ `CAPACITY_EXCEEDED`; illegal transitions ⇒ 409.
 
+**Deviations from this plan, decided during M6:**
+
+- **`accepted_count` counts seats *held*, which means PENDING and ACCEPTED.** The column name reads as
+  "people accepted", but two independent parts of this plan force the wider meaning: the join flow in §5
+  admits a request as PENDING only while `accepted_count < capacity` and waitlists it otherwise, and
+  ADR-0011 has a cancellation free a seat that promotion then fills with a **PENDING** row. If a pending
+  request held no seat, the first rule would admit everybody and the second would have nothing to free.
+  The consequence worth stating: an undecided request keeps a seat out of circulation, which is what makes
+  `host_deadline_at` load-bearing rather than a nicety.
+- **"Accept after the last seat vanished ⇒ `CAPACITY_EXCEEDED`" is unreachable, by construction.** Given
+  the rule above, a PENDING request has held its seat since it was made, so accepting one cannot overbook;
+  and `WAITLISTED → ACCEPTED` is not a legal transition, so there is no path that accepts a row holding no
+  seat. The property the line is protecting is real and is enforced where it *is* reachable — at join,
+  which is what the 20-concurrent-joins test proves, and by the `CHECK` constraint, which has its own test.
+  The guard remains in `accept()` for the day a future path accepts something that holds no seat.
+- **`WAITLISTED → ACCEPTED` is deliberately absent from the state machine.** A host looking at a waitlist
+  would plausibly expect to pick someone off it, and allowing that would quietly undo ADR-0011's FIFO
+  promotion — being third in the queue would stop meaning anything. A host who wants a particular person
+  gets them when the queue reaches them.
+- **`event_participant.public_id` added.** §4.3's field list omits it, but §6 puts participant ids in URLs
+  (`POST /participants/:id/accept`) and §4's own conventions say anything exposed externally carries a
+  separate random UUID. The internal id stays time-ordered and behind the backend (invariant 7).
+- **The lock helper is shared, and it is the only `FOR UPDATE` in the product.** ADR-0006 asks for exactly
+  one documented helper; `packages/domain/events/event-lock.ts` is it. Reaching the lock from a participant
+  id uses `FOR UPDATE OF e`, which locks the event row and only the event row even though the query joins
+  through `event_participant` — so rule 2 (one lock, never a second) holds on every path.
+- **`EventService.update` now takes the event lock when `capacity` changes.** M4 left this to M6 in a
+  comment, and M6 is what makes it reachable: lowering capacity reads `accepted_count` to validate against,
+  and a join committing in that window could leave `accepted_count > capacity`. The CHECK would turn that
+  race into a 500 rather than into overbooking — better, but still wrong. The lock is conditional because
+  an edit that leaves capacity alone cannot move either side of the comparison.
+- **The exception filter moved from `main.ts` into `AppModule` (`APP_FILTER`).** It was registered in
+  `bootstrap()`, so anything else composing `AppModule` — specifically M5's response-leak scan — ran without
+  it and got Nest's generic 500 in place of the error catalogue. The scan had therefore been reading
+  generic error bodies rather than the product's own envelope since M5. The guard was already wired through
+  `APP_GUARD` in the module; the filter now sits beside it.
+- **`EVENT_FULL_NO_WAITLIST` is still unused.** The join flow always waitlists a full event, so nothing
+  raises it. It stays in the catalogue for a host-level waitlist toggle, which is not in this plan.
+- **Penalties are recorded but not charged.** `cancellation_bucket` is written at cancellation time, so
+  M10 judges a penalty against the thresholds that applied when the participant cancelled rather than
+  whatever `app_setting` holds when the job runs. A request that never held a seat gets no bucket:
+  withdrawing from a queue costs nothing.
+- **Expiry is implemented as a domain method, not a job.** `expireOverdue` sweeps each event in its own
+  transaction under its own lock — sweeping many in one transaction would hold several event locks at once,
+  which is exactly what rule 2 forbids. Scheduling it is M13's repeatable job.
+- **No chat, no outbox, no notifications.** §5's join flow lists both; `anonymous_chat` is M8 and the
+  outbox is not in the schema yet. The join path is otherwise as drawn.
+
 **M7 — Waitlist** · *M*
 Tests: FIFO by `(requested_at, id)`; **two concurrent cancellations promote two distinct people, never the
 same person twice**; promotion idempotent on job retry; expired promotion moves to the next.

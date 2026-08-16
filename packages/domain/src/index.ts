@@ -74,6 +74,20 @@ export { EventService } from './events/event.service';
 export type { CreateEventInput, UpdateEventInput, EventDetail } from './events/event.service';
 export { EventsModule } from './events/events.module';
 
+export {
+  PARTICIPANT_TRANSITIONS,
+  SEAT_HOLDING_STATUSES,
+  LIVE_PARTICIPANT_STATUSES,
+  assertParticipantTransition,
+  holdsSeat,
+} from './participation/state-machine';
+export { ParticipationService } from './participation/participation.service';
+export type {
+  ParticipationDetail,
+  ParticipantSummary,
+} from './participation/participation.service';
+export { ParticipationModule } from './participation/participation.module';
+
 export { encodeCursor, decodeCursor } from './discovery/cursor';
 export type { DiscoveryCursor, DiscoverySort } from './discovery/cursor';
 export { SEARCH_PROVIDER } from './discovery/search-provider';

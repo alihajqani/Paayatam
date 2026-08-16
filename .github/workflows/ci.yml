@@ -194,6 +194,17 @@ jobs:
           check_index      event_title_trgm_idx
           check_index      event_published_recent_idx
           check_index      event_upcoming_idx
+          # Invariant 4. The join path inserts with ON CONFLICT DO NOTHING and
+          # reads the row count, so without this index a duplicate request stops
+          # being impossible and starts being merely unlikely.
+          check_index      event_participant_event_id_user_id_key
+          # The FIFO queue promotion reads (ADR-0011). Losing it does not change
+          # an answer, it changes a sequential scan into the hot path.
+          check_index      event_participant_waitlist_idx
+          check_constraint event_participant_accepted_at_matches_status
+          check_constraint event_participant_cancelled_at_present
+          check_constraint event_participant_promoted_not_waitlisted
+          check_constraint event_participant_penalty_needs_bucket
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

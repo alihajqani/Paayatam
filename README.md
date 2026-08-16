@@ -16,14 +16,15 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
-**Milestone 5 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
+**Milestone 6 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
 complete a profile from the Mini App and receive the onboarding coins exactly once (M3), create events
-that pass through Persian auto-moderation before publishing (M4), and browse, filter and search what
-everyone else has published (M5).
+that pass through Persian auto-moderation before publishing (M4), browse, filter and search what
+everyone else has published (M5), and ask to join one — with seats allocated under a row lock that makes
+overbooking impossible (M6).
 
-Not built yet: participation and capacity, anonymous chat, the bot itself (`/start` does nothing —
+Not built yet: waitlist promotion, anonymous chat, the bot itself (`/start` does nothing —
 `packages/telegram` and the grammY handlers are still outstanding from M2), and the Mini App's
-event-authoring and listing screens.
+event-authoring, listing and participation screens.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone sequence.
 

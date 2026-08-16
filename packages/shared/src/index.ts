@@ -64,6 +64,25 @@ export type {
 } from './contracts/events';
 
 export {
+  participantStatus,
+  cancellationBucket,
+  cancelParticipationRequest,
+  participationView,
+  myParticipationsResponse,
+  participantSummaryView,
+  eventParticipantsResponse,
+} from './contracts/participation';
+export type {
+  ParticipantStatus,
+  CancellationBucket,
+  CancelParticipationRequest,
+  ParticipationView,
+  MyParticipationsResponse,
+  ParticipantSummaryView,
+  EventParticipantsResponse,
+} from './contracts/participation';
+
+export {
   timeOfDay,
   discoverySort,
   discoveryQuery,

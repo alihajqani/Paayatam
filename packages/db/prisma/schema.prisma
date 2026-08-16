@@ -71,6 +71,7 @@ model User {
   coinAccount     CoinAccount?
   coinLedger      CoinLedger[]
   hostedEvents    Event[]
+  participations  EventParticipant[]
 
   @@index([status])
   @@index([createdAt])
@@ -400,6 +401,8 @@ model CoinLedger {
   reverses CoinLedger? @relation("CoinLedgerReversal", fields: [reversesLedgerId], references: [id], onDelete: Restrict)
   reversal CoinLedger? @relation("CoinLedgerReversal")
 
+  penalisedParticipants EventParticipant[]
+
   @@index([userId, createdAt])
   @@index([type, createdAt])
   @@map("coin_ledger")
@@ -523,10 +526,11 @@ model Event {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
 
-  host     User      @relation(fields: [hostUserId], references: [id], onDelete: Restrict)
-  category Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  city     City      @relation(fields: [cityId], references: [id], onDelete: Restrict)
-  district District? @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  host         User               @relation(fields: [hostUserId], references: [id], onDelete: Restrict)
+  category     Category           @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  city         City               @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  district     District?          @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  participants EventParticipant[]
 
   @@index([status, startsAt])
   @@index([hostUserId, createdAt])
@@ -544,6 +548,107 @@ model Event {
   @@index([publishedAt(sort: Desc)], map: "event_published_recent_idx", where: { status: "PUBLISHED", deletedAt: null })
   @@index([startsAt], map: "event_upcoming_idx", where: { status: "PUBLISHED", deletedAt: null })
   @@map("event")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Participation (ADR-0006)
+//
+// One row per (event, user), enforced by a UNIQUE index rather than by an
+// application check — invariant 4. A read-then-write "has this person already
+// asked?" test has a race window between the read and the insert; the constraint
+// has none, so the join path inserts with ON CONFLICT DO NOTHING and reads the
+// row count to decide whether it was a duplicate.
+//
+// There is no separate waitlist table (plan §4.3): a waitlisted user *is* an
+// `event_participant` with `status = 'WAITLISTED'`, and the queue order is
+// derived from `(requested_at, id)` rather than stored. Two tables would be a
+// dual-write race across promotion and cancellation for no benefit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ParticipantStatus {
+  PENDING
+  WAITLISTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED_BY_PARTICIPANT
+  CANCELLED_BY_HOST
+  COMPLETED
+  NO_SHOW
+
+  @@map("participant_status")
+}
+
+/// Which side of a cancellation threshold the cancellation fell on (plan §11).
+///
+/// Stored rather than recomputed: the thresholds live in `app_setting` and can
+/// be retuned, and a penalty must stay explainable against the policy that was
+/// in force when it was applied — the same argument that makes
+/// `moderation_case.blacklist_version` worth storing.
+enum CancellationBucket {
+  GRACE
+  GT_24H
+  H24_TO_H3
+  LT_3H
+  NO_SHOW
+
+  @@map("cancellation_bucket")
+}
+
+model EventParticipant {
+  id       String @id @default(uuid(7))
+  /// Exposed in URLs (`POST /participants/:publicId/accept`), so it is a random
+  /// UUIDv4 like every other externally visible identifier. The internal id is
+  /// time-ordered and never leaves the backend (invariant 7).
+  publicId String @unique @default(uuid(4)) @map("public_id")
+
+  eventId String @map("event_id")
+  userId  String @map("user_id")
+
+  status ParticipantStatus @default(PENDING)
+
+  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz(3)
+  /// When the host accepted or rejected — the decision, not its outcome.
+  decidedAt   DateTime? @map("decided_at") @db.Timestamptz(3)
+  acceptedAt  DateTime? @map("accepted_at") @db.Timestamptz(3)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  /// Cancel before this and the cancellation is free (plan §11: 15 minutes).
+  graceExpiresAt DateTime? @map("grace_expires_at") @db.Timestamptz(3)
+  /// `min(now + 24h, starts_at - 3h)`. Past it, the request expires and the seat
+  /// it was holding goes back to the pool.
+  hostDeadlineAt DateTime? @map("host_deadline_at") @db.Timestamptz(3)
+  /// Set when a waitlisted request was promoted (M7).
+  promotedAt     DateTime? @map("promoted_at") @db.Timestamptz(3)
+
+  cancellationReason String?             @map("cancellation_reason")
+  cancellationBucket CancellationBucket? @map("cancellation_bucket")
+  /// The penalty row this cancellation produced (M10). Null while penalties are
+  /// not yet applied, and for cancellations that cost nothing.
+  penaltyLedgerId    String?             @map("penalty_ledger_id")
+
+  /// Null until the event completes and attendance is settled (M11).
+  attended Boolean?
+
+  /// Optimistic-concurrency token for host edits of a decision. Capacity itself
+  /// is protected by the event row lock, never by this — a version check cannot
+  /// make a counter safe (ADR-0006).
+  version Int @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  event   Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  penalty CoinLedger? @relation(fields: [penaltyLedgerId], references: [id], onDelete: Restrict)
+
+  /// Invariant 4, and the duplicate-request guard the join path relies on.
+  @@unique([eventId, userId])
+  @@index([eventId, status])
+  @@index([userId, status])
+  /// The waitlist queue, in the order promotion reads it (ADR-0006). Partial, so
+  /// it stays small on events with a long history of settled requests.
+  @@index([eventId, requestedAt, id], map: "event_participant_waitlist_idx", where: { status: "WAITLISTED" })
+  @@map("event_participant")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

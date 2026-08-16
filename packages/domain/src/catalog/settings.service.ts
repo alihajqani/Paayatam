@@ -24,6 +24,17 @@ export const SETTING_DEFAULTS = {
   /** Upcoming, non-retired events a host may hold at once (plan §11). */
   'events.max_concurrent_active': 3,
 
+  /**
+   * How long a host has to decide, and how close to the event a decision still
+   * means anything: the deadline is `min(now + 24h, starts_at - 3h)` (plan §11).
+   * Both matter because a PENDING request holds a seat — these numbers bound how
+   * long an undecided request keeps one out of circulation.
+   */
+  'participation.host_response_hours': 24,
+  'participation.min_hours_before_event': 3,
+  /** Cancel within this many minutes of being accepted and it costs nothing. */
+  'participation.grace_minutes': 15,
+
   // Ranking weights (plan §11). Fractions, not integers — read with `getNumber`.
   // Trust is capped at 0.10 deliberately: §12 resolves "Trust Score in ranking"
   // against "no unfair discrimination" by keeping trust a tenth of the signal, so

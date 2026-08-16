@@ -40,10 +40,11 @@ export function createTestPrisma(): PrismaClient {
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE TABLE
-      "moderation_case", "event", "blacklist_term", "blacklist_version",
-      "user_interest", "user_profile", "coin_ledger", "coin_account", "consent",
-      "telegram_account", "audit_log", "user", "policy_version", "interest",
-      "category", "district", "city", "app_setting", "feature_flag"
+      "moderation_case", "event_participant", "event", "blacklist_term",
+      "blacklist_version", "user_interest", "user_profile", "coin_ledger",
+      "coin_account", "consent", "telegram_account", "audit_log", "user",
+      "policy_version", "interest", "category", "district", "city",
+      "app_setting", "feature_flag"
     RESTART IDENTITY CASCADE
   `;
 }
