@@ -70,6 +70,7 @@ model User {
   interests       UserInterest[]
   coinAccount     CoinAccount?
   coinLedger      CoinLedger[]
+  hostedEvents    Event[]
 
   @@index([status])
   @@index([createdAt])
@@ -200,6 +201,7 @@ model City {
 
   districts District[]
   profiles  UserProfile[]
+  events    Event[]
 
   @@index([isActive, sortOrder])
   @@map("city")
@@ -217,6 +219,7 @@ model District {
 
   city     City          @relation(fields: [cityId], references: [id], onDelete: Restrict)
   profiles UserProfile[]
+  events   Event[]
 
   @@unique([cityId, slug])
   @@index([cityId, isActive, sortOrder])
@@ -237,6 +240,7 @@ model Category {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   interests Interest[]
+  events    Event[]
 
   @@index([isActive, sortOrder])
   @@map("category")
@@ -399,6 +403,246 @@ model CoinLedger {
   @@index([userId, createdAt])
   @@index([type, createdAt])
   @@map("coin_ledger")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Events
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum EventStatus {
+  DRAFT
+  PENDING_MODERATION
+  PUBLISHED
+  HIDDEN
+  REJECTED
+  CANCELLED_BY_HOST
+  ONGOING
+  COMPLETED
+  EXPIRED
+  DELETED
+
+  @@map("event_status")
+}
+
+/// The moderation verdict, tracked separately from the lifecycle status.
+///
+/// Two axes, not one: an event can be PUBLISHED and FLAGGED at the same time —
+/// visible to users while a moderator looks at it — which is the whole point of
+/// FLAG being distinct from BLOCK (ADR-0012).
+enum EventModerationStatus {
+  PENDING
+  APPROVED
+  FLAGGED
+  REJECTED
+
+  @@map("event_moderation_status")
+}
+
+enum CostType {
+  FREE
+  APPROX
+  FIXED
+  SPLIT
+
+  @@map("cost_type")
+}
+
+/// Null means anyone may join. Only the restrictive values are enumerated, so
+/// "no preference" has exactly one representation rather than two.
+enum GenderPreference {
+  MALE_ONLY
+  FEMALE_ONLY
+
+  @@map("gender_preference")
+}
+
+model Event {
+  id          String  @id @default(uuid(7))
+  publicId    String  @unique @default(uuid(4)) @map("public_id")
+  hostUserId  String  @map("host_user_id")
+  title       String
+  description String
+
+  /// Normalized copies, written by the application through the ADR-0012
+  /// pipeline. They exist because the normalizer is TypeScript and cannot be
+  /// called from a Postgres trigger: the M5 `search_vector` trigger will read
+  /// these rather than re-implementing normalization in PL/pgSQL, and the M12
+  /// re-scan on a blacklist bump matches against them without re-normalizing
+  /// the corpus.
+  titleNormalized       String  @map("title_normalized")
+  descriptionNormalized String  @map("description_normalized")
+
+  categoryId String  @map("category_id")
+  cityId     String  @map("city_id")
+  districtId String? @map("district_id")
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  capacity Int
+  /// Invariant 1. Only ever changed under `SELECT … FOR UPDATE` on this row (M6).
+  acceptedCount Int @default(0) @map("accepted_count")
+
+  costType CostType @map("cost_type")
+  /// Integer Toman, never a float (plan §4).
+  costAmount Int?    @map("cost_amount")
+  costNote   String? @map("cost_note")
+
+  rules            String?
+  genderPreference GenderPreference? @map("gender_preference")
+  minAge           Int?              @map("min_age")
+  maxAge           Int?              @map("max_age")
+
+  /// Stored and displayed, never fetched server-side, https only (T5.3).
+  externalLink String? @map("external_link")
+
+  status           EventStatus           @default(DRAFT)
+  moderationStatus EventModerationStatus @default(PENDING) @map("moderation_status")
+  publishedAt      DateTime?             @map("published_at") @db.Timestamptz(3)
+
+  boostedUntil DateTime? @map("boosted_until") @db.Timestamptz(3)
+  isVip        Boolean   @default(false) @map("is_vip")
+
+  viewCount    Int @default(0) @map("view_count")
+  requestCount Int @default(0) @map("request_count")
+
+  /// Optimistic-concurrency token for host edits. Capacity changes use the row
+  /// lock instead — a version check cannot make a counter safe.
+  version Int @default(0)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  host     User      @relation(fields: [hostUserId], references: [id], onDelete: Restrict)
+  category Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  city     City      @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  district District? @relation(fields: [districtId], references: [id], onDelete: Restrict)
+
+  @@index([status, startsAt])
+  @@index([hostUserId, createdAt])
+  // Partial indexes, expressible thanks to the `partialIndexes` preview feature
+  // enabled above. Keeping them in the schema rather than only in the migration
+  // is what stops `migrate diff` reporting them as drift — the mistake M2 had to
+  // live with for the partial UNIQUE, which `@@unique` still cannot express.
+  @@index([cityId, categoryId, startsAt], map: "event_discovery_idx", where: { status: "PUBLISHED", deletedAt: null })
+  @@index([boostedUntil], map: "event_boosted_idx", where: { boostedUntil: { not: null } })
+  @@map("event")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Moderation (ADR-0012)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum BlacklistPatternType {
+  EXACT
+  SUBSTRING
+  REGEX
+
+  @@map("blacklist_pattern_type")
+}
+
+enum BlacklistSeverity {
+  BLOCK
+  FLAG
+
+  @@map("blacklist_severity")
+}
+
+/// A monotonic counter, bumped on any change to the term list.
+///
+/// It exists so a decision can be explained against the rules that were in force
+/// when it was made: every `moderation_case` stores the version that judged it.
+/// Without that, tightening the blacklist would silently rewrite the
+/// justification for every past decision.
+model BlacklistVersion {
+  id        String   @id @default(uuid(7))
+  version   Int      @unique
+  note      String?
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("blacklist_version")
+}
+
+model BlacklistTerm {
+  id   String @id @default(uuid(7))
+  /// As a moderator typed it. Kept for the admin UI; never matched against.
+  termRaw String @map("term_raw")
+  /// What matching actually uses — the term put through the same ADR-0012
+  /// pipeline as the incoming text. Storing only the raw form would mean
+  /// normalizing every term on every scan, and getting it wrong once.
+  termNormalized String               @map("term_normalized")
+  patternType    BlacklistPatternType @map("pattern_type")
+  severity       BlacklistSeverity
+  category       String?
+  isActive       Boolean              @default(true) @map("is_active")
+  createdBy      String?              @map("created_by")
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([termNormalized, patternType])
+  @@index([isActive])
+  @@map("blacklist_term")
+}
+
+enum ModerationSubjectType {
+  EVENT
+  USER
+  MESSAGE
+  REVIEW
+
+  @@map("moderation_subject_type")
+}
+
+enum ModerationTrigger {
+  AUTO_BLACKLIST
+  REPORT_THRESHOLD
+  MANUAL
+
+  @@map("moderation_trigger")
+}
+
+enum ModerationCaseStatus {
+  OPEN
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  ESCALATED
+
+  @@map("moderation_case_status")
+}
+
+model ModerationCase {
+  id          String                @id @default(uuid(7))
+  subjectType ModerationSubjectType @map("subject_type")
+  subjectId   String                @map("subject_id")
+  trigger     ModerationTrigger
+  status      ModerationCaseStatus  @default(OPEN)
+
+  assignedAdminId String? @map("assigned_admin_id")
+  /// The blacklist version that produced this case. Null for MANUAL cases,
+  /// which no version judged.
+  blacklistVersion Int?   @map("blacklist_version")
+  /// The terms that matched, as an allowlisted projection — id, raw term,
+  /// pattern type, severity. Never the scanned text itself.
+  matchedTerms     Json?  @map("matched_terms")
+  reportCount      Int    @default(0) @map("report_count")
+
+  decision     String?
+  decisionNote String?   @map("decision_note")
+  decidedBy    String?   @map("decided_by")
+  decidedAt    DateTime? @map("decided_at") @db.Timestamptz(3)
+  /// Set by a moderator when the automation was wrong. This is what turns the
+  /// false-positive rate into a number rather than an impression (ADR-0012).
+  falsePositive Boolean? @map("false_positive")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@index([subjectType, subjectId])
+  @@map("moderation_case")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

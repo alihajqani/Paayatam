@@ -5,7 +5,9 @@ import {
   AuditModule,
   CatalogModule,
   EconomyModule,
+  EventsModule,
   IdentityModule,
+  ModerationModule,
   ProfileModule,
 } from '@payetam/domain';
 import { ClockModule, ConfigModule, RedisModule } from '@payetam/platform';
@@ -13,6 +15,7 @@ import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { CatalogController } from './catalog/catalog.controller';
+import { EventsController } from './events/events.controller';
 import { HealthModule } from './health/health.module';
 import { OnboardingController } from './onboarding/onboarding.controller';
 import { TelegramWebhookController } from './telegram/webhook.controller';
@@ -36,9 +39,17 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     CatalogModule,
     EconomyModule,
     ProfileModule,
+    ModerationModule,
+    EventsModule,
     HealthModule,
   ],
-  controllers: [AuthController, OnboardingController, CatalogController, TelegramWebhookController],
+  controllers: [
+    AuthController,
+    OnboardingController,
+    CatalogController,
+    EventsController,
+    TelegramWebhookController,
+  ],
   providers: [AuthService, { provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}

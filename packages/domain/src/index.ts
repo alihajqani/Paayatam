@@ -41,3 +41,35 @@ export type {
 export { ProfileModule } from './profile/profile.module';
 
 export { gregorianYearIn as gregorianYearInZone, startOfDayIn } from './time';
+
+export { assertTransition, canTransition, terminalStates } from './state-machine';
+export type { TransitionTable } from './state-machine';
+
+export {
+  normalize,
+  tokenize,
+  toNfc,
+  foldArabicLetters,
+  removeDiacritics,
+  foldZeroWidth,
+  unifyDigits,
+  unifyPunctuation,
+  collapseWhitespace,
+  collapseRepetition,
+  mapHomoglyphs,
+  foldCase,
+} from './moderation/persian-normalizer';
+export { BlacklistService } from './moderation/blacklist.service';
+export type { Blacklist, BlacklistMatch, BlacklistRule } from './moderation/blacklist.service';
+export { ModerationService, decisionFor } from './moderation/moderation.service';
+export type { ContentScan, ModerationDecision } from './moderation/moderation.service';
+export { ModerationModule } from './moderation/moderation.module';
+
+export {
+  EVENT_TRANSITIONS,
+  ACTIVE_EVENT_STATUSES,
+  assertEventTransition,
+} from './events/state-machine';
+export { EventService } from './events/event.service';
+export type { CreateEventInput, UpdateEventInput, EventDetail } from './events/event.service';
+export { EventsModule } from './events/events.module';

@@ -1,0 +1,138 @@
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
+import {
+  EventService,
+  UserService,
+  type CreateEventInput,
+  type UpdateEventInput,
+} from '@payetam/domain';
+import {
+  createEventRequest,
+  updateEventRequest,
+  type CreateEventRequest,
+  type EventView,
+  type MyEventsResponse,
+  type UpdateEventRequest,
+} from '@payetam/shared';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
+import { toEventView } from './event.view';
+
+@Controller('api/v1')
+export class EventsController {
+  constructor(
+    private readonly events: EventService,
+    private readonly users: UserService,
+  ) {}
+
+  /**
+   * Creates an event and runs it through auto-moderation.
+   *
+   * Returns 201 with the event in whatever state moderation left it, rather than
+   * a 4xx when a term matched. That is deliberate: a host whose text tripped the
+   * blacklist has still created something, and `status` plus `moderationStatus`
+   * tell them exactly where it stands. Refusing the write would also lose the
+   * text they wrote — including in the false-positive case, which ADR-0012 says
+   * is the outcome to optimise against.
+   */
+  @Post('events')
+  @HttpCode(HttpStatus.CREATED)
+  async create(
+    @Body(new ZodValidationPipe(createEventRequest)) body: CreateEventRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<EventView> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    const event = await this.events.create(hostUserId, toCreateInput(body));
+    return toEventView(event);
+  }
+
+  /**
+   * Edits an event the caller hosts.
+   *
+   * Ownership is asserted in the service, not here (T3.2) — the bot reaches the
+   * same method, and a check that lives in one adapter protects one adapter.
+   */
+  @Patch('events/:publicId')
+  async update(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(updateEventRequest)) body: UpdateEventRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<EventView> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    const { expectedVersion, ...changes } = body;
+
+    const event = await this.events.update(
+      hostUserId,
+      publicId,
+      toUpdateInput(changes),
+      expectedVersion,
+    );
+    return toEventView(event);
+  }
+
+  /**
+   * The caller's own events, in every state.
+   *
+   * Separate from discovery on purpose: this shows a host their PENDING_MODERATION
+   * and REJECTED events, which `GET /events` must never show anyone. M5 builds
+   * the public listing with its own narrower mapper.
+   */
+  @Get('me/events')
+  async listMine(@CurrentUser() current: AuthenticatedUser): Promise<MyEventsResponse> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    const events = await this.events.listOwned(hostUserId);
+    return { events: events.map(toEventView) };
+  }
+}
+
+/**
+ * Wire shape → domain input.
+ *
+ * The two differ in exactly one way that matters: timestamps arrive as ISO
+ * strings and the domain works in `Date`. Doing the conversion here keeps every
+ * domain service free of string-date handling.
+ *
+ * Optional fields are spread conditionally rather than passed as `undefined`,
+ * because `exactOptionalPropertyTypes` distinguishes "absent" from "present and
+ * undefined" — and for a PATCH those mean different things.
+ */
+function toCreateInput(body: CreateEventRequest): CreateEventInput {
+  return {
+    title: body.title,
+    description: body.description,
+    categoryId: body.categoryId,
+    cityId: body.cityId,
+    ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
+    startsAt: new Date(body.startsAt),
+    endsAt: new Date(body.endsAt),
+    capacity: body.capacity,
+    costType: body.costType,
+    ...(body.costAmount !== undefined ? { costAmount: body.costAmount } : {}),
+    ...(body.costNote !== undefined ? { costNote: body.costNote } : {}),
+    ...(body.rules !== undefined ? { rules: body.rules } : {}),
+    ...(body.genderPreference !== undefined ? { genderPreference: body.genderPreference } : {}),
+    ...(body.minAge !== undefined ? { minAge: body.minAge } : {}),
+    ...(body.maxAge !== undefined ? { maxAge: body.maxAge } : {}),
+    ...(body.externalLink !== undefined ? { externalLink: body.externalLink } : {}),
+  };
+}
+
+function toUpdateInput(body: Omit<UpdateEventRequest, 'expectedVersion'>): UpdateEventInput {
+  return {
+    ...(body.title !== undefined ? { title: body.title } : {}),
+    ...(body.description !== undefined ? { description: body.description } : {}),
+    ...(body.categoryId !== undefined ? { categoryId: body.categoryId } : {}),
+    ...(body.cityId !== undefined ? { cityId: body.cityId } : {}),
+    ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
+    ...(body.startsAt !== undefined ? { startsAt: new Date(body.startsAt) } : {}),
+    ...(body.endsAt !== undefined ? { endsAt: new Date(body.endsAt) } : {}),
+    ...(body.capacity !== undefined ? { capacity: body.capacity } : {}),
+    ...(body.costType !== undefined ? { costType: body.costType } : {}),
+    ...(body.costAmount !== undefined ? { costAmount: body.costAmount } : {}),
+    ...(body.costNote !== undefined ? { costNote: body.costNote } : {}),
+    ...(body.rules !== undefined ? { rules: body.rules } : {}),
+    ...(body.genderPreference !== undefined ? { genderPreference: body.genderPreference } : {}),
+    ...(body.minAge !== undefined ? { minAge: body.minAge } : {}),
+    ...(body.maxAge !== undefined ? { maxAge: body.maxAge } : {}),
+    ...(body.externalLink !== undefined ? { externalLink: body.externalLink } : {}),
+  };
+}

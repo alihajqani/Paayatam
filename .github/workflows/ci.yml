@@ -182,6 +182,10 @@ jobs:
           check_constraint coin_account_balance_non_negative
           check_constraint coin_ledger_arithmetic
           check_constraint coin_ledger_amount_non_zero
+          check_constraint event_accepted_count_within_capacity
+          check_constraint event_cost_amount_matches_type
+          check_constraint event_external_link_https
+          check_constraint moderation_case_auto_records_version
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

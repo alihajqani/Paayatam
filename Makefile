@@ -83,9 +83,10 @@ db-test: ## Create and migrate payetam_test, so integration tests stop truncatin
 	@echo "Add this to .env so the integration suite uses it:"
 	@echo "  TEST_DATABASE_URL=postgresql://payetam:<password>@localhost:55432/payetam_test"
 
-seed: ## Seed policies and catalog into the development database
+seed: ## Seed policies, catalog and the starter blacklist into the development database
 	pnpm seed:policies
 	pnpm seed:catalog
+	pnpm seed:blacklist
 
 check: typecheck lint test ## What CI runs on every commit
 

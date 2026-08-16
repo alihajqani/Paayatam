@@ -734,6 +734,46 @@ a flagged event never publishes; the decision records the blacklist version.
 Risk: **false positives block legitimate hosts** → `severity=FLAG` (queue, don't block) is the default for
 ambiguous terms; `moderation_case.false_positive` tracks the rate.
 
+**Deviations from this plan, decided during M4:**
+
+- **"A flagged event never publishes" above contradicts ADR-0012, and the ADR wins.** ADR-0012 defines
+  `FLAG` as "publishes, but opens a moderation case" and `BLOCK` as "never publishes, straight to
+  `PENDING_MODERATION`". The ADR owns this decision, states it twice, and gives the reasoning — a false
+  positive that blocks a legitimate host is worse than a queue entry — which is also what this section's
+  own Risk line argues ("queue, don't block"). Implemented as the ADR specifies. **The sentence above is
+  the one to change if that reading is wrong**, because reversing it means FLAG stops publishing.
+- **`assertTransition` is a shared helper** in `packages/domain/state-machine.ts`, with per-module
+  transition tables as §7 describes. Staying in a state is not a transition and is not asserted — a table
+  with self-loops could no longer answer "is this state terminal".
+- **A tenth normalization rule.** ADR-0012 lists nine; `foldCase` was added, because without it a
+  Latin-script blacklist term matches only the casing a moderator happened to type.
+- **The homoglyph rule was reinterpreted.** ADR-0012 asks for "confusable Latin/Cyrillic characters →
+  their Persian equivalents". Perso-Arabic shares no glyph shapes with Latin or Cyrillic, so every such
+  mapping would be invented, and a wrong one corrupts legitimate mixed-script titles. The rule instead
+  folds the genuine confusables — Urdu, Kurdish and Pashto letterforms — and a companion rule strips
+  Latin/Cyrillic characters *inserted* inside a Perso-Arabic word. **Substitution** (`مشrوب`, where `r`
+  stands in for `ر`) is a documented gap, pinned in the verdict table.
+- **`event.search_vector` and the GIN/trigram indexes are M5**, not here. They need the tsvector column
+  and belong to discovery. M4 adds `title_normalized` / `description_normalized`, which the M5 trigger
+  reads — the alternative was re-implementing ADR-0012's normalizer in PL/pgSQL, i.e. the exact
+  duplication the ADR exists to prevent.
+- **`event.image_media_id` deferred**, as `user_profile.avatar_media_id` was in M3: the `media` table it
+  references does not exist yet.
+- **§4.3's `WHERE boosted_until > now()` partial index is not expressible.** Postgres requires an index
+  predicate to be IMMUTABLE. Built as `WHERE boosted_until IS NOT NULL`, which prunes to the same rows;
+  the freshness comparison moves into the query.
+- **`event.created_at` is written from the injected `Clock`, not the column default.** The daily quota
+  filters `created_at` against a window derived from `Clock`; leaving the column to the database's
+  `now()` meant the filter and the rows it filtered came from two different sources of time, which the
+  Tehran-midnight boundary test caught (ADR-0008).
+- **`moderation_case.matched_terms` never contains the scanned text** — only the rules that fired. The
+  case points at its subject, and the subject is where the text lives (ADR-0009).
+- **REGEX blacklist patterns carry a ReDoS risk with no clean mitigation.** JavaScript has no regex
+  timeout. Bounded by a 200-character pattern cap (CHECK), a 4000-character subject cap, and per-call
+  compilation with an invalid pattern logged and skipped rather than failing event creation. **M12's
+  admin UI must validate patterns before storing them.**
+- **No Mini App work.** M4's file list is backend only; the event-authoring screen is not built.
+
 **M5 — Discovery & search** · *L*
 Tests: each filter independently; keyset pagination has **no duplicates and no gaps** while rows are
 inserted mid-scan; a Persian query with ي/ك and half-space variants matches; **the CI response-leak scan

@@ -41,3 +41,24 @@ export type {
   MeResponse,
   CompleteProfileResponse,
 } from './contracts/profile';
+
+export {
+  costType,
+  genderPreference,
+  eventStatus,
+  eventModerationStatus,
+  createEventRequest,
+  updateEventRequest,
+  eventView,
+  myEventsResponse,
+} from './contracts/events';
+export type {
+  CostType,
+  GenderPreference,
+  EventStatus,
+  EventModerationStatus,
+  CreateEventRequest,
+  UpdateEventRequest,
+  EventView,
+  MyEventsResponse,
+} from './contracts/events';

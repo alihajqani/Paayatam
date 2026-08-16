@@ -16,12 +16,13 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
-**Milestone 3 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
-and complete a profile from the Mini App, receiving the onboarding coins exactly once (M3).
+**Milestone 4 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
+complete a profile from the Mini App and receive the onboarding coins exactly once (M3), and create
+events that pass through Persian auto-moderation before publishing (M4).
 
-Not built yet: event creation and auto-moderation, discovery and search, participation and capacity,
-anonymous chat, and the bot itself (`/start` does nothing — `packages/telegram` and the grammY handlers
-are still outstanding from M2).
+Not built yet: discovery and search, participation and capacity, anonymous chat, the bot itself
+(`/start` does nothing — `packages/telegram` and the grammY handlers are still outstanding from M2),
+and the Mini App's event-authoring screen.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone sequence.
 
@@ -96,7 +97,7 @@ make up                   # postgres + redis (ports 55432 / 56379, so they do no
                           # collide with any other stack on your machine)
 pnpm db:generate          # Prisma client is generated, not committed
 pnpm --filter @payetam/db db:migrate:deploy
-make seed                 # policies, catalog (cities, categories, interests)
+make seed                 # policies, catalog (cities, categories, interests), blacklist
 pnpm dev                  # tsc --watch + api + worker + miniapp
 ```
 
