@@ -62,3 +62,20 @@ export type {
   EventView,
   MyEventsResponse,
 } from './contracts/events';
+
+export {
+  timeOfDay,
+  discoverySort,
+  discoveryQuery,
+  discoveredEventView,
+  discoveryResponse,
+  rankExplanationResponse,
+} from './contracts/discovery';
+export type {
+  TimeOfDay,
+  DiscoverySort,
+  DiscoveryQueryRequest,
+  DiscoveredEventView,
+  DiscoveryResponse,
+  RankExplanationResponse,
+} from './contracts/discovery';

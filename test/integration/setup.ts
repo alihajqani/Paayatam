@@ -37,4 +37,15 @@ if (!testUrl) {
         'test database.\n',
     );
   }
+} else {
+  /**
+   * Point `DATABASE_URL` at the test database too.
+   *
+   * `createTestPrisma` already prefers `TEST_DATABASE_URL`, but the leak scan
+   * boots the real Nest application, and the application builds its client from
+   * `DATABASE_URL` like any other process would. Without this line that one test
+   * would quietly truncate and re-seed a developer's development database while
+   * every other test used the test one.
+   */
+  process.env['DATABASE_URL'] = testUrl;
 }

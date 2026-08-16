@@ -186,6 +186,14 @@ jobs:
           check_constraint event_cost_amount_matches_type
           check_constraint event_external_link_https
           check_constraint moderation_case_auto_records_version
+          # Without this trigger `search_vector` is never filled, and every text
+          # query quietly returns nothing — a failure that looks like "no results"
+          # rather than like a broken database.
+          check_trigger    event_search_vector_sync
+          check_index      event_search_vector_idx
+          check_index      event_title_trgm_idx
+          check_index      event_published_recent_idx
+          check_index      event_upcoming_idx
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

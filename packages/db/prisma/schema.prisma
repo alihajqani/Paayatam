@@ -465,10 +465,9 @@ model Event {
 
   /// Normalized copies, written by the application through the ADR-0012
   /// pipeline. They exist because the normalizer is TypeScript and cannot be
-  /// called from a Postgres trigger: the M5 `search_vector` trigger will read
-  /// these rather than re-implementing normalization in PL/pgSQL, and the M12
-  /// re-scan on a blacklist bump matches against them without re-normalizing
-  /// the corpus.
+  /// called from a Postgres trigger: the M5 `search_vector` trigger reads these
+  /// rather than re-implementing normalization in PL/pgSQL, and the M12 re-scan
+  /// on a blacklist bump matches against them without re-normalizing the corpus.
   titleNormalized       String  @map("title_normalized")
   descriptionNormalized String  @map("description_normalized")
 
@@ -510,6 +509,16 @@ model Event {
   /// lock instead — a version check cannot make a counter safe.
   version Int @default(0)
 
+  /// Maintained by the `event_search_vector_sync` trigger from the normalized
+  /// columns above (ADR-0012, migration 0005).
+  ///
+  /// `Unsupported` because Prisma has no `tsvector` type. The consequence is
+  /// that it is invisible to the generated client — which is correct here:
+  /// nothing should ever select it, and every query that uses it is raw SQL in
+  /// `PostgresSearchProvider`. Declaring it keeps `migrate diff` quiet about a
+  /// column that genuinely exists.
+  searchVector Unsupported("tsvector")? @map("search_vector")
+
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
@@ -527,6 +536,13 @@ model Event {
   // live with for the partial UNIQUE, which `@@unique` still cannot express.
   @@index([cityId, categoryId, startsAt], map: "event_discovery_idx", where: { status: "PUBLISHED", deletedAt: null })
   @@index([boostedUntil], map: "event_boosted_idx", where: { boostedUntil: { not: null } })
+  // Search indexes (migration 0005). `ops: raw(...)` is how a GIN operator class
+  // reaches the generated SQL — without it Prisma picks the default class, which
+  // for a text column is not `gin_trgm_ops` and would not answer a `%` query.
+  @@index([searchVector(ops: raw("tsvector_ops"))], map: "event_search_vector_idx", type: Gin)
+  @@index([titleNormalized(ops: raw("gin_trgm_ops"))], map: "event_title_trgm_idx", type: Gin)
+  @@index([publishedAt(sort: Desc)], map: "event_published_recent_idx", where: { status: "PUBLISHED", deletedAt: null })
+  @@index([startsAt], map: "event_upcoming_idx", where: { status: "PUBLISHED", deletedAt: null })
   @@map("event")
 }
 

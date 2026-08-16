@@ -780,6 +780,59 @@ inserted mid-scan; a Persian query with ي/ك and half-space variants matches; *
 lands here**; a brand-new host with default trust still reaches page 1 for a matching query.
 Acceptance: p95 < 200 ms on 10k seeded events.
 
+**Deviations from this plan, decided during M5:**
+
+- **The search seam is an interface, not a direct Postgres call.** ADR-0012 keeps a Meilisearch swap cheap;
+  what that buys concretely is that `DiscoveryService` decides *what a viewer may see* and knows nothing
+  about tsvectors, trigrams or keyset SQL. A second provider satisfies `SearchProvider` and nothing else.
+- **The ranking score is defined once**, in `scoreSql`, and used by both `search` and `explain-rank`. A
+  second copy for the explain endpoint would be a formula that drifts from the one that actually ranks,
+  which makes "explain" a lie.
+- **The trust term is in the formula from day one as a constant 0.5**, rather than added in M9. The weight
+  is therefore real, configurable and visible in `explain-rank` immediately, and M9's change is a constant
+  becoming a column read rather than a re-derivation of the ranking. A constant is also exactly the
+  "neutral bucket" §11 requires for new hosts.
+- **`view_count` is deliberately not part of popularity.** Incrementing it on every detail read would take
+  a row lock on `event` — the same row M6 locks for capacity — and putting a write on the hottest read
+  path to feed a ranking signal is a bad trade. A batched job can feed it later.
+- **Cursors carry a frozen `epoch` and are not signed.** The epoch is the subtle part: relevance depends on
+  `now()`, so without freezing it at the first page every later page re-ranks against a slightly later
+  clock and the total order shifts underneath the cursor. Signing is unnecessary — a tampered cursor can
+  only produce a wrong page of data the caller is already allowed to see.
+- **A cursor whose sort disagrees with the request is rejected**, not silently restarted. Changing sort
+  mid-pagination makes the key meaningless (a score compared against a timestamp), and starting over
+  quietly would look exactly like the duplicate-rows bug keyset pagination exists to prevent.
+- **Text relevance is `GREATEST(ts_rank, similarity)`, not a sum**, and the query runs through
+  `plainto_tsquery('simple', …)`. Postgres has no Persian stemmer, so `simple` plus trigram similarity
+  covers what stemming would have; `GREATEST` stops an exact phrase match being beaten by a document that
+  scores mediocrely on both measures.
+- **The response-leak scan lives in `apps/api/src`, not `test/`.** It boots the real application, so it
+  needs the API's own `@nestjs/platform-fastify`, which the workspace root does not carry. It imports the
+  **compiled** `dist/app.module.js` because NestJS DI reads `design:paramtypes`, which `tsc` emits and the
+  test runner's esbuild transform does not — importing the source leaves every constructor parameter
+  unresolvable.
+- **The leak scan authenticates as a different user from the one carrying the identifiers.** Signing in as
+  the leaky user makes `GET /me` return that user's own bio and phone, and the scan then fails on data the
+  caller wrote about themselves. That is not a leak, and a test that calls it one gets silenced rather than
+  fixed. Every response the scan reads is now what a stranger sees of somebody else.
+- **`test/integration/setup.ts` now points `DATABASE_URL` at the test database** when `TEST_DATABASE_URL`
+  is set. `createTestPrisma` already preferred the test URL, but the booted application builds its client
+  from `DATABASE_URL` like any other process — without this, that one test would truncate and re-seed a
+  developer's development database while every other test used the test one.
+- **A real bug the projection test caught:** `toDiscoveredEvent` spread the SQL row, which carried the
+  internal ranking `score` onto an object whose type does not declare it — a spread defeats TypeScript's
+  excess-property check. The wire mapper maps field by field and would not have passed it on, which is
+  exactly why it was worth removing at the source: a leak that only one layer stops is one layer from being
+  a leak. The test asserts the projection as an **exact set**, because `not.toHaveProperty(…)` keeps
+  passing when a new column arrives, and the next leak is always a column nobody thought about.
+- **The p95 test is a regression guard, not a benchmark.** It catches the class of change that turns a
+  query into a sequential scan — a dropped index, a predicate wrapped in a function so the index no longer
+  applies — which shows up as a jump from tens to hundreds of milliseconds on any hardware. Measured
+  locally at **57 ms** for a mixed browse/filter/search set over 10k events, and **14 ms** for page 20,
+  against the 200 ms budget. It runs `ANALYZE` after seeding, or the planner would be choosing from
+  guesses and the test would be measuring the missing statistics rather than the indexes.
+- **No Mini App work.** The list and detail screens are not built; M5 is the API and its provider.
+
 **M6 — Participation & capacity** · *XL*
 Tests (the heart of the suite): **20 concurrent joins on capacity=5 ⇒ exactly 5 accepted, 15 waitlisted,
 `accepted_count=5`**, against real Postgres via Testcontainers, repeated 50×; duplicate ⇒ 409; host cannot

@@ -4,6 +4,7 @@ import { PrismaModule } from '@payetam/db';
 import {
   AuditModule,
   CatalogModule,
+  DiscoveryModule,
   EconomyModule,
   EventsModule,
   IdentityModule,
@@ -15,6 +16,7 @@ import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { CatalogController } from './catalog/catalog.controller';
+import { DiscoveryController } from './discovery/discovery.controller';
 import { EventsController } from './events/events.controller';
 import { HealthModule } from './health/health.module';
 import { OnboardingController } from './onboarding/onboarding.controller';
@@ -41,6 +43,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     ProfileModule,
     ModerationModule,
     EventsModule,
+    DiscoveryModule,
     HealthModule,
   ],
   controllers: [
@@ -48,6 +51,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     OnboardingController,
     CatalogController,
     EventsController,
+    DiscoveryController,
     TelegramWebhookController,
   ],
   providers: [AuthService, { provide: APP_GUARD, useClass: AuthGuard }],

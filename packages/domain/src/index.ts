@@ -73,3 +73,20 @@ export {
 export { EventService } from './events/event.service';
 export type { CreateEventInput, UpdateEventInput, EventDetail } from './events/event.service';
 export { EventsModule } from './events/events.module';
+
+export { encodeCursor, decodeCursor } from './discovery/cursor';
+export type { DiscoveryCursor, DiscoverySort } from './discovery/cursor';
+export { SEARCH_PROVIDER } from './discovery/search-provider';
+export type {
+  DiscoveredEvent,
+  DiscoveryFilters,
+  RankExplanation,
+  RankingWeights,
+  SearchProvider,
+  SearchRequest,
+  TimeOfDay,
+} from './discovery/search-provider';
+export { PostgresSearchProvider } from './discovery/postgres-search.provider';
+export { DiscoveryService } from './discovery/discovery.service';
+export type { DiscoveryPage, DiscoveryQuery } from './discovery/discovery.service';
+export { DiscoveryModule } from './discovery/discovery.module';
