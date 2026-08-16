@@ -10,8 +10,8 @@
   },
   "scripts": {
     "dev": "tsc -b && (tsc -b --watch --preserveWatchOutput & pnpm -r --parallel --filter \"./apps/**\" dev)",
-    "build": "tsc -b",
-    "typecheck": "tsc -b",
+    "build": "tsc -b && pnpm --filter @payetam/miniapp build",
+    "typecheck": "tsc -b && pnpm --filter @payetam/miniapp typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -23,11 +23,13 @@
     "db:migrate": "pnpm --filter @payetam/db db:migrate",
     "db:studio": "pnpm --filter @payetam/db db:studio",
     "seed:policies": "tsx --env-file=.env tools/seed-policies.ts",
+    "seed:catalog": "tsx --env-file=.env tools/seed-catalog.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@payetam/db": "workspace:*",
+    "@payetam/domain": "workspace:*",
     "@prisma/adapter-pg": "^7.9.1",
     "@types/node": "^22.10.0",
     "eslint": "^10.8.1",

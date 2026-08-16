@@ -66,6 +66,10 @@ model User {
 
   telegramAccount TelegramAccount?
   consents        Consent[]
+  profile         UserProfile?
+  interests       UserInterest[]
+  coinAccount     CoinAccount?
+  coinLedger      CoinLedger[]
 
   @@index([status])
   @@index([createdAt])
@@ -170,6 +174,231 @@ model Consent {
   @@unique([userId, policyVersionId, context])
   @@index([userId, acceptedAt])
   @@map("consent")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catalog — every user-selectable list is admin-managed (plan §3.3)
+//
+// Nothing here is free text. A user picks a city, a district and a set of
+// interests from rows that an admin created, which is what makes "an interest
+// outside the admin list is rejected" a lookup rather than a validation rule
+// somebody has to remember to write.
+//
+// `is_active` rather than deletion: a city that stops being served must not
+// orphan the profiles and events that already reference it. Deactivating hides
+// it from every selectable list while leaving history intact.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model City {
+  id        String   @id @default(uuid(7))
+  slug      String   @unique
+  nameFa    String   @map("name_fa")
+  isActive  Boolean  @default(false) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  districts District[]
+  profiles  UserProfile[]
+
+  @@index([isActive, sortOrder])
+  @@map("city")
+}
+
+model District {
+  id        String   @id @default(uuid(7))
+  cityId    String   @map("city_id")
+  slug      String
+  nameFa    String   @map("name_fa")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  city     City          @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  profiles UserProfile[]
+
+  @@unique([cityId, slug])
+  @@index([cityId, isActive, sortOrder])
+  @@map("district")
+}
+
+/// Activity categories — the launch is gated to two of them by feature flag (plan §2).
+model Category {
+  id        String   @id @default(uuid(7))
+  slug      String   @unique
+  nameFa    String   @map("name_fa")
+  /// An emoji or icon key rendered by the Mini App. Never a URL: the CSP forbids
+  /// external hosts (ADR-0003).
+  icon      String?
+  isActive  Boolean  @default(false) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  interests Interest[]
+
+  @@index([isActive, sortOrder])
+  @@map("category")
+}
+
+/// What a user says they are interested in. Grouped under a category so the
+/// interest-match term in ranking (plan §11, weight .05) has something to match on.
+model Interest {
+  id         String   @id @default(uuid(7))
+  categoryId String?  @map("category_id")
+  slug       String   @unique
+  nameFa     String   @map("name_fa")
+  isActive   Boolean  @default(true) @map("is_active")
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  users    UserInterest[]
+
+  @@index([isActive, sortOrder])
+  @@map("interest")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Profile
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Gender {
+  MALE
+  FEMALE
+  PREFER_NOT_SAY
+
+  @@map("gender")
+}
+
+/// The user-facing half of an identity: what other people are allowed to see.
+///
+/// Split from `user` on purpose. `user` is the identity root that authentication
+/// and bans hang off; this is presentation data that gets moderated, edited and
+/// eventually anonymised (M15). Keeping them apart means the anonymisation job
+/// clears one table rather than surgically nulling columns on the row that
+/// everything else references.
+///
+/// `birth_year` is a year, not a date: it is the coarsest thing that still
+/// answers "is this person 18?", and collecting a full birth date would be more
+/// personal data than the question needs (ADR-0009).
+model UserProfile {
+  userId      String    @id @map("user_id")
+  displayName String    @map("display_name")
+  gender      Gender?
+  birthYear   Int?      @map("birth_year")
+  cityId      String    @map("city_id")
+  districtId  String?   @map("district_id")
+  bio         String?
+  /// Set the first time the profile passes every completeness rule, and never
+  /// moved afterwards — later edits are edits, not a second completion. It is
+  /// therefore safe to read as "when did this user finish onboarding".
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city     City      @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  district District? @relation(fields: [districtId], references: [id], onDelete: Restrict)
+
+  @@index([cityId, districtId])
+  @@map("user_profile")
+}
+
+model UserInterest {
+  userId     String   @map("user_id")
+  interestId String   @map("interest_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interest Interest @relation(fields: [interestId], references: [id], onDelete: Cascade)
+
+  @@id([userId, interestId])
+  @@index([interestId])
+  @@map("user_interest")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Economy — the ledger slice (ADR-0007)
+//
+// Pulled forward from M9 because the onboarding reward has to be grantable
+// exactly once, and "exactly once" here means a UNIQUE index on an idempotency
+// key, not an application-level check. Only ONBOARDING_REWARD is written in M3;
+// the rest of the enum is declared now so later milestones add rows, not types.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum CoinLedgerType {
+  ONBOARDING_REWARD
+  REFERRAL_REWARD
+  REVIEW_REWARD
+  BOOST_SPEND
+  VIP_SPEND
+  CANCELLATION_PENALTY
+  NO_SHOW_PENALTY
+  HOST_CANCELLATION_REFUND
+  ADMIN_ADJUSTMENT
+  REVERSAL
+
+  @@map("coin_ledger_type")
+}
+
+/// The cached balance. A convenience, not the truth: `balance` must always equal
+/// `SUM(coin_ledger.amount)` for the user, which the reconciliation test asserts.
+///
+/// This row is also the concurrency control for the whole economy. Every coin
+/// movement takes `SELECT … FOR UPDATE` on it first, so two grants or two spends
+/// for the same user serialise instead of racing.
+model CoinAccount {
+  userId    String   @id @map("user_id")
+  balance   Int      @default(0)
+  version   Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("coin_account")
+}
+
+/// Append-only, trigger-enforced (invariant 3). Corrections are new REVERSAL rows
+/// pointing at the original — nothing is ever edited or deleted.
+///
+/// `idempotency_key` is what makes every economic operation safe to retry: a
+/// double-tapped button, a redelivered job and two concurrent requests all
+/// collide on one unique index and produce one row.
+model CoinLedger {
+  id               String         @id @default(uuid(7))
+  userId           String         @map("user_id")
+  idempotencyKey   String         @unique @map("idempotency_key")
+  type             CoinLedgerType
+  /// Signed and never zero. Positive is a credit to the user, negative a debit.
+  amount           Int
+  balanceBefore    Int            @map("balance_before")
+  balanceAfter     Int            @map("balance_after")
+  /// A stable machine-readable reason, rendered in Persian by the client. The
+  /// admin panel shows this ledger rather than a number, which is what makes
+  /// "where did my coins go?" answerable (ADR-0007).
+  reasonCode       String         @map("reason_code")
+  actorType        ActorType      @map("actor_type")
+  actorId          String?        @map("actor_id")
+  refType          String?        @map("ref_type")
+  refId            String?        @map("ref_id")
+  /// UNIQUE, which in Postgres still allows any number of NULLs — so this reads
+  /// as "a ledger row can be reversed at most once". Reversing twice would
+  /// silently double a refund; the index makes it impossible.
+  reversesLedgerId String?        @unique @map("reverses_ledger_id")
+  metadata         Json?
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  reverses CoinLedger? @relation("CoinLedgerReversal", fields: [reversesLedgerId], references: [id], onDelete: Restrict)
+  reversal CoinLedger? @relation("CoinLedgerReversal")
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("coin_ledger")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

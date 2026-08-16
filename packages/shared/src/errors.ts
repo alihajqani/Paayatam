@@ -26,6 +26,7 @@ export const ErrorCode = {
   PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   INVALID_INTEREST: 'INVALID_INTEREST',
   CITY_NOT_AVAILABLE: 'CITY_NOT_AVAILABLE',
+  INVALID_DISTRICT: 'INVALID_DISTRICT',
 
   // Events
   EVENT_NOT_FOUND: 'EVENT_NOT_FOUND',
@@ -88,6 +89,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   PROFILE_INCOMPLETE: 'برای ادامه، ابتدا پروفایل خود را کامل کنید.',
   INVALID_INTEREST: 'یکی از علاقه‌مندی‌های انتخاب‌شده معتبر نیست.',
   CITY_NOT_AVAILABLE: 'پایه‌تَم فعلاً فقط در تهران فعال است.',
+  INVALID_DISTRICT: 'منطقهٔ انتخاب‌شده با شهر انتخابی هم‌خوانی ندارد.',
 
   EVENT_NOT_FOUND: 'این فعالیت یافت نشد.',
   EVENT_NOT_JOINABLE: 'امکان ثبت درخواست برای این فعالیت وجود ندارد.',

@@ -79,6 +79,8 @@ do next, never expose internals, never blame the user.
 | `AGE_BELOW_MINIMUM` | استفاده از پایه‌تَم برای افراد زیر ۱۸ سال امکان‌پذیر نیست. |
 | `PROFILE_INCOMPLETE` | برای ادامه، ابتدا پروفایل خود را کامل کنید. |
 | `CITY_NOT_AVAILABLE` | پایه‌تَم فعلاً فقط در تهران فعال است. |
+| `INVALID_DISTRICT` | منطقهٔ انتخاب‌شده با شهر انتخابی هم‌خوانی ندارد. |
+| `INVALID_INTEREST` | یکی از علاقه‌مندی‌های انتخاب‌شده معتبر نیست. |
 | `DUPLICATE_REQUEST` | شما قبلاً برای این فعالیت درخواست داده‌اید. |
 | `HOST_CANNOT_JOIN` | شما میزبان این فعالیت هستید. |
 | `EVENT_FULL_NO_WAITLIST` | ظرفیت این فعالیت تکمیل شده است. |

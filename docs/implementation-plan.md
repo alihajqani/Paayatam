@@ -685,6 +685,46 @@ Telegram theming). Migration `0003_profile_catalog` + a minimal ledger slice (`c
 Tests: 18+ block; interest outside the admin list rejected; **concurrent double profile-completion grants
 exactly one reward**; inactive city rejected.
 
+**Deviations from this plan, decided during M3:**
+
+- **The 18+ rule is a service-layer check, not a DB CHECK.** §4.1 asks for `birth_year` with a
+  CHECK for being ≥18 years old. Postgres refuses non-IMMUTABLE functions in a CHECK constraint, so
+  `now()` cannot appear in one — the rule is inherently a question about today. It is enforced in
+  `ProfileService` against the injected `Clock` (ADR-0008), which is also what makes the boundary
+  testable without waiting a year. The table keeps a plausibility CHECK (`1900..2200`) that catches a
+  Jalali year submitted where a Gregorian one was expected.
+- **Year granularity rounds in the admitting direction.** With a birth *year* and no date, someone
+  whose birthday has not yet arrived counts as a year older. Collecting a full birth date is the only
+  way to do better and is more personal data than the question needs (ADR-0009). The Mini App's
+  Jalali→Gregorian year label leans the same way, so client and server never disagree at the boundary.
+- **`user_profile.avatar_media_id` deferred.** The `media` table it references does not exist until
+  uploads land. A column with no foreign key would be an invitation to write an unvalidated id into it.
+- **`coin_ledger` is stricter than §4.5 requires.** Three CHECKs were added because each is free at
+  write time and expensive to discover later: `balance_after = balance_before + amount`,
+  `(type = 'REVERSAL') = (reverses_ledger_id IS NOT NULL)`, and UNIQUE on `reverses_ledger_id` — which,
+  because Postgres treats NULLs as distinct, reads as "a row can be reversed at most once". Its
+  append-only trigger has **no retention escape hatch**, unlike `audit_log` and `consent`: deleting a
+  ledger row would break reconciliation permanently.
+- **`AuditService` added** (`packages/domain/audit`), global module. Invariant 10 applies to every
+  module, so the writer is available everywhere rather than being a reason to skip the audit row.
+- **`INVALID_DISTRICT` added to the error catalogue.** A district that belongs to another city is a
+  distinct, actionable mistake; folding it into `VALIDATION_FAILED` would tell the user nothing.
+- **Integration-test harness added** (`test/integration/`), and CI's integration job now builds the
+  workspace first. The suite TRUNCATEs every table, so it honours `TEST_DATABASE_URL` (`make db-test`)
+  and only falls back to `DATABASE_URL` — loudly — when that is unset.
+- **Mini App ships without TanStack Query and vee-validate.** ADR-0003 names both, and both stay in the
+  plan. Neither earns its bytes on a two-screen wizard with one form: validation is
+  `completeProfileRequest.safeParse` against the same shared schema the API uses, which is the property
+  the ADR actually cares about. They arrive with the first list screen (M5), which is where caching,
+  retries and field-level async validation start paying.
+- **T5.1's `v-html` ban is enforced by CI grep, not ESLint.** It lands here rather than later because
+  this is the milestone that introduces `.vue` files — a ban that arrives after the components it
+  governs protects nothing. ESLint does not parse `.vue` files in this repo, so a lint rule would have
+  silently covered nothing.
+- **A pre-existing CI bug was fixed here:** the "reject string-concatenated SQL" step matched Prisma's
+  own generated client, which the same job generates two steps earlier — so the check had been failing
+  since M1 on code nobody wrote. It now matches call sites and skips generated output.
+
 **M4 — Event creation & auto-moderation** · *L*
 Persian normalizer rules, each a pure function with its own test table: Arabic ي/ك → Persian ی/ک · ZWNJ
 (نیم‌فاصله) folding · diacritic removal · Arabic-Indic → Latin digits · whitespace collapse · repetition

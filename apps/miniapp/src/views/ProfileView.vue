@@ -1,0 +1,286 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { completeProfileRequest, type CompleteProfileRequest, type Gender } from '@payetam/shared';
+import MainButton from '@/components/MainButton.vue';
+import { ApiError } from '@/api/client';
+import { birthYearOptions, toPersianDigits } from '@/format/fa';
+import { haptic } from '@/telegram/webapp';
+import { useSessionStore } from '@/stores/session';
+
+/**
+ * Step two: the profile.
+ *
+ * Validated against `completeProfileRequest` — the very schema the API validates
+ * with (ADR-0003). Client and server cannot disagree about what a valid profile
+ * is, because there is only one definition of it.
+ *
+ * What the client deliberately does *not* decide: whether the user is old enough.
+ * That is computed on the server clock from the submitted year (invariant 9), so
+ * the year list here is a convenience, not a gate.
+ */
+const router = useRouter();
+const session = useSessionStore();
+
+const displayName = ref('');
+const gender = ref<Gender | ''>('');
+const birthYear = ref<number | ''>('');
+const cityId = ref('');
+const districtId = ref('');
+const bio = ref('');
+const interestIds = ref<string[]>([]);
+
+const loading = ref(false);
+const loadError = ref<string | null>(null);
+const submitError = ref<string | null>(null);
+const fieldErrors = ref<Record<string, string>>({});
+
+const years = birthYearOptions(new Date().getFullYear());
+
+const cities = computed(() => session.catalog?.cities ?? []);
+const interests = computed(() => session.catalog?.interests ?? []);
+const districts = computed(
+  () => cities.value.find((city) => city.id === cityId.value)?.districts ?? [],
+);
+
+async function load(): Promise<void> {
+  loadError.value = null;
+  try {
+    await session.loadCatalog();
+    // One active city at launch, so preselecting it removes a pointless tap.
+    if (cities.value.length === 1) cityId.value = cities.value[0]!.id;
+  } catch (cause) {
+    loadError.value = cause instanceof ApiError ? cause.messageFa : 'فهرست‌ها بارگذاری نشد.';
+  }
+}
+
+function toggleInterest(id: string): void {
+  const index = interestIds.value.indexOf(id);
+  if (index === -1) interestIds.value.push(id);
+  else interestIds.value.splice(index, 1);
+  haptic('selection');
+}
+
+function onCityChange(): void {
+  // A district only means something inside its city; keeping a stale one would
+  // send a pair the server is right to reject.
+  districtId.value = '';
+}
+
+/**
+ * Builds the request, or returns null and populates `fieldErrors`.
+ *
+ * Optional fields are omitted rather than sent empty: the schema treats an
+ * absent `bio` as "not provided" and an empty string as a value that happens to
+ * be blank, and only the first is what the user meant.
+ */
+function buildRequest(): CompleteProfileRequest | null {
+  const candidate = {
+    displayName: displayName.value,
+    ...(gender.value ? { gender: gender.value } : {}),
+    birthYear: birthYear.value === '' ? Number.NaN : birthYear.value,
+    cityId: cityId.value,
+    ...(districtId.value ? { districtId: districtId.value } : {}),
+    ...(bio.value.trim() ? { bio: bio.value } : {}),
+    interestIds: interestIds.value,
+  };
+
+  const parsed = completeProfileRequest.safeParse(candidate);
+  if (parsed.success) {
+    fieldErrors.value = {};
+    return parsed.data;
+  }
+
+  fieldErrors.value = Object.fromEntries(
+    parsed.error.issues.map((issue) => [String(issue.path[0] ?? ''), messageFor(issue.path[0])]),
+  );
+  return null;
+}
+
+function messageFor(field: PropertyKey | undefined): string {
+  switch (field) {
+    case 'displayName':
+      return 'نام نمایشی باید بین ۲ تا ۴۰ نویسه باشد.';
+    case 'birthYear':
+      return 'سال تولد خود را انتخاب کنید.';
+    case 'cityId':
+      return 'شهر خود را انتخاب کنید.';
+    case 'interestIds':
+      return 'حداقل یک علاقه‌مندی و حداکثر ۱۰ مورد انتخاب کنید.';
+    case 'bio':
+      return 'دربارهٔ من نباید بیش از ۳۰۰ نویسه باشد.';
+    default:
+      return 'این مقدار معتبر نیست.';
+  }
+}
+
+async function submit(): Promise<void> {
+  submitError.value = null;
+  const body = buildRequest();
+  if (!body) {
+    haptic('error');
+    return;
+  }
+
+  loading.value = true;
+  try {
+    const result = await session.completeProfile(body);
+    haptic('success');
+    await router.replace({ path: '/home', query: result.rewardGranted ? { welcome: '1' } : {} });
+  } catch (cause) {
+    haptic('error');
+    submitError.value =
+      cause instanceof ApiError ? cause.messageFa : 'ثبت پروفایل انجام نشد. دوباره تلاش کنید.';
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <main class="flex flex-1 flex-col gap-5 py-4">
+    <header>
+      <h1 class="text-xl font-bold">پروفایل شما</h1>
+      <p class="text-sm text-tg-hint">
+        این اطلاعات به میزبان‌ها کمک می‌کند شما را بهتر بشناسند. شناسهٔ تلگرام شما هرگز نمایش داده
+        نمی‌شود.
+      </p>
+    </header>
+
+    <div v-if="loadError" class="flex flex-col items-start gap-2">
+      <p class="text-tg-destructive">{{ loadError }}</p>
+      <button type="button" class="min-h-11 text-tg-link" @click="load">تلاش دوباره</button>
+    </div>
+
+    <form v-else class="flex flex-col gap-5" @submit.prevent="submit">
+      <label class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">نام نمایشی</span>
+        <input
+          v-model="displayName"
+          type="text"
+          maxlength="40"
+          autocomplete="nickname"
+          class="min-h-11 rounded-xl bg-tg-secondary-bg px-3 text-tg-text"
+        />
+        <span v-if="fieldErrors['displayName']" class="text-sm text-tg-destructive">
+          {{ fieldErrors['displayName'] }}
+        </span>
+      </label>
+
+      <fieldset class="flex flex-col gap-2">
+        <legend class="text-sm text-tg-subtitle">جنسیت (اختیاری)</legend>
+        <div class="flex gap-2">
+          <button
+            v-for="option in [
+              { value: 'FEMALE', label: 'زن' },
+              { value: 'MALE', label: 'مرد' },
+              { value: 'PREFER_NOT_SAY', label: 'ترجیح می‌دهم نگویم' },
+            ]"
+            :key="option.value"
+            type="button"
+            class="min-h-11 flex-1 rounded-xl px-2 text-sm"
+            :class="
+              gender === option.value
+                ? 'bg-tg-button text-tg-button-text'
+                : 'bg-tg-secondary-bg text-tg-text'
+            "
+            @click="gender = gender === option.value ? '' : (option.value as Gender)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </fieldset>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">سال تولد (شمسی)</span>
+        <select
+          v-model="birthYear"
+          class="min-h-11 rounded-xl bg-tg-secondary-bg px-3 text-tg-text"
+        >
+          <option value="" disabled>انتخاب کنید</option>
+          <option v-for="year in years" :key="year.gregorian" :value="year.gregorian">
+            {{ year.labelFa }}
+          </option>
+        </select>
+        <span v-if="fieldErrors['birthYear']" class="text-sm text-tg-destructive">
+          {{ fieldErrors['birthYear'] }}
+        </span>
+      </label>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">شهر</span>
+        <select
+          v-model="cityId"
+          class="min-h-11 rounded-xl bg-tg-secondary-bg px-3 text-tg-text"
+          @change="onCityChange"
+        >
+          <option value="" disabled>انتخاب کنید</option>
+          <option v-for="city in cities" :key="city.id" :value="city.id">{{ city.nameFa }}</option>
+        </select>
+        <span v-if="fieldErrors['cityId']" class="text-sm text-tg-destructive">
+          {{ fieldErrors['cityId'] }}
+        </span>
+      </label>
+
+      <label v-if="districts.length > 0" class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">منطقه (اختیاری)</span>
+        <select
+          v-model="districtId"
+          class="min-h-11 rounded-xl bg-tg-secondary-bg px-3 text-tg-text"
+        >
+          <option value="">انتخاب نشده</option>
+          <option v-for="district in districts" :key="district.id" :value="district.id">
+            {{ district.nameFa }}
+          </option>
+        </select>
+      </label>
+
+      <fieldset class="flex flex-col gap-2">
+        <legend class="text-sm text-tg-subtitle">
+          علاقه‌مندی‌ها ({{ toPersianDigits(interestIds.length) }} از ۱۰)
+        </legend>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="interest in interests"
+            :key="interest.id"
+            type="button"
+            class="min-h-11 rounded-full px-4 text-sm"
+            :class="
+              interestIds.includes(interest.id)
+                ? 'bg-tg-button text-tg-button-text'
+                : 'bg-tg-secondary-bg text-tg-text'
+            "
+            :aria-pressed="interestIds.includes(interest.id)"
+            @click="toggleInterest(interest.id)"
+          >
+            {{ interest.nameFa }}
+          </button>
+        </div>
+        <span v-if="fieldErrors['interestIds']" class="text-sm text-tg-destructive">
+          {{ fieldErrors['interestIds'] }}
+        </span>
+      </fieldset>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">دربارهٔ من (اختیاری)</span>
+        <textarea
+          v-model="bio"
+          rows="3"
+          maxlength="300"
+          class="rounded-xl bg-tg-secondary-bg p-3 text-tg-text"
+        ></textarea>
+        <span v-if="fieldErrors['bio']" class="text-sm text-tg-destructive">
+          {{ fieldErrors['bio'] }}
+        </span>
+      </label>
+
+      <p v-if="submitError" class="text-tg-destructive">{{ submitError }}</p>
+    </form>
+
+    <div class="flex-1"></div>
+
+    <MainButton text="ثبت و ادامه" :loading="loading" @click="submit" />
+  </main>
+</template>

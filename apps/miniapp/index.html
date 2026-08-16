@@ -1,0 +1,26 @@
+<!doctype html>
+<!--
+  `dir="rtl"` and `lang="fa"` at the root, not on a wrapper element. Every layout
+  decision below inherits from here, which is what makes "logical properties only"
+  a rule the browser enforces rather than one reviewers have to notice.
+-->
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>پایه‌تَم</title>
+
+    <!--
+      The one script loaded from outside our own origin, and it has to be: it is
+      what injects `window.Telegram.WebApp`, the bridge to the client the app runs
+      inside. M15's CSP therefore allows exactly `https://telegram.org` in
+      `script-src` and nothing else. The font is self-hosted from node_modules
+      precisely so this list stays one entry long (ADR-0003).
+    -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

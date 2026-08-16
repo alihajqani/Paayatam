@@ -99,10 +99,26 @@ export default tseslint.config(
     },
   },
 
-  // Developer CLI scripts. `console` is their user interface, not a stray debug
-  // statement, and they are never part of a deployed image.
+  // The Mini App is the one browser program in the repo. It needs the DOM lib and
+  // bundler module resolution, neither of which the backend lint project has, so
+  // it points at its own tsconfig. `.vue` files are handled by `vue-tsc` in the
+  // package's own `typecheck` script — ESLint does not parse them, and adding a
+  // Vue plugin to do so would duplicate checks vue-tsc already performs.
   {
-    files: ['tools/**/*.ts'],
+    files: ['apps/miniapp/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: ['./apps/miniapp/tsconfig.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+
+  // Developer CLI scripts and the test harness. `console` is their user
+  // interface, not a stray debug statement, and neither is ever part of a
+  // deployed image — so the T15 concern behind the rule does not apply.
+  {
+    files: ['tools/**/*.ts', 'test/**/*.ts'],
     rules: {
       'no-console': 'off',
     },

@@ -9,6 +9,22 @@
     "incremental": false,
     "allowJs": true
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "tools/**/*.ts", "*.ts", "*.mts", "*.mjs"],
-  "exclude": ["**/node_modules/**", "**/dist/**", "packages/db/src/generated/**"]
+  "include": [
+    "apps/**/*.ts",
+    "packages/**/*.ts",
+    "tools/**/*.ts",
+    "test/**/*.ts",
+    "*.ts",
+    "*.mts",
+    "*.mjs"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "packages/db/src/generated/**",
+    // The Mini App is a browser program: DOM lib, bundler resolution, `.vue`
+    // imports. It has its own lint project in eslint.config.mjs, because putting
+    // it in this Node-typed one would report `window` as undefined.
+    "apps/miniapp/**"
+  ]
 }

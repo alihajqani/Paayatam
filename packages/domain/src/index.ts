@@ -12,3 +12,32 @@ export { ConsentService } from './identity/consent.service';
 export type { CurrentPolicy, ConsentContextInfo } from './identity/consent.service';
 
 export { IdentityModule, INIT_DATA_VALIDATOR } from './identity/identity.module';
+
+export { AuditService } from './audit/audit.service';
+export type { AuditEntry } from './audit/audit.service';
+export { AuditModule } from './audit/audit.module';
+
+export { CatalogService } from './catalog/catalog.service';
+export type { CatalogSnapshot, NamedRef, ResolvedLocation } from './catalog/catalog.service';
+export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';
+export type { SettingKey } from './catalog/settings.service';
+export { CatalogModule } from './catalog/catalog.module';
+
+export { CoinService } from './economy/coin.service';
+export type { CoinMovement, CoinMovementInput } from './economy/coin.service';
+export { EconomyModule } from './economy/economy.module';
+
+export { ageFromBirthYear, gregorianYearIn, isOldEnough } from './profile/age';
+export {
+  ProfileService,
+  ONBOARDING_REWARD_REASON,
+  onboardingRewardKey,
+} from './profile/profile.service';
+export type {
+  CompleteProfileInput,
+  ProfileCompletion,
+  ProfileDetail,
+} from './profile/profile.service';
+export { ProfileModule } from './profile/profile.module';
+
+export { gregorianYearIn as gregorianYearInZone, startOfDayIn } from './time';

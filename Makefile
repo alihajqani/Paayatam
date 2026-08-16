@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-.PHONY: help setup up down logs ps reset dev build typecheck lint format test test-int check clean
+.PHONY: help setup up down logs ps reset dev build typecheck lint format test test-int db-test seed check clean
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -69,8 +69,23 @@ format: ## Format with Prettier
 test: ## Unit tests
 	pnpm test
 
-test-int: ## Integration tests (real Postgres + Redis via Testcontainers)
+test-int: ## Integration tests (real Postgres — see db-test first)
 	pnpm test:integration
+
+db-test: ## Create and migrate payetam_test, so integration tests stop truncating your dev data
+	docker compose exec -T postgres \
+		psql -U payetam -d postgres -tAc \
+		"SELECT 1 FROM pg_database WHERE datname='payetam_test'" | grep -q 1 || \
+		docker compose exec -T postgres createdb -U payetam payetam_test
+	DATABASE_URL="postgresql://payetam:$$(grep -oP '(?<=^DATABASE_URL=postgresql://payetam:)[^@]+' .env)@localhost:55432/payetam_test" \
+		pnpm --filter @payetam/db db:migrate:deploy
+	@echo
+	@echo "Add this to .env so the integration suite uses it:"
+	@echo "  TEST_DATABASE_URL=postgresql://payetam:<password>@localhost:55432/payetam_test"
+
+seed: ## Seed policies and catalog into the development database
+	pnpm seed:policies
+	pnpm seed:catalog
 
 check: typecheck lint test ## What CI runs on every commit
 

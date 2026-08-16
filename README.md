@@ -16,7 +16,12 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
-**Milestone 0 complete** — architecture decisions frozen and documented. No application code yet.
+**Milestone 3 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
+and complete a profile from the Mini App, receiving the onboarding coins exactly once (M3).
+
+Not built yet: event creation and auto-moderation, discovery and search, participation and capacity,
+anonymous chat, and the bot itself (`/start` does nothing — `packages/telegram` and the grammY handlers
+are still outstanding from M2).
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone sequence.
 
@@ -50,9 +55,10 @@ there are frozen; changing one means a new ADR and an update to the plan, not an
 
 ```
 apps/     api · worker · miniapp · admin
-packages/ db · domain · telegram · shared · config
+packages/ db · domain · platform · telegram · shared · config
 docker/   Dockerfiles, nginx, compose
 docs/     plan, ADRs, threat model, glossary
+test/     integration harness (real Postgres)
 tools/    seeds, anonymization, backup/restore
 ```
 
@@ -90,7 +96,8 @@ make up                   # postgres + redis (ports 55432 / 56379, so they do no
                           # collide with any other stack on your machine)
 pnpm db:generate          # Prisma client is generated, not committed
 pnpm --filter @payetam/db db:migrate:deploy
-pnpm dev                  # tsc --watch + api + worker
+make seed                 # policies, catalog (cities, categories, interests)
+pnpm dev                  # tsc --watch + api + worker + miniapp
 ```
 
 ```bash
@@ -99,12 +106,20 @@ curl localhost:3000/ready    # {"ready":true,"checks":{"database":"up","redis":"
 ```
 
 ```bash
-pnpm typecheck            # tsc -b across the workspace
+pnpm typecheck            # tsc -b across the workspace, then vue-tsc for the Mini App
 pnpm lint
 pnpm test                 # unit (Vitest)
-pnpm test:integration     # real Postgres + Redis
+pnpm test:integration     # real Postgres
 pnpm check                # what CI runs
 ```
+
+**Integration tests TRUNCATE every table before each test.** Run `make db-test` once to create a
+separate `payetam_test` database and set `TEST_DATABASE_URL` in `.env`, or the suite will empty your
+development data instead.
+
+The Mini App runs at `localhost:5173` and proxies `/api` to the API. It only authenticates inside
+Telegram — `initData` is what it signs in with, and a plain browser tab has none — so open it through
+BotFather's Mini App URL (an `ngrok`/`cloudflared` tunnel to port 5173 works) rather than directly.
 
 **Do not run the Nest apps under `tsx`.** esbuild does not emit
 `emitDecoratorMetadata`, so dependency injection silently yields `undefined` and the

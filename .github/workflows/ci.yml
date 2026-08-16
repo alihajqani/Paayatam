@@ -57,14 +57,35 @@ jobs:
       # T10: Prisma parameterises queries, but raw SQL is permitted via tagged
       # $queryRaw templates. A concatenated or interpolated non-tagged query is an
       # injection waiting to happen, so fail the build on one.
+      #
+      # Matches call sites — a leading dot and an opening paren — not the bare
+      # names. Prisma's own generated client declares and documents both methods,
+      # so the looser pattern flagged the client we generated two steps earlier.
+      # `generated` and `dist` are excluded for the same reason: neither is code
+      # anyone here wrote.
       - name: Reject string-concatenated SQL
         run: |
-          if grep -rnE '\$queryRawUnsafe|\$executeRawUnsafe' \
-               --include='*.ts' apps packages 2>/dev/null; then
+          if grep -rnE '\.\$(query|execute)RawUnsafe\(' \
+               --include='*.ts' \
+               --exclude-dir=generated --exclude-dir=dist --exclude-dir=node_modules \
+               apps packages tools test 2>/dev/null; then
             echo "::error::Unsafe raw SQL detected. Use tagged \$queryRaw templates (ADR-0002, threat T10)."
             exit 1
           fi
           echo "No unsafe raw SQL found."
+
+      # T5.1: Vue escapes interpolated text, and `v-html` is the one construct
+      # that opts out of it — which in an app rendering user-authored event
+      # titles and chat messages is an XSS injection point by definition.
+      # Enforced by grep rather than eslint-plugin-vue: ESLint does not parse
+      # `.vue` files here, so a lint rule would silently cover nothing.
+      - name: Reject v-html in Vue components
+        run: |
+          if grep -rn 'v-html' --include='*.vue' --include='*.ts' apps 2>/dev/null; then
+            echo "::error::v-html is banned repo-wide — it defeats Vue's escaping (threat T5.1)."
+            exit 1
+          fi
+          echo "No v-html found."
 
       # Belt and braces against committing a credential. .env is gitignored, but a
       # forced add or a stray file should fail loudly rather than merge quietly.
@@ -123,6 +144,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      # Integration tests import workspace packages by name (@payetam/db), which
+      # resolve to their emitted dist. Without this they fail on a missing module
+      # rather than on anything they are meant to be testing.
+      - name: Build workspace packages
+        run: pnpm build
+
       - name: Apply migrations
         run: pnpm --filter @payetam/db db:migrate:deploy
 
@@ -143,9 +170,18 @@ jobs:
               "SELECT count(*) FROM pg_trigger WHERE tgname = '$1' AND NOT tgisinternal;")
             [ "$found" = "1" ] || { echo "::error::missing trigger $1"; missing=1; }
           }
-          check_index   policy_version_one_current_per_type
-          check_trigger audit_log_append_only
-          check_trigger consent_append_only
+          check_constraint() {
+            found=$(psql "$DATABASE_URL" -tAc \
+              "SELECT count(*) FROM pg_constraint WHERE conname = '$1';")
+            [ "$found" = "1" ] || { echo "::error::missing constraint $1"; missing=1; }
+          }
+          check_index      policy_version_one_current_per_type
+          check_trigger    audit_log_append_only
+          check_trigger    consent_append_only
+          check_trigger    coin_ledger_append_only
+          check_constraint coin_account_balance_non_negative
+          check_constraint coin_ledger_arithmetic
+          check_constraint coin_ledger_amount_non_zero
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

@@ -1,37 +1,51 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
-import { ConsentService, UserService } from '@payetam/domain';
-import { acceptConsentRequest, type PolicyView } from '@payetam/shared';
+import { CoinService, ConsentService, ProfileService, UserService } from '@payetam/domain';
+import {
+  acceptConsentRequest,
+  completeProfileRequest,
+  type CompleteProfileRequest,
+  type CompleteProfileResponse,
+  type MeResponse,
+  type PolicyView,
+} from '@payetam/shared';
 import type { FastifyRequest } from 'fastify';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AllowPendingTerms, CurrentUser, Public, type AuthenticatedUser } from '../auth/auth.guard';
+import { toProfileView } from './profile.view';
 
 @Controller('api/v1')
 export class OnboardingController {
   constructor(
     private readonly consent: ConsentService,
     private readonly users: UserService,
+    private readonly profiles: ProfileService,
+    private readonly coins: CoinService,
   ) {}
 
   /**
-   * The signed-in user.
+   * The signed-in user, their profile and their coin balance.
    *
    * Deliberately has no `@AllowPendingTerms`, so it is subject to the terms gate —
-   * which makes it the endpoint the gate's tests exercise. Profile, coins and trust
-   * are added to this response in M3 and M9.
+   * which makes it the endpoint the gate's tests exercise. Trust Score joins this
+   * response in M9.
    */
   @Get('me')
-  async me(@CurrentUser() current: AuthenticatedUser): Promise<{
-    publicId: string;
-    onboardingState: string;
-    locale: string;
-    timezone: string;
-  }> {
+  async me(@CurrentUser() current: AuthenticatedUser): Promise<MeResponse> {
     const user = await this.users.findByPublicId(current.publicId);
+    const internalId = await this.users.resolveInternalId(current.publicId);
+
+    const [profile, balance] = await Promise.all([
+      this.profiles.find(internalId),
+      this.coins.balanceOf(internalId),
+    ]);
+
     return {
       publicId: user.publicId,
       onboardingState: user.onboardingState,
       locale: user.locale,
       timezone: user.timezone,
+      profile: profile ? toProfileView(profile) : null,
+      coins: { balance },
     };
   }
 
@@ -74,5 +88,41 @@ export class OnboardingController {
 
     const updated = await this.users.findByPublicId(current.publicId);
     return { onboardingState: updated.onboardingState };
+  }
+
+  /**
+   * Completes the profile and grants the onboarding reward.
+   *
+   * Behind the terms gate, which is the point: a profile is only collectable
+   * from someone who has agreed to the rules it will be judged against.
+   *
+   * Safe to repeat. A second call updates the profile and returns
+   * `rewardGranted: false` — the coins are keyed on the user in the ledger, so
+   * the reward cannot be earned twice however many times this is called.
+   */
+  @Post('onboarding/profile')
+  @HttpCode(HttpStatus.OK)
+  async completeProfile(
+    @Body(new ZodValidationPipe(completeProfileRequest)) body: CompleteProfileRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<CompleteProfileResponse> {
+    const internalId = await this.users.resolveInternalId(current.publicId);
+
+    const completion = await this.profiles.complete(internalId, {
+      displayName: body.displayName,
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      birthYear: body.birthYear,
+      cityId: body.cityId,
+      ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
+      ...(body.bio !== undefined ? { bio: body.bio } : {}),
+      interestIds: body.interestIds,
+    });
+
+    return {
+      onboardingState: completion.onboardingState,
+      profile: toProfileView(completion.profile),
+      coins: { balance: completion.balance },
+      rewardGranted: completion.rewardGranted,
+    };
   }
 }

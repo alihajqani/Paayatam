@@ -27,6 +27,7 @@ export default defineConfig({
           environment: 'node',
           include: ['{apps,packages}/*/src/**/*.int.test.ts', 'test/integration/**/*.test.ts'],
           exclude: ['**/node_modules/**', '**/dist/**'],
+          setupFiles: ['./test/integration/setup.ts'],
           // Container startup dominates; the assertions themselves are fast.
           testTimeout: 60_000,
           hookTimeout: 120_000,

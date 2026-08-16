@@ -1,0 +1,69 @@
+@import 'tailwindcss';
+
+/*
+ * Vazirmatn, self-hosted from node_modules — never a CDN. Iranian reachability
+ * of foreign CDNs is unreliable, and M15's CSP allows no external font origin
+ * (ADR-0003, glossary §5).
+ *
+ * The variable cut, not the static one: it is a single woff2 covering weights
+ * 100–900, where the static face sheet pulls nine separate files over a mobile
+ * connection to end up in the same place.
+ */
+@import 'vazirmatn/Vazirmatn-Variable-font-face.css' layer(base);
+
+/*
+ * Every colour is a Telegram theme token, mapped once by `applyTheme()` and
+ * consumed here. The fallbacks matter: they are what renders in the instant
+ * before the SDK reports, and in an ordinary browser tab where it never does.
+ *
+ * No component may write a hex value. That rule is what makes the app follow a
+ * user's custom theme without a single line of dark-mode code.
+ */
+@theme {
+  --font-sans: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-tg-bg: var(--tg-theme-bg-color, #ffffff);
+  --color-tg-text: var(--tg-theme-text-color, #000000);
+  --color-tg-hint: var(--tg-theme-hint-color, #707579);
+  --color-tg-link: var(--tg-theme-link-color, #3390ec);
+  --color-tg-button: var(--tg-theme-button-color, #3390ec);
+  --color-tg-button-text: var(--tg-theme-button-text-color, #ffffff);
+  --color-tg-secondary-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
+  --color-tg-header-bg: var(--tg-theme-header-bg-color, #ffffff);
+  --color-tg-accent: var(--tg-theme-accent-text-color, #3390ec);
+  --color-tg-destructive: var(--tg-theme-destructive-text-color, #e53935);
+  --color-tg-section-bg: var(--tg-theme-section-bg-color, #ffffff);
+  --color-tg-subtitle: var(--tg-theme-subtitle-text-color, #707579);
+}
+
+@layer base {
+  html {
+    /* Persian text at 16px is noticeably denser than Latin; 1.75 keeps it breathable. */
+    line-height: 1.75;
+  }
+
+  body {
+    background-color: var(--color-tg-bg);
+    color: var(--color-tg-text);
+    font-family: var(--font-sans);
+    /* Telegram's own WebView already handles overscroll; this stops a rubber-band
+       from revealing white beneath a dark theme. */
+    overscroll-behavior-y: none;
+  }
+
+  /* A visible focus ring is the only way this is usable with a keyboard, and
+     Telegram Desktop is a keyboard client. */
+  :focus-visible {
+    outline: 2px solid var(--color-tg-accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
