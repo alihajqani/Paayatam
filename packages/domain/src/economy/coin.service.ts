@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { ActorType, CoinLedgerType, Prisma } from '@payetam/db';
+import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 
 export interface CoinMovementInput {
@@ -27,6 +28,18 @@ export interface CoinMovementInput {
    * movement that claims to undo something.
    */
   reversesLedgerId?: string;
+}
+
+export interface CoinPenalty {
+  /** False when nothing was written — a replayed key, or a balance of zero. */
+  applied: boolean;
+  /** Null when the account had nothing left to take. */
+  ledgerId: string | null;
+  /** What was actually taken. Never more than the balance. */
+  charged: number;
+  /** What the policy asked for, which may be more than the account held. */
+  requested: number;
+  balance: number;
 }
 
 /** The exactly-once key for undoing a movement, derived from the movement itself. */
@@ -77,7 +90,10 @@ export interface CoinEntry {
  */
 @Injectable()
 export class CoinService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CLOCK) private readonly clock: Clock,
+  ) {}
 
   async balanceOf(userId: string, tx: Prisma.TransactionClient = this.prisma): Promise<number> {
     const account = await tx.coinAccount.findUnique({
@@ -123,8 +139,15 @@ export class CoinService {
    * reward that was promised and never paid.
    */
   async apply(input: CoinMovementInput, tx?: Prisma.TransactionClient): Promise<CoinMovement> {
-    if (tx) return this.applyWithin(tx, input);
-    return this.prisma.$transaction((transaction) => this.applyWithin(transaction, input));
+    const result = tx
+      ? await this.applyWithin(tx, input)
+      : await this.prisma.$transaction((transaction) => this.applyWithin(transaction, input));
+
+    // Non-null on every path that reaches here: the only way to get no row is a
+    // penalty capped to zero, and penalties do not come through `apply`. Checked
+    // rather than asserted, because "impossible" is what this file is for.
+    if (result.ledgerId === null) throw new AppError(ErrorCode.INTERNAL_ERROR);
+    return { applied: result.applied, ledgerId: result.ledgerId, balance: result.balance };
   }
 
   /**
@@ -179,30 +202,89 @@ export class CoinService {
     if (!original) throw new AppError(ErrorCode.NOT_FOUND);
     if (original.type === 'REVERSAL') throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
 
-    return this.applyWithin(tx, {
-      userId: original.userId,
-      amount: -original.amount,
-      type: 'REVERSAL',
-      reasonCode: input.reasonCode,
-      // Derived from what is being reversed, so a retried reversal collides on
-      // the same key. The UNIQUE on `reverses_ledger_id` is the second guard,
-      // and either one alone would be enough.
-      idempotencyKey: reversalKey(original.id),
-      actorType: input.actorType,
-      ...(input.actorId !== undefined ? { actorId: input.actorId } : {}),
-      // The reversal points at the same subject as the row it undoes, so a
-      // ledger filtered by ref shows the charge and its refund together.
-      ...(original.refType !== null ? { refType: original.refType } : {}),
-      ...(original.refId !== null ? { refId: original.refId } : {}),
-      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
-      reversesLedgerId: original.id,
-    });
+    return this.apply(
+      {
+        userId: original.userId,
+        amount: -original.amount,
+        type: 'REVERSAL',
+        reasonCode: input.reasonCode,
+        // Derived from what is being reversed, so a retried reversal collides on
+        // the same key. The UNIQUE on `reverses_ledger_id` is the second guard,
+        // and either one alone would be enough.
+        idempotencyKey: reversalKey(original.id),
+        actorType: input.actorType,
+        ...(input.actorId !== undefined ? { actorId: input.actorId } : {}),
+        // The reversal points at the same subject as the row it undoes, so a
+        // ledger filtered by ref shows the charge and its refund together.
+        ...(original.refType !== null ? { refType: original.refType } : {}),
+        ...(original.refId !== null ? { refId: original.refId } : {}),
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        reversesLedgerId: original.id,
+      },
+      tx,
+    );
+  }
+
+  /**
+   * Takes coins as a penalty, capped by what the account actually holds (M10).
+   *
+   * The difference from `apply` is the whole point and it is a policy decision,
+   * not a convenience. A *spend* must fail when the user cannot afford it — that
+   * is what `INSUFFICIENT_COINS` is for, and buying a boost with money you do not
+   * have is not a thing that should happen. A *penalty* must not, because the
+   * alternatives are both worse: refusing it would let somebody escape a
+   * cancellation charge by spending down to nothing first, and letting the
+   * balance go negative is forbidden by the CHECK and would turn every future
+   * reward into silent debt repayment the user was never told about.
+   *
+   * So it takes what is there and records what it wanted in `metadata`, the same
+   * way `TrustService` records a delta the bounds clipped. The shortfall is
+   * visible rather than forgiven-in-silence, and M12's admin tooling can see it.
+   *
+   * **A penalty that clamps to zero writes no row at all**, because
+   * `coin_ledger.amount` may not be zero — unlike `trust_score_ledger.delta`,
+   * which may. That would normally be a bug, because the row is what consumes the
+   * idempotency key. It is safe here only because a penalty is charged inside the
+   * transaction that makes a **terminal** state transition, and
+   * `assertParticipantTransition` is what makes that happen once. The key is the
+   * second guard, not the first.
+   */
+  async penalize(
+    input: Omit<CoinMovementInput, 'amount'> & { amount: number },
+    tx?: Prisma.TransactionClient,
+  ): Promise<CoinPenalty> {
+    if (tx) return this.penalizeWithin(tx, input);
+    return this.prisma.$transaction((transaction) => this.penalizeWithin(transaction, input));
+  }
+
+  private async penalizeWithin(
+    tx: Prisma.TransactionClient,
+    input: CoinMovementInput,
+  ): Promise<CoinPenalty> {
+    const requested = Math.abs(input.amount);
+    if (!Number.isInteger(requested)) throw new AppError(ErrorCode.INTERNAL_ERROR);
+
+    if (requested === 0) {
+      // A free bucket — GRACE, or anything beyond 24 hours. Nothing to write and
+      // nothing to explain; the cancellation itself is the record.
+      return {
+        applied: false,
+        ledgerId: null,
+        charged: 0,
+        requested: 0,
+        balance: await this.balanceOf(input.userId, tx),
+      };
+    }
+
+    return this.applyWithin(tx, { ...input, amount: -requested }, requested);
   }
 
   private async applyWithin(
     tx: Prisma.TransactionClient,
     input: CoinMovementInput,
-  ): Promise<CoinMovement> {
+    /** Set only by `penalize`: the magnitude the policy asked for, before capping. */
+    penaltyRequested?: number,
+  ): Promise<CoinPenalty> {
     if (!Number.isInteger(input.amount) || input.amount === 0) {
       // Coins are integers (plan §4). A zero movement records nothing and would
       // still consume the idempotency key, so it is a bug, not a no-op.
@@ -226,28 +308,60 @@ export class CoinService {
 
     const existing = await tx.coinLedger.findUnique({
       where: { idempotencyKey: input.idempotencyKey },
-      select: { id: true },
+      select: { id: true, amount: true },
     });
     if (existing) {
-      return { applied: false, ledgerId: existing.id, balance: balanceBefore };
+      return {
+        applied: false,
+        ledgerId: existing.id,
+        balance: balanceBefore,
+        charged: Math.abs(existing.amount),
+        requested: penaltyRequested ?? Math.abs(existing.amount),
+      };
     }
 
-    const balanceAfter = balanceBefore + input.amount;
+    // A penalty takes what is there; a spend does not get to overdraw. See
+    // `penalize` for why the two must differ.
+    const amount =
+      penaltyRequested !== undefined ? Math.max(input.amount, -balanceBefore) : input.amount;
+
+    const balanceAfter = balanceBefore + amount;
     if (balanceAfter < 0) {
       // Reported before the CHECK fires so the user gets "you don't have enough
       // coins" rather than a constraint violation rendered as a 500.
       throw new AppError(ErrorCode.INSUFFICIENT_COINS, {
         balance: balanceBefore,
-        required: -input.amount,
+        required: -amount,
       });
     }
+
+    if (amount === 0) {
+      // Only reachable from `penalize`, against an account already at zero.
+      // `coin_ledger.amount` may not be zero, so there is no row to write —
+      // safe here for the reason `penalize` gives, and nowhere else.
+      return {
+        applied: false,
+        ledgerId: null,
+        balance: balanceBefore,
+        charged: 0,
+        requested: penaltyRequested ?? 0,
+      };
+    }
+
+    // What the policy asked for, kept only when the balance ate some of it —
+    // the same discipline `TrustService` uses for a clamped delta, and the
+    // reason a shortfall is visible rather than silently forgiven.
+    const clamped = penaltyRequested !== undefined && -amount !== penaltyRequested;
+    const metadata = clamped
+      ? { ...asRecord(input.metadata), requestedAmount: penaltyRequested }
+      : input.metadata;
 
     const ledger = await tx.coinLedger.create({
       data: {
         userId: input.userId,
         idempotencyKey: input.idempotencyKey,
         type: input.type,
-        amount: input.amount,
+        amount,
         balanceBefore,
         balanceAfter,
         reasonCode: input.reasonCode,
@@ -256,7 +370,11 @@ export class CoinService {
         refType: input.refType ?? null,
         refId: input.refId ?? null,
         reversesLedgerId: input.reversesLedgerId ?? null,
-        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        // From the injected clock rather than the column default, so every
+        // window a policy or a retention job measures over this ledger agrees
+        // with the clock the rest of the domain reads (ADR-0008).
+        createdAt: this.clock.now(),
+        ...(metadata !== undefined ? { metadata } : {}),
       },
       select: { id: true },
     });
@@ -266,6 +384,20 @@ export class CoinService {
       data: { balance: balanceAfter, version: { increment: 1 } },
     });
 
-    return { applied: true, ledgerId: ledger.id, balance: balanceAfter };
+    return {
+      applied: true,
+      ledgerId: ledger.id,
+      balance: balanceAfter,
+      charged: Math.abs(amount),
+      requested: penaltyRequested ?? Math.abs(amount),
+    };
   }
+}
+
+/** A caller's metadata as something spreadable, or nothing. */
+function asRecord(value: Prisma.InputJsonValue | undefined): Record<string, Prisma.InputJsonValue> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value === undefined ? {} : { value };
+  }
+  return value as Record<string, Prisma.InputJsonValue>;
 }

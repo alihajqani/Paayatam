@@ -7,10 +7,16 @@ import {
   createUser,
   resetDatabase,
   seedCatalog,
+  TEST_CHAT_ENCRYPTION_KEY,
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { MessageCipher } from '../chat/message-cipher';
+import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
+import { PenaltyService } from '../economy/penalty.service';
+import { TrustService } from '../economy/trust.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { BlacklistService } from '../moderation/blacklist.service';
@@ -38,8 +44,27 @@ const settings = new SettingsService(service);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
 const audit = new AuditService(service, clock);
-const coins = new CoinService(service);
-const events = new EventService(service, clock, env, catalog, settings, moderation, coins, audit);
+const coins = new CoinService(service, clock);
+const trust = new TrustService(service, clock, settings);
+const penalties = new PenaltyService(service, settings, coins, trust);
+const outbox = new OutboxService(service, clock);
+const cipher = new MessageCipher({
+  CHAT_ENCRYPTION_KEY: TEST_CHAT_ENCRYPTION_KEY,
+} as unknown as Env);
+const chat = new ChatService(service, clock, cipher, audit, outbox);
+const events = new EventService(
+  service,
+  clock,
+  env,
+  catalog,
+  settings,
+  moderation,
+  coins,
+  penalties,
+  chat,
+  outbox,
+  audit,
+);
 
 let fixture: CatalogFixture;
 let hostId: string;

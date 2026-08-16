@@ -1144,6 +1144,118 @@ no-show — each asserting exact coin + trust deltas; **`Asia/Tehran` boundary t
 clock has zero effect (the endpoint accepts no client timestamp); **host cancellation refunds 100% and
 notifies everyone (D9)**. Rollback: set penalties to 0 in `app_setting` — no deploy needed.
 
+**Deviations from this plan, decided during M10:**
+
+- **No migration.** M6 already put `cancellation_bucket`, `penalty_ledger_id` and `attended` on
+  `event_participant`, with the CHECK that a penalty must name a bucket. Everything M10 adds is policy
+  numbers, and every policy number lives in `app_setting` (§4.2) — so this milestone is entirely code and
+  configuration, which is what §11's "rollback: set penalties to 0, no deploy needed" is claiming when it
+  says the numbers are not in the code.
+- **Penalties are charged in the transaction that records the cancellation**, not by a later job. M6
+  deferred the charge and wrote the bucket early so "the penalty is judged against the thresholds that
+  applied when the participant cancelled" — charging synchronously keeps that property and adds the one
+  ADR-0007 actually wants: the coins and the state change commit together, so there is no window in which
+  somebody has cancelled and not yet been charged.
+- **A penalty takes what the account holds; a spend refuses.** `CoinService.penalize` is a separate entry
+  point from `apply` for a reason that is policy, not convenience. Refusing an unaffordable penalty would let
+  anybody dodge a late-cancellation charge by spending down to nothing first, and a negative balance is
+  forbidden by the CHECK — so the charge is capped at the balance and the shortfall goes in `metadata` as
+  `requestedAmount`, the same way `TrustService` records a delta the bounds clipped.
+- **A penalty capped to *nothing* writes no ledger row**, because `coin_ledger.amount` may not be zero where
+  `trust_score_ledger.delta` may. That would normally be the bug M9 warned about — the row is what consumes
+  the idempotency key — and it is safe here only because the charge happens inside a **terminal** state
+  transition, so `assertParticipantTransition` is the real exactly-once guard and the key is the second one.
+  Stated because it is the one place in the economy where the key is not the primary defence.
+- **Both thresholds sit on the cheaper side.** Exactly 24 hours out is `H24_TO_H3`, exactly 3 hours out is
+  `H24_TO_H3` as well. A threshold that bites at exactly its own name surprises the person standing on it, so
+  where the comparison is arguable it rounds towards charging less. The boundaries are swept a minute at a
+  time in a pure test, not merely sampled at the named cases.
+- **The grace window is checked before the clock thresholds, and that ordering is load-bearing.** Somebody
+  accepted two hours before an event has not had a chance to think about it yet, so grace has to win over
+  lateness — otherwise the 15 minutes §11 promises would be worth nothing precisely when a promotion makes
+  them matter most. There is a test for exactly that interleaving.
+- **`Asia/Tehran` does not enter cancellation pricing at all**, and the test says so rather than leaving it
+  implied. Every threshold is a difference between two instants, so no timezone can move it; the obvious
+  wrong implementation — formatting both sides into Tehran local time and subtracting — would break the
+  test that pins it. The Tehran boundary that *does* matter here is the attendance cap's day, which uses
+  `startOfDayIn` like the event quota does.
+- **The dry run is a `GET`, not §6's `POST … ?dryRun=true`.** A dry run reads and changes nothing, and giving
+  it its own verb is what stops a proxy retry, a double-tap or a mistyped query string from cancelling
+  somebody's plans — which is the exact failure the confirmation dialog exists to prevent. Both previews
+  quote from the same functions that do the charging, so the dialog cannot promise a different number from
+  the one taken. `GET /participants/:publicId/cancel-preview` and `GET /events/:publicId/cancel-preview`.
+- **A host cancellation with nobody accepted is free.** ADR-0011 prices "a host cancelling a published event
+  **with accepted participants**"; charging for calling off something nobody joined would teach hosts to
+  leave dead listings standing, which is worse for everyone reading discovery than the cancellation is.
+- **The host's coin penalty is the participant price for the same lateness × 1.5, rounded not floored.**
+  ×1.5 on an odd price lands on a half, and flooring would quietly make every such penalty cheaper than the
+  multiplier says. The *trust* half is not derived from the participant table at all: §11 gives the host two
+  numbers split at 24 hours where a participant has three buckets, so a host who cancels more than a day out
+  pays no coins and still loses reputation — a cancelled event costs people their Saturday whether or not it
+  was cheap to call off.
+- **A pending or waitlisted request `EXPIRED`s when the host cancels; only an accepted one is
+  `CANCELLED_BY_HOST`.** This is what M6's state machine has said since it was written —
+  `WAITLISTED → CANCELLED_BY_HOST` is not a legal edge — and the reasoning holds: somebody still waiting was
+  never given a seat, so there is nothing to take away.
+- **M8's note to M10 is discharged**: host cancellation closes every chat it cancels, inside the same
+  transaction and under the event lock it already holds, so the ordering stays event → chat. A chat left open
+  after its event was cancelled is two strangers arranging a meeting that will not happen.
+- **D9a is unchanged and still honest.** The refund reverses every `coin_ledger` row whose subject is the
+  participant, which today is an empty set because joining is free. It is tested with a synthetic
+  participant-side charge, so it is known to work rather than assumed to. One filter was needed that the ADR
+  does not mention: penalty rows are excluded, or a host cancelling afterwards would hand back the
+  participant's *own* late-cancellation fine — turning "the host let you down" into a refund for letting them
+  down first.
+- **The event lifecycle sweep lands here, not in M13.** `ACCEPTED → COMPLETED` had no writer anywhere in the
+  product, which M9 recorded as an open gap that made the referral programme unreachable. M10 is the
+  milestone that prices attendance and no-shows, so it is the one that has to decide who attended.
+  `retireStarted` and `settleAttendance` are domain methods; **scheduling them is still M13**, exactly as M6
+  left `expireOverdue`. **This closes M9's referral gap** — there is a test that a referral qualifies through
+  the sweep.
+- **Attendance settles after a configured delay (24 h), not at the end of the event.** `COMPLETED` is
+  terminal, so settling immediately would close the door before a host could report a no-show. The delay
+  matches the review window opening at T+24 h (§11), so the two things a host is asked to do about a finished
+  event become available together.
+- **Everyone still ACCEPTED when the sweep runs is treated as having attended.** The alternative is
+  penalising people for a report their host never filed. A host who says nothing has told us nothing.
+- **`POST /participants/:publicId/no-show` is an addition to §6's endpoint list.** §11 prices a no-show at
+  −60 coins and −15 trust and §7 draws `ACCEPTED → NO_SHOW`, but the plan never says who decides one — and
+  the platform is not at the café. Left unbuilt, the most expensive penalty in the product would be
+  unreachable and the state would be decoration. It is a host action, audited like every other, only after
+  the event has ended, and M12's moderation is where a participant disputes one.
+- **Attendance trust is capped per *Tehran* day, counted against the ledger.** §11's "+2, cap +2/day" is
+  what stops two people running six events a day to trade reputation with each other — the same reasoning
+  that puts the referral reward behind an attended event. Counted from `trust_score_ledger` rather than a
+  stored per-day tally, because the ledger is already the truth and a second counter is a second thing that
+  can disagree with it.
+- **A latent M9 bug, found by the attendance cap.** Both ledgers took `created_at` from the column default,
+  so a policy window derived from the injected `Clock` and the rows it filtered came from two different
+  sources of time — the cap would have been untestable and silently inert wherever the two diverged. This is
+  the same divergence M4 had to fix on `event.created_at`, and the fix is the same: `CoinService` and
+  `TrustService` now take the `Clock` and stamp `created_at` from it (ADR-0008). Worth the constructor churn
+  because M12's admin views and M15's retention purge will both filter these columns.
+- **The referral payout runs *after* the settlement transaction, not inside it.** `qualifyForAttendance`
+  takes the *referrer's* coin-account lock — a different user from the attendee, and one the sweep has no
+  other reason to touch — so calling it under the event lock would mean holding an event lock while waiting
+  on an arbitrary third party's account, which is the second-lock-of-unknown-order ADR-0006 rule 2 exists to
+  prevent. Safe outside because it re-derives its own condition and is idempotent: a crash between the commit
+  and the payout pays out on the next sweep rather than losing the reward.
+- **Host cancellation is the first path to hold more than one coin-account lock, so it needs an order among
+  them.** Every refunded participant's account plus the host's are taken up front, sorted by user id: two
+  such cancellations sharing a participant could otherwise deadlock, and the event locks they each hold are
+  for *different* events, so nothing serialises them earlier. Latent today — D9a means the refund reverses an
+  empty set — and built anyway, because D9a also says the refund goes live the moment a participant-side cost
+  exists, and a deadlock found then would be found in production.
+- **A second latent issue the clock change exposed**, this time in M9's own reconciliation test: it read the
+  ledger chain ordered by `created_at` alone. Two movements can share a timestamp — the clock has millisecond
+  resolution and one transaction can write two rows — so the order was arbitrary whenever they tied, which
+  turns a continuity assertion into a coin toss. Now ordered by `(created_at, id)`, `id` being UUIDv7 and
+  therefore a time-ordered unique tiebreak — the same shape the waitlist queue uses.
+- **The leak scan's new coverage guard earned itself immediately.** It caught all four of M10's endpoints the
+  moment they were added, which is the first time that check has done its job on code written after it.
+- **No Mini App work**, as in M4, M5, M8 and M9. The cancellation dialogs the dry-run endpoints exist to
+  power are not built.
+
 **M11 — Blind reviews** · *M*
 Tests: **the counterparty review is unreadable before reveal — asserted at the API layer, not the UI (D7)**;
 both submitted ⇒ immediate reveal; deadline with one side ⇒ `EXPIRED_PARTIAL` (D7a); duplicate ⇒ 409;

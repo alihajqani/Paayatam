@@ -7,11 +7,15 @@ import {
 } from '@payetam/domain';
 import {
   boostEventRequest,
+  cancelEventRequest,
   createEventRequest,
   updateEventRequest,
   type BoostEventRequest,
+  type CancelEventRequest,
   type CreateEventRequest,
+  type EventCancellationResponse,
   type EventView,
+  type HostCancellationPreviewResponse,
   type MyEventsResponse,
   type UpdateEventRequest,
 } from '@payetam/shared';
@@ -88,6 +92,59 @@ export class EventsController {
   ): Promise<EventView> {
     const hostUserId = await this.users.resolveInternalId(current.publicId);
     return toEventView(await this.events.boost(hostUserId, publicId, body.kind));
+  }
+
+  /**
+   * The host calls the whole thing off (ADR-0011, D9).
+   *
+   * The response is what happened rather than the event: how many people were
+   * told, what it cost, and what was refunded. A host who cancels wants to know
+   * the damage, and the event row afterwards says none of it.
+   *
+   * `coinsCharged` can be less than `coinsRequested` — a penalty takes what the
+   * account holds rather than refusing — so both are reported and the difference
+   * is visible instead of looking like the price changed.
+   */
+  @Post('events/:publicId/cancel')
+  async cancel(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(cancelEventRequest)) body: CancelEventRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<EventCancellationResponse> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    const result = await this.events.cancelByHost(hostUserId, publicId, body.reason);
+
+    return {
+      bucket: result.bucket,
+      cancelled: result.cancelled,
+      hadSeats: result.hadSeats,
+      coinsCharged: result.coinsCharged,
+      coinsRequested: result.coinsRequested,
+      trustApplied: result.trustApplied,
+      coinsRefunded: result.coinsRefunded,
+    };
+  }
+
+  /**
+   * What cancelling would cost, charging nothing.
+   *
+   * A GET for the same reason the participant's preview is one: a dry run reads,
+   * and a retried POST must never be able to call off an event by accident.
+   */
+  @Get('events/:publicId/cancel-preview')
+  async cancelPreview(
+    @Param('publicId') publicId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<HostCancellationPreviewResponse> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    const preview = await this.events.previewHostCancellation(hostUserId, publicId);
+
+    return {
+      bucket: preview.bucket,
+      affected: preview.affected,
+      coins: preview.price.coins,
+      trust: preview.price.trust,
+    };
   }
 
   /**

@@ -427,6 +427,9 @@ beforeAll(async () => {
     { method: 'POST', url: `/api/v1/events/${eventPublicId}/join` },
     { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/accept` },
     { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/reject` },
+    // M10's dry run, immediately before the cancel it quotes for — it has to see
+    // a live participation, and the next line ends this one.
+    { method: 'GET', url: `/api/v1/participants/${viewerParticipantPublicId}/cancel-preview` },
     { method: 'POST', url: `/api/v1/participants/${viewerParticipantPublicId}/cancel`, body: {} },
     // M8. `close` is deliberately last: it ends the conversation, and the passes
     // that follow then read a closed chat and get the refusals — which are
@@ -502,6 +505,21 @@ beforeAll(async () => {
     // response is the event, which carries the host's projection — the same one
     // `GET /events/:id` is scanned for, reached by a different mapper.
     { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/boost`, body: { kind: 'BOOST' } },
+    /**
+     * M10. The host's dry run reads and changes nothing, so it goes above the
+     * cancellation it quotes for.
+     *
+     * `no-show` names the **leaky host's** participation on the viewer's event,
+     * which is the shape worth scanning: one user making an accusation about
+     * another, where the response must still describe that other person by
+     * nothing at all. It refuses today — the event has not happened — and the
+     * refusal is a response like any other.
+     */
+    { method: 'GET', url: `/api/v1/events/${viewerEventPublicId}/cancel-preview` },
+    { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/no-show` },
+    // Last of all: it retires the viewer's event, and the passes that follow then
+    // read the refusals — which are responses too.
+    { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/cancel`, body: {} },
   );
 });
 

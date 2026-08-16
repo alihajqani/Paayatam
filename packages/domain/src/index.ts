@@ -41,6 +41,17 @@ export {
 } from './economy/trust.service';
 export type { TrustEntry, TrustMovement, TrustMovementInput } from './economy/trust.service';
 export {
+  PenaltyService,
+  bucketForLateness,
+  CANCEL_PENALTY_REASON,
+  NO_SHOW_PENALTY_REASON,
+  HOST_PENALTY_REASON,
+  HOST_REFUND_REASON,
+  hostPenaltyKey,
+  participantPenaltyKey,
+} from './economy/penalty.service';
+export type { ChargedPenalty, PenaltyPrice } from './economy/penalty.service';
+export {
   ReferralService,
   REFERRAL_REFERRER_REASON,
   REFERRAL_REFERRED_REASON,
@@ -104,10 +115,15 @@ export {
 } from './events/event.service';
 export type {
   BoostKind,
+  CancelledParticipant,
   CreateEventInput,
   UpdateEventInput,
+  EventCancellation,
   EventDetail,
+  HostCancellationPreview,
 } from './events/event.service';
+export { EventLifecycleService, ATTENDANCE_REASON } from './events/lifecycle.service';
+export type { SettlementResult } from './events/lifecycle.service';
 export { EventsModule } from './events/events.module';
 
 export {
@@ -121,6 +137,7 @@ export { ParticipationService } from './participation/participation.service';
 export type {
   ParticipationDetail,
   ParticipantSummary,
+  CancellationPreview,
 } from './participation/participation.service';
 export { ParticipationModule } from './participation/participation.module';
 

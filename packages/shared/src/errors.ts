@@ -35,6 +35,7 @@ export const ErrorCode = {
   CONTENT_BLOCKED: 'CONTENT_BLOCKED',
   CAPACITY_BELOW_ACCEPTED: 'CAPACITY_BELOW_ACCEPTED',
   CONFLICT_STALE_VERSION: 'CONFLICT_STALE_VERSION',
+  EVENT_ALREADY_STARTED: 'EVENT_ALREADY_STARTED',
 
   // Participation (ADR-0006)
   DUPLICATE_REQUEST: 'DUPLICATE_REQUEST',
@@ -102,6 +103,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   CONTENT_BLOCKED: 'متن واردشده با قوانین انتشار مطابقت ندارد. لطفاً آن را ویرایش کنید.',
   CAPACITY_BELOW_ACCEPTED: 'ظرفیت نمی‌تواند کمتر از تعداد افراد پذیرفته‌شده باشد.',
   CONFLICT_STALE_VERSION: 'این فعالیت در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
+  EVENT_ALREADY_STARTED: 'این فعالیت شروع شده است و دیگر نمی‌توان آن را لغو کرد.',
 
   DUPLICATE_REQUEST: 'شما قبلاً برای این فعالیت درخواست داده‌اید.',
   HOST_CANNOT_JOIN: 'شما میزبان این فعالیت هستید.',
@@ -157,6 +159,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   ALREADY_REPORTED: 409,
   CAPACITY_EXCEEDED: 409,
   CONFLICT_STALE_VERSION: 409,
+  EVENT_ALREADY_STARTED: 409,
   INVALID_STATE_TRANSITION: 409,
   REVIEW_NOT_EDITABLE: 409,
   RATE_LIMITED: 429,

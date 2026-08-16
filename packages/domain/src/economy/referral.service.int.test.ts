@@ -31,7 +31,7 @@ const NOW = new Date('2026-08-15T09:00:00.000Z');
 const clock = new FakeClock(NOW);
 
 const settings = new SettingsService(service);
-const coins = new CoinService(service);
+const coins = new CoinService(service, clock);
 const audit = new AuditService(service, clock);
 const referrals = new ReferralService(service, clock, settings, coins, audit);
 

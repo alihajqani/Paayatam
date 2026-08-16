@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { FakeClock } from '@payetam/platform';
 import type { CoinLedgerType, PrismaClient, PrismaService } from '@payetam/db';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
 import { SettingsService } from '../catalog/settings.service';
@@ -29,9 +30,11 @@ import { TrustService, clampScore } from './trust.service';
 const prisma: PrismaClient = createTestPrisma();
 const service = prisma as unknown as PrismaService;
 
+const START = new Date('2026-08-15T09:00:00.000Z');
+const clock = new FakeClock(START);
 const settings = new SettingsService(service);
-const coins = new CoinService(service);
-const trust = new TrustService(service, settings);
+const coins = new CoinService(service, clock);
+const trust = new TrustService(service, clock, settings);
 
 /** How many operations, and over how many accounts. */
 const OPERATIONS = 1000;
@@ -88,6 +91,11 @@ beforeAll(async () => {
   reversible = [];
 
   for (let index = 0; index < OPERATIONS; index += 1) {
+    // The ledgers stamp `created_at` from the clock (M10), so a fixed clock would
+    // give all thousand rows the same timestamp — which is not what production
+    // looks like and would make any read ordered by time arbitrary. Advancing it
+    // a second at a time keeps the data shaped like real history.
+    clock.set(new Date(START.getTime() + index * 1_000));
     await performOne(index);
   }
 }, 600_000);
@@ -243,7 +251,12 @@ describe(`reconciliation over ${String(OPERATIONS)} random operations (ADR-0007)
     for (const userId of users) {
       const entries = await prisma.coinLedger.findMany({
         where: { userId },
-        orderBy: { createdAt: 'asc' },
+        // `(created_at, id)`, not `created_at` alone. Two movements can share a
+        // timestamp — the clock has millisecond resolution and a transaction can
+        // write two rows inside one — and a tie makes the order arbitrary, which
+        // turns a continuity check into a coin toss. `id` is UUIDv7, so it is
+        // time-ordered and unique: the same tiebreak the waitlist queue uses.
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { amount: true, balanceBefore: true, balanceAfter: true, createdAt: true },
       });
 
@@ -260,7 +273,7 @@ describe(`reconciliation over ${String(OPERATIONS)} random operations (ADR-0007)
     for (const userId of users) {
       const entries = await prisma.trustScoreLedger.findMany({
         where: { userId },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { delta: true, scoreBefore: true, scoreAfter: true },
       });
 

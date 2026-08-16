@@ -7,6 +7,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
 import { ChatService } from '../chat/chat.service';
+import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import {
   lockEventByParticipantPublicIdForUpdate,
   lockEventByPublicIdForUpdate,
@@ -78,6 +79,7 @@ export class ParticipationService {
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
     private readonly chat: ChatService,
+    private readonly penalties: PenaltyService,
   ) {}
 
   /**
@@ -330,12 +332,50 @@ export class ParticipationService {
   }
 
   /**
-   * The participant withdraws.
+   * What cancelling right now would cost, without cancelling (§6's `?dryRun`).
    *
-   * The bucket is recorded here; the coins and trust it costs are M10. Writing
-   * the bucket now rather than later means the penalty a participant eventually
-   * pays is judged against the thresholds that applied when they cancelled, not
-   * against whatever `app_setting` holds by the time the job runs.
+   * Quoted from the same `bucketForLateness` and `priceFor` that do the charging,
+   * against the same server clock (invariant 9) — a confirmation dialog is only
+   * honest if the number in it is the number that will be taken. A second copy of
+   * the table would eventually quote a price the charge no longer agrees with,
+   * and the user would find out afterwards.
+   */
+  async previewCancellation(
+    userId: string,
+    participantPublicId: string,
+  ): Promise<CancellationPreview> {
+    const now = this.clock.now();
+
+    const participant = await this.prisma.eventParticipant.findUnique({
+      where: { publicId: participantPublicId },
+      select: {
+        userId: true,
+        status: true,
+        graceExpiresAt: true,
+        event: { select: { startsAt: true } },
+      },
+    });
+    // Same 404 as a participation that does not exist: whose request this is must
+    // not be discoverable by anybody else (T3.3).
+    if (!participant || participant.userId !== userId) throw new AppError(ErrorCode.NOT_FOUND);
+
+    assertParticipantTransition(participant.status, 'CANCELLED_BY_PARTICIPANT');
+
+    const bucket = bucketFor(participant, participant.event.startsAt, now);
+    if (bucket === null) return { bucket: null, price: { coins: 0, trust: 0 } };
+
+    return { bucket, price: await this.penalties.priceFor(bucket) };
+  }
+
+  /**
+   * The participant withdraws, and pays for it if they left it late (§11).
+   *
+   * The bucket is decided here, from the server clock, and charged in the same
+   * transaction. Both halves of that matter. Deciding it here means the price is
+   * judged against the thresholds that applied at the moment of cancelling rather
+   * than whenever a job later got around to it; charging it here means the coins
+   * and the state change commit together, so there is no window in which somebody
+   * has cancelled and not yet been charged (ADR-0007).
    */
   async cancel(
     userId: string,
@@ -358,7 +398,26 @@ export class ParticipationService {
 
         if (holdsSeat(participant.status)) await this.releaseSeat(tx, event);
 
-        const bucket = this.cancellationBucket(participant, event.startsAt, now);
+        const bucket = bucketFor(participant, event.startsAt, now);
+
+        /**
+         * The charge, under the event lock this transaction already holds.
+         *
+         * Lock order is event → coin account → trust score, which is the order M9
+         * established and the one every value-moving path must keep (ADR-0006).
+         * A penalty takes what the account has rather than refusing when it is
+         * short: see `CoinService.penalize` for why a penalty and a spend cannot
+         * behave the same way here.
+         */
+        const penalty =
+          bucket === null
+            ? null
+            : await this.penalties.chargeParticipant(tx, {
+                participantId: participant.id,
+                userId,
+                bucket,
+                eventId: event.id,
+              });
 
         const updated = await tx.eventParticipant.update({
           where: { id: participant.id },
@@ -368,6 +427,7 @@ export class ParticipationService {
             cancelledAt: now,
             cancellationBucket: bucket,
             cancellationReason: reason ?? null,
+            penaltyLedgerId: penalty?.ledgerId ?? null,
             version: { increment: 1 },
           },
         });
@@ -392,7 +452,12 @@ export class ParticipationService {
             // The reason is the participant's own words about themselves, so it
             // stays on the row rather than being copied into a trail admins read
             // (ADR-0009).
-            after: { status: 'CANCELLED_BY_PARTICIPANT', bucket },
+            after: {
+              status: 'CANCELLED_BY_PARTICIPANT',
+              bucket,
+              coinsCharged: penalty?.coinsCharged ?? 0,
+              trustApplied: penalty?.trustApplied ?? 0,
+            },
           },
           tx,
         );
@@ -883,27 +948,6 @@ export class ParticipationService {
     return new Date(Math.min(byResponseWindow, byEventStart));
   }
 
-  /**
-   * Which side of the policy thresholds this cancellation fell on (plan §11).
-   *
-   * A request that never held a seat has no bucket: there is nothing to penalise
-   * in withdrawing from a queue, and giving it one would put a row in front of
-   * M10's penalty job that should never have been there.
-   */
-  private cancellationBucket(
-    participant: ParticipantRow,
-    startsAt: Date,
-    now: Date,
-  ): CancellationBucket | null {
-    if (participant.status !== 'ACCEPTED') return null;
-    if (participant.graceExpiresAt !== null && now <= participant.graceExpiresAt) return 'GRACE';
-
-    const hoursBefore = (startsAt.getTime() - now.getTime()) / 3_600_000;
-    if (hoursBefore > 24) return 'GT_24H';
-    if (hoursBefore >= 3) return 'H24_TO_H3';
-    return 'LT_3H';
-  }
-
   private async toDetail(
     participant: ParticipantRow,
     eventPublicId: string,
@@ -950,6 +994,35 @@ export class ParticipationService {
     });
     return ahead + 1;
   }
+}
+
+/**
+ * Which side of §11's thresholds a cancellation fell on.
+ *
+ * A request that never held a seat has **no bucket**: withdrawing from a queue
+ * costs nothing, and giving it one would put a charge in front of somebody who
+ * was never given a seat to give up. The grace window is checked before the
+ * clock thresholds, because being inside it is free however late the event is.
+ *
+ * A free function rather than a method: it is the same decision the dry-run
+ * quotes and the same one the charge uses, and passing it around as a pure
+ * function is what keeps those from becoming two answers.
+ */
+function bucketFor(
+  participant: { status: ParticipantStatus; graceExpiresAt: Date | null },
+  startsAt: Date,
+  now: Date,
+): CancellationBucket | null {
+  if (participant.status !== 'ACCEPTED') return null;
+  if (participant.graceExpiresAt !== null && now <= participant.graceExpiresAt) return 'GRACE';
+  return bucketForLateness(startsAt, now);
+}
+
+/** What `?dryRun=true` answers with: the bucket and its price, charging nothing. */
+export interface CancellationPreview {
+  /** Null when this cancellation is not priced at all — a queue withdrawal. */
+  bucket: CancellationBucket | null;
+  price: PenaltyPrice;
 }
 
 interface Joiner {

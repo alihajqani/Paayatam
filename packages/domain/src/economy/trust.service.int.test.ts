@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { FakeClock } from '@payetam/platform';
 import type { PrismaClient, PrismaService } from '@payetam/db';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
 import { SettingsService } from '../catalog/settings.service';
@@ -25,8 +26,9 @@ import {
 const prisma: PrismaClient = createTestPrisma();
 const service = prisma as unknown as PrismaService;
 
+const clock = new FakeClock(new Date('2026-08-15T09:00:00.000Z'));
 const settings = new SettingsService(service);
-const trust = new TrustService(service, settings);
+const trust = new TrustService(service, clock, settings);
 
 let userId: string;
 

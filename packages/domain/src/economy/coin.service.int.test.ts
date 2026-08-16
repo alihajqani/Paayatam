@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { FakeClock } from '@payetam/platform';
 import type { PrismaClient } from '@payetam/db';
 import type { PrismaService } from '@payetam/db';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
@@ -12,7 +13,14 @@ import { CoinService, type CoinMovementInput } from './coin.service';
  */
 
 const prisma: PrismaClient = createTestPrisma();
-const coins = new CoinService(prisma as unknown as PrismaService);
+
+/**
+ * A fixed clock, because the ledger now stamps `created_at` from it (ADR-0008).
+ * The value is arbitrary here — what matters is that it is the domain's clock and
+ * not the database's, so a policy window and the rows it filters agree.
+ */
+const clock = new FakeClock(new Date('2026-08-15T09:00:00.000Z'));
+const coins = new CoinService(prisma as unknown as PrismaService, clock);
 
 function grant(userId: string, amount: number, key: string): CoinMovementInput {
   return {

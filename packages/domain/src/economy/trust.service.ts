@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { ActorType, Prisma, TrustLedgerType } from '@payetam/db';
+import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { SettingsService } from '../catalog/settings.service';
 
@@ -103,6 +104,7 @@ export interface TrustEntry {
 export class TrustService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CLOCK) private readonly clock: Clock,
     private readonly settings: SettingsService,
   ) {}
 
@@ -295,6 +297,12 @@ export class TrustService {
         refType: input.refType ?? null,
         refId: input.refId ?? null,
         reversesLedgerId: input.reversesLedgerId ?? null,
+        // From the injected clock, not the column default (ADR-0008).
+        // `trust.attendance_daily_cap` filters these rows against a window
+        // derived from `Clock`, and leaving the column to the database's `now()`
+        // would mean the filter and the rows it filters come from two different
+        // sources of time — the same divergence M4 had to fix on `event`.
+        createdAt: this.clock.now(),
         // What the policy asked for, kept only when the bounds ate some of it.
         // This is what turns "your score did not move" into an explanation.
         //

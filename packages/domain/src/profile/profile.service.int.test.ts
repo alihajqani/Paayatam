@@ -36,8 +36,8 @@ const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 
 const catalog = new CatalogService(service);
 const settings = new SettingsService(service);
-const coins = new CoinService(service);
-const trust = new TrustService(service, settings);
+const coins = new CoinService(service, clock);
+const trust = new TrustService(service, clock, settings);
 const audit = new AuditService(service, clock);
 const profiles = new ProfileService(service, clock, env, catalog, settings, coins, trust, audit);
 

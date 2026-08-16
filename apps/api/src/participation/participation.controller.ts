@@ -1,8 +1,9 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
-import { ParticipationService, UserService } from '@payetam/domain';
+import { EventLifecycleService, ParticipationService, UserService } from '@payetam/domain';
 import {
   cancelParticipationRequest,
   type CancelParticipationRequest,
+  type CancellationPreviewResponse,
   type EventParticipantsResponse,
   type MyParticipationsResponse,
   type ParticipationView,
@@ -15,6 +16,7 @@ import { toParticipantSummaryView, toParticipationView } from './participation.v
 export class ParticipationController {
   constructor(
     private readonly participation: ParticipationService,
+    private readonly lifecycle: EventLifecycleService,
     private readonly users: UserService,
   ) {}
 
@@ -77,6 +79,43 @@ export class ParticipationController {
   ): Promise<ParticipationView> {
     const userId = await this.users.resolveInternalId(current.publicId);
     return toParticipationView(await this.participation.cancel(userId, publicId, body.reason));
+  }
+
+  /**
+   * What cancelling would cost, charging nothing (§6's `?dryRun=true`).
+   *
+   * A **GET**, not the `POST … ?dryRun=true` §6 describes. A dry run reads and
+   * changes nothing, and giving it its own verb is what stops a proxy retry, a
+   * double-tap or a mistyped query string from cancelling somebody's plans —
+   * which is exactly the failure a confirmation dialog exists to prevent. The
+   * price it quotes comes from the same code the charge uses.
+   */
+  @Get('participants/:publicId/cancel-preview')
+  async cancelPreview(
+    @Param('publicId') publicId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<CancellationPreviewResponse> {
+    const userId = await this.users.resolveInternalId(current.publicId);
+    const preview = await this.participation.previewCancellation(userId, publicId);
+    return { bucket: preview.bucket, coins: preview.price.coins, trust: preview.price.trust };
+  }
+
+  /**
+   * The host reports that somebody did not turn up (plan §11).
+   *
+   * An addition to §6's endpoint list. §11 prices a no-show at −60 coins and −15
+   * trust and §7 draws the transition, but the plan never says who decides one —
+   * and the platform is not at the café. Left unbuilt, the most expensive penalty
+   * in the product would be unreachable. Disputes are M12's moderation.
+   */
+  @Post('participants/:publicId/no-show')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async noShow(
+    @Param('publicId') publicId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<void> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    await this.lifecycle.markNoShow(hostUserId, publicId);
   }
 
   /** Everything the caller has asked to join. */

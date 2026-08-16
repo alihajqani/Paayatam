@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type {
+  CancellationBucket,
   CostType,
   EventModerationStatus,
   EventStatus,
@@ -13,8 +14,12 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
+import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
+import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import { ModerationService, type ContentScan } from '../moderation/moderation.service';
+import { OutboxService } from '../outbox/outbox.service';
+import { assertParticipantTransition } from '../participation/state-machine';
 import { startOfDayIn } from '../time';
 import { lockEventByPublicIdForUpdate } from './event-lock';
 import { ACTIVE_EVENT_STATUSES, assertEventTransition } from './state-machine';
@@ -75,6 +80,44 @@ export function vipSpendKey(eventId: string): string {
 export function extendedBoost(current: Date | null, now: Date, hours: number): Date {
   const from = current !== null && current > now ? current : now;
   return new Date(from.getTime() + hours * 3_600_000);
+}
+
+/**
+ * Who was told, and whether they had a seat. Public ids only (ADR-0009).
+ *
+ * A `type` rather than an `interface` on purpose: this goes straight into
+ * `outbox_event.payload`, and TypeScript gives an implicit index signature to an
+ * object type alias but never to an interface — so as an interface it is not
+ * assignable to Prisma's JSON input at all.
+ */
+export type CancelledParticipant = {
+  participantPublicId: string;
+  userPublicId: string;
+  hadSeat: boolean;
+};
+
+/** The outcome of a host cancellation, including what it cost (ADR-0011, D9). */
+export interface EventCancellation {
+  event: EventDetail;
+  /** Requests retired, seats or not. */
+  cancelled: number;
+  /** How many of those actually held a seat — what the penalty is priced against. */
+  hadSeats: number;
+  coinsCharged: number;
+  /** What the policy asked for, which may exceed what the host had. */
+  coinsRequested: number;
+  /** Negative or zero: what the score moved by, after the 0–100 clamp. */
+  trustApplied: number;
+  /** D9a: zero today, because joining costs a participant nothing. */
+  coinsRefunded: number;
+  bucket: CancellationBucket;
+}
+
+/** What `?dryRun=true` answers with for a host. */
+export interface HostCancellationPreview {
+  bucket: CancellationBucket;
+  affected: number;
+  price: PenaltyPrice;
 }
 
 export interface EventDetail {
@@ -146,6 +189,9 @@ export class EventService {
     private readonly settings: SettingsService,
     private readonly moderation: ModerationService,
     private readonly coins: CoinService,
+    private readonly penalties: PenaltyService,
+    private readonly chat: ChatService,
+    private readonly outbox: OutboxService,
     private readonly audit: AuditService,
   ) {}
 
@@ -558,6 +604,250 @@ export class EventService {
     return toEventDetail(event);
   }
 
+  /**
+   * The host calls the whole thing off (ADR-0011, D9).
+   *
+   * One transaction under the event lock, doing five things that must all be true
+   * together or none of them: the event retires, everybody holding a seat is
+   * cancelled and refunded, every conversation closes, the host pays, and one
+   * domain event goes out naming everyone who needs telling. A crash that
+   * committed some of these would leave strangers messaging each other about a
+   * meeting that is not happening, which is the specific failure M8 asked M10 not
+   * to ship.
+   *
+   * **Who gets what.** An ACCEPTED participant had a seat, so they are
+   * `CANCELLED_BY_HOST` and refunded whatever taking part cost them. Somebody
+   * still PENDING or WAITLISTED was never given anything to take away, so their
+   * request `EXPIRED` — which is what the participation state machine has said
+   * since M6 and the reason `WAITLISTED → CANCELLED_BY_HOST` is not a legal edge.
+   *
+   * **The host's price is measured against `starts_at`, not against how many
+   * people are affected** — except that with nobody accepted it is free. ADR-0011
+   * prices "a host cancelling a published event with accepted participants", and
+   * charging for calling off something nobody joined would teach hosts to leave
+   * dead events standing, which is worse for everyone reading discovery.
+   */
+  async cancelByHost(
+    hostUserId: string,
+    publicId: string,
+    reason?: string,
+  ): Promise<EventCancellation> {
+    const now = this.clock.now();
+
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await lockEventByPublicIdForUpdate(tx, publicId);
+        // Not-yours and not-found answer identically (T3.3).
+        if (!locked || locked.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+        if (locked.hostUserId !== hostUserId) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+
+        // Read after the lock rather than widening `LOCKED_COLUMNS`: the lock
+        // helper casts the enum to text so the raw query needs no generated
+        // types, and a state machine wants the enum. Same trade boost makes.
+        const current = await tx.event.findUniqueOrThrow({
+          where: { id: locked.id },
+          select: { status: true },
+        });
+        assertEventTransition(current.status, 'CANCELLED_BY_HOST', locked.id);
+
+        // Cancelling something that already happened is not a cancellation. The
+        // lifecycle sweep is what retires a finished event, and letting a host
+        // "cancel" it afterwards would rewrite an attendance record.
+        if (locked.startsAt <= now) throw new AppError(ErrorCode.EVENT_ALREADY_STARTED);
+
+        const participants = await tx.eventParticipant.findMany({
+          where: { eventId: locked.id, status: { in: ['ACCEPTED', 'PENDING', 'WAITLISTED'] } },
+          select: { id: true, publicId: true, userId: true, status: true },
+          orderBy: [{ requestedAt: 'asc' }, { id: 'asc' }],
+        });
+
+        const accepted = participants.filter((row) => row.status === 'ACCEPTED');
+        const notified: CancelledParticipant[] = [];
+        let refunded = 0;
+
+        // Every coin account this transaction will touch, taken in one fixed
+        // order before any of the work starts. Two host cancellations sharing a
+        // participant would otherwise be able to deadlock against each other —
+        // see `lockAccounts` for why that is latent today and why it is here
+        // anyway.
+        await this.penalties.lockAccounts(tx, [hostUserId, ...accepted.map((row) => row.userId)]);
+
+        for (const participant of participants) {
+          const wasAccepted = participant.status === 'ACCEPTED';
+          const to = wasAccepted ? 'CANCELLED_BY_HOST' : 'EXPIRED';
+          assertParticipantTransition(participant.status, to, participant.id);
+
+          if (wasAccepted) {
+            // D9/D9a. Generic by design: reverse whatever taking part cost this
+            // person, which today is nothing because joining is free.
+            refunded += await this.penalties.refundParticipant(tx, participant.id, hostUserId);
+          }
+
+          await tx.eventParticipant.update({
+            where: { id: participant.id },
+            data: {
+              status: to,
+              // The CHECK requires a cancelled row to carry a timestamp, and an
+              // expired one must not claim to have been cancelled.
+              ...(wasAccepted ? { cancelledAt: now, cancellationReason: reason ?? null } : {}),
+              version: { increment: 1 },
+            },
+          });
+
+          // M8's note to M10, discharged: a chat left open after its event was
+          // cancelled is two strangers arranging a meeting that will not happen.
+          // Inside this transaction and under the event lock it already holds, so
+          // the lock ordering stays event → chat (ADR-0006 rule 2).
+          await this.chat.closeForParticipant(
+            tx,
+            participant.id,
+            { reason: 'event_cancelled', actorUserId: hostUserId, action: 'CLOSE' },
+            now,
+          );
+
+          notified.push({
+            participantPublicId: participant.publicId,
+            userPublicId: await publicIdOf(tx, participant.userId),
+            hadSeat: wasAccepted,
+          });
+        }
+
+        const bucket = bucketForLateness(locked.startsAt, now);
+        const penalty = await this.penalties.chargeHost(tx, {
+          eventId: locked.id,
+          hostUserId,
+          bucket,
+          affected: accepted.length,
+        });
+
+        await tx.event.update({
+          where: { id: locked.id },
+          data: {
+            status: 'CANCELLED_BY_HOST',
+            // Every seat is gone with the event. Set rather than decremented,
+            // because there is no partial state to preserve.
+            acceptedCount: 0,
+            version: { increment: 1 },
+          },
+        });
+
+        await this.audit.record(
+          {
+            actorType: 'USER',
+            actorId: hostUserId,
+            action: 'event.cancelled_by_host',
+            targetType: 'event',
+            targetId: locked.id,
+            before: { status: current.status, acceptedCount: locked.acceptedCount },
+            after: {
+              status: 'CANCELLED_BY_HOST',
+              bucket,
+              cancelled: notified.length,
+              hadSeats: accepted.length,
+              coinsCharged: penalty.coinsCharged,
+              trustApplied: penalty.trustApplied,
+              coinsRefunded: refunded,
+            },
+          },
+          tx,
+        );
+
+        /**
+         * One domain event naming everybody, not one per person.
+         *
+         * The same reasoning M7 used for promotion: a single row emitted inside
+         * this transaction makes "a crash cannot tell some of them and lose the
+         * rest" true by construction, and M13's relay fans it out into one
+         * notification each, made exactly-once by `notification.dedupe_key`.
+         *
+         * Public ids only — this payload becomes the text of a Telegram message
+         * (ADR-0009).
+         */
+        await this.outbox.emit(
+          {
+            aggregateType: 'event',
+            aggregateId: locked.id,
+            eventType: 'event.cancelled_by_host',
+            payload: {
+              eventPublicId: locked.publicId,
+              startsAt: locked.startsAt.toISOString(),
+              participants: notified,
+            },
+          },
+          tx,
+        );
+
+        return {
+          id: locked.id,
+          cancelled: notified.length,
+          hadSeats: accepted.length,
+          coinsCharged: penalty.coinsCharged,
+          coinsRequested: penalty.price.coins,
+          trustApplied: penalty.trustApplied,
+          coinsRefunded: refunded,
+          bucket,
+        };
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+
+    const event = await this.prisma.event.findUniqueOrThrow({
+      where: { id: result.id },
+      include: EVENT_INCLUDE,
+    });
+
+    return {
+      event: toEventDetail(event),
+      cancelled: result.cancelled,
+      hadSeats: result.hadSeats,
+      coinsCharged: result.coinsCharged,
+      coinsRequested: result.coinsRequested,
+      trustApplied: result.trustApplied,
+      coinsRefunded: result.coinsRefunded,
+      bucket: result.bucket,
+    };
+  }
+
+  /**
+   * What cancelling this event would cost the host right now, charging nothing.
+   *
+   * The same `bucketForLateness` and `hostPriceFor` the charge uses, against the
+   * same server clock — a confirmation dialog that quotes a different number from
+   * the one it will take is worse than no dialog.
+   */
+  async previewHostCancellation(
+    hostUserId: string,
+    publicId: string,
+  ): Promise<HostCancellationPreview> {
+    const now = this.clock.now();
+
+    const event = await this.prisma.event.findUnique({
+      where: { publicId },
+      select: {
+        hostUserId: true,
+        status: true,
+        startsAt: true,
+        deletedAt: true,
+        participants: { where: { status: 'ACCEPTED' }, select: { id: true } },
+      },
+    });
+    if (!event || event.deletedAt !== null || event.hostUserId !== hostUserId) {
+      throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+    }
+
+    assertEventTransition(event.status, 'CANCELLED_BY_HOST');
+    if (event.startsAt <= now) throw new AppError(ErrorCode.EVENT_ALREADY_STARTED);
+
+    const affected = event.participants.length;
+    const bucket = bucketForLateness(event.startsAt, now);
+
+    return {
+      bucket,
+      affected,
+      price: affected > 0 ? await this.penalties.hostPriceFor(bucket) : { coins: 0, trust: 0 },
+    };
+  }
+
   /** The host's own events, including ones discovery will never show them. */
   async listOwned(hostUserId: string): Promise<EventDetail[]> {
     const events = await this.prisma.event.findMany({
@@ -783,4 +1073,20 @@ function toEventDetail(event: EventRow): EventDetail {
     version: event.version,
     createdAt: event.createdAt,
   };
+}
+
+/**
+ * A user's external identifier, for a payload that will become a Telegram
+ * message.
+ *
+ * Internal ids never leave the backend (invariant 7), and the outbox payload is
+ * plain jsonb read by the relay — so this translation happens at the point the
+ * row is written rather than being left to whoever reads it.
+ */
+async function publicIdOf(tx: Prisma.TransactionClient, userId: string): Promise<string> {
+  const user = await tx.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { publicId: true },
+  });
+  return user.publicId;
 }

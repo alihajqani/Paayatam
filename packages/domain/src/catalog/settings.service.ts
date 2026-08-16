@@ -86,6 +86,64 @@ export const SETTING_DEFAULTS = {
   'waitlist.promotion_deadline_hours': 12,
   'waitlist.min_hours_before_event': 3,
 
+  /**
+   * What a cancellation costs, by how late it was (plan §11, M10).
+   *
+   * Stored as **positive magnitudes**, negated at the point of charge. A signed
+   * default is a setting an admin can accidentally make a *reward* by dropping a
+   * minus sign, and "how much does a late cancellation cost?" is a question whose
+   * answer should never be negative.
+   *
+   * `GRACE` and `GT_24H` are absent on purpose rather than present as zeros: §11
+   * prices only the two late buckets and the no-show. A cancellation more than a
+   * day out is free, and a key holding zero would invite somebody to price it
+   * without noticing that the whole product promises it is free.
+   *
+   * **Rollback is a config change, no deploy**: set these to 0 and cancellation
+   * stops costing anything, which is exactly what the plan's rollback line asks
+   * for.
+   */
+  'cancellation.coins_h24_to_h3': 15,
+  'cancellation.trust_h24_to_h3': 3,
+  'cancellation.coins_lt_3h': 40,
+  'cancellation.trust_lt_3h': 8,
+  'cancellation.coins_no_show': 60,
+  'cancellation.trust_no_show': 15,
+
+  /**
+   * The host's side (ADR-0011, D9).
+   *
+   * The multiplier applies to whatever a *participant* would have paid for the
+   * same lateness, because one host cancellation harms N people rather than one.
+   * It is a fraction, so it is read with `getNumber`; the two trust numbers are
+   * the host's own and are not derived from the participant table at all — §11
+   * splits them at 24 hours only, where a participant has three buckets.
+   */
+  'cancellation.host_penalty_multiplier': 1.5,
+  'cancellation.host_trust_gt24h': 5,
+  'cancellation.host_trust_lt24h': 12,
+
+  /**
+   * Attending something is the one routine way a score goes up (plan §11: +2,
+   * capped at +2 per day).
+   *
+   * The cap is what stops a host and a friend running six events a day to farm
+   * reputation off each other — the same reasoning that puts the referral reward
+   * behind an attended event (T6).
+   */
+  'trust.attendance_delta': 2,
+  'trust.attendance_daily_cap': 2,
+
+  /**
+   * How long after an event ends before attendance is settled.
+   *
+   * A window rather than "immediately at the end": the host has to be able to
+   * report a no-show, and nobody does that from the pavement outside the café.
+   * It matches the review window opening at T+24h (§11), so the two things a host
+   * is asked to do about a finished event become available together.
+   */
+  'participation.settlement_delay_hours': 24,
+
   // Ranking weights (plan §11). Fractions, not integers — read with `getNumber`.
   // Trust is capped at 0.10 deliberately: §12 resolves "Trust Score in ranking"
   // against "no unfair discrimination" by keeping trust a tenth of the signal, so
