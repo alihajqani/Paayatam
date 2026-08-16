@@ -918,12 +918,20 @@ same person twice**; promotion idempotent on job retry; expired promotion moves 
   different things.
 - **`participation.requested/accepted/rejected` outbox events added**, closing the M6 deviation that
   deferred §5's `INSERT outbox_event('participation.requested')` for want of a table.
-- **Known gap: `tsc -b` does not typecheck test files** (`packages/*/tsconfig.json` excludes `*.test.ts`),
-  which is how a test file calling a changed constructor with the old arity survived `pnpm typecheck` in
-  this milestone. The suite still caught it at runtime, so CI is not blind — but the feedback arrives later
-  and less clearly than it should. Closing it means fixing ~6 pre-existing strictness errors in M3–M5 test
-  files (`exactOptionalPropertyTypes` on `districtId: undefined`, and a vitest `it.each` tuple quirk),
-  which is a cleanup of its own rather than part of the waitlist.
+- **Test files were not typechecked, and now are.** `tsc -b` exists to emit `dist`, so every package
+  tsconfig excludes `*.test.ts` — correct for the build, but it meant test files were never typechecked at
+  all. That is how a test calling this milestone's changed constructor with the old arity survived
+  `pnpm typecheck`; the suite caught it, but at runtime and a step later than it should have.
+  `tsconfig.typecheck.json` now covers them and runs as part of `pnpm typecheck`, and therefore in CI.
+  It is separate from `tsconfig.eslint.json` because that project sets `allowJs` and includes `*.mjs` so
+  typed linting can see `eslint.config.mjs` — running `tsc` over an ESM config file under this repo's
+  CommonJS module setting reports `import.meta` errors that are not real. Six pre-existing errors were
+  fixed to turn it on: `exactOptionalPropertyTypes` distinguishes "absent" from "present and undefined", so
+  the tests that pair a city with no district now omit the key through an `inputWithoutDistrict` helper
+  rather than passing `districtId: undefined`; a vitest `it.each` case tuple is stated explicitly because
+  `it.each` infers it from the callback, which ignored the third element; and the leak scan's optional
+  `body` is a record rather than `unknown`, since narrowing `unknown` leaves `null`, which `inject` will
+  not take.
 
 **M8 — Anonymous chat** · *XL*
 Tests: relayed message contains no username/phone/telegram-id and **no `forward_from`**; entities stripped

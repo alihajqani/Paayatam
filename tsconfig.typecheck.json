@@ -1,0 +1,31 @@
+{
+  // Typecheck-only project, covering the files the build deliberately leaves out.
+  //
+  // `tsc -b` exists to emit `dist`, so every package tsconfig excludes
+  // `*.test.ts` — a test file has no business being shipped. The consequence was
+  // that test files were never typechecked at all: M7 changed a service
+  // constructor and a test kept calling it with the old arity, and `pnpm
+  // typecheck` stayed green. The suite caught it, but at runtime and one step
+  // later than it should have.
+  //
+  // Separate from `tsconfig.eslint.json` for one reason: that project sets
+  // `allowJs` and includes `*.mjs` so typed linting can see `eslint.config.mjs`,
+  // and running `tsc` over an ESM config file under this repo's CommonJS module
+  // setting reports `import.meta` errors that are not real. Linting needs the JS;
+  // typechecking does not.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "incremental": false
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "tools/**/*.ts", "test/**/*.ts"],
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "packages/db/src/generated/**",
+    // The Mini App is a browser program — DOM lib, bundler resolution, `.vue`
+    // imports — and has its own `vue-tsc` pass in the package's typecheck script.
+    "apps/miniapp/**"
+  ]
+}

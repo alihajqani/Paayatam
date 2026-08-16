@@ -54,6 +54,19 @@ function validInput(overrides: Partial<Parameters<typeof profiles.complete>[1]> 
   };
 }
 
+/**
+ * `validInput`, with the district left out entirely.
+ *
+ * `districtId: undefined` cannot travel through the overrides object:
+ * `exactOptionalPropertyTypes` distinguishes "absent" from "present and
+ * undefined", and the service's input type permits only the former. Omitting the
+ * key is what the tests pairing a city with no district actually mean.
+ */
+function inputWithoutDistrict(overrides: Partial<Parameters<typeof profiles.complete>[1]> = {}) {
+  const { districtId: _dropped, ...rest } = validInput(overrides);
+  return rest;
+}
+
 beforeEach(async () => {
   await resetDatabase(prisma);
   fixture = await seedCatalog(prisma);
@@ -224,7 +237,7 @@ describe('ProfileService.complete — rejections', () => {
     const userId = await createUser(prisma);
 
     await expect(
-      profiles.complete(userId, validInput({ cityId: fixture.karajId, districtId: undefined })),
+      profiles.complete(userId, inputWithoutDistrict({ cityId: fixture.karajId })),
     ).rejects.toMatchObject({ code: 'CITY_NOT_AVAILABLE' });
 
     await expectNothingWritten(userId);
@@ -236,7 +249,7 @@ describe('ProfileService.complete — rejections', () => {
     await expect(
       profiles.complete(
         userId,
-        validInput({ cityId: '00000000-0000-4000-8000-000000000000', districtId: undefined }),
+        inputWithoutDistrict({ cityId: '00000000-0000-4000-8000-000000000000' }),
       ),
     ).rejects.toMatchObject({ code: 'CITY_NOT_AVAILABLE' });
   });

@@ -57,6 +57,19 @@ function validInput(overrides: Partial<CreateEventInput> = {}): CreateEventInput
   };
 }
 
+/**
+ * `validInput`, with the district left out entirely.
+ *
+ * `districtId: undefined` cannot travel through the overrides object:
+ * `exactOptionalPropertyTypes` distinguishes "absent" from "present and
+ * undefined", and `CreateEventInput` permits only the former. Omitting the key is
+ * what a test pairing a city with no district actually means.
+ */
+function inputWithoutDistrict(overrides: Partial<CreateEventInput> = {}): CreateEventInput {
+  const { districtId: _dropped, ...rest } = validInput(overrides);
+  return rest;
+}
+
 /** A host who has finished onboarding, which authoring requires. */
 async function createHost(): Promise<string> {
   const userId = await createUser(prisma, 'PROFILE_COMPLETE');
@@ -214,7 +227,7 @@ describe('EventService.create — validation', () => {
 
   it('refuses an inactive city', async () => {
     await expect(
-      events.create(hostId, validInput({ cityId: fixture.karajId, districtId: undefined })),
+      events.create(hostId, inputWithoutDistrict({ cityId: fixture.karajId })),
     ).rejects.toMatchObject({ code: 'CITY_NOT_AVAILABLE' });
   });
 

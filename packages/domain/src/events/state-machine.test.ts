@@ -19,14 +19,17 @@ describe('the event transition table', () => {
     expect(canTransition(EVENT_TRANSITIONS, from, to)).toBe(true);
   });
 
-  it.each([
+  // The tuple is stated explicitly rather than inferred: `it.each` infers its
+  // case type from the callback's parameters, and this callback ignores the third
+  // element — it is there to name the case in the title, not to be asserted on.
+  it.each<[EventStatus, EventStatus, string]>([
     ['DRAFT', 'PUBLISHED', 'publishing without being moderated'],
     ['REJECTED', 'PUBLISHED', 'un-rejecting without a moderator re-hiding it first'],
     ['COMPLETED', 'PUBLISHED', 'reviving a finished event'],
     ['CANCELLED_BY_HOST', 'PUBLISHED', 'un-cancelling'],
     ['EXPIRED', 'ONGOING', 'starting an expired event'],
     ['PUBLISHED', 'COMPLETED', 'completing without running'],
-  ] satisfies [EventStatus, EventStatus, string][])('refuses %s → %s (%s)', (from, to) => {
+  ])('refuses %s → %s (%s)', (from, to) => {
     expect(canTransition(EVENT_TRANSITIONS, from, to)).toBe(false);
   });
 

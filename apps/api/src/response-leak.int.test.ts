@@ -52,8 +52,13 @@ interface Endpoint {
   url: string;
   /** Endpoints that answer without a session; the rest are sent one. */
   anonymous?: boolean;
-  /** Sent as JSON for the endpoints that read one. */
-  body?: unknown;
+  /**
+   * Sent as JSON for the endpoints that read one.
+   *
+   * A record rather than `unknown`: narrowing `unknown` by `!== undefined` leaves
+   * `{} | null`, and `null` is not a payload Fastify's `inject` accepts.
+   */
+  body?: Record<string, unknown>;
 }
 
 /**
