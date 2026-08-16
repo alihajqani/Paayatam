@@ -40,7 +40,8 @@ export function createTestPrisma(): PrismaClient {
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE TABLE
-      "outbox_event", "moderation_case", "event_participant", "event", "blacklist_term",
+      "outbox_event", "moderation_case", "chat_action", "chat_message",
+      "chat_participant", "anonymous_chat", "event_participant", "event", "blacklist_term",
       "blacklist_version", "user_interest", "user_profile", "coin_ledger",
       "coin_account", "consent", "telegram_account", "audit_log", "user",
       "policy_version", "interest", "category", "district", "city",
@@ -48,6 +49,16 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
     RESTART IDENTITY CASCADE
   `;
 }
+
+/**
+ * A throwaway 32-byte key for the tests that need `MessageCipher`.
+ *
+ * Fixed rather than random so a failure is reproducible, and shared from here
+ * rather than copied into each suite so nobody invents a 16-byte one and spends
+ * an afternoon on the resulting AES error. It is not a secret and never leaves
+ * the test process — real keys come from `CHAT_ENCRYPTION_KEY` (ADR-0009).
+ */
+export const TEST_CHAT_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 
 export interface CatalogFixture {
   tehranId: string;

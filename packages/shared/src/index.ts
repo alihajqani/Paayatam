@@ -83,6 +83,33 @@ export type {
 } from './contracts/participation';
 
 export {
+  chatStatus,
+  chatRole,
+  chatMessageKind,
+  redactionKind,
+  sendChatMessageRequest,
+  closeChatRequest,
+  chatMessagesQuery,
+  chatMessageView,
+  chatSummaryView,
+  myChatsResponse,
+  chatMessagesResponse,
+} from './contracts/chat';
+export type {
+  ChatStatus,
+  ChatRole,
+  ChatMessageKind,
+  RedactionKind,
+  SendChatMessageRequest,
+  CloseChatRequest,
+  ChatMessagesQuery,
+  ChatMessageView,
+  ChatSummaryView,
+  MyChatsResponse,
+  ChatMessagesResponse,
+} from './contracts/chat';
+
+export {
   timeOfDay,
   discoverySort,
   discoveryQuery,

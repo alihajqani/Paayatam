@@ -72,6 +72,9 @@ model User {
   coinLedger      CoinLedger[]
   hostedEvents    Event[]
   participations  EventParticipant[]
+  chatMemberships ChatParticipant[]
+  chatsClosed     AnonymousChat[]    @relation("ChatClosedBy")
+  chatActions     ChatAction[]       @relation("ChatActionActor")
 
   @@index([status])
   @@index([createdAt])
@@ -531,6 +534,7 @@ model Event {
   city         City               @relation(fields: [cityId], references: [id], onDelete: Restrict)
   district     District?          @relation(fields: [districtId], references: [id], onDelete: Restrict)
   participants EventParticipant[]
+  chats        AnonymousChat[]
 
   @@index([status, startsAt])
   @@index([hostUserId, createdAt])
@@ -640,6 +644,8 @@ model EventParticipant {
   event   Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
   user    User        @relation(fields: [userId], references: [id], onDelete: Restrict)
   penalty CoinLedger? @relation(fields: [penaltyLedgerId], references: [id], onDelete: Restrict)
+  /// Created with the request, not with the acceptance (plan §2.5).
+  chat    AnonymousChat?
 
   /// Invariant 4, and the duplicate-request guard the join path relies on.
   @@unique([eventId, userId])
@@ -649,6 +655,254 @@ model EventParticipant {
   /// it stays small on events with a long history of settled requests.
   @@index([eventId, requestedAt, id], map: "event_participant_waitlist_idx", where: { status: "WAITLISTED" })
   @@map("event_participant")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anonymous chat (ADR-0009)
+//
+// The anonymity boundary in table form. Two strangers negotiate a real-world
+// meeting before either knows who the other is, which puts three properties on
+// this schema rather than on the code that uses it:
+//
+//   - **Nothing here can reach `telegram_account`.** A chat row names an event, a
+//     participant and two users by internal id. There is no path from a message
+//     to a Telegram identifier that does not go through the `identity` module,
+//     which is layer 1 of §3.6.
+//   - **The alias is a column, not a computation.** It is assigned per *chat*
+//     from the position of that chat within its event, so it is a function of
+//     (event, arrival order) and never of the person. The same user is «میهمان ۱»
+//     in one event and «میهمان ۴» in another, and every event's first guest is
+//     «میهمان ۱» — the number therefore carries no information about who it is,
+//     which is what makes cross-chat correlation impossible rather than merely
+//     hard (layer 3).
+//   - **Bodies are ciphertext at rest.** `chat_message` stores AES-256-GCM bytes
+//     and a per-message nonce; the metadata beside them stays in clear so
+//     moderation can query patterns without decrypting anything (ADR-0009).
+//
+// A chat exists from the moment somebody *asks* to join, not from acceptance
+// (plan §2.5). That is the product's differentiator, and it is why the status
+// starts at ANONYMOUS rather than at OPEN.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ChatStatus {
+  ANONYMOUS
+  OPEN
+  CLOSED
+  BLOCKED
+
+  @@map("chat_status")
+}
+
+enum ChatParticipantRole {
+  HOST
+  GUEST
+
+  @@map("chat_participant_role")
+}
+
+enum ChatMessageKind {
+  TEXT
+  SYSTEM
+
+  @@map("chat_message_kind")
+}
+
+enum ChatActionType {
+  ACCEPT
+  REJECT
+  CLOSE
+  SHARE_CONTACT
+  BLOCK
+
+  @@map("chat_action_type")
+}
+
+model AnonymousChat {
+  id       String @id @default(uuid(7))
+  /// The only chat identifier that appears in a URL or a response.
+  publicId String @unique @default(uuid(4)) @map("public_id")
+
+  eventId String @map("event_id")
+  /// One chat per request (plan §4.4). The UNIQUE is what makes "this request's
+  /// chat" a lookup rather than a query that could return two rows.
+  participantId String @unique @map("participant_id")
+
+  status ChatStatus @default(ANONYMOUS)
+
+  /// The `seq` allocator, and an addition to §4.4's field list.
+  ///
+  /// `UNIQUE (chat_id, seq)` needs a source of gap-free per-chat numbering, and
+  /// the two alternatives are both worse: `MAX(seq) + 1` races under READ
+  /// COMMITTED and needs a retry loop, and `SELECT … FOR UPDATE` on this row
+  /// would put a second explicit lock in a product where ADR-0006 deliberately
+  /// has exactly one. `UPDATE … SET next_seq = next_seq + 1 RETURNING` is a
+  /// single statement whose implicit row lock is held only for the length of the
+  /// insert that follows it.
+  nextSeq Int @default(0) @map("next_seq")
+
+  openedAt       DateTime? @map("opened_at") @db.Timestamptz(3)
+  closedAt       DateTime? @map("closed_at") @db.Timestamptz(3)
+  closedByUserId String?   @map("closed_by_user_id")
+  closeReason    String?   @map("close_reason")
+
+  /// Set when the chat closes: `closed_at + 90 days` (ADR-0009). Null while the
+  /// chat is live, which is also what makes the purge's index small — it holds
+  /// closed chats rather than every chat.
+  retentionExpiresAt DateTime? @map("retention_expires_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  event       Event            @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  participant EventParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  closedBy    User?            @relation("ChatClosedBy", fields: [closedByUserId], references: [id], onDelete: Restrict)
+
+  chatParticipants ChatParticipant[]
+  messages         ChatMessage[]
+  actions          ChatAction[]
+
+  @@index([eventId])
+  /// The retention purge's query (M15): closed chats whose 90 days are up.
+  @@index([retentionExpiresAt], map: "anonymous_chat_retention_idx", where: { retentionExpiresAt: { not: null } })
+  @@map("anonymous_chat")
+}
+
+/// One side of a chat, and where the alias lives.
+///
+/// The alias is stored rather than derived because it must never change: a
+/// recipient who has been reading «میهمان ۲» for a week cannot have that person
+/// silently renumbered because an earlier request was cancelled.
+model ChatParticipant {
+  id     String @id @default(uuid(7))
+  chatId String @map("chat_id")
+  userId String @map("user_id")
+
+  role ChatParticipantRole
+
+  /// Display text, in Persian digits, because it is rendered verbatim into a
+  /// Telegram message. The Latin number lives in `alias_index` beside it, so
+  /// nothing has to parse Persian digits back out to do arithmetic (glossary §5).
+  alias      String
+  /// 0 for the host; for a guest, the 1-based position of their chat within the
+  /// event. Assigned under the event row lock the join already holds, which is
+  /// what makes two simultaneous joiners get two different numbers.
+  aliasIndex Int    @map("alias_index")
+
+  /// When this participant consented to exchange contact details (ADR-0009).
+  /// Until it is set, their outgoing messages have phone numbers, usernames and
+  /// links masked; after it, they have chosen to reveal them.
+  contactSharedAt DateTime? @map("contact_shared_at") @db.Timestamptz(3)
+  lastReadAt      DateTime? @map("last_read_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  chat AnonymousChat @relation(fields: [chatId], references: [id], onDelete: Restrict)
+  user User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  sentMessages ChatMessage[]
+
+  @@unique([chatId, userId])
+  @@unique([chatId, aliasIndex])
+  /// "Which chats am I in?" — the list endpoint's only query.
+  @@index([userId])
+  @@map("chat_participant")
+}
+
+/// A relayed message.
+///
+/// What is stored is what the *recipient* saw: the sanitizer runs before the
+/// cipher, so a masked phone number is masked in the ciphertext too and the
+/// platform never holds a number it refused to relay (§8 — phone numbers are
+/// never stored). `redactions` records only which rules fired and how often,
+/// never the removed text, exactly as `moderation_case.matched_terms` records
+/// rules rather than the scanned subject (M4).
+///
+/// NOTE: §4.4 and §3.8 call for monthly partitioning from day one. It is deferred
+/// to M15 with the retention jobs — see the M8 deviations in
+/// docs/implementation-plan.md. The short version: Postgres requires the
+/// partition key in every unique index, which would turn `UNIQUE (chat_id, seq)`
+/// into `UNIQUE (chat_id, seq, created_at)` and let a chat that spans a month
+/// boundary carry two messages with the same seq.
+model ChatMessage {
+  id     String @id @default(uuid(7))
+  chatId String @map("chat_id")
+
+  /// Null for a SYSTEM message: the platform is not a chat participant.
+  senderParticipantId String? @map("sender_participant_id")
+
+  /// Per-chat, gap-free, allocated from `anonymous_chat.next_seq`. This is the
+  /// message identifier the API exposes — a chat-scoped ordinal tells a caller
+  /// nothing they do not already have (invariant 7).
+  seq Int
+
+  kind ChatMessageKind @default(TEXT)
+
+  /// AES-256-GCM ciphertext with the 16-byte authentication tag appended, and the
+  /// per-message nonce beside it. `key_version` exists from day one so rotation is
+  /// a background re-encrypt job rather than a migration under pressure.
+  bodyCiphertext Bytes @map("body_ciphertext")
+  bodyNonce      Bytes @map("body_nonce")
+  keyVersion     Int   @map("key_version")
+
+  /// `[{ kind, count }]` — which masking rules fired, never what they removed.
+  redactions      Json @default("[]")
+  /// Reserved for the M12 re-scan. Empty until moderation reads message bodies.
+  moderationFlags Json @default("[]") @map("moderation_flags")
+
+  /// The sender's own Telegram message id, when the message arrived through the
+  /// bot. It is how an `edited_message` update finds the row it edits (D10);
+  /// null for a message composed in the Mini App, which has no Telegram message
+  /// behind it.
+  sourceTelegramMessageId BigInt? @map("source_telegram_message_id")
+  /// `{ "<recipient user public id>": <telegram message id> }`, filled in by the
+  /// M13 relay after delivery so an edit or a delete can reach the copy.
+  telegramMessageIds      Json    @default("{}") @map("telegram_message_ids")
+
+  editedAt DateTime? @map("edited_at") @db.Timestamptz(3)
+  /// Set when the sender deletes: the recipient's copy becomes «پیام حذف شد»
+  /// while this row survives as the evidentiary record (D10).
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  retentionExpiresAt DateTime? @map("retention_expires_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  chat   AnonymousChat    @relation(fields: [chatId], references: [id], onDelete: Restrict)
+  sender ChatParticipant? @relation(fields: [senderParticipantId], references: [id], onDelete: Restrict)
+
+  @@unique([chatId, seq])
+  @@index([chatId, seq(sort: Desc)], map: "chat_message_recent_idx")
+  /// The edit path's lookup: this sender's message with that Telegram id.
+  @@index([senderParticipantId, sourceTelegramMessageId], map: "chat_message_source_idx", where: { sourceTelegramMessageId: { not: null } })
+  /// The retention purge (M15).
+  @@index([retentionExpiresAt], map: "chat_message_retention_idx", where: { retentionExpiresAt: { not: null } })
+  @@map("chat_message")
+}
+
+/// Append-only log of what was *done* to a chat, as opposed to said in it.
+///
+/// Separate from `audit_log` because these are user actions inside a private
+/// conversation, and ADR-0009 keeps that trail beside the conversation it belongs
+/// to rather than in the trail admins read for everything else. Immutability is a
+/// trigger, not a convention — a consent record that can be edited is not a
+/// consent record.
+model ChatAction {
+  id     String @id @default(uuid(7))
+  chatId String @map("chat_id")
+  /// Null when the platform acted — an expiry, a moderation block.
+  actorUserId String? @map("actor_user_id")
+
+  action ChatActionType
+  /// Allowlisted facts only. Never a message body, never a Telegram identifier.
+  detail Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  chat  AnonymousChat @relation(fields: [chatId], references: [id], onDelete: Restrict)
+  actor User?         @relation("ChatActionActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([chatId, createdAt])
+  @@map("chat_action")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

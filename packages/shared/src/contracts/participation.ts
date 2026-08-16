@@ -53,6 +53,13 @@ export const participationView = z.object({
   cancellationBucket: cancellationBucket.nullable(),
   /** 1-based place in the queue, present only while WAITLISTED. */
   waitlistRank: z.number().int().positive().nullable(),
+  /**
+   * The anonymous chat this request opened (plan §3.4).
+   *
+   * Present from the request, not from the acceptance: talking to a stranger
+   * before either side has committed to anything is what the product is for.
+   */
+  chatPublicId: z.string().nullable(),
 });
 export type ParticipationView = z.infer<typeof participationView>;
 

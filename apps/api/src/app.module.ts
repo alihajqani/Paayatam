@@ -4,6 +4,7 @@ import { PrismaModule } from '@payetam/db';
 import {
   AuditModule,
   CatalogModule,
+  ChatModule,
   DiscoveryModule,
   EconomyModule,
   EventsModule,
@@ -19,6 +20,7 @@ import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { AppExceptionFilter } from './common/app-exception.filter';
 import { CatalogController } from './catalog/catalog.controller';
+import { ChatController } from './chat/chat.controller';
 import { DiscoveryController } from './discovery/discovery.controller';
 import { EventsController } from './events/events.controller';
 import { HealthModule } from './health/health.module';
@@ -50,6 +52,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     EventsModule,
     DiscoveryModule,
     ParticipationModule,
+    ChatModule,
     HealthModule,
   ],
   controllers: [
@@ -59,6 +62,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     EventsController,
     DiscoveryController,
     ParticipationController,
+    ChatController,
     TelegramWebhookController,
   ],
   providers: [

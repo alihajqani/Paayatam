@@ -941,6 +941,95 @@ the raw column is unreadable; edit propagation (D10); a blocked bot marks `bot_b
 Acceptance: two dev Telegram accounts converse with zero leakage, verified against raw Telegram payloads.
 **Highest-risk milestone** — leak tests are written *before* the relay; manual verification is a release gate.
 
+**Deviations from this plan, decided during M8:**
+
+- **`chat_message` is not partitioned, though §4.4 and §3.8 both ask for monthly partitioning from day
+  one.** Postgres requires the partition key to appear in every unique index on a partitioned table, so
+  `UNIQUE (chat_id, seq)` would become `UNIQUE (chat_id, seq, created_at)` — and a conversation spanning a
+  month boundary could then hold two messages with the same `seq`, which is the property that makes
+  "everything after seq N" a correct incremental read. Retention is keyed on **chat close**, not on message
+  age, so monthly partitions could never be dropped wholesale anyway; the purge is an indexed DELETE on
+  `retention_expires_at` either way. Deferred to M15 with the retention jobs, where `audit_log`'s
+  partitioning already waits for the reason M1 gave.
+- **`anonymous_chat.next_seq` added to §4.4's field list.** It is the `seq` allocator:
+  `UPDATE … SET next_seq = next_seq + 1 RETURNING` is one statement, so two senders serialise on the row's
+  implicit write lock. `MAX(seq) + 1` races under READ COMMITTED and needs a retry loop, and an explicit
+  `SELECT … FOR UPDATE` would have been the second one in a product that has exactly one on purpose
+  (ADR-0006, and M6's "the only `FOR UPDATE` in the product").
+- **`chat_message.source_telegram_message_id` added.** §4.4 gives `telegram_message_ids`, which maps our
+  message to the *outbound* per-recipient copies; D10's edit path needs the opposite direction — an
+  `edited_message` update names a message in the sender's own conversation with the bot. A partial index on
+  `(sender, source id)` makes that a lookup rather than a scan.
+- **The lock ordering is event → chat, never the reverse**, and it is what keeps ADR-0006's rule 2 true.
+  `createForParticipant`, `openForParticipant` and `closeForParticipant` run inside the transaction that
+  already holds the event lock and take none of their own; chat transactions take no event lock at all.
+  Creating the chat under the event lock is also what makes alias numbering safe without any locking of its
+  own — every joiner of an event serialises there, so two simultaneous requests cannot both become «میهمان ۳».
+- **An alias is scoped to the *event*, not to the chat's two seats.** §4.4's `UNIQUE (chat_id, alias_index)`
+  is satisfied by host 0 / guest 1, but that would name every guest «میهمان ۱» — and the host receives every
+  relayed message in one Telegram conversation, so they could not tell five guests apart. The guest index is
+  the position of their chat within the event. ADR-0009's anti-correlation property is *stronger* under this
+  reading, not weaker: the alias is a function of (event, arrival order) and of nothing about the person, so
+  every event's first guest is «میهمان ۱» and the number carries no information about who it is.
+- **A non-member gets 404, not the 403 this section's test list names.** A 403 confirms that a chat with
+  that id exists, and confirming the existence of a private conversation to somebody outside it is itself a
+  disclosure. It is the same call T3.3 already forced on events and participants, and the test asserts the
+  404.
+- **`chat_message.redactions` stores kinds and counts, never the removed text.** §8 says phone numbers are
+  never stored, and the sanitizer runs *before* the cipher — so what is encrypted is what the recipient saw,
+  and the masked original exists nowhere. This follows M4's precedent that `moderation_case.matched_terms`
+  records the rules that fired rather than the scanned subject. The consequence to state plainly: moderation
+  can see that a contact exchange was attempted and how often, but not what the number was.
+- **Masking is switched off per sender once they complete the contact-sharing consent.** ADR-0009 masks
+  "during the anonymous stage" and puts exchange behind "an explicit button, a confirmation step, and writes
+  `consent` + `chat_action`" — so continuing to mask afterwards would be the platform overriding a consent it
+  had just recorded. **Entities are dropped unconditionally regardless**, because a `text_mention` carries a
+  *third party's* raw Telegram id and consenting to share your own details is not consent to hand over
+  somebody else's.
+- **`share-contact` reveals nothing by itself.** The platform holds no phone number and does not surrender a
+  Telegram username (invariant 7); what the endpoint changes is that the caller's own messages stop being
+  masked, so the disclosure stays the user's act. That is the reading §8's "never stored — relayed in-chat
+  after explicit consent only" requires.
+- **The `consent` row is per user per policy version, not per chat.** `UNIQUE (user_id, policy_version_id,
+  context)` makes a per-chat consent row impossible, so the division is: `consent` records that the user
+  accepted the terms under which contact details may be exchanged, and `chat_action` records each individual
+  act of doing so. ADR-0009 asks for both and this is the shape the schema permits.
+- **The outbox payload carries ids and an alias, never the message body.** `outbox_event.payload` is plain
+  jsonb — the one part of this feature that is not encrypted — so putting the text in it would undo the
+  column beside it. M13's relay decrypts the row the payload points at. There is a test that serialises the
+  payload and looks for the message.
+- **System messages are stored rows, not rendered at read time.** The anonymous intro, the open notice, the
+  close notice and the contact-share notice are `kind = 'SYSTEM'` messages, encrypted and sequenced like any
+  other. Rendering them from a status at read time would make a conversation's history change when the copy
+  is edited, and show a user a notice they were never sent.
+- **`CHAT_MESSAGE_EMPTY` added to the error catalogue.** A message that was nothing but a phone number
+  leaves nothing to relay; sending a lone «حذف شد» reads like a bug in the product rather than a rule of it,
+  and `VALIDATION_FAILED` would tell the user nothing about why.
+- **A real bug the tests caught:** the unread count used `senderParticipantId: { not: me }`, which is SQL's
+  `<> $1` — NULL, not true, for a SYSTEM row. Every system message was therefore silently excluded from the
+  badge, including «the other side shared their contact details», which is one of the few notices in this
+  product that genuinely needs to be noticed. Stated as an explicit `OR` now.
+- **The bot is still not built, so this milestone's release gate cannot be run.** §9's acceptance —
+  "two dev Telegram accounts converse with zero leakage, verified against raw Telegram payloads" — needs
+  `packages/telegram` and the grammY handlers, which have been outstanding since M2 and are scheduled with
+  the delivery relay in M13. What M8 delivers is the whole domain and API side: the relay pipeline, the
+  encryption, the aliases, the lifecycle, the outbox instructions a sender will execute, and the leak tests.
+  **The manual verification remains a genuine, unclosed gate** and must be run before chat goes public, as
+  must the escalation path for illegal content that §8's legal-risk item 7 requires.
+- **"A blocked bot marks `bot_blocked` without retry storms" is not implemented here** for the same reason:
+  it is behaviour of the Telegram client and the `telegram-send` queue, both M13. `telegram_account.bot_blocked`
+  exists from M2 and nothing in M8 writes it.
+- **No Mini App work.** The chat screens are not built; M8 is the domain, the API and the leak tests.
+- **Rate limiting (T12: messages 30/min) is not here.** It is M15's, applied across every endpoint class at
+  once rather than invented per-feature.
+- **A note M10 must not miss:** rejection, participant cancellation and expiry all close their chat, because
+  those are the three ways a request ends today. **Host cancellation of an event does not exist yet** — there
+  is no `POST /events/:publicId/cancel` — and when M10 builds it, it has to close the chat of every
+  participant it cancels, through `ChatService.closeForParticipant` inside the same transaction. A chat left
+  open after its event was cancelled is two strangers messaging each other about a meeting that is not
+  happening. M12's moderation `BLOCKED` transition is likewise declared in the state machine and reachable by
+  nothing yet.
+
 **M9 — Coins & Trust Score** · *L*
 Tests: balance never negative; **concurrent spends of the last coins ⇒ exactly one succeeds**; ledger rows
 immutable (UPDATE/DELETE raise); reversal restores the balance exactly; referral requires attendance;

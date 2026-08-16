@@ -210,6 +210,34 @@ jobs:
           # rather than with the backlog.
           check_index      outbox_event_unprocessed_idx
           check_constraint outbox_event_attempts_non_negative
+          # Anonymous chat (M8). These are the guarantees the highest-risk feature
+          # in the product leans on, so losing one silently is the worst case:
+          # one chat per request, one alias per side, and gap-free per-chat
+          # ordering that makes "everything after seq N" a correct read.
+          check_index      anonymous_chat_participant_id_key
+          check_index      chat_participant_chat_id_alias_index_key
+          check_index      chat_message_chat_id_seq_key
+          # The edit path (D10) and the M15 purge. Both partial; without the
+          # predicate they index every message ever sent instead of the few rows
+          # each one is about.
+          check_index      chat_message_source_idx
+          check_index      chat_message_retention_idx
+          check_index      anonymous_chat_retention_idx
+          # A closed chat that carries no purge date is a private conversation
+          # nothing ever deletes, and a live one that carries one is a
+          # conversation deleted mid-flight.
+          check_constraint anonymous_chat_closed_is_complete
+          check_constraint anonymous_chat_live_has_no_retention
+          check_constraint anonymous_chat_opened_at_matches_status
+          # A body that will not decrypt, caught at write time rather than when
+          # somebody opens the conversation.
+          check_constraint chat_message_nonce_length
+          check_constraint chat_message_body_holds_tag
+          check_constraint chat_message_sender_matches_kind
+          check_constraint chat_participant_alias_index_matches_role
+          # `chat_action` records a consent decision made inside a private
+          # conversation. Evidence that can be edited is not evidence.
+          check_trigger    chat_action_append_only
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

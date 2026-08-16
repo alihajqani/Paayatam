@@ -50,6 +50,7 @@ export const ErrorCode = {
   CHAT_CLOSED: 'CHAT_CLOSED',
   CHAT_NOT_OPEN: 'CHAT_NOT_OPEN',
   CHAT_MEDIA_UNSUPPORTED: 'CHAT_MEDIA_UNSUPPORTED',
+  CHAT_MESSAGE_EMPTY: 'CHAT_MESSAGE_EMPTY',
 
   // Economy (ADR-0007)
   INSUFFICIENT_COINS: 'INSUFFICIENT_COINS',
@@ -110,6 +111,9 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   CHAT_CLOSED: 'این گفتگو بسته شده است.',
   CHAT_NOT_OPEN: 'اشتراک‌گذاری اطلاعات تماس فقط پس از پذیرش امکان‌پذیر است.',
   CHAT_MEDIA_UNSUPPORTED: 'در این نسخه فقط ارسال متن امکان‌پذیر است.',
+  CHAT_MESSAGE_EMPTY:
+    'پیام شما فقط شامل اطلاعات تماس بود و ارسال نشد. تا پیش از پذیرش درخواست، امکان ' +
+    'رد و بدل کردن اطلاعات تماس وجود ندارد.',
 
   INSUFFICIENT_COINS: 'سکهٔ کافی ندارید.',
 

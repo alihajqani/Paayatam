@@ -16,18 +16,26 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
-**Milestone 7 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
+**Milestone 8 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
 complete a profile from the Mini App and receive the onboarding coins exactly once (M3), create events
 that pass through Persian auto-moderation before publishing (M4), browse, filter and search what
 everyone else has published (M5), ask to join one — with seats allocated under a row lock that makes
-overbooking impossible (M6) — and, when a seat frees, be promoted off the waitlist in FIFO order (M7).
+overbooking impossible (M6) — be promoted off the waitlist in FIFO order when a seat frees (M7), and
+talk to the other party anonymously from the moment they ask (M8).
+
+A chat exists from the request, not from the acceptance: two strangers negotiate a meeting before either
+knows who the other is. Message bodies are AES-256-GCM at rest, aliases («میهمان ۱») are a property of
+the chat rather than of the person in it, every Telegram message entity is dropped, and phone numbers,
+`@usernames`, `t.me/` links and emails are masked until the sender has explicitly consented to share
+them. The CI response-leak scan covers the chat endpoints alongside every other one.
 
 Domain events are written to a transactional outbox as they happen. The relay that turns them into
 Telegram notifications is M13; until then they accumulate as a durable record.
 
-Not built yet: anonymous chat, the bot itself (`/start` does nothing — `packages/telegram` and the grammY
-handlers are still outstanding from M2), and the Mini App's event-authoring, listing and participation
-screens.
+Not built yet: **the bot itself** — `packages/telegram` and the grammY handlers are still outstanding
+from M2, so nothing is delivered to Telegram yet and M8's two-real-accounts release gate cannot be run
+until M13. The chat is reachable through the Mini App API today. Also outstanding: the Mini App's
+event-authoring, listing, participation and chat screens.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone sequence.
 

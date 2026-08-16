@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
-import { SessionService, normalize } from '@payetam/domain';
+import { ChatService, SessionService, normalize } from '@payetam/domain';
 import {
   createTestPrisma,
   resetDatabase,
@@ -46,6 +46,7 @@ let eventPublicId: string;
 let viewerEventPublicId: string;
 let hostParticipantPublicId: string;
 let viewerParticipantPublicId: string;
+let chatPublicId: string;
 
 interface Endpoint {
   method: 'GET' | 'POST' | 'PATCH';
@@ -199,9 +200,35 @@ beforeAll(async () => {
       acceptedAt: new Date(),
       graceExpiresAt: new Date(Date.now() + 15 * 60_000),
     },
-    select: { publicId: true },
+    select: { id: true, publicId: true },
   });
   viewerParticipantPublicId = viewerRequest.publicId;
+
+  /**
+   * The chat M8 introduces, between the viewer and the leaky host.
+   *
+   * This is the highest-risk projection in the product so far and the reason the
+   * scan exists: a chat response is one user being shown rows that another user
+   * wrote, in a feature whose entire promise is that they cannot tell who that
+   * is. OPEN rather than ANONYMOUS so the contact-sharing endpoint has something
+   * to answer.
+   */
+  const chat = await prisma.anonymousChat.create({
+    data: {
+      eventId: event.id,
+      participantId: viewerRequest.id,
+      status: 'OPEN',
+      openedAt: new Date(),
+      chatParticipants: {
+        create: [
+          { userId: host.id, role: 'HOST', alias: 'میزبان', aliasIndex: 0 },
+          { userId: user.id, role: 'GUEST', alias: 'میهمان ۱', aliasIndex: 1 },
+        ],
+      },
+    },
+    select: { publicId: true },
+  });
+  chatPublicId = chat.publicId;
 
   // Both participations above hold a seat (PENDING and ACCEPTED both do), so the
   // counter has to say so. Seeding the rows without it would leave the fixture
@@ -242,6 +269,25 @@ beforeAll(async () => {
   const tokens = await sessions.issue(user.publicId, user.onboardingState);
   accessToken = tokens.accessToken;
 
+  /**
+   * The leaky host tries to hand over every identifier at once.
+   *
+   * Sent through the application's own `ChatService`, so the message goes through
+   * the real sanitizer and the real cipher rather than being seeded past them.
+   * What the scan then asserts about `GET /chats/:id/messages` is the property
+   * M8 exists for: the recipient reads the conversation and none of it arrives.
+   *
+   * A message body is content the recipient is *entitled* to see, so this only
+   * works because the masking is what removes the identifiers. Seeding an
+   * unmasked body and calling the read a leak would be testing the wrong thing —
+   * the same mistake M5 had to correct when the scan authenticated as the user
+   * whose own data it was reading.
+   */
+  const chats = app.get(ChatService);
+  await chats.send(host.id, chatPublicId, {
+    text: `برای هماهنگی: ${PHONE} یا @${TELEGRAM_USERNAME} — https://t.me/${TELEGRAM_USERNAME}`,
+  });
+
   ENDPOINTS.push(
     { method: 'GET', url: `/api/v1/events/${eventPublicId}` },
     { method: 'GET', url: `/api/v1/events/${eventPublicId}/explain-rank` },
@@ -256,6 +302,19 @@ beforeAll(async () => {
     { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/accept` },
     { method: 'POST', url: `/api/v1/participants/${hostParticipantPublicId}/reject` },
     { method: 'POST', url: `/api/v1/participants/${viewerParticipantPublicId}/cancel`, body: {} },
+    // M8. `close` is deliberately last: it ends the conversation, and the passes
+    // that follow then read a closed chat and get the refusals — which are
+    // responses too, and an error body that named the person it refused would be
+    // just as much of a leak as a success body that did.
+    { method: 'GET', url: '/api/v1/chats' },
+    { method: 'GET', url: `/api/v1/chats/${chatPublicId}/messages` },
+    {
+      method: 'POST',
+      url: `/api/v1/chats/${chatPublicId}/messages`,
+      body: { text: 'ساعت هفت جلوی کافه' },
+    },
+    { method: 'POST', url: `/api/v1/chats/${chatPublicId}/share-contact` },
+    { method: 'POST', url: `/api/v1/chats/${chatPublicId}/close`, body: {} },
   );
 });
 
@@ -300,7 +359,7 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
     // A scan that silently stops covering new endpoints is worse than no scan,
     // because it still reports green. This fails when a route is added without
     // being listed here.
-    expect(ENDPOINTS).toHaveLength(17);
+    expect(ENDPOINTS).toHaveLength(22);
   });
 
   it.each(LEAK_PATTERNS)('never returns $name', async ({ pattern }) => {
@@ -337,6 +396,53 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
     for (const { pattern } of LEAK_PATTERNS) {
       expect(pattern.test(raw)).toBe(true);
     }
+  });
+
+  /**
+   * The chat's own version of the projection assertion above, stated as an exact
+   * key set for the reason M5 gave: `not.toHaveProperty(…)` keeps passing when a
+   * new column arrives, and the next leak is always a field nobody thought about.
+   */
+  it('describes a chat by alias, and gives the reader no other handle on anyone', async () => {
+    const body = await fetchBody({
+      method: 'GET',
+      url: `/api/v1/chats/${chatPublicId}/messages`,
+    });
+    const parsed = JSON.parse(body) as {
+      chat: Record<string, unknown>;
+      messages: Record<string, unknown>[];
+    };
+
+    expect(Object.keys(parsed.chat).sort()).toEqual([
+      'alias',
+      'contactShared',
+      'counterpartAlias',
+      'counterpartContactShared',
+      'createdAt',
+      'eventPublicId',
+      'eventTitle',
+      'lastMessageAt',
+      'publicId',
+      'role',
+      'status',
+      'unreadCount',
+    ]);
+
+    const [first] = parsed.messages;
+    expect(first).toBeDefined();
+    expect(Object.keys(first ?? {}).sort()).toEqual([
+      'createdAt',
+      'deletedAt',
+      'editedAt',
+      'kind',
+      'mine',
+      'redactionKinds',
+      'senderAlias',
+      'seq',
+      'text',
+    ]);
+    // The counterpart is «میزبان» and nothing else — no id, no name, no handle.
+    expect(first?.senderAlias).toBe('میزبان');
   });
 
   it('identifies the host by public id and display name only', async () => {
