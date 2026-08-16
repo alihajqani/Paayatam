@@ -12,6 +12,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
 import { normalize } from '../moderation/persian-normalizer';
+import { OutboxService } from '../outbox/outbox.service';
 import { ParticipationService } from './participation.service';
 
 /**
@@ -34,7 +35,8 @@ const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 
 const settings = new SettingsService(service);
 const audit = new AuditService(service, clock);
-const participation = new ParticipationService(service, clock, env, settings, audit);
+const outbox = new OutboxService(service, clock);
+const participation = new ParticipationService(service, clock, env, settings, audit, outbox);
 
 /** Comfortably in the future, so nothing is refused for being too close. */
 const STARTS_AT = new Date('2026-09-20T15:00:00.000Z');

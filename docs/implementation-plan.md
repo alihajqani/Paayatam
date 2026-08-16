@@ -891,6 +891,40 @@ Tests: FIFO by `(requested_at, id)`; **two concurrent cancellations promote two 
 same person twice**; promotion idempotent on job retry; expired promotion moves to the next.
 **Per D8: both host and promoted participant are notified immediately** — asserted in tests.
 
+**Deviations from this plan, decided during M7:**
+
+- **The transactional outbox lands here, not in M13.** M7's own test list requires both parties to be
+  notified, and ADR-0005 says a notification is only safe if it commits with the state change that caused
+  it. Migration 0007 therefore adds `outbox_event` and promotion writes to it inside the promoting
+  transaction. This is the **producer** half only: the relay, the BullMQ queues, `notification.dedupe_key`
+  and delivery remain M13. What M7 buys is the half that cannot be retrofitted — the row being there,
+  exactly when the change is.
+- **One domain event per promotion, naming both parties**, rather than two rows. `outbox_event` is shaped
+  as a domain-event log (`aggregate_type`/`aggregate_id`/`event_type`), and §3.5 describes the
+  `domain-events` queue as an *outbox fan-out → notifications*. One row makes ADR-0011's "a crash cannot
+  deliver one and lose the other" true by construction; splitting it into two notifications is the
+  consumer's job, and `notification.dedupe_key` is what makes each exactly-once.
+- **Promotion runs inside the transaction that freed the seat, under the lock it already holds.** That
+  placement *is* the safety argument for "two concurrent cancellations promote two different people": the
+  second cancellation cannot see a stale queue because it waits for the first. It also means promotion
+  takes no lock of its own, which is what keeps ADR-0006's rule 2 (one lock, never a second) true.
+- **Every seat release promotes, not only a cancellation.** ADR-0011 describes the cancellation case;
+  rejection and expiry free a seat just as much, and a queue that only moves for one of the three would
+  leave seats empty for no reason a user could understand. Expiry promoting is also what makes the plan's
+  own "expired promotion moves to the next" work.
+- **A promoted request gets `min(now + 12h, starts_at − 3h)`**, from the new `waitlist.*` settings, rather
+  than the 24 hours a fresh request gets. Kept as separate keys from `participation.*` even though the
+  second number matches today, because ADR-0011 names them separately and they are tuned against
+  different things.
+- **`participation.requested/accepted/rejected` outbox events added**, closing the M6 deviation that
+  deferred §5's `INSERT outbox_event('participation.requested')` for want of a table.
+- **Known gap: `tsc -b` does not typecheck test files** (`packages/*/tsconfig.json` excludes `*.test.ts`),
+  which is how a test file calling a changed constructor with the old arity survived `pnpm typecheck` in
+  this milestone. The suite still caught it at runtime, so CI is not blind — but the feedback arrives later
+  and less clearly than it should. Closing it means fixing ~6 pre-existing strictness errors in M3–M5 test
+  files (`exactOptionalPropertyTypes` on `districtId: undefined`, and a vitest `it.each` tuple quirk),
+  which is a cleanup of its own rather than part of the waitlist.
+
 **M8 — Anonymous chat** · *XL*
 Tests: relayed message contains no username/phone/telegram-id and **no `forward_from`**; entities stripped
 (a `text_mention` carrying a user id must not survive); phone/username/t.me patterns masked; **aliases differ

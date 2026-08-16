@@ -17,6 +17,10 @@ export { AuditService } from './audit/audit.service';
 export type { AuditEntry } from './audit/audit.service';
 export { AuditModule } from './audit/audit.module';
 
+export { OutboxService } from './outbox/outbox.service';
+export type { DomainEvent } from './outbox/outbox.service';
+export { OutboxModule } from './outbox/outbox.module';
+
 export { CatalogService } from './catalog/catalog.service';
 export type { CatalogSnapshot, NamedRef, ResolvedLocation } from './catalog/catalog.service';
 export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';

@@ -11,6 +11,7 @@ import {
   lockEventByPublicIdForUpdate,
   type LockedEvent,
 } from '../events/event-lock';
+import { OutboxService } from '../outbox/outbox.service';
 import { ageFromBirthYear } from '../profile/age';
 import { assertParticipantTransition, holdsSeat } from './state-machine';
 
@@ -66,6 +67,7 @@ export class ParticipationService {
     @Inject(ENV) private readonly env: Env,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly outbox: OutboxService,
   ) {}
 
   /**
@@ -136,6 +138,25 @@ export class ParticipationService {
           tx,
         );
 
+        // §5's join flow ends with this row, and M6 could not write it because
+        // the outbox did not exist yet. The host is told somebody asked; a
+        // waitlisted request says so, so the notification can be honest about
+        // what happened rather than promising a seat.
+        await this.outbox.emit(
+          {
+            aggregateType: 'event_participant',
+            aggregateId: participant.id,
+            eventType: 'participation.requested',
+            payload: {
+              participantPublicId: participant.publicId,
+              eventPublicId: event.publicId,
+              hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
+              status,
+            },
+          },
+          tx,
+        );
+
         return this.toDetail(participant, event.publicId, tx);
       },
       { isolationLevel: 'ReadCommitted' },
@@ -191,6 +212,20 @@ export class ParticipationService {
         tx,
       );
 
+      await this.outbox.emit(
+        {
+          aggregateType: 'event_participant',
+          aggregateId: participant.id,
+          eventType: 'participation.accepted',
+          payload: {
+            participantPublicId: updated.publicId,
+            eventPublicId: event.publicId,
+            participantUserPublicId: await this.publicIdOf(tx, participant.userId),
+          },
+        },
+        tx,
+      );
+
       return updated;
     });
   }
@@ -209,6 +244,11 @@ export class ParticipationService {
         data: { status: 'REJECTED', decidedAt: now, version: { increment: 1 } },
       });
 
+      // The seat is free again, so the queue moves — in the same transaction and
+      // under the same lock, so a rejection and a cancellation racing each other
+      // cannot promote the same person twice.
+      await this.fillFreedSeats(tx, event, now);
+
       await this.audit.record(
         {
           actorType: 'USER',
@@ -218,6 +258,20 @@ export class ParticipationService {
           targetId: participant.id,
           before: { status: participant.status },
           after: { status: 'REJECTED' },
+        },
+        tx,
+      );
+
+      await this.outbox.emit(
+        {
+          aggregateType: 'event_participant',
+          aggregateId: participant.id,
+          eventType: 'participation.rejected',
+          payload: {
+            participantPublicId: updated.publicId,
+            eventPublicId: event.publicId,
+            participantUserPublicId: await this.publicIdOf(tx, participant.userId),
+          },
         },
         tx,
       );
@@ -283,6 +337,10 @@ export class ParticipationService {
           },
           tx,
         );
+
+        // ADR-0011's D8: the seat a cancellation frees goes to the next person in
+        // the queue, immediately and in this transaction.
+        await this.fillFreedSeats(tx, event, now);
 
         return this.toDetail(updated, event.publicId, tx);
       },
@@ -367,6 +425,167 @@ export class ParticipationService {
     });
 
     return Promise.all(rows.map((row) => this.toDetail(row, row.event.publicId, this.prisma)));
+  }
+
+  // ── waitlist promotion (ADR-0011, D8) ──────────────────────────────────────
+
+  /**
+   * Fill every seat that has just come free, in queue order.
+   *
+   * Called from inside the transaction that released the seat, under the event
+   * lock that transaction already holds. That placement is the whole safety
+   * argument: two concurrent cancellations serialise on the lock, so each one
+   * sees the other's promotion and they promote two **different** people. It is
+   * also why this takes no lock of its own — rule 2 says one lock, and taking a
+   * second here would break the property it is protecting.
+   *
+   * A loop rather than a single promotion because a sweep may find several seats
+   * free at once; in the common case it runs exactly once and stops.
+   */
+  private async fillFreedSeats(
+    tx: Prisma.TransactionClient,
+    event: LockedEvent,
+    now: Date,
+  ): Promise<PromotedParticipant[]> {
+    const [deadlineHours, minHoursBefore] = await Promise.all([
+      this.settings.getInt('waitlist.promotion_deadline_hours'),
+      this.settings.getInt('waitlist.min_hours_before_event'),
+    ]);
+
+    const promoted: PromotedParticipant[] = [];
+
+    while (event.acceptedCount < event.capacity) {
+      // FIFO by `(requested_at, id)`, derived from the rows rather than stored
+      // (ADR-0006). `id` breaks ties because UUIDv7 is time-ordered, so two
+      // requests in the same millisecond still have a stable, fair order.
+      const next = await tx.eventParticipant.findFirst({
+        where: { eventId: event.id, status: 'WAITLISTED' },
+        orderBy: [{ requestedAt: 'asc' }, { id: 'asc' }],
+      });
+      if (!next) break;
+
+      assertParticipantTransition(next.status, 'PENDING', next.id);
+      await this.takeSeat(tx, event);
+
+      const hostDeadlineAt = this.hostDeadline(now, event.startsAt, deadlineHours, minHoursBefore);
+
+      await tx.eventParticipant.update({
+        where: { id: next.id },
+        data: {
+          status: 'PENDING',
+          promotedAt: now,
+          hostDeadlineAt,
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(
+        {
+          actorType: 'SYSTEM',
+          action: 'waitlist.promoted',
+          targetType: 'event_participant',
+          targetId: next.id,
+          before: { status: 'WAITLISTED' },
+          after: { status: 'PENDING', hostDeadlineAt: hostDeadlineAt.toISOString() },
+        },
+        tx,
+      );
+
+      /**
+       * One domain event, naming both parties.
+       *
+       * ADR-0011 requires the promoted participant *and* the host to be told, and
+       * that a crash cannot deliver one and lose the other. A single row emitted
+       * inside this transaction gives that atomically; M13's relay fans it out
+       * into the two notifications, each made exactly-once by
+       * `notification.dedupe_key`.
+       *
+       * Public ids only. This payload becomes the text of a Telegram message, so
+       * it is the last place an internal or Telegram identifier should be able to
+       * reach (ADR-0009).
+       */
+      await this.outbox.emit(
+        {
+          aggregateType: 'event_participant',
+          aggregateId: next.id,
+          eventType: 'waitlist.promoted',
+          payload: {
+            participantPublicId: next.publicId,
+            eventPublicId: event.publicId,
+            hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
+            promotedUserPublicId: await this.publicIdOf(tx, next.userId),
+            hostDeadlineAt: hostDeadlineAt.toISOString(),
+          },
+        },
+        tx,
+      );
+
+      promoted.push({ id: next.id, publicId: next.publicId, hostDeadlineAt });
+    }
+
+    return promoted;
+  }
+
+  /**
+   * The 5-minute backstop (ADR-0011).
+   *
+   * The event-driven path above fills a seat the moment it frees, so this should
+   * normally find nothing. It exists for the seat freed while the process was
+   * dying: without it, a cancellation that committed just before a crash leaves a
+   * seat empty and a queue that never moves.
+   *
+   * One transaction per event, each taking only its own lock — the same reason
+   * `expireOverdue` sweeps one at a time.
+   */
+  async sweepWaitlists(limit = 100): Promise<number> {
+    const now = this.clock.now();
+
+    // Events that have somebody waiting and a seat free. Ordered oldest-first so
+    // a backlog drains fairly rather than by whatever the planner returns.
+    const candidates = await this.prisma.event.findMany({
+      where: {
+        status: 'PUBLISHED',
+        deletedAt: null,
+        startsAt: { gt: now },
+        participants: { some: { status: 'WAITLISTED' } },
+      },
+      select: { publicId: true },
+      orderBy: { startsAt: 'asc' },
+      take: limit,
+    });
+
+    let promoted = 0;
+    for (const { publicId } of candidates) {
+      promoted += await this.promoteForEvent(publicId);
+    }
+    return promoted;
+  }
+
+  /** One event's promotion pass, under its own lock. */
+  private async promoteForEvent(eventPublicId: string): Promise<number> {
+    const now = this.clock.now();
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const event = await lockEventByPublicIdForUpdate(tx, eventPublicId);
+        // Re-checked under the lock: the seat this sweep saw free may have been
+        // taken by a direct join between the scan and the lock being granted.
+        if (!event || event.deletedAt !== null || event.status !== 'PUBLISHED') return 0;
+        if (event.startsAt <= now) return 0;
+
+        const promoted = await this.fillFreedSeats(tx, event, now);
+        return promoted.length;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+  }
+
+  private async publicIdOf(tx: Prisma.TransactionClient, userId: string): Promise<string> {
+    const user = await tx.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { publicId: true },
+    });
+    return user.publicId;
   }
 
   // ── seat accounting ────────────────────────────────────────────────────────
@@ -468,6 +687,11 @@ export class ParticipationService {
           },
           tx,
         );
+
+        // "An expired promotion moves to the next": the seat an unanswered
+        // request was holding goes back to the queue rather than staying empty
+        // because the host ignored it.
+        await this.fillFreedSeats(tx, event, now);
 
         return true;
       },
@@ -654,6 +878,12 @@ export class ParticipationService {
 interface Joiner {
   birthYear: number;
   gender: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null;
+}
+
+interface PromotedParticipant {
+  id: string;
+  publicId: string;
+  hostDeadlineAt: Date;
 }
 
 type ParticipantRow = {

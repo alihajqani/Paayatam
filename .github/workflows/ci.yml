@@ -205,6 +205,11 @@ jobs:
           check_constraint event_participant_cancelled_at_present
           check_constraint event_participant_promoted_not_waitlisted
           check_constraint event_participant_penalty_needs_bucket
+          # The relay's queue (M13 drains it). Without the partial predicate this
+          # index grows with every domain event the product has ever emitted
+          # rather than with the backlog.
+          check_index      outbox_event_unprocessed_idx
+          check_constraint outbox_event_attempts_non_negative
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

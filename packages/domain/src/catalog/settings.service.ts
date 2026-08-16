@@ -35,6 +35,19 @@ export const SETTING_DEFAULTS = {
   /** Cancel within this many minutes of being accepted and it costs nothing. */
   'participation.grace_minutes': 15,
 
+  /**
+   * The promoted-request deadline: `min(now + 12h, starts_at - 3h)` (ADR-0011).
+   *
+   * Shorter than the 24 hours a fresh request gets, and deliberately so — a
+   * promotion happens because a seat came free, which is later in the event's
+   * life and leaves less room to dither. Separate keys from the
+   * `participation.*` pair above even though the second number matches today,
+   * because ADR-0011 names them separately and they are tuned against different
+   * things.
+   */
+  'waitlist.promotion_deadline_hours': 12,
+  'waitlist.min_hours_before_event': 3,
+
   // Ranking weights (plan §11). Fractions, not integers — read with `getNumber`.
   // Trust is capped at 0.10 deliberately: §12 resolves "Trust Score in ranking"
   // against "no unfair discrimination" by keeping trust a tenth of the signal, so

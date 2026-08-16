@@ -9,6 +9,7 @@ import {
   EventsModule,
   IdentityModule,
   ModerationModule,
+  OutboxModule,
   ParticipationModule,
   ProfileModule,
 } from '@payetam/domain';
@@ -40,6 +41,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     PrismaModule,
     RedisModule,
     AuditModule,
+    OutboxModule,
     IdentityModule,
     CatalogModule,
     EconomyModule,

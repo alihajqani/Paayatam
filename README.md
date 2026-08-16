@@ -16,15 +16,18 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
-**Milestone 6 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
+**Milestone 7 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
 complete a profile from the Mini App and receive the onboarding coins exactly once (M3), create events
 that pass through Persian auto-moderation before publishing (M4), browse, filter and search what
-everyone else has published (M5), and ask to join one — with seats allocated under a row lock that makes
-overbooking impossible (M6).
+everyone else has published (M5), ask to join one — with seats allocated under a row lock that makes
+overbooking impossible (M6) — and, when a seat frees, be promoted off the waitlist in FIFO order (M7).
 
-Not built yet: waitlist promotion, anonymous chat, the bot itself (`/start` does nothing —
-`packages/telegram` and the grammY handlers are still outstanding from M2), and the Mini App's
-event-authoring, listing and participation screens.
+Domain events are written to a transactional outbox as they happen. The relay that turns them into
+Telegram notifications is M13; until then they accumulate as a durable record.
+
+Not built yet: anonymous chat, the bot itself (`/start` does nothing — `packages/telegram` and the grammY
+handlers are still outstanding from M2), and the Mini App's event-authoring, listing and participation
+screens.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone sequence.
 
