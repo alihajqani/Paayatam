@@ -1646,6 +1646,92 @@ deletes exactly the expired rows and nothing else.
 failures, p95, join-conflict rate); nightly `pg_dump` + WAL archiving with **an actually-rehearsed restore
 recorded with a real duration**; graceful shutdown draining in-flight jobs.
 
+**Deviations from this plan, decided during M16:**
+
+- **The gate found an M15 bug the milestone's own tests could not.** `RateLimitService`
+  was provided by no module, so the API refused to boot — the guard was registered through
+  `APP_GUARD`, which resolves in the *root* injector, and nothing put the service there.
+  Unit and integration tests all passed because none of them construct `AppModule`; the
+  response-leak scan does, and it was the only thing that caught it. Nest's default on an
+  initialisation error is `process.abort()`, which under Vitest kills the worker before
+  anything flushes — the entire report was "Worker exited unexpectedly" and a native stack
+  trace. `abortOnError: false` in the scan is the fix for the *diagnosis*; a global
+  `RateLimitModule` is the fix for the bug.
+- **The duplicate fastify was found here and fixed in M15's commit.** The hooks below are what
+  surfaced it — a correctly-typed `onRequest` handler did not compile — but the cast it made
+  unnecessary lives in M15's code, so the pin went with that commit rather than this one.
+- **`/metrics` is refused from outside a private network, in the controller.** A metrics
+  endpoint open to the internet publishes request volumes, error rates and queue depths —
+  together a description of the product's traffic and health. The rule is enforced in code
+  rather than left to nginx, because a reverse-proxy rule is one config edit away from not
+  existing and this file is reviewed with the code. 404 rather than 403: an endpoint that
+  exists but refuses you is worth probing.
+- **No `prom-client`.** The plan asks for four numbers; three are counters and one is a
+  histogram, and the exposition format is a documented handful of lines. The library earns
+  its place when you need exemplars or native histograms; here it would add fifty
+  process-level series nobody asked for.
+- **Metrics label on the route *pattern*, never the URL**, and every label value comes from
+  a closed set — a queue name, an error code, an `ErrorCode`. This is the metrics mistake
+  that cannot be walked back: a series per entity is a memory leak that looks like
+  observability, and by the time it hurts the dashboards depend on it. An unmatched request
+  is labelled `unmatched` rather than by its path, so nobody can create cardinality with
+  `curl`.
+- **The p95 is not computed here.** Cumulative buckets plus `_sum` and `_count` go out;
+  `histogram_quantile` does the arithmetic. Computing it in-process would fix it to one
+  container's lifetime and make it un-aggregatable — a p95 that cannot be summed over two
+  API instances is a p95 of one instance.
+- **A failing collector emits no series rather than a zero.** An absent series makes a graph
+  blank and an `absent()` alert fire; a zero says "the queue is empty", which is the single
+  most misleading thing a queue-depth metric can say when the truth is that Redis is
+  unreachable.
+- **`payetam_outbox_unprocessed` is an addition to the plan's list**, and arguably the most
+  important gauge here. Queue depth rising means the worker is behind; **outbox backlog
+  rising means the relay has stopped** — and the queue looks perfectly healthy in that case,
+  because nothing is being enqueued at all. ADR-0005 makes the outbox the thing that
+  guarantees delivery, so an outbox that stops draining is a promise breaking silently.
+- **Request ids come from `AsyncLocalStorage`, and the logger reads them ambiently.** The
+  call sites that most need correlating are inside domain services that have no business
+  knowing they are serving HTTP; threading an argument through would put an observability
+  parameter on every domain method, and the first person in a hurry would pass `undefined`.
+  An inbound `x-request-id` is honoured so a trace spans nginx and the API, but it is
+  attacker-controlled and therefore constrained to `[A-Za-z0-9._-]{8,64}` — whatever it is
+  ends up in every log line for that request, and a newline in it would forge a second one.
+- **Observability is registered as Fastify hooks, not a Nest interceptor.** An interceptor
+  never sees a 404 for an unmatched route, a request a guard rejected before the handler, or
+  a body that failed to parse — which are exactly the requests worth having an id for.
+- **`AppLogger` wraps pino rather than exposing it**, and every line goes through M15's
+  redactor. A logger that *can* be used unsafely eventually will be, and the failure is
+  silent and permanent: a Telegram id in an aggregator a dozen people can search and nobody
+  can purge. The cost is one indirection.
+- **The restore rehearsal is recorded with the real number and with what the number does not
+  mean.** `docs/runbook-backup-restore.md` reports **2 seconds** for a 144 kB development
+  dump: 42 tables, 6 triggers and 4 extensions, matching the live database exactly, with
+  `pg_restore --exit-on-error` clean. That establishes every *step* works — the extension
+  ordering `citext` needs, the append-only triggers surviving, no `GRANT` failures against a
+  role that does not exist. It establishes **nothing about duration at production scale**,
+  because restore time is dominated by index builds, and no arithmetic on a 144 kB dump
+  predicts that. The runbook says so in those words and names when to re-measure. Writing a
+  projected figure would have satisfied the plan's wording and defeated its purpose.
+- **Graceful shutdown was already there and is now documented rather than added.** M13's
+  `WorkerFactory.onModuleDestroy` closes each BullMQ worker, which waits for in-flight jobs,
+  and both entry points call `enableShutdownHooks()`. What M16 adds is the reason it matters
+  written down where the code is: without the hooks Nest exits without closing the Prisma
+  pool or the queues, and Postgres is left reaping connections on a timeout.
+- **`backup.sh` verifies before it rotates.** `pg_restore --list` on the fresh dump plus a
+  minimum size, and older backups are deleted only if both pass. `set -o pipefail` is called
+  out in a comment because `pg_dump | gzip` succeeds as far as the shell is concerned when
+  pg_dump fails — which is precisely how a backup regime ends up with a year of 20-byte
+  files nobody looked inside.
+- **Nightly off-host verification and encryption at rest for the dumps are *not* built**, and
+  the runbook says so in a section of their own rather than leaving them implied. The dumps
+  contain display names, bios and `telegram_account` rows in the clear; `rsync --chmod=F600`
+  is filesystem permissions and nothing more.
+- **I ran a full gate while editing the files it was testing.** The run aborted, and I spent
+  time reading a crash I had caused. Recorded because it is the same class of mistake as
+  M11's and M13's wrong harness diagnoses: the tooling reported something true and I
+  attributed it to the wrong cause. The gate is the last thing that runs, against a tree
+  nothing is touching.
+
 **M17 — Seed data & launch checklist** · *M* — 20–30 founding-team events; **the seed script refuses to run
 when `NODE_ENV=production` unless `ALLOW_PROD_SEED=1` AND an interactive typed confirmation is given, and it
 writes an audit row**; feature flags set to Tehran + 2 categories; the Launch Readiness Report.

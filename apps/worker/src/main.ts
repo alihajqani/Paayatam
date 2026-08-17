@@ -1,7 +1,7 @@
 import 'reflect-metadata';
-import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { EnvValidationError, loadEnv } from '@payetam/config';
+import { AppLogger } from '@payetam/platform';
 import { AppModule } from './app.module';
 
 /**
@@ -21,10 +21,15 @@ async function bootstrap(): Promise<void> {
     throw error;
   }
 
+  // `service: 'worker'` in every line, so the worker's output is separable from the
+  // API's once both ship to the same place (M16).
+  process.env['PAYETAM_SERVICE'] = 'worker';
+  const logger = new AppLogger(env.LOG_LEVEL, env.NODE_ENV !== 'production');
+
   // Deliberately NOT `bufferLogs: true`. In an application *context* there is no
   // `listen()` to flush the buffer, so buffered logs are simply never emitted and
   // the worker starts up completely silently.
-  const app = await NestFactory.createApplicationContext(AppModule);
+  const app = await NestFactory.createApplicationContext(AppModule, { logger });
 
   // Shutdown hooks matter more here than in the API: on SIGTERM the worker must
   // finish the job it is holding rather than abandoning it mid-way. An abandoned
@@ -32,10 +37,11 @@ async function bootstrap(): Promise<void> {
   // retries are only free because every job is idempotent (ADR-0005).
   app.enableShutdownHooks();
 
-  const logger = new Logger('Bootstrap');
-  logger.log(
-    `Worker started (env=${env.NODE_ENV}, tz=${env.APP_TIMEZONE}, queuePrefix=${env.QUEUE_PREFIX})`,
-  );
+  logger.event('info', 'Worker started', {
+    env: env.NODE_ENV,
+    tz: env.APP_TIMEZONE,
+    queuePrefix: env.QUEUE_PREFIX,
+  });
   // The processors register themselves in `onModuleInit`, which has already run
   // by this point — so by the time this line prints, the queues are live and the
   // repeatable sweeps are scheduled.

@@ -136,6 +136,18 @@ function signInitData(botToken: string, fields: Record<string, string>): string 
 const ENDPOINTS: Endpoint[] = [
   { method: 'GET', url: '/health', anonymous: true },
   { method: 'GET', url: '/ready', anonymous: true },
+  /**
+   * `/metrics` is scanned like everything else, and it is one of the few endpoints
+   * where a leak would be *structural* rather than accidental: a label taken from a
+   * URL rather than a route pattern would publish an event id, a user public id, or a
+   * search term to anything that can scrape. M16 labels on the route pattern for
+   * exactly that reason, and this is what holds it there.
+   *
+   * The scan reaches it over loopback, which is what the controller's own network
+   * check permits — so this also asserts that a legitimate scraper gets a body
+   * rather than the 404 an outside caller gets.
+   */
+  { method: 'GET', url: '/metrics', anonymous: true },
   { method: 'GET', url: '/api/v1/policies/current?type=TERMS', anonymous: true },
   { method: 'GET', url: '/api/v1/me' },
   { method: 'GET', url: '/api/v1/catalog' },
@@ -416,10 +428,20 @@ beforeAll(async () => {
   // parameter unresolvable.
   const { AppModule } = (await import('../dist/app.module.js')) as { AppModule: unknown };
 
+  /**
+   * `abortOnError: false`, which is the difference between a diagnosable failure and
+   * an unreadable one.
+   *
+   * Nest's default on an initialisation error is `process.abort()`. Under Vitest that
+   * kills the worker before anything is flushed, and the entire report is "Worker
+   * exited unexpectedly" with a native stack trace — no module, no provider, no
+   * missing dependency. M16 spent a while on exactly that. With this flag the promise
+   * rejects and the message names the provider it could not resolve.
+   */
   app = await NestFactory.create<NestFastifyApplication>(
     AppModule as Parameters<typeof NestFactory.create>[0],
     new FastifyAdapter(),
-    { logger: false },
+    { logger: false, abortOnError: false },
   );
 
   /**

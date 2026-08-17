@@ -16,6 +16,7 @@ import {
 import {
   ClockModule,
   ConfigModule,
+  MetricsModule,
   PiiHashModule,
   QueueModule,
   RedisModule,
@@ -43,6 +44,7 @@ import { TelegramClient } from './telegram/telegram.client';
     PrismaModule,
     RedisModule,
     QueueModule,
+    MetricsModule,
     PiiHashModule,
     AuditModule,
     OutboxModule,

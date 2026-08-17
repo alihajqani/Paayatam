@@ -20,3 +20,13 @@ export type {
 } from './ratelimit/rate-limit.service';
 export { redact, isSensitive, REDACTED, REDACTED_FIELDS } from './logging/redact';
 export { PiiHasher, PiiHashModule } from './crypto/pii-hash';
+export { AppLogger } from './logging/logger.service';
+export {
+  runWithRequestContext,
+  currentRequestContext,
+  setContextUser,
+  normalizeRequestId,
+} from './logging/request-context';
+export type { RequestContext } from './logging/request-context';
+export { MetricsRegistry, MetricsModule, METRICS } from './metrics/metrics.registry';
+export type { Labels } from './metrics/metrics.registry';

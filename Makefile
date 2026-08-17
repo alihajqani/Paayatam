@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-.PHONY: help setup up down logs ps reset dev build typecheck lint format test test-int db-test seed check clean
+.PHONY: help setup up down logs ps reset dev build typecheck lint format test test-int db-test seed check clean backup restore-rehearsal
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -88,6 +88,18 @@ seed: ## Seed policies, catalog, blacklist and RBAC into the development databas
 	pnpm seed:catalog
 	pnpm seed:blacklist
 	pnpm seed:rbac
+
+backup: ## Dump the development database, through the production backup script
+	docker cp tools/backup.sh payetam-postgres:/tmp/backup.sh
+	docker exec -e DATABASE_URL="postgresql://payetam:$$(grep -oP '(?<=^DATABASE_URL=postgresql://payetam:)[^@]+' .env)@localhost:5432/payetam" \
+		-e PAYETAM_BACKUP_DIR=/tmp/payetam-backups \
+		payetam-postgres bash /tmp/backup.sh
+
+restore-rehearsal: ## Restore the newest dump into a scratch database and time it (M16)
+	docker cp tools/restore-rehearsal.sh payetam-postgres:/tmp/restore-rehearsal.sh
+	docker exec -e DATABASE_URL="postgresql://payetam:$$(grep -oP '(?<=^DATABASE_URL=postgresql://payetam:)[^@]+' .env)@localhost:5432/payetam" \
+		payetam-postgres bash -c \
+		'bash /tmp/restore-rehearsal.sh "$$(ls -t /tmp/payetam-backups/*.dump | head -1)"'
 
 check: typecheck lint test ## What CI runs on every commit
 

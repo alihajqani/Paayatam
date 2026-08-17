@@ -4,6 +4,8 @@ import { PrismaService } from '@payetam/db';
 import type { Env } from '@payetam/config';
 import {
   ENV,
+  METRICS,
+  MetricsRegistry,
   QUEUE_CONCURRENCY,
   TELEGRAM_GLOBAL_RATE,
   QUEUES,
@@ -31,6 +33,7 @@ export class WorkerFactory implements OnModuleDestroy {
   constructor(
     @Inject(ENV) private readonly env: Env,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    private readonly metrics: MetricsRegistry,
   ) {}
 
   create(name: QueueName, processor: Processor): Worker {
@@ -48,6 +51,26 @@ export class WorkerFactory implements OnModuleDestroy {
       void this.onFailed(name, job, error);
     });
 
+    /**
+     * Job duration and completion, for the same reason HTTP requests are measured:
+     * a queue that is keeping up and a queue that is keeping up *slowly* look
+     * identical from its depth alone, right until the moment it stops keeping up.
+     *
+     * `job.processedOn` is BullMQ's own timestamp for when the job was picked up, so
+     * this measures processing rather than time spent waiting — the two need
+     * separating, because a rise in the first is a code problem and a rise in the
+     * second is a capacity problem.
+     */
+    worker.on('completed', (job) => {
+      if (job.processedOn === undefined) return;
+      this.metrics.observe(
+        METRICS.JOB_DURATION,
+        'Job processing duration in seconds',
+        (Date.now() - job.processedOn) / 1000,
+        { queue: name, job: job.name },
+      );
+    });
+
     worker.on('error', (error: Error) => {
       // Worker-level errors are connection problems, not job problems. Warn rather
       // than error: BullMQ reconnects, and an error-level log per reconnect during
@@ -63,7 +86,21 @@ export class WorkerFactory implements OnModuleDestroy {
   private async onFailed(queue: QueueName, job: Job | undefined, error: Error): Promise<void> {
     if (!job) return;
 
+    /**
+     * Counted on **every** attempt, with the terminal ones labelled separately.
+     *
+     * A transient failure that a retry fixed is still a signal — a queue quietly
+     * retrying half its jobs is a queue about to fall over — but it is a different
+     * signal from work that has given up, and the label is what keeps an alert on
+     * the second from firing on the first.
+     */
     const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade;
+    this.metrics.counter(METRICS.JOB_FAILURES, 'Job failures by queue and outcome', {
+      queue,
+      job: job.name,
+      outcome: attemptsLeft > 0 ? 'retrying' : 'exhausted',
+    });
+
     if (attemptsLeft > 0) {
       this.logger.warn(
         `${queue}/${job.name} attempt ${String(job.attemptsMade)}: ${error.message}`,

@@ -20,7 +20,9 @@ import {
 import {
   ClockModule,
   ConfigModule,
+  MetricsModule,
   PiiHashModule,
+  QueueModule,
   RateLimitModule,
   RedisModule,
 } from '@payetam/platform';
@@ -34,6 +36,7 @@ import { EconomyController } from './economy/economy.controller';
 import { DiscoveryController } from './discovery/discovery.controller';
 import { EventsController } from './events/events.controller';
 import { HealthModule } from './health/health.module';
+import { ApiMetricsModule } from './metrics/metrics.module';
 import { ReviewsController } from './reviews/reviews.controller';
 import { AdminController } from './admin/admin.controller';
 import { AdminAuthGuard } from './admin/admin.guard';
@@ -72,10 +75,17 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     ChatModule,
     PrivacyModule,
     HealthModule,
+    // The registry itself is @Global(); this is the API's scrape endpoint and the
+    // collectors that need Prisma and BullMQ to answer (M16).
+    MetricsModule,
     PiiHashModule,
     // The rate limiter is consumed by an APP_GUARD, so it has to resolve in the
     // root injector (T12).
     RateLimitModule,
+    // The API enqueues and never processes (ADR-0005). Imported here so the
+    // queue-depth collector can ask Redis how deep each queue is.
+    QueueModule,
+    ApiMetricsModule,
   ],
   controllers: [
     AuthController,
