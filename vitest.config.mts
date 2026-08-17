@@ -1,9 +1,15 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 /**
- * Two projects, deliberately separated:
+ * Three projects, deliberately separated:
  *
  * - `unit` is fast and runs on every save. No database, no network.
+ * - `miniapp` is the same speed but needs a DOM, because `telegram/webapp.ts`
+ *   reads `window.Telegram` at module load — so anything importing a store
+ *   transitively touches `window` before a single test runs. It also needs the
+ *   two path aliases `vite.config.ts` sets up, since the code under test uses
+ *   them.
  * - `integration` runs against a real Postgres and Redis via Testcontainers.
  *   Nothing transactional is ever mocked — capacity locking (ADR-0006) and the
  *   ledger invariants (ADR-0007) are *database* guarantees, so a mocked test of
@@ -18,7 +24,27 @@ export default defineConfig({
           name: 'unit',
           environment: 'node',
           include: ['{apps,packages}/*/src/**/*.test.ts'],
-          exclude: ['**/node_modules/**', '**/dist/**', '**/*.int.test.ts'],
+          // The Mini App has its own project below; without this exclusion its
+          // files would run twice, once in an environment with no `window`.
+          exclude: ['**/node_modules/**', '**/dist/**', '**/*.int.test.ts', 'apps/miniapp/src/**'],
+        },
+      },
+      {
+        resolve: {
+          alias: {
+            '@': fileURLToPath(new URL('./apps/miniapp/src', import.meta.url)),
+            // Source, not `dist`, exactly as vite.config.ts does it — so a test
+            // cannot pass against yesterday's contracts.
+            '@payetam/shared': fileURLToPath(
+              new URL('./packages/shared/src/index.ts', import.meta.url),
+            ),
+          },
+        },
+        test: {
+          name: 'miniapp',
+          environment: 'jsdom',
+          include: ['apps/miniapp/src/**/*.test.ts'],
+          exclude: ['**/node_modules/**', '**/dist/**'],
         },
       },
       {

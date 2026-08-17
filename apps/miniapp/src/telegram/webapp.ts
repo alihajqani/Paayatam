@@ -60,6 +60,13 @@ interface TelegramWebApp {
   HapticFeedback: HapticFeedback;
   ready(): void;
   expand(): void;
+  /**
+   * Hands the user back to the chat they opened the Mini App from — which for this
+   * product is the bot, and therefore where their conversations are. Closing is how
+   * you navigate to the bot without knowing its username: Telegram gives a WebApp no
+   * way to ask, and hardcoding one would be a second place to change it.
+   */
+  close(): void;
   disableVerticalSwipes?: () => void;
   onEvent(event: string, handler: () => void): void;
   showAlert(message: string): void;

@@ -38,11 +38,14 @@ missing.
 | `apps/worker` | Complete | outbox relay, 8 repeatable sweeps, DLQ |
 | Telegram bot — outbound | Complete, and **delivering for the first time** | notifications, keyboards, channel posts, block detection — see §7 |
 | Telegram bot — inbound | Complete | `/start`, accept/reject/close buttons, text relay, edit propagation; 32 end-to-end tests |
-| `apps/miniapp` | **4 screens of ~15** | splash, terms, profile, home |
+| `apps/miniapp` | **11 screens** — the core loop is reachable | splash, terms, profile, home, discover, event detail, create, edit, my events (with the participant queue), my requests, chats |
 | `apps/admin` | **Does not exist** | — |
 
-The Mini App has `SplashView`, `TermsView`, `ProfileView` and `HomeView`. That covers
-onboarding and nothing after it.
+**Revised again, 2026-08-17.** The Mini App now covers the core loop: create → discover
+→ detail → join → the host's decision → the conversation. B1 below is reduced rather
+than closed, and §2's three 🚧 marks are cleared — the criteria they sat on are now
+reachable by a user. What remains unreachable is the contact-share confirmation, the
+review form, and everything a moderator does.
 
 **The shape of what is missing is now specific**, and it is worth stating precisely
 because it is easy to read the two "Complete" rows above as more than they are:
@@ -143,12 +146,23 @@ feature the product is built around. What has no surface is everything that lead
 one, and it is the join in particular: no join, no chat, so the whole conversational
 half of the product is gated behind a screen that does not exist.
 
-Roughly nine screens are missing: event authoring, the discovery list, event detail,
-join/waitlist state, the participant list, cancellation dialogs (the dry-run endpoints
-exist precisely to back them), contact-share confirmation, the review form, and coins
-/ trust / invite.
+**Reduced, 2026-08-17.** Seven of the nine are built: event authoring, the discovery
+list with its filters, event detail, join with its PENDING/WAITLISTED states, the
+participant list with accept and reject, and both cancellation dialogs — host and
+participant — fed by the dry-run endpoints that existed precisely to back them.
 
-*Estimate: comparable to two backend milestones. This is the launch.*
+Two remain, and neither blocks the loop: **contact-share confirmation** (criterion 6,
+deliberately a screen rather than a callback button) and the **review form**
+(criterion 7). The coins/trust/invite screens are P2; the balance is on the home
+screen and nothing else in the economy is reachable, which is fine while the only
+sink — boost — is gated on B3 anyway.
+
+The loop is verified end to end against a real API with two accounts and database
+assertions at every step: 44 checks covering the seat held at request time, invariant 1
+holding, aliases in place of names, ciphertext at rest, no Telegram identifier in any
+payload, and delivery going through the queue rather than inline.
+
+*Estimate for what is left: small, and no longer on the critical path.*
 
 ### B2 — No admin panel · **blocks launch**
 

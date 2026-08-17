@@ -1,22 +1,30 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted } from 'vue';
+import { RouterLink, useRoute } from 'vue-router';
 import { formatCoins, toPersianDigits } from '@/format/fa';
+import { useChatsStore } from '@/stores/chats';
 import { useSessionStore } from '@/stores/session';
 
 /**
- * Where onboarding lands.
+ * Where onboarding lands, and where the product starts.
  *
- * Discovery, activities and chat arrive in M4–M8. Until then this confirms the
- * profile was saved and shows the balance — including the welcome coins, which
- * is the only visible proof the reward landed.
+ * It confirms the profile was saved and shows the balance — including the welcome
+ * coins, which is the only visible proof the reward landed — and then gets out of the
+ * way: the five things a user can do are one tap each.
  */
 const route = useRoute();
 const session = useSessionStore();
+const chats = useChatsStore();
 
 const profile = computed(() => session.me?.profile ?? null);
 const balance = computed(() => session.me?.coins.balance ?? 0);
 const justRewarded = computed(() => route.query['welcome'] === '1');
+
+onMounted(() => {
+  // Only to put a count on the chats row. A failure here must not take the home
+  // screen down with it, so it is deliberately swallowed.
+  void chats.load().catch(() => undefined);
+});
 </script>
 
 <template>
@@ -54,8 +62,52 @@ const justRewarded = computed(() => route.query['welcome'] === '1');
       </ul>
     </section>
 
-    <p class="text-sm text-tg-hint">
-      ساخت و جست‌وجوی فعالیت‌ها به‌زودی در همین صفحه در دسترس قرار می‌گیرد.
-    </p>
+    <nav class="flex flex-col gap-2">
+      <RouterLink
+        to="/discover"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">گشتن در رویدادها</span>
+        <span class="text-tg-hint">›</span>
+      </RouterLink>
+
+      <RouterLink
+        to="/events/new"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-button px-4 py-3 text-tg-button-text"
+      >
+        <span class="font-medium">ساخت رویداد</span>
+        <span>›</span>
+      </RouterLink>
+
+      <RouterLink
+        to="/my-requests"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">درخواست‌های من</span>
+        <span class="text-tg-hint">›</span>
+      </RouterLink>
+
+      <RouterLink
+        to="/my-events"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">رویدادهای من</span>
+        <span class="text-tg-hint">›</span>
+      </RouterLink>
+
+      <RouterLink
+        to="/chats"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">گفت‌وگوها</span>
+        <span
+          v-if="chats.unreadTotal > 0"
+          class="rounded-full bg-tg-button px-2 py-0.5 text-xs text-tg-button-text"
+        >
+          {{ toPersianDigits(chats.unreadTotal) }}
+        </span>
+        <span v-else class="text-tg-hint">›</span>
+      </RouterLink>
+    </nav>
   </main>
 </template>

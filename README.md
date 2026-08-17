@@ -38,9 +38,14 @@ resolved by which message it replies to, or by the sender having exactly one liv
 an explanation when neither answers. Edits follow. Blocking is detected. M8's two-real-accounts release
 gate is therefore *performable* for the first time, and has not been performed.
 
-Not built yet: the Mini App beyond onboarding — event authoring, discovery, event detail, **join**,
-contact-share confirmation and the review form — and the admin panel. Joining is the one that matters
-most, because a join is what creates a chat.
+**The core loop is now usable from the Mini App.** A host writes an event, a stranger finds it, opens it
+and asks to join; the host accepts or rejects — from the notification or from the participant list — and
+the conversation the request opened continues in Telegram, which is where chat lives by design. Discovery
+carries the twelve filters the API exposes, cancellation is priced by the dry-run endpoints before it is
+committed, and every screen renders Jalali dates from UTC without a date library.
+
+Still not built: the contact-share confirmation, the review form, the coins/trust/invite screens, and the
+admin panel. `Idempotency-Key` remains unbuilt, which is why the boost sink stays out of reach.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone
 sequence, and [`docs/launch-readiness.md`](docs/launch-readiness.md) for what is and is not ready —
