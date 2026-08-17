@@ -30,14 +30,38 @@ export function setAccessToken(token: string | null): void {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT';
   body?: unknown;
+  /**
+   * Names the *intention* behind a mutation, so a retry over a flaky connection is
+   * recognised as the same one (plan §6). The server replays the stored response
+   * instead of doing the work twice, which is what stands between a lost response on
+   * a mobile network and a second 40-coin purchase.
+   *
+   * Only worth sending where a duplicate is not already impossible: most endpoints
+   * are protected by a unique index on a natural key and need nothing here.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * A key for one user intention.
+ *
+ * `randomUUID` where it exists — every Telegram WebView has it over https — with a
+ * fallback that is unique enough for the same purpose, since this value is scoped to
+ * one user and lives for a day.
+ */
+export function newIdempotencyKey(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ?? `k-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
 
   let response: Response;
   try {

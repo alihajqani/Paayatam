@@ -36,6 +36,8 @@ const actionError = ref<string | null>(null);
 const expanded = ref<string | null>(null);
 const deciding = ref<string | null>(null);
 
+const boosting = ref<string | null>(null);
+const boostInFlight = ref(false);
 const cancelling = ref<string | null>(null);
 const cancelPreview = ref<HostCancellationPreviewResponse | null>(null);
 const cancelReason = ref('');
@@ -118,6 +120,32 @@ async function decide(
     actionError.value = cause instanceof ApiError ? cause.messageFa : 'ثبت پاسخ انجام نشد.';
   } finally {
     deciding.value = null;
+  }
+}
+
+function startBoost(publicId: string): void {
+  actionError.value = null;
+  boosting.value = publicId;
+}
+
+/**
+ * Spends coins, and is the one place in the product where a duplicate request costs
+ * real money — so the store sends an `Idempotency-Key` and the button is disabled in
+ * flight. Belt and braces on purpose: the disabled button is the frontend half of
+ * §3.7's double-submit rule, and the key is the half that survives a lost response.
+ */
+async function confirmBoost(publicId: string): Promise<void> {
+  actionError.value = null;
+  boostInFlight.value = true;
+  try {
+    await events.boost(publicId);
+    haptic('success');
+    boosting.value = null;
+  } catch (cause) {
+    haptic('error');
+    actionError.value = cause instanceof ApiError ? cause.messageFa : 'برجسته‌کردن انجام نشد.';
+  } finally {
+    boostInFlight.value = false;
   }
 }
 
@@ -225,6 +253,15 @@ onMounted(load);
               ویرایش
             </button>
             <button
+              v-if="event.status === 'PUBLISHED' && !event.isVip"
+              type="button"
+              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm disabled:opacity-50"
+              :disabled="boosting === event.publicId"
+              @click="startBoost(event.publicId)"
+            >
+              برجسته‌کردن
+            </button>
+            <button
               v-if="event.status === 'PUBLISHED' || event.status === 'PENDING_MODERATION'"
               type="button"
               class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm text-tg-destructive"
@@ -278,6 +315,38 @@ onMounted(load);
                   رد کردن
                 </button>
               </div>
+            </div>
+          </div>
+
+          <p v-if="event.boostedUntil" class="text-sm text-tg-hint">
+            برجسته تا {{ formatRelative(event.boostedUntil) }}
+          </p>
+
+          <!-- The coin sink, confirmed before it spends (M9). -->
+          <div
+            v-if="boosting === event.publicId"
+            class="flex flex-col gap-2 rounded-xl bg-tg-bg p-3"
+          >
+            <p class="text-sm font-medium">این رویداد برجسته شود؟</p>
+            <p class="text-sm text-tg-hint">
+              برجسته‌کردن از موجودی سکهٔ شما کم می‌کند و رویداد را برای مدتی بالاتر نشان می‌دهد.
+            </p>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="min-h-11 flex-1 rounded-xl bg-tg-button text-sm text-tg-button-text disabled:opacity-50"
+                :disabled="boostInFlight"
+                @click="confirmBoost(event.publicId)"
+              >
+                {{ boostInFlight ? 'در حال ثبت…' : 'بله، برجسته کن' }}
+              </button>
+              <button
+                type="button"
+                class="min-h-11 rounded-xl bg-tg-secondary-bg px-4 text-sm"
+                @click="boosting = null"
+              >
+                انصراف
+              </button>
             </div>
           </div>
 

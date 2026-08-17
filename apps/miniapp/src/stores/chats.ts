@@ -39,5 +39,37 @@ export const useChatsStore = defineStore('chats', () => {
     return chats.value.find((chat) => chat.eventPublicId === eventPublicId) ?? null;
   }
 
-  return { chats, loading, unreadTotal, open, load, forEvent };
+  function remember(updated: ChatSummaryView): void {
+    chats.value = chats.value.map((chat) => (chat.publicId === updated.publicId ? updated : chat));
+  }
+
+  /**
+   * Consent to exchange contact details in this conversation (criterion 6).
+   *
+   * It reveals nothing by itself, and that is the part a UI must not overstate: the
+   * platform holds no phone number and will not surrender a Telegram username. What
+   * changes is that the caller's *own* messages stop being masked, so they can send
+   * their details themselves. The disclosure stays the user's act, which is what
+   * ADR-0009 requires of it — and why this needs a screen with a confirmation rather
+   * than a one-tap button.
+   */
+  async function shareContact(publicId: string): Promise<ChatSummaryView> {
+    const updated = await request<ChatSummaryView>(`/chats/${publicId}/share-contact`, {
+      method: 'POST',
+    });
+    remember(updated);
+    return updated;
+  }
+
+  /** Either party ends it. Neither needs the other's agreement. */
+  async function close(publicId: string, reason?: string): Promise<ChatSummaryView> {
+    const updated = await request<ChatSummaryView>(`/chats/${publicId}/close`, {
+      method: 'POST',
+      ...(reason ? { body: { reason } } : {}),
+    });
+    remember(updated);
+    return updated;
+  }
+
+  return { chats, loading, unreadTotal, open, load, forEvent, shareContact, close };
 });

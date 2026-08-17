@@ -2,10 +2,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiError } from '@/api/client';
+import ReportDialog from '@/components/ReportDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import { formatRelative } from '@/format/datetime';
 import { toPersianDigits } from '@/format/fa';
-import { webApp } from '@/telegram/webapp';
+import { haptic, webApp } from '@/telegram/webapp';
 import { useChatsStore } from '@/stores/chats';
 
 /**
@@ -23,6 +24,11 @@ const router = useRouter();
 const chats = useChatsStore();
 
 const error = ref<string | null>(null);
+const actionError = ref<string | null>(null);
+/** Which chat is mid-confirmation. Contact sharing is never one tap (criterion 6). */
+const confirmingShare = ref<string | null>(null);
+const confirmingClose = ref<string | null>(null);
+const reporting = ref<string | null>(null);
 
 const state = computed(() => {
   if (error.value !== null) return 'error' as const;
@@ -43,6 +49,39 @@ async function load(): Promise<void> {
     await chats.load();
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.messageFa : 'گفت‌وگوها بارگذاری نشد.';
+  }
+}
+
+/**
+ * Consent to exchange contact details.
+ *
+ * The confirmation is the feature, not politeness: ADR-0009 requires the disclosure
+ * to be the user's own act, and a callback button would reduce «مطمئنید؟» to a single
+ * tap made by accident. What it actually does is narrow — it stops masking the
+ * caller's *own* messages — and the copy says so, because a user who believes the
+ * platform just handed over their number would be wrong in a way that matters.
+ */
+async function confirmShare(publicId: string): Promise<void> {
+  actionError.value = null;
+  try {
+    await chats.shareContact(publicId);
+    haptic('success');
+    confirmingShare.value = null;
+  } catch (cause) {
+    haptic('error');
+    actionError.value = cause instanceof ApiError ? cause.messageFa : 'ثبت رضایت انجام نشد.';
+  }
+}
+
+async function confirmClose(publicId: string): Promise<void> {
+  actionError.value = null;
+  try {
+    await chats.close(publicId);
+    haptic('success');
+    confirmingClose.value = null;
+  } catch (cause) {
+    haptic('error');
+    actionError.value = cause instanceof ApiError ? cause.messageFa : 'بستن گفت‌وگو انجام نشد.';
   }
 }
 
@@ -78,6 +117,8 @@ onMounted(load);
           دیدن رویدادها
         </button>
       </template>
+
+      <p v-if="actionError" class="text-tg-destructive">{{ actionError }}</p>
 
       <ul class="flex flex-col gap-3">
         <li
@@ -131,7 +172,92 @@ onMounted(load);
             >
               رویداد
             </button>
+            <button
+              v-if="!chat.contactShared && chat.status === 'OPEN'"
+              type="button"
+              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm"
+              @click="confirmingShare = chat.publicId"
+            >
+              اشتراک اطلاعات تماس
+            </button>
+            <button
+              v-if="chat.status === 'OPEN'"
+              type="button"
+              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm"
+              @click="confirmingClose = chat.publicId"
+            >
+              بستن گفت‌وگو
+            </button>
+            <button
+              type="button"
+              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm text-tg-destructive"
+              @click="reporting = chat.publicId"
+            >
+              گزارش
+            </button>
           </div>
+
+          <!-- Criterion 6: explicit confirmation, and an honest account of it. -->
+          <div
+            v-if="confirmingShare === chat.publicId"
+            class="flex flex-col gap-2 rounded-xl bg-tg-bg p-3"
+          >
+            <p class="text-sm font-medium">اطلاعات تماس خود را به اشتراک می‌گذارید؟</p>
+            <p class="text-sm text-tg-hint">
+              پایه‌تَم شمارهٔ شما را ندارد و نام کاربری تلگرام شما را به کسی نمی‌دهد. با این تأیید،
+              فقط پیام‌های خودتان دیگر پنهان‌سازی نمی‌شوند تا بتوانید اطلاعات تماستان را — اگر
+              خواستید — خودتان بفرستید. این کار برگشت‌پذیر نیست.
+            </p>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="min-h-11 flex-1 rounded-xl bg-tg-button text-sm text-tg-button-text"
+                @click="confirmShare(chat.publicId)"
+              >
+                بله، مطمئنم
+              </button>
+              <button
+                type="button"
+                class="min-h-11 rounded-xl bg-tg-secondary-bg px-4 text-sm"
+                @click="confirmingShare = null"
+              >
+                انصراف
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="confirmingClose === chat.publicId"
+            class="flex flex-col gap-2 rounded-xl bg-tg-bg p-3"
+          >
+            <p class="text-sm font-medium">این گفت‌وگو بسته شود؟</p>
+            <p class="text-sm text-tg-hint">
+              پس از بستن، هیچ‌کدام از دو طرف نمی‌توانید پیام تازه‌ای بفرستید.
+            </p>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="min-h-11 flex-1 rounded-xl bg-tg-destructive text-sm text-tg-button-text"
+                @click="confirmClose(chat.publicId)"
+              >
+                بستن گفت‌وگو
+              </button>
+              <button
+                type="button"
+                class="min-h-11 rounded-xl bg-tg-secondary-bg px-4 text-sm"
+                @click="confirmingClose = null"
+              >
+                انصراف
+              </button>
+            </div>
+          </div>
+
+          <ReportDialog
+            v-if="reporting === chat.publicId"
+            target="MESSAGE"
+            :public-id="chat.publicId"
+            @close="reporting = null"
+          />
         </li>
       </ul>
     </StateBlock>

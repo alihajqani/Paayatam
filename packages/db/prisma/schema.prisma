@@ -87,6 +87,7 @@ model User {
   reviewsWritten  Review[]           @relation("ReviewsWritten")
   reportsFiled    Report[]           @relation("ReportsFiled")
   notifications   Notification[]
+  idempotency     RequestIdempotency[]
   reviewsReceived Review[]           @relation("ReviewsReceived")
   referralReceived Referral?         @relation("ReferralReceived")
 
@@ -1244,6 +1245,49 @@ model FeatureFlag {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("feature_flag")
+}
+
+/// Stored responses for replayed `Idempotency-Key` requests (plan §6).
+///
+/// The problem this exists for is narrow and expensive: a host taps «برجسته کردن»,
+/// the response is lost on a mobile network, and the retry spends another 40 coins.
+/// Every *other* duplicate path in the product is defended by a unique index on a
+/// natural key — one participation per (event, user), one review per (participation,
+/// reviewer). Boost is the exception, because its natural key is a *window* rather
+/// than a thing, and a second boost is something a host may legitimately want (M9).
+///
+/// Scoped to the user, so one caller's key can never collide with another's.
+/// `requestFingerprint` is what makes a replay honest: the same key with a different
+/// body is a client bug, and answering it with the first response would be worse than
+/// refusing it.
+model RequestIdempotency {
+  id     String @id @default(uuid(7))
+  userId String @map("user_id")
+  key    String
+
+  /// Method and path are stored so the same key on a different endpoint is a
+  /// conflict rather than a silent cross-endpoint replay.
+  method String @db.VarChar(10)
+  path   String @db.VarChar(255)
+  /// SHA-256 of the request body.
+  requestFingerprint String @map("request_fingerprint") @db.VarChar(64)
+
+  /// Only successful responses are stored. A failed request must stay retryable,
+  /// or a network blip would pin a user to an error for the life of the row.
+  statusCode Int @map("status_code")
+  /// The exact serialized response, not JSONB: key order is part of "identical".
+  responseBody String @map("response_body")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Swept by the retention job. A key is a defence against a retry, and a retry
+  /// that arrives a day later is a new intention.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+  @@map("request_idempotency")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

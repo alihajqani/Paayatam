@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import type { ParticipationView } from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import MainButton from '@/components/MainButton.vue';
+import ReportDialog from '@/components/ReportDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import { formatEventWhen, formatRelative } from '@/format/datetime';
 import { formatToman, toPersianDigits } from '@/format/fa';
@@ -34,6 +35,7 @@ const publicId = computed(() => String(route.params['publicId'] ?? ''));
 const loadError = ref<string | null>(null);
 const joinError = ref<string | null>(null);
 const justJoined = ref<ParticipationView | null>(null);
+const reporting = ref(false);
 
 const event = computed(() => events.detail);
 const mine = computed(() => justJoined.value ?? participation.liveFor(publicId.value));
@@ -191,6 +193,21 @@ onMounted(load);
         </section>
 
         <p v-if="joinError" class="text-tg-destructive">{{ joinError }}</p>
+
+        <button
+          v-if="!isHost && !reporting"
+          type="button"
+          class="min-h-11 self-start text-sm text-tg-destructive"
+          @click="reporting = true"
+        >
+          گزارش این رویداد
+        </button>
+        <ReportDialog
+          v-if="reporting"
+          target="EVENT"
+          :public-id="publicId"
+          @close="reporting = false"
+        />
 
         <p v-if="isHost" class="rounded-xl bg-tg-secondary-bg p-3 text-sm text-tg-hint">
           این رویداد از سوی شما میزبانی می‌شود.

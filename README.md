@@ -44,8 +44,12 @@ the conversation the request opened continues in Telegram, which is where chat l
 carries the twelve filters the API exposes, cancellation is priced by the dry-run endpoints before it is
 committed, and every screen renders Jalali dates from UTC without a date library.
 
-Still not built: the contact-share confirmation, the review form, the coins/trust/invite screens, and the
-admin panel. `Idempotency-Key` remains unbuilt, which is why the boost sink stays out of reach.
+Sharing contact details takes an explicit confirmation that says plainly what it does and does not do;
+reviews are written blind and revealed together at T+24h; coins, Trust Score and invitations each show their
+ledger rather than only a number; and anything can be reported from where it is being looked at.
+`Idempotency-Key` is built, so boosting an event cannot double-charge a host whose connection dropped.
+
+Still not built: the **admin panel**, which is what makes a report actionable by a human.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone
 sequence, and [`docs/launch-readiness.md`](docs/launch-readiness.md) for what is and is not ready —

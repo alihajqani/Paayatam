@@ -403,6 +403,45 @@ describe('the ledgers are not on any retention schedule', () => {
   });
 });
 
+describe('expired Idempotency-Key claims', () => {
+  /**
+   * Swept by `expires_at` rather than by an age constant: the interceptor decides how
+   * long a key speaks for, and this sweep should not hold a second opinion about it.
+   */
+  async function claim(expiresAt: Date, key: string): Promise<void> {
+    await prisma.requestIdempotency.create({
+      data: {
+        userId: hostId,
+        key,
+        method: 'POST',
+        path: '/api/v1/events/x/boost',
+        requestFingerprint: 'a'.repeat(64),
+        statusCode: 201,
+        responseBody: '{"ok":true}',
+        expiresAt,
+      },
+    });
+  }
+
+  it('deletes a claim whose window has passed', async () => {
+    await claim(daysAgo(1), 'expired');
+
+    const result = await retention.purge();
+
+    expect(result.idempotencyKeys).toBe(1);
+    expect(await prisma.requestIdempotency.count()).toBe(0);
+  });
+
+  it('keeps a claim that is still live — deleting it would re-enable a double charge', async () => {
+    await claim(new Date(NOW.getTime() + 3_600_000), 'live');
+
+    const result = await retention.purge();
+
+    expect(result.idempotencyKeys).toBe(0);
+    expect(await prisma.requestIdempotency.count()).toBe(1);
+  });
+});
+
 describe('running it on an empty database', () => {
   it('deletes nothing and reports nothing', async () => {
     expect(await retention.purge()).toEqual({
@@ -411,6 +450,7 @@ describe('running it on an empty database', () => {
       notifications: 0,
       auditRows: 0,
       outboxRows: 0,
+      idempotencyKeys: 0,
     });
   });
 
@@ -428,6 +468,7 @@ describe('running it on an empty database', () => {
       notifications: 0,
       auditRows: 0,
       outboxRows: 0,
+      idempotencyKeys: 0,
     });
   });
 });

@@ -38,7 +38,7 @@ missing.
 | `apps/worker` | Complete | outbox relay, 8 repeatable sweeps, DLQ |
 | Telegram bot — outbound | Complete, and **delivering for the first time** | notifications, keyboards, channel posts, block detection — see §7 |
 | Telegram bot — inbound | Complete | `/start`, accept/reject/close buttons, text relay, edit propagation; 32 end-to-end tests |
-| `apps/miniapp` | **11 screens** — the core loop is reachable | splash, terms, profile, home, discover, event detail, create, edit, my events (with the participant queue), my requests, chats |
+| `apps/miniapp` | **13 screens** — B1 closed | splash, terms, profile, home, discover, event detail, create, edit, my events (with the participant queue), my requests, chats (with contact-share consent), reviews, wallet |
 | `apps/admin` | **Does not exist** | — |
 
 **Revised again, 2026-08-17.** The Mini App now covers the core loop: create → discover
@@ -72,8 +72,8 @@ Every remaining 🚧 is now *upstream* of a conversation rather than inside one.
 | 3 | Persian search with ي/ك and half-space variants finds it | ✅ | `discovery.service.int.test.ts`, `persian-normalizer.test.ts` (ADR-0012) |
 | 4 | ≥5 messages, **zero identity leakage, verified against raw Telegram payloads** | ⚠️ | `chat.service.int.test.ts`, the 65-endpoint leak scan, and `webhook.int.test.ts` — which sends real update bodies carrying a Telegram id, a username and a `text_mention`, then greps the stored row, the ciphertext and the outbox payload for all three. The clause "against raw Telegram payloads" is still a **manual gate with two real accounts**; it is now *performable* (see B4) and has not been performed |
 | 5 | Acceptance opens the chat and increments `accepted_count` | ✅ | `participation.service.int.test.ts`, `chat.service.int.test.ts`. The host's decision is now reachable from a button in the notification; the join that precedes it is not (see 9) |
-| 6 | Contact sharing needs explicit confirmation and writes `consent` | ✅ 🚧 | `chat.service.int.test.ts`. The confirmation step is deliberately a screen — a callback button would make «مطمئنید؟» a single tap |
-| 7 | T+24 h reviews reveal simultaneously | ✅ 🚧 | `review.service.int.test.ts` (D7/D7a). Submitting a review needs a form |
+| 6 | Contact sharing needs explicit confirmation and writes `consent` | ✅ | `chat.service.int.test.ts`, and **the screen now exists** (`ChatsView`): a two-step confirmation that states plainly what sharing does and does not do — the platform holds no phone number and surrenders no username; what changes is that the caller's own messages stop being masked. Deliberately not a callback button, which would make «مطمئنید؟» a single tap |
+| 7 | T+24 h reviews reveal simultaneously | ✅ | `review.service.int.test.ts` (D7/D7a), and **the form now exists** (`ReviewsView`): rating, the closed tag vocabulary, optional comment, and an edit path that asks `editableUntil` rather than doing its own arithmetic. Nothing of the counterparty's review is fetched, because no contract to fetch it exists |
 | 8 | Blacklisted title never publishes; case records the blacklist version | ✅ | `moderation.service.int.test.ts` |
 
 ### Error flows
@@ -102,7 +102,7 @@ Every remaining 🚧 is now *upstream* of a conversation rather than inside one.
 | 18 | Two consents ⇒ one row | ✅ | `consent` — `UNIQUE(user, version, context)`, one `INSERT … ON CONFLICT` |
 | 19 | Two reports ⇒ one row + 409 | ✅ | `report.service.int.test.ts` |
 | 20 | Two reviews ⇒ one row | ✅ | `review.service.int.test.ts` |
-| 21 | A replayed `Idempotency-Key` returns the identical stored response | ❌ | **Not built.** See §3 |
+| 21 | A replayed `Idempotency-Key` returns the identical stored response | ✅ | `idempotency.int.test.ts` — replay is **byte-identical** (`response_body` is TEXT, not JSONB, so key order survives), carries `Idempotency-Replayed: true`, performs the work once, refuses the same key on a different body, cannot cross users, and leaves a *failed* request retryable |
 
 ### Concurrency
 
@@ -134,7 +134,13 @@ the table were not.)*
 
 ## 3. Blockers
 
-### B1 — No Mini App beyond onboarding · **blocks launch**
+### B1 — No Mini App beyond onboarding · **CLOSED, 2026-08-17**
+
+All nine screens exist. The last four — contact-share confirmation, the review form,
+the coins/trust/invite wallet and the report dialog — landed after the core loop, and
+criteria 6, 7 and 21 are now reachable by a user rather than only by an HTTP client.
+
+The original finding follows.
 
 A user can start the bot, accept the terms and complete a profile. Then the product
 stops. Creating an event, browsing, joining, sharing contact details and reviewing are
@@ -174,7 +180,14 @@ moderator can decide a case, adjust coins or trust, set a user's status, approve
 change, or use the break-glass unseal. A product that takes reports and cannot act on
 them is worse than one that takes none, because it has promised.
 
-### B3 — `Idempotency-Key` is not built · **blocks launch of the coin sinks**
+### B3 — `Idempotency-Key` · **CLOSED, 2026-08-17**
+
+Built: migration 0016 (`request_idempotency`), a global `IdempotencyInterceptor` that
+does nothing unless a request carries the header, and the boost button that sends one.
+Verified end to end — two identical boost requests with one key spend **40 coins
+exactly once**, produce one `BOOST_SPEND` ledger row and one stored response.
+
+The original finding, kept because it explains why this and nothing else needed it:
 
 §6 says "Mutating endpoints accept `Idempotency-Key`; replay returns the stored
 response". Criterion 21 tests it. Neither exists.
@@ -215,10 +228,11 @@ shared assumption with the rest.
 
 ## 4. Gaps that are not blockers, and are real
 
-- **The replay refusal has no test.** The guard works — the leak scan would fail
-  without it, because it has to sign fresh `initData` for every call — but "works, and
-  the suite would notice if it stopped" is weaker than an assertion, and it is being
-  relied on as *the* defence against a captured `initData` being reused. An afternoon.
+- ~~**The replay refusal has no test.**~~ **Closed, 2026-08-17**:
+  `replay-guard.int.test.ts` asserts it against real Redis — a second use refused, every
+  later use refused, exactly one of ten *concurrent* claims accepted, and a TTL that
+  expires the claim. Criterion 13's "replayed ⇒ 401" is now asserted rather than
+  inferred.
 - **An edit is delivered as a new message, not as an edit of the recipient's copy.**
   `chat_message.telegram_message_ids` exists for exactly this and is written by
   nothing, so the product cannot find the delivered copy to edit. The corrected text

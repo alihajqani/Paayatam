@@ -38,6 +38,8 @@ const router = createRouter({
       component: () => import('@/views/MyRequestsView.vue'),
     },
     { path: '/chats', name: 'chats', component: () => import('@/views/ChatsView.vue') },
+    { path: '/reviews', name: 'reviews', component: () => import('@/views/ReviewsView.vue') },
+    { path: '/wallet', name: 'wallet', component: () => import('@/views/WalletView.vue') },
     // Anything else lands on the splash, which redirects by onboarding state.
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

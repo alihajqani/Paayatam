@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { formatCoins, toPersianDigits } from '@/format/fa';
 import { useChatsStore } from '@/stores/chats';
+import { useReviewsStore } from '@/stores/reviews';
 import { useSessionStore } from '@/stores/session';
 
 /**
@@ -15,15 +16,17 @@ import { useSessionStore } from '@/stores/session';
 const route = useRoute();
 const session = useSessionStore();
 const chats = useChatsStore();
+const reviews = useReviewsStore();
 
 const profile = computed(() => session.me?.profile ?? null);
 const balance = computed(() => session.me?.coins.balance ?? 0);
 const justRewarded = computed(() => route.query['welcome'] === '1');
 
 onMounted(() => {
-  // Only to put a count on the chats row. A failure here must not take the home
-  // screen down with it, so it is deliberately swallowed.
+  // Only to put counts on two rows. A failure here must not take the home screen
+  // down with it, so both are deliberately swallowed.
   void chats.load().catch(() => undefined);
+  void reviews.loadPending().catch(() => undefined);
 });
 </script>
 
@@ -107,6 +110,28 @@ onMounted(() => {
           {{ toPersianDigits(chats.unreadTotal) }}
         </span>
         <span v-else class="text-tg-hint">›</span>
+      </RouterLink>
+
+      <RouterLink
+        to="/reviews"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">نظرها</span>
+        <span
+          v-if="reviews.pending.length > 0"
+          class="rounded-full bg-tg-button px-2 py-0.5 text-xs text-tg-button-text"
+        >
+          {{ toPersianDigits(reviews.pending.length) }}
+        </span>
+        <span v-else class="text-tg-hint">›</span>
+      </RouterLink>
+
+      <RouterLink
+        to="/wallet"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">سکه‌ها، اعتماد و دعوت</span>
+        <span class="text-tg-hint">›</span>
       </RouterLink>
     </nav>
   </main>

@@ -8,6 +8,7 @@ export interface PurgeResult {
   notifications: number;
   auditRows: number;
   outboxRows: number;
+  idempotencyKeys: number;
 }
 
 /**
@@ -91,6 +92,7 @@ export class RetentionService {
       notifications: 0,
       auditRows: 0,
       outboxRows: 0,
+      idempotencyKeys: 0,
     };
 
     /**
@@ -171,12 +173,25 @@ export class RetentionService {
       })
     ).count;
 
+    /**
+     * Expired `Idempotency-Key` claims (§6).
+     *
+     * Deleted by their own `expires_at` rather than by an age constant, because the
+     * interceptor is what decides how long a key speaks for and this sweep should
+     * not hold a second opinion about it. Nothing here is a record of anything — a
+     * stored response is a defence against a retry, and a retry that arrives after
+     * the window is a new intention.
+     */
+    result.idempotencyKeys = (
+      await this.prisma.requestIdempotency.deleteMany({ where: { expiresAt: { lte: now } } })
+    ).count;
+
     result.auditRows = await this.purgeAuditLog(daysAgo(now, RETENTION.AUDIT_DAYS));
 
     this.logger.log(
       `Purge: ${String(result.chatMessages)} messages, ${String(result.chats)} chats, ` +
         `${String(result.notifications)} notifications, ${String(result.outboxRows)} outbox, ` +
-        `${String(result.auditRows)} audit`,
+        `${String(result.idempotencyKeys)} idempotency, ${String(result.auditRows)} audit`,
     );
     return result;
   }

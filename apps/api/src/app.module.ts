@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from '@payetam/db';
 import {
   AuditModule,
@@ -30,6 +30,7 @@ import {
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
+import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 import { AppExceptionFilter } from './common/app-exception.filter';
 import { CatalogController } from './catalog/catalog.controller';
 import { ChatController } from './chat/chat.controller';
@@ -119,6 +120,18 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     // Ordered after authentication, so the bucket is keyed on the user when there
     // is one and on the IP only when there is not (T12).
     { provide: APP_GUARD, useClass: RateLimitGuard },
+    /**
+     * `Idempotency-Key` (§6, criterion 21), global and opt-in.
+     *
+     * Global because §6 says *mutating endpoints accept* the header rather than
+     * naming a list — a per-controller decorator would be a list, and the endpoint
+     * somebody forgets to add it to is the one that spends coins. It does nothing at
+     * all unless a request carries the header, so nothing that worked before this
+     * behaves differently.
+     *
+     * After the guards, so `request.user` is populated: a key is scoped to a caller.
+     */
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
     // Registered here rather than in `bootstrap()`, alongside the guard it
     // belongs with. Turning a domain `AppError` into its documented status and
     // Persian message is part of what this application *is*, not a step one
