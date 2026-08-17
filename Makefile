@@ -83,11 +83,13 @@ db-test: ## Create and migrate payetam_test, so integration tests stop truncatin
 	@echo "Add this to .env so the integration suite uses it:"
 	@echo "  TEST_DATABASE_URL=postgresql://payetam:<password>@localhost:55432/payetam_test"
 
-seed: ## Seed policies, catalog, blacklist and RBAC into the development database
+seed: ## Seed everything a working development database needs, in dependency order
 	pnpm seed:policies
 	pnpm seed:catalog
 	pnpm seed:blacklist
 	pnpm seed:rbac
+	pnpm seed:settings
+	pnpm seed:events
 
 backup: ## Dump the development database, through the production backup script
 	docker cp tools/backup.sh payetam-postgres:/tmp/backup.sh

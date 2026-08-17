@@ -10,8 +10,7 @@
  * Refuses to run against production — publishing placeholder legal text to real
  * users would be considerably worse than a failed script (M17 rail).
  */
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@payetam/db';
+import { openSeed } from './seed-guard';
 
 const TERMS_FA = `# قوانین و شرایط استفاده از پایه‌تَم
 
@@ -41,21 +40,12 @@ const PRIVACY_FA = `# سیاست حریم خصوصی
 ۵. نشانی IP شما به‌صورت رمزشده (هش) و تنها برای جلوگیری از سوءاستفاده نگهداری می‌شود.`;
 
 async function main(): Promise<void> {
-  if (process.env['NODE_ENV'] === 'production' && process.env['ALLOW_PROD_SEED'] !== '1') {
-    console.error(
-      'Refusing to seed placeholder policy text in production.\n' +
-        'Real policy documents are published through the admin panel.',
-    );
-    process.exit(1);
-  }
+  const { prisma, finish } = await openSeed(
+    'seed.policies',
+    'This publishes placeholder TERMS and PRIVACY text that real users would then be asked to accept.',
+  );
 
-  const connectionString = process.env['DATABASE_URL'];
-  if (!connectionString) {
-    console.error('DATABASE_URL is not set.');
-    process.exit(1);
-  }
-
-  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  let published = 0;
 
   const documents = [
     { type: 'TERMS' as const, contentMd: TERMS_FA, summaryFa: 'قوانین استفاده از پایه‌تَم' },
@@ -78,10 +68,11 @@ async function main(): Promise<void> {
         data: { ...doc, version: 1, isCurrent: true },
       });
       console.log(`published ${doc.type} v${created.version}`);
+      published += 1;
     }
   }
 
-  await prisma.$disconnect();
+  await finish({ policiesPublished: published, policiesUpdated: documents.length - published });
 }
 
 void main().catch((error: unknown) => {

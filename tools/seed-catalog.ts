@@ -18,8 +18,7 @@
  * seed-policies does: placeholder data in front of real users is worse than a
  * failed script.
  */
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@payetam/db';
+import { openSeed } from './seed-guard';
 
 /** Launch is Tehran only (plan §2). Other cities exist but stay inactive. */
 const CITIES = [
@@ -90,21 +89,10 @@ const SETTINGS: { key: string; value: number }[] = [
 ];
 
 async function main(): Promise<void> {
-  if (process.env['NODE_ENV'] === 'production' && process.env['ALLOW_PROD_SEED'] !== '1') {
-    console.error(
-      'Refusing to seed the catalog in production.\n' +
-        'Cities, categories and interests are managed through the admin panel.',
-    );
-    process.exit(1);
-  }
-
-  const connectionString = process.env['DATABASE_URL'];
-  if (!connectionString) {
-    console.error('DATABASE_URL is not set.');
-    process.exit(1);
-  }
-
-  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const { prisma, finish } = await openSeed(
+    'seed.catalog',
+    'This writes cities, districts, categories and interests that users pick from.',
+  );
 
   for (const city of CITIES) {
     const { districts, ...cityData } = city;
@@ -161,7 +149,11 @@ async function main(): Promise<void> {
     console.log(`setting ${setting.key} = ${setting.value}`);
   }
 
-  await prisma.$disconnect();
+  await finish({
+    cities: CITIES.length,
+    categories: CATEGORIES.length,
+    interests: INTERESTS.length,
+  });
 }
 
 void main().catch((error: unknown) => {

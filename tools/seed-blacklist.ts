@@ -21,8 +21,7 @@
  * repeated seed does not inflate the version counter and invalidate the
  * provenance of past decisions.
  */
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@payetam/db';
+import { openSeed } from './seed-guard';
 import { normalize } from '@payetam/domain';
 
 interface SeedTerm {
@@ -101,21 +100,10 @@ const TERMS: SeedTerm[] = [
 ];
 
 async function main(): Promise<void> {
-  if (process.env['NODE_ENV'] === 'production' && process.env['ALLOW_PROD_SEED'] !== '1') {
-    console.error(
-      'Refusing to seed the blacklist in production.\n' +
-        'Moderation terms are managed through the admin panel, with an audit trail.',
-    );
-    process.exit(1);
-  }
-
-  const connectionString = process.env['DATABASE_URL'];
-  if (!connectionString) {
-    console.error('DATABASE_URL is not set.');
-    process.exit(1);
-  }
-
-  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const { prisma, finish } = await openSeed(
+    'seed.blacklist',
+    'This writes moderation terms that decide whether real events publish.',
+  );
 
   let changed = 0;
 
@@ -177,7 +165,7 @@ async function main(): Promise<void> {
     console.log(`blacklist version unchanged (${current.version})`);
   }
 
-  await prisma.$disconnect();
+  await finish({ termsChanged: changed });
 }
 
 void main().catch((error: unknown) => {

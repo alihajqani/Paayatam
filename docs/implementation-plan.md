@@ -1736,6 +1736,74 @@ recorded with a real duration**; graceful shutdown draining in-flight jobs.
 when `NODE_ENV=production` unless `ALLOW_PROD_SEED=1` AND an interactive typed confirmation is given, and it
 writes an audit row**; feature flags set to Tehran + 2 categories; the Launch Readiness Report.
 
+**Deviations from this plan, decided during M17:**
+
+- **The Launch Readiness Report says no.** `docs/launch-readiness.md` walks all 32 of §10's criteria — 22
+  proven by an automated test, 5 implemented but untested, 1 not built — and its finding is that **eight of
+  the 22 are unreachable by a user**. There is no screen on which anyone can create an event, browse, join,
+  chat or review, and none on which a moderator can act on a report. That is the consequence of a decision
+  this plan recorded ten times: M4, M5, M8, M9, M10 and M11 each say "**No Mini App work**" and M12 says "**No
+  admin SPA**". The order was defensible; what was never done is schedule the other half, and **no milestone
+  in §9 owns it**. Recorded here as the milestone's primary output, because a launch checklist whose job is to
+  find this and then does not say it is worse than no checklist.
+- **`Idempotency-Key` (§6, criterion 21) is still not built**, and M17 does not build it — inventing API scope
+  inside a seed-data milestone would hide it further. It is written up as a blocker instead. M9's note remains
+  exactly right: every other duplicate path is defended by a unique index on a natural key, which is why
+  17–20 pass, and **`BOOST` is the exception because its natural key is a *window*, not a thing**. The only
+  protection today is an in-flight disable in a frontend that does not exist, over a mobile network, on the
+  one endpoint that spends 40 coins.
+- **The rail is one shared gate, not five copies.** Four seed scripts each carried a partial version — a flag
+  check, no confirmation, no audit row. `tools/seed-guard.ts` is the whole thing in one place, because a rail
+  that has to be remembered per script is a rail the fifth script will not have.
+- **The confirmation asks for the database name, not `y/n`.** A yes/no prompt is answered reflexively, and the
+  mistake this exists to catch is somebody who *does* mean to seed but is pointed at the wrong database — a
+  `DATABASE_URL` still exported in a shell from an hour ago. It also **refuses outright without a TTY**, which
+  is what makes "interactive" true rather than decorative: `yes | pnpm seed:events` and a CI job both fail
+  there.
+- **`env.ts` forbids exactly the combination the seed needs, and that stays.** `loadEnv()` rejects
+  `NODE_ENV=production` + `ALLOW_PROD_SEED=1`, so the seed scripts read `process.env` directly instead. The
+  asymmetry is the design: the flag is unusable by the API and the worker, so one left set after a seed fails
+  the *next deploy* loudly instead of sitting there enabled.
+- **`seed-rbac` is exempt from two of the three controls**, via an explicit `unattended` flag. It derives
+  roles and permissions from a catalogue in code and has to run on every deploy; a prompt in front of it would
+  either break the deploy or teach somebody to pipe an answer at a production confirmation, which is worse
+  than having no confirmation. It still writes the audit row, because changing what staff can do in production
+  without a record is what invariant 12 exists to prevent.
+- **Founding-team events refuse to invent their hosts in production.** `FOUNDING_TEAM_TELEGRAM_IDS` must name
+  accounts that have started the bot and completed a profile. A seeded event with a fabricated host is an
+  event whose first join request nobody can accept — the first real user's first action on the platform,
+  unanswered for 24 hours and then expired. Development invents hosts, because there is nobody to be real.
+- **The 25 seeded events bypass §11's per-host quota**, which is the one product rule this milestone breaks
+  deliberately. The quota is an anti-spam control aimed at user-submitted content, and a founding team of four
+  cannot hold 25 concurrent events between them; the alternative — inventing ten hosts to satisfy an
+  arithmetic constraint — puts us back to events nobody can accept. Auto-moderation is not re-run over them
+  for a related reason: this text was authored, reviewed and committed, which is a stronger check than a
+  blacklist pass.
+- **Start times are computed at a written-out +03:30**, not via `Intl`. This is the one place a seed can be a
+  whole day wrong: an event stamped 18:00 UTC is 21:30 in Tehran, which turns «شب بازی» into a listing that
+  begins after midnight. Iran abolished DST in 2022, so the offset is fixed (ADR-0008).
+- **All 50 policy numbers now have `app_setting` rows.** §11's heading says "all in `app_setting`,
+  runtime-changeable" and two rows existed; the other 48 worked correctly and were **invisible**, which is not
+  what runtime-changeable means. Create-only, so a tuned production value is never reset by a seed — which
+  also means the script cannot *revert* a setting, and that is correct: reverting is an admin action with an
+  audit trail.
+- **Criteria 24 and 25 were under-delivered and are now fixed.** §14 requires the concurrent-promotion and
+  concurrent-spend tests at **50 iterations**; the promotion test ran 25 and the spend test ran **once**. A
+  single pass through a race is a coin flip that landed the way you wanted — the interleaving where both
+  spends read the same `balance_before` is not the common one, which is exactly why it survives a single-shot
+  test and shows up in production. Both are at 50 now and both pass.
+- **The seed tests run the scripts as subprocesses.** The rail is made of `process.exit`, a prompt and a TTY
+  check, none of which survive being imported into a test that asserts on a return value. A test calling an
+  extracted `seedEvents()` would prove the events are right and prove nothing about the refusals — and the
+  refusals are the part that protects a production database. It is also the only test in the suite that
+  verifies these scripts run at all, which for code nobody executes until the day it matters is the point.
+- **No Playwright E2E**, which §14 assigns to this milestone. It drives the Mini App through
+  onboarding → create → discover → join → chat → accept → cancel → review, and six of those eight steps have
+  no screen. Not written, rather than written and skipped: a skipped suite reads as coverage.
+- **§14 names `docs/disaster-recovery.md`; the artifact is `docs/runbook-backup-restore.md`** (M16), named for
+  what it is — a runbook, containing the rehearsal, the WAL configuration and the PITR procedure. Noted rather
+  than renamed, so the plan and the repository can be reconciled by whoever reads this next.
+
 ---
 
 ## 10. MVP Acceptance Criteria

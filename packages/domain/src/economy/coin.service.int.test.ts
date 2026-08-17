@@ -122,18 +122,33 @@ describe('CoinService.apply', () => {
     await expect(prisma.coinLedger.count({ where: { userId } })).resolves.toBe(1);
   });
 
-  it('lets exactly one of two concurrent spends of the last coins succeed', async () => {
-    const userId = await createUser(prisma);
-    await coins.apply(grant(userId, 50, `t:${userId}:credit`));
+  /**
+   * §14 requires this one at **fifty iterations** in CI, alongside the twenty
+   * concurrent joins — and until M17 it ran exactly once. A single pass through a
+   * race is a coin flip that landed the way you wanted: the interleaving where both
+   * spends read the same `balance_before` is not the common one, which is precisely
+   * why it survives a single-shot test and appears in production.
+   *
+   * A fresh account per iteration, so the loop measures contention rather than the
+   * cost of resetting tables.
+   */
+  it('lets exactly one of two concurrent spends of the last coins succeed, 50 times over', async () => {
+    for (let iteration = 0; iteration < 50; iteration += 1) {
+      const userId = await createUser(prisma);
+      await coins.apply(grant(userId, 50, `t:${userId}:credit`));
 
-    const outcomes = await Promise.allSettled([
-      coins.apply(grant(userId, -50, `t:${userId}:spend-a`)),
-      coins.apply(grant(userId, -50, `t:${userId}:spend-b`)),
-    ]);
+      const outcomes = await Promise.allSettled([
+        coins.apply(grant(userId, -50, `t:${userId}:spend-a`)),
+        coins.apply(grant(userId, -50, `t:${userId}:spend-b`)),
+      ]);
 
-    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
-    expect(outcomes.filter((o) => o.status === 'rejected')).toHaveLength(1);
-    await expect(coins.balanceOf(userId)).resolves.toBe(0);
+      expect(
+        outcomes.filter((o) => o.status === 'fulfilled'),
+        `iteration ${String(iteration)}`,
+      ).toHaveLength(1);
+      expect(outcomes.filter((o) => o.status === 'rejected')).toHaveLength(1);
+      await expect(coins.balanceOf(userId)).resolves.toBe(0);
+    }
   });
 
   it('rejects a zero movement rather than consuming the key for nothing', async () => {

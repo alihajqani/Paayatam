@@ -230,8 +230,10 @@ describe('concurrent cancellations', () => {
    * Promotion runs inside the cancelling transaction under the event lock, so the
    * two cancellations serialise and the second sees the first's promotion.
    */
-  it('promote two distinct people, never the same person twice', async () => {
-    for (let iteration = 0; iteration < 25; iteration += 1) {
+  it('promote two distinct people, never the same person twice, 50 times over', async () => {
+    // Fifty, because §14 names this test and that number: "the 20-concurrent-joins and
+    // concurrent-promotion/spend tests run 50 iterations in CI". It ran 25 until M17.
+    for (let iteration = 0; iteration < 50; iteration += 1) {
       const eventPublicId = await createEvent(2);
       const holders = await Promise.all([createJoiner(), createJoiner()]);
       const waiting = await Promise.all([createJoiner(), createJoiner()]);

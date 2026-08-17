@@ -1,6 +1,5 @@
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@payetam/db';
 import { PERMISSIONS, ROLE_NAMES_FA, ROLE_PERMISSIONS, ROLE_KEYS } from '@payetam/domain';
+import { openSeed } from './seed-guard';
 
 /**
  * Seeds `role`, `permission` and `role_permission` from the catalogue in code.
@@ -15,12 +14,19 @@ import { PERMISSIONS, ROLE_NAMES_FA, ROLE_PERMISSIONS, ROLE_KEYS } from '@payeta
  * catalogue are removed, which is the half that is easy to skip and is the half
  * that matters — a permission revoked in code but left in the database is a
  * capability nobody believes anybody has.
+ *
+ * **The one seed exempt from M17's interactive rail**, via `unattended`. This runs on
+ * every deploy and has to: a prompt in front of it would either break the deploy or
+ * teach somebody to pipe an answer at a production confirmation, which is worse than
+ * having no confirmation. It still writes the audit row, because changing what staff
+ * can do in production without a record is what invariant 12 exists to prevent.
  */
 async function main(): Promise<void> {
-  const connectionString = process.env['DATABASE_URL'];
-  if (!connectionString) throw new Error('DATABASE_URL is not set');
-
-  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const { prisma, finish } = await openSeed(
+    'seed.rbac',
+    'This writes the staff roles and permissions the admin panel authorises against.',
+    { unattended: true },
+  );
 
   try {
     for (const key of Object.values(PERMISSIONS)) {
@@ -54,8 +60,10 @@ async function main(): Promise<void> {
     const roles = await prisma.role.count();
     const permissions = await prisma.permission.count();
     console.log(`Seeded ${String(roles)} roles and ${String(permissions)} permissions.`);
-  } finally {
+    await finish({ roles, permissions });
+  } catch (error) {
     await prisma.$disconnect();
+    throw error;
   }
 }
 
