@@ -29,15 +29,22 @@ the chat rather than of the person in it, every Telegram message entity is dropp
 `@usernames`, `t.me/` links and emails are masked until the sender has explicitly consented to share
 them. The CI response-leak scan covers the chat endpoints alongside every other one.
 
-Domain events are written to a transactional outbox as they happen. The relay that turns them into
-Telegram notifications is M13; until then they accumulate as a durable record.
+Domain events are written to a transactional outbox as they happen, and the relay turns them into
+Telegram notifications (M13) with the worker as the only thing in the product that calls Telegram.
 
-Not built yet: **the bot itself** — `packages/telegram` and the grammY handlers are still outstanding
-from M2, so nothing is delivered to Telegram yet and M8's two-real-accounts release gate cannot be run
-until M13. The chat is reachable through the Mini App API today. Also outstanding: the Mini App's
-event-authoring, listing, participation and chat screens.
+**The bot is now two-way.** `/start` creates the account, the host accepts or rejects from a button in
+the notification itself, and a message typed to the bot is relayed into the conversation it belongs to —
+resolved by which message it replies to, or by the sender having exactly one live chat, and refused with
+an explanation when neither answers. Edits follow. Blocking is detected. M8's two-real-accounts release
+gate is therefore *performable* for the first time, and has not been performed.
 
-See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone sequence.
+Not built yet: the Mini App beyond onboarding — event authoring, discovery, event detail, **join**,
+contact-share confirmation and the review form — and the admin panel. Joining is the one that matters
+most, because a join is what creates a chat.
+
+See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone
+sequence, and [`docs/launch-readiness.md`](docs/launch-readiness.md) for what is and is not ready —
+including two delivery bugs that sat behind a green test suite for four milestones.
 
 ---
 

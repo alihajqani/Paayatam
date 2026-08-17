@@ -21,7 +21,7 @@ import {
   CHAT_OPENED,
   chatContactShared,
 } from './messages';
-import { assertChatTransition, isLiveChat } from './state-machine';
+import { LIVE_CHAT_STATUSES, assertChatTransition, isLiveChat } from './state-machine';
 import { sanitizeInbound, type RedactionKind } from './sanitizer';
 
 /** How long a closed conversation is kept before the M15 purge (ADR-0009, D5). */
@@ -280,6 +280,51 @@ export class ChatService {
       const context = await this.loadMembership(tx, chatPublicId, userId);
       if (!isLiveChat(context.chat.status)) throw new AppError(ErrorCode.CHAT_CLOSED);
 
+      /**
+       * A redelivered Telegram update must not relay a second copy.
+       *
+       * Telegram retries an update whose webhook call did not answer 200, and the
+       * retry carries the same `message_id` — so the sender's own Telegram message
+       * id is the natural key, and `chat_message_source_idx` already indexes
+       * exactly this lookup because D10's edit path needs it.
+       *
+       * Sequential retries are the failure mode this closes, and they are the only
+       * one Telegram actually produces: the retry arrives after the first attempt
+       * finished. Two *simultaneous* deliveries of one update would still slip
+       * through, which is a read-then-write window this deliberately accepts —
+       * making the partial index UNIQUE cannot be expressed in `schema.prisma`
+       * (`@@unique` takes no `where`), and adding a second invisible index for a
+       * case Telegram does not create is not worth the permanent schema drift.
+       */
+      if (message.telegramMessageId !== undefined) {
+        const already = await tx.chatMessage.findFirst({
+          where: {
+            senderParticipantId: context.me.id,
+            sourceTelegramMessageId: BigInt(message.telegramMessageId),
+          },
+          select: {
+            seq: true,
+            kind: true,
+            senderParticipantId: true,
+            redactions: true,
+            editedAt: true,
+            deletedAt: true,
+            createdAt: true,
+            bodyCiphertext: true,
+            bodyNonce: true,
+            keyVersion: true,
+          },
+        });
+        if (already) {
+          return toMessage(
+            already,
+            this.readBody(already),
+            context.me.id,
+            context.aliasByParticipantId,
+          );
+        }
+      }
+
       const sanitized = sanitizeInbound(message, {
         maskContactDetails: masksContactDetails(context.chat.status, context.me.contactSharedAt),
       });
@@ -516,6 +561,63 @@ export class ChatService {
       (a, b) =>
         (b.lastMessageAt ?? b.createdAt).getTime() - (a.lastMessageAt ?? a.createdAt).getTime(),
     );
+  }
+
+  /**
+   * The caller's one live conversation, when they have exactly one.
+   *
+   * This exists for the bot. A message typed into the bot's DM names no chat — the
+   * user is talking to a single Telegram conversation that stands in for all of
+   * theirs — so the relay has to work out which one they meant. Replying to a
+   * relayed message is the precise answer; this is the fallback that makes the
+   * common case work without ceremony, and *only* the common case: with two live
+   * chats the answer is genuinely unknown, and guessing would deliver a private
+   * message to the wrong stranger.
+   *
+   * Returns null for none and for more than one, which the caller must
+   * distinguish — the two need different Persian sentences.
+   */
+  async singleLiveChatFor(userId: string): Promise<string | null> {
+    const live = await this.prisma.chatParticipant.findMany({
+      where: { userId, chat: { status: { in: [...LIVE_CHAT_STATUSES] } } },
+      select: { chat: { select: { publicId: true } } },
+      // Two is all that is needed to know the answer is not "exactly one".
+      take: 2,
+    });
+
+    return live.length === 1 ? (live[0]?.chat.publicId ?? null) : null;
+  }
+
+  /**
+   * The plaintext of one message, for the sender that is about to deliver it.
+   *
+   * **This is the counterpart to M8's decision that the outbox payload carries no
+   * body.** `outbox_event.payload` and `notification.payload` are plain jsonb, so
+   * putting the message text in either would undo the encrypted column beside it;
+   * the row points at the message and delivery reads it here. The plaintext exists
+   * in memory for the length of one send and is stored nowhere.
+   *
+   * Takes a chat public id and a `seq` because that is what the payload carries,
+   * and returns null when the message is gone — a purge (M15) can remove it between
+   * the notification being queued and the job running.
+   */
+  async plaintextForDelivery(chatPublicId: string, seq: number): Promise<string | null> {
+    const row = await this.prisma.chatMessage.findFirst({
+      where: { chat: { publicId: chatPublicId }, seq },
+      select: {
+        kind: true,
+        deletedAt: true,
+        bodyCiphertext: true,
+        bodyNonce: true,
+        keyVersion: true,
+      },
+    });
+    if (!row) return null;
+
+    // `readBody` already answers with the placeholder for a deleted message, which
+    // is the right answer here too: a message deleted before it was delivered must
+    // not be delivered.
+    return this.readBody(row);
   }
 
   /**

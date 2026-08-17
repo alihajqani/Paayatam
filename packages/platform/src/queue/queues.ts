@@ -71,6 +71,19 @@ export const JOBS = {
   RELAY_DOMAIN_EVENT: 'relay-domain-event',
   /** One notification, rendered and sent. */
   SEND_NOTIFICATION: 'send-notification',
+  /**
+   * The toast on an inline-keyboard tap.
+   *
+   * On `telegram-send` with everything else that talks to Telegram, because
+   * `answerCallbackQuery` is an outbound Telegram call and ADR-0004 puts every one
+   * of those in the worker: the webhook validates, persists and enqueues. It shares
+   * the global rate limiter for the same reason, and the limiter's headroom exists
+   * precisely for this — somebody is watching a spinner while it runs.
+   *
+   * The payload is a callback query id and a sentence. It carries **no chat id and
+   * no user**, which is what keeps a Telegram identifier out of Redis.
+   */
+  BOT_CALLBACK_ANSWER: 'bot-callback-answer',
 
   // The repeatable sweeps (ADR-0005's schedule).
   EVENT_LIFECYCLE: 'event-lifecycle',
@@ -86,6 +99,38 @@ export const JOBS = {
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
+
+/**
+ * Build a deterministic job id.
+ *
+ * **`:` is forbidden in a BullMQ custom job id**, and finding that out the hard way
+ * is what this function exists to prevent. BullMQ composes its Redis keys as
+ * `prefix:queue:jobId`, so a colon inside the id would produce a key that collides
+ * with the namespace — and version 6 refuses it outright: `Job.addJob` throws
+ * `Custom Id cannot contain :`.
+ *
+ * Every producer in this repository had written `notify:${id}`, which meant **not one
+ * notification was ever enqueued**. The throw happened inside `queue.add`, after the
+ * relay had already marked the outbox row processed, so the outbox backstop could not
+ * recover it either: the row looked delivered and the notification sat `PENDING` with
+ * zero attempts, forever. It was found by sending one `/start` to a running API and
+ * asking why nothing arrived — not by any test, because no test drove a real queue.
+ *
+ * A function rather than a lint rule or a comment, because the id has to be composed
+ * *somehow* and this is the composing. `-` separates; anything outside
+ * `[A-Za-z0-9_-]` is refused loudly rather than passed to a library that will refuse
+ * it later and less clearly.
+ */
+export function jobId(...parts: readonly string[]): string {
+  const id = parts.join('-');
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new Error(
+      `Invalid BullMQ job id ${JSON.stringify(id)}: only letters, digits, "_" and "-" are allowed ` +
+        '(a ":" would collide with BullMQ\'s own key namespace).',
+    );
+  }
+  return id;
+}
 
 /**
  * The repeatable schedule (ADR-0005, plan §3.5).

@@ -311,3 +311,18 @@ jobs:
 
       - name: Integration tests
         run: pnpm test --project integration
+        # Two integration tests boot the **real** Nest application — the response-leak
+        # scan and the Telegram webhook suite — and the application refuses to start
+        # without these: `MessageCipher` throws rather than store chat messages in the
+        # clear, and `SessionService` throws rather than sign a token with no secret.
+        # Locally they come from `.env`, which CI does not have; without them the two
+        # tests fail at boot rather than on anything they assert.
+        env:
+          # Test-only values. A committed key is not a secret, which is exactly why
+          # nothing but a throwaway container ever sees these.
+          CHAT_ENCRYPTION_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+          JWT_ACCESS_SECRET: ci-access-secret-not-used-anywhere-real-0001
+          JWT_REFRESH_SECRET: ci-refresh-secret-not-used-anywhere-real-001
+          PII_HASH_PEPPER: CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=
+          TELEGRAM_BOT_TOKEN: 1234567890:CI-ONLY-NOT-A-REAL-TOKEN-000000000000
+          DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

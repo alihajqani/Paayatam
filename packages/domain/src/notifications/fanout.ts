@@ -151,6 +151,21 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     case 'chat.message':
       return recipient(row, 'recipientUserPublicId', TEMPLATES.CHAT_MESSAGE);
 
+    /**
+     * D10, the halves M13 emitted and never routed.
+     *
+     * `ChatService` has written `chat.message_edited` and `chat.message_deleted`
+     * since M8 and nothing here matched them, so the outbox row was drained,
+     * produced no notification, and the recipient was never told — an edit that
+     * reached the database and stopped there. A retracted sentence the other party
+     * is still acting on is the one case where silence is actively harmful.
+     */
+    case 'chat.message_edited':
+      return recipient(row, 'recipientUserPublicId', TEMPLATES.CHAT_MESSAGE_EDITED);
+
+    case 'chat.message_deleted':
+      return recipient(row, 'recipientUserPublicId', TEMPLATES.CHAT_MESSAGE_DELETED);
+
     /** D7: both sides at the same instant, so neither gets a head start. */
     case 'review.revealed': {
       const planned: PlannedNotification[] = [];

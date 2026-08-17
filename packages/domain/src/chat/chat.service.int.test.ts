@@ -917,3 +917,138 @@ describe('the chat list', () => {
     expect(chats.map((c) => c.publicId)).toEqual([first.chatPublicId, second.chatPublicId]);
   });
 });
+
+/**
+ * The two reads the *bot* needs, which is the surface M13 left unbuilt.
+ *
+ * Both exist because a message typed into the bot's DM names no conversation, and
+ * because a notification queued for delivery carries no message body.
+ */
+describe('what the bot and the sender ask for', () => {
+  /**
+   * **The half of the relay that was missing.**
+   *
+   * M8 wrote the outbox payload with ids and an alias and no text, and left a note
+   * saying "M13's relay decrypts the row the payload points at". Nothing did — so
+   * every relayed chat message was rendered with an empty body and delivered as
+   * «میهمان ۱:» and nothing else. This is the method that closes it, and the reason
+   * it lives here rather than in the worker is that decrypting is `MessageCipher`'s
+   * and `MessageCipher` is not exported outside this module and one break-glass path.
+   */
+  it('gives the sender the plaintext for a message the payload names', async () => {
+    const { guestId, chatPublicId } = await conversation();
+    await chat.send(guestId, chatPublicId, { text: 'ساعت هفت جلوی کافه' });
+
+    const [event] = await prisma.outboxEvent.findMany({ where: { eventType: 'chat.message' } });
+    const payload = event?.payload as { chatPublicId: string; seq: number };
+
+    expect(await chat.plaintextForDelivery(payload.chatPublicId, payload.seq)).toBe(
+      'ساعت هفت جلوی کافه',
+    );
+  });
+
+  /** Sanitized before encryption, so what is delivered is what was stored (M8). */
+  it('gives the masked text, not the original', async () => {
+    const { guestId, chatPublicId } = await conversation();
+    await chat.send(guestId, chatPublicId, { text: 'شمارهٔ من ۰۹۱۲۱۲۳۴۵۶۷ است' });
+
+    const delivered = await chat.plaintextForDelivery(chatPublicId, 2);
+
+    expect(delivered).not.toContain('۰۹۱۲۱۲۳۴۵۶۷');
+    expect(delivered).toContain(REDACTION_PLACEHOLDER);
+  });
+
+  /**
+   * A message deleted between being queued and being sent must not be delivered.
+   * The sender's intent governs the view (D10), and delivery is a view.
+   */
+  it('gives the placeholder for a message deleted before delivery', async () => {
+    const { guestId, chatPublicId } = await conversation();
+    await chat.send(guestId, chatPublicId, { text: 'اشتباه فرستادم', telegramMessageId: 8801 });
+    await chat.deleteBySourceMessage(guestId, 8801);
+
+    expect(await chat.plaintextForDelivery(chatPublicId, 2)).toBe(CHAT_MESSAGE_DELETED);
+  });
+
+  /** Purged by M15 between queueing and sending: null, not a throw. */
+  it('gives null for a message that no longer exists', async () => {
+    const { chatPublicId } = await conversation();
+
+    expect(await chat.plaintextForDelivery(chatPublicId, 9999)).toBeNull();
+  });
+
+  /**
+   * The bot's fallback when a plain message names no conversation.
+   *
+   * Exactly one, or nothing. Two live chats is a genuinely unknown answer, and
+   * returning either of them would deliver a private message to the wrong stranger.
+   */
+  it('names the sender’s only live conversation', async () => {
+    const { guestId, chatPublicId } = await conversation();
+
+    expect(await chat.singleLiveChatFor(guestId)).toBe(chatPublicId);
+  });
+
+  it('refuses to choose between two live conversations', async () => {
+    const first = await conversation();
+    const second = await conversation();
+
+    expect(await chat.singleLiveChatFor(hostId)).toBeNull();
+    expect(first.chatPublicId).not.toBe(second.chatPublicId);
+  });
+
+  it('names nothing when every conversation is closed', async () => {
+    const { guestId, chatPublicId } = await conversation();
+    await chat.close(guestId, chatPublicId);
+
+    expect(await chat.singleLiveChatFor(guestId)).toBeNull();
+  });
+});
+
+/**
+ * A redelivered Telegram update must not relay a second copy.
+ *
+ * Telegram retries any webhook call that did not answer 200, and the retry carries
+ * the same `message_id` — so the sender's own Telegram message id is the key, and the
+ * index M8 added for the edit path answers it.
+ */
+describe('a redelivered message', () => {
+  it('relays once and returns the message it already stored', async () => {
+    const { guestId, chatPublicId } = await conversation();
+    const message = { text: 'ساعت هفت', telegramMessageId: 7701 };
+
+    const first = await chat.send(guestId, chatPublicId, message);
+    const second = await chat.send(guestId, chatPublicId, message);
+
+    expect(second.seq).toBe(first.seq);
+    expect(second.text).toBe(first.text);
+    expect(
+      await prisma.chatMessage.count({ where: { chat: { publicId: chatPublicId }, kind: 'TEXT' } }),
+    ).toBe(1);
+    // One message, so one delivery instruction.
+    expect(await prisma.outboxEvent.count({ where: { eventType: 'chat.message' } })).toBe(1);
+  });
+
+  /** Two people may hold the same Telegram message id; they are different messages. */
+  it('does not confuse two senders with the same Telegram message id', async () => {
+    const first = await conversation();
+    const second = await conversation();
+
+    await chat.send(first.guestId, first.chatPublicId, { text: 'اول', telegramMessageId: 7702 });
+    await chat.send(second.guestId, second.chatPublicId, { text: 'دوم', telegramMessageId: 7702 });
+
+    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(2);
+  });
+
+  /** A Mini App message has no Telegram id behind it, so nothing is deduped away. */
+  it('leaves the Mini App path alone', async () => {
+    const { guestId, chatPublicId } = await conversation();
+
+    await chat.send(guestId, chatPublicId, { text: 'سلام' });
+    await chat.send(guestId, chatPublicId, { text: 'سلام' });
+
+    expect(
+      await prisma.chatMessage.count({ where: { chat: { publicId: chatPublicId }, kind: 'TEXT' } }),
+    ).toBe(2);
+  });
+});

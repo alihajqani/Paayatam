@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
   ChannelService,
+  ChatService,
   EventLifecycleService,
   NotificationService,
   OutboxRelayService,
@@ -9,8 +10,8 @@ import {
   RetentionService,
   ReviewService,
 } from '@payetam/domain';
-import { JOBS, QUEUES, QueueService, SCHEDULE } from '@payetam/platform';
-import { render, renderChannelPost } from '@payetam/telegram';
+import { JOBS, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
+import { TEMPLATES, render, renderChannelPost } from '@payetam/telegram';
 import { TelegramClient } from '../telegram/telegram.client';
 import { WorkerFactory } from './worker.factory';
 
@@ -32,6 +33,8 @@ export class Processors implements OnModuleInit {
     private readonly relay: OutboxRelayService,
     private readonly notifications: NotificationService,
     private readonly telegram: TelegramClient,
+    /** For one thing only: decrypting a relayed message at delivery time. */
+    private readonly chats: ChatService,
     private readonly participation: ParticipationService,
     private readonly lifecycle: EventLifecycleService,
     private readonly reviews: ReviewService,
@@ -41,7 +44,11 @@ export class Processors implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     this.workers.create(QUEUES.DOMAIN_EVENTS, (job) => this.onDomainEvent(job));
-    this.workers.create(QUEUES.TELEGRAM_SEND, (job) => this.onSend(job));
+    // Two job names on one queue: both talk to Telegram, so both are paced by the
+    // one limiter that exists for it (ADR-0005).
+    this.workers.create(QUEUES.TELEGRAM_SEND, (job) =>
+      job.name === JOBS.BOT_CALLBACK_ANSWER ? this.onCallbackAnswer(job) : this.onSend(job),
+    );
     this.workers.create(QUEUES.SCHEDULED, (job) => this.onScheduled(job));
 
     for (const entry of SCHEDULE) {
@@ -67,7 +74,7 @@ export class Processors implements OnModuleInit {
       await this.queues.enqueue(
         QUEUES.TELEGRAM_SEND,
         JOBS.SEND_NOTIFICATION,
-        `notify:${notificationId}`,
+        jobId('notify', notificationId),
         { notificationId },
       );
     }
@@ -103,7 +110,12 @@ export class Processors implements OnModuleInit {
       return;
     }
 
-    const message = render(notification.templateKey, asRecord(notification.payload));
+    const payload = await this.withMessageBody(
+      notification.templateKey,
+      asRecord(notification.payload),
+    );
+
+    const message = render(notification.templateKey, payload, this.telegram.botUsername);
     if (!message) {
       // A template this build does not know — a notification queued by a newer
       // deploy. Failing loudly would stall the queue behind it through a rollout,
@@ -115,7 +127,11 @@ export class Processors implements OnModuleInit {
       return;
     }
 
-    const outcome = await this.telegram.send(notification.telegramUserId, message.text);
+    const outcome = await this.telegram.send(
+      notification.telegramUserId,
+      message.text,
+      message.keyboard,
+    );
 
     switch (outcome.kind) {
       case 'SENT':
@@ -132,6 +148,57 @@ export class Processors implements OnModuleInit {
         // Thrown, so BullMQ applies the backoff and eventually dead-letters it.
         throw new Error(outcome.reason);
     }
+  }
+
+  /**
+   * Put the message body into a chat notification, at the last possible moment.
+   *
+   * **This is the other half of M8's decision that the outbox carries no text.**
+   * `outbox_event.payload` and `notification.payload` are plain jsonb, so a
+   * relayed sentence stored in either would undo the encrypted column beside it;
+   * M8 therefore wrote the payload with ids and an alias only, and left a note
+   * saying "M13's relay decrypts the row the payload points at". That decryption
+   * did not exist, so every relayed chat message was delivered with an **empty
+   * body** — a notification that said «میهمان ۱:» and nothing else.
+   *
+   * The plaintext lives in this local variable for the length of one send. It is
+   * not written back to the notification row, which is the point: a retry decrypts
+   * again rather than finding the text waiting in a column.
+   */
+  private async withMessageBody(
+    templateKey: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (templateKey !== TEMPLATES.CHAT_MESSAGE && templateKey !== TEMPLATES.CHAT_MESSAGE_EDITED) {
+      return payload;
+    }
+
+    const chatPublicId = payload['chatPublicId'];
+    const seq = payload['seq'];
+    if (typeof chatPublicId !== 'string' || typeof seq !== 'number') return payload;
+
+    const text = await this.chats.plaintextForDelivery(chatPublicId, seq);
+    // Null means the message is gone — purged (M15) between queueing and sending.
+    // The template renders an empty body, which is the honest outcome: there is
+    // nothing left to relay, and refusing would retry against a row that will
+    // never come back.
+    return text === null ? payload : { ...payload, text };
+  }
+
+  /**
+   * The toast on an inline-keyboard tap (plan §6's `callback_query`).
+   *
+   * Enqueued by the webhook rather than answered inline, because
+   * `answerCallbackQuery` is an outbound Telegram call and ADR-0004 puts every one
+   * of those in the worker. It **never throws**: the work the tap asked for was
+   * committed before this job existed, and a callback query id expires in seconds,
+   * so retrying can only fail again and more slowly.
+   */
+  private async onCallbackAnswer(job: Job): Promise<void> {
+    const data = job.data as { callbackQueryId?: string; text?: string };
+    if (data.callbackQueryId === undefined) return;
+
+    await this.telegram.answerCallback(data.callbackQueryId, data.text ?? '');
   }
 
   /**

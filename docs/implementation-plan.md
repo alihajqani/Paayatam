@@ -1489,6 +1489,10 @@ exhausted retries land in `job_failure` and are re-drivable.
   the schedules. The inbound half needs a webhook handler wired to grammY, and **M8's release gate — two real
   Telegram accounts conversing with zero leakage, verified against raw payloads — therefore remains open.**
   Stated plainly because it has now been outstanding across four milestones.
+  · **Discharged after M17** — see *M13-inbound* at the end of this section. It also turned out that the
+  *outbound* half was less complete than this note claims: a relayed chat message was delivered with an empty
+  body, because the decryption this deviation promised ("M13's relay decrypts the row the payload points at",
+  M8) was never written.
 - **The `moderation` queue is declared and unused.** ADR-0005 lists it for the blacklist-version re-scan,
   which nothing triggers yet; the name exists so a producer and a consumer cannot later disagree about it.
 - **The integration project now runs in a single fork, and M11's diagnosis was wrong.** `fileParallelism:
@@ -1803,6 +1807,114 @@ writes an audit row**; feature flags set to Tehran + 2 categories; the Launch Re
 - **§14 names `docs/disaster-recovery.md`; the artifact is `docs/runbook-backup-restore.md`** (M16), named for
   what it is — a runbook, containing the rehearsal, the WAL configuration and the PITR procedure. Noted rather
   than renamed, so the plan and the repository can be reconciled by whoever reads this next.
+
+**M13-inbound — the bot's receiving half** · *M* — built after M17, and not a milestone §9 ever scheduled.
+
+§6 lists the bot surface — `/start [payload]`, `callback_query: chat:accept|reject|close:<id>`, the
+`message:text` relay, `edited_message` propagation, `my_chat_member` block detection — and M13's own deviation
+note says of all five: **"None of that exists."** It has been outstanding since M2's acceptance criterion
+("`/start` creates exactly one user") and it is what kept M8's release gate open. This closes it.
+
+**Deviations from this plan, decided during M13-inbound:**
+
+- **Not one notification had ever been enqueued, in any milestone.** BullMQ composes its Redis keys as
+  `prefix:queue:jobId` and version 6 refuses a custom id containing `:` — `Custom Id cannot contain :` — and
+  every producer in the repository built its id as `notify:${notificationId}`. So `queue.add` threw, and it threw
+  *after* `relay.drain()` had already marked the outbox row processed: the row looked delivered, the
+  notification sat `PENDING` with **zero attempts**, and the outbox backstop could not recover it because there
+  was nothing left to recover. The entire outbound pipeline — every acceptance, every rejection, every relayed
+  message, every review reminder — was silently inert. Fixed with `jobId(...parts)` in `packages/platform`,
+  which joins with `-` and refuses anything outside `[A-Za-z0-9_-]` loudly. **It was found by sending one
+  `/start` to a running API and asking why nothing arrived**, which is the second time in this milestone that
+  running the thing beat reading it.
+- **The gap that let it survive was named in M13 and left open**: *"No integration test drives a live BullMQ
+  worker… the mirroring code in `WorkerFactory` is exercised by nothing, and that is a genuine gap rather than a
+  judgement that it does not matter."* Everything either side of the queue was tested and the queue was not.
+  `queue.int.test.ts` now enqueues against real Redis and reads the job back, asserts that adding the same id
+  twice produces one job — ADR-0005's first idempotency layer, previously assumed — and keeps the colon failure
+  as a test so a refactor back to string interpolation cannot reintroduce it quietly.
+- **The relayed chat message was being delivered with an empty body, and nobody had noticed.** M8 wrote the
+  outbox payload with ids and an alias and deliberately no text, leaving a note that *"M13's relay decrypts the
+  row the payload points at"*. Nothing did. `render(CHAT_MESSAGE)` interpolated an absent `text`, so the
+  anonymous chat — the product's central feature — sent «میهمان ۱:» and nothing else. The fix is
+  `ChatService.plaintextForDelivery`, called by the sender immediately before rendering: the plaintext exists in
+  one local variable for the length of one send and is never written to `notification.payload`, because that
+  column is plain jsonb and storing it there would undo the encrypted column beside it. **This is the strongest
+  argument in the repository for the manual gate §14 asks for** — five automated layers all passed while the
+  feature they protect delivered nothing.
+- **`chat.message_edited` and `chat.message_deleted` reached the outbox and stopped there.** `planNotifications`
+  matched neither, so the row was drained, produced no notification, and the recipient was never told. Worse,
+  `fanout.test.ts` asserted that as intended behaviour, which is how it survived four milestones. Both are
+  routed now, and the test that documented the gap has been corrected rather than left standing.
+- **An edit is delivered as a *new* message, not as an edit of the recipient's copy.**
+  `chat_message.telegram_message_ids` — the map from our message to the per-recipient Telegram copies, which
+  §4.4 added for exactly this — is written by nothing, so the product cannot find the copy to edit. Delivering
+  the corrected text late and marked «ویرایش شد» is honest; delivering nothing leaves the recipient acting on a
+  sentence the sender has retracted. Editing in place is a follow-up, and it needs the delivery map populated
+  first.
+- **No grammY instance in the API, and no `Composer`.** §3.2 gives `packages/telegram` "grammY composition", and
+  what is there instead is `parseUpdate` — a zod parser from `unknown` to a closed union of intents. Three
+  reasons, in order. grammY's webhook integration answers Telegram *with* the reply in the HTTP response, which
+  is precisely what ADR-0004 and ADR-0005 forbid ("all outbound Telegram calls happen in the worker").
+  `bot.handleUpdate` needs a live `botInfo`, so composing handlers would put a token requirement and a network
+  call into the API's boot path — CI and development have neither. And **zod's default object behaviour strips
+  unknown keys**, which turns the anonymity boundary into a property of the parse rather than a discipline:
+  `forward_from` cannot leak because it does not survive `parseUpdate`, and neither will the next
+  identity-bearing field Telegram adds. `inbound-message.ts` asked for exactly one place that touches the wide
+  object; this is it, and it is 250 lines with a test that serialises the result and greps it.
+- **Plain text is routed to a conversation by reply-first, then by "exactly one live chat", and otherwise
+  refused.** A user holds one Telegram DM standing in for every anonymous chat behind it, and a typed message
+  names none of them. A *reply* names one exactly — it quotes a message we sent, and `markSent` recorded what
+  Telegram called it, so the lookup is on `notification.telegram_message_id` scoped to the sender, which is also
+  the authorisation. With two live chats and no reply the answer is genuinely unknown, and the bot says so:
+  delivering a private message to the wrong stranger is the worst thing available to this code path, so it is
+  the one case that is refused rather than guessed. Migration `0015` adds the one index this needs.
+- **A reply from the bot is a `notification` row**, not a send. It is deduped by a UNIQUE key derived from
+  Telegram's own `update_id`, rendered by the same catalogue, paced by the same limiter, and covered by the same
+  block detection — and it answers "did we tell them?" six weeks later, which a log line cannot. The exception
+  is `answerCallbackQuery`, which is addressed to a *query* rather than to a person and so cannot be a
+  notification; it is a second job name on `telegram-send`, carrying a query id and a sentence and **no chat id
+  and no user**, which is what keeps a Telegram identifier out of Redis.
+- **A message from a Telegram account we have never seen gets silence, not a prompt.** Replying needs a
+  notification row and there is nobody to hang one on; the alternative — a job carrying a raw Telegram id — puts
+  an identifier into Redis to deliver a sentence almost nobody will read. Telegram's own clients send `/start`
+  on first contact, so the case this drops is an anonymised account (M15) writing again, and their next `/start`
+  works normally.
+- **`deleteBySourceMessage` has no inbound trigger and remains unreachable.** The Bot API sends **no update**
+  when a user deletes a message in a private chat — `deleted_business_messages` exists only for business
+  accounts — so D10's delete half can only ever be driven from a Mini App screen, and `POST /chats/:id/messages`
+  has no delete sibling. The domain method, its outbox event and its template are all built and tested; nothing
+  calls it. Stated rather than quietly left, because "delete propagation is implemented" would be misleading.
+- **The keyboards are ours, not grammY's**, and they arrive with the handlers rather than after them. A
+  `chat:accept:<id>` handler with no button that emits it is dead code that reads as a feature, so
+  `PARTICIPATION_REQUESTED_HOST` and `WAITLIST_PROMOTED_HOST` now carry accept/reject and every relayed message
+  carries close. Buttons are plain data in `packages/telegram` and are mapped to Telegram's wire format in the
+  one file that already talks to Telegram, which is what keeps the message catalogue testable with no bot
+  instance. `callback_data` is validated on the way *out* as well as in: a payload holding something long where
+  a public id belongs would otherwise make `encodeChatCallback` throw **inside `render`**, and a renderer that
+  throws fails the send job and then every retry of it.
+- **The webhook awaits the handler rather than answering first.** ADR-0004's "validate, persist, enqueue" is
+  bounded work — a few indexed queries, one transaction, one enqueue, no outbound Telegram call — and returning
+  early would lose any update still in flight when the process is replaced, with no record anywhere. It also
+  keeps Telegram's per-chat sequential delivery meaningful, which is what makes two quickly-typed messages
+  arrive in the order they were typed.
+- **Criterion 16 now has a test**, which the M17 report listed as a real gap: *"a refactor that replaced it with
+  `===` would pass every test in the repository"*. Five wrong-secret shapes are asserted — including a prefix of
+  the real token and a token one character out — and each is checked to produce **200 with an identical body**
+  *and* no user row, which is the only way "rejected without processing" can be observed from outside.
+- **The CI integration job was missing the environment the real application needs to boot.**
+  `CHAT_ENCRYPTION_KEY` and the JWT secrets come from `.env` locally and CI has none, so `MessageCipher` and
+  `SessionService` would each throw at construction — meaning the response-leak scan had been failing at boot
+  rather than scanning anything. Test-only values are now set on the step. Found while adding a second test that
+  boots the same application.
+- **Rate limiting applies to the bot's relay too.** `CHAT_SEND` is spent from the same bucket keyed on the same
+  subject as `POST /chats/:id/messages`, because a limit enforced on one of two surfaces is not a limit (T12).
+- **A redelivered update relays once.** Telegram retries any webhook call that did not answer 200, and the retry
+  carries the same `message_id`, so `send` checks `(sender, source telegram message id)` — the index M8 added
+  for the edit path — and returns the message it already stored. The read-then-write window is deliberately
+  accepted: sequential retries are the only shape Telegram actually produces, and making the partial index
+  UNIQUE cannot be expressed in `schema.prisma` (`@@unique` takes no `where`), which would mean a second
+  permanently-invisible index for a case that does not occur.
 
 ---
 

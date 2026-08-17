@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@payetam/shared": "workspace:*"
+    "@payetam/shared": "workspace:*",
+    "zod": "^4.4.3"
   }
 }

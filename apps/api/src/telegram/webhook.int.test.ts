@@ -1,0 +1,854 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { NestFactory } from '@nestjs/core';
+import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import type { PrismaClient } from '@payetam/db';
+import { ChatService, ParticipationService, normalize } from '@payetam/domain';
+import { TEMPLATES } from '@payetam/telegram';
+import {
+  TEST_CHAT_ENCRYPTION_KEY,
+  createTestPrisma,
+  resetDatabase,
+  seedCatalog,
+  type CatalogFixture,
+} from '../../../../test/integration/db';
+
+/**
+ * The bot's inbound surface, end to end (plan §6).
+ *
+ * It drives the **real webhook endpoint** with **real Telegram update bodies** and
+ * asserts against a real database, because that is the only arrangement in which
+ * the things worth testing here are visible at all: the secret comparison, the
+ * narrowing of the wide update, the resolution of "which conversation did they
+ * mean", and the fact that a relayed message reaches an encrypted column with no
+ * identity attached to it.
+ *
+ * A unit test of `BotService` with a stubbed `ChatService` would prove the routing
+ * and nothing else — and routing is the part that was never in doubt.
+ *
+ * Two things are deliberately *not* asserted here, because this process contains
+ * neither: nothing sends to Telegram (the worker does, ADR-0005), so the assertion
+ * is on the `notification` rows the API queues; and nothing renders those rows, so
+ * the message text is covered by `escape.test.ts` instead.
+ */
+
+/**
+ * Configured before the application is built, not read from `.env`.
+ *
+ * `loadEnv()` reads `process.env` when Nest constructs the ENV provider, so setting
+ * these here makes the test independent of a developer's `.env` *and* of CI's
+ * environment — and a webhook test that silently skipped because a secret was
+ * absent would be the worst of the available outcomes.
+ */
+const SECRET_PATH = 'b0f034bb437b9f4d8469b6df04ca1373';
+const SECRET_TOKEN = '2cc88ab81c8272b5dfffbe06ce00d2899633f01738d213c3849e7c3639e118fc';
+
+process.env['TELEGRAM_WEBHOOK_SECRET_PATH'] = SECRET_PATH;
+process.env['TELEGRAM_WEBHOOK_SECRET_TOKEN'] = SECRET_TOKEN;
+process.env['TELEGRAM_BOT_TOKEN'] ??= '1234567890:LOCAL-DEV-ONLY-NOT-A-REAL-TOKEN-0001';
+process.env['CHAT_ENCRYPTION_KEY'] ??= TEST_CHAT_ENCRYPTION_KEY;
+process.env['JWT_ACCESS_SECRET'] ??= 'a'.repeat(48);
+process.env['JWT_REFRESH_SECRET'] ??= 'b'.repeat(48);
+
+const prisma: PrismaClient = createTestPrisma();
+
+let app: NestFastifyApplication;
+let participation: ParticipationService;
+let chats: ChatService;
+let fixture: CatalogFixture;
+
+/** Distinctive, and shaped like a real Telegram id — the leak assertions hunt for it. */
+const HOST_TELEGRAM_ID = 573_914_882;
+const GUEST_TELEGRAM_ID = 601_222_333;
+const HOST_USERNAME = 'leaky_host_handle';
+
+let updateSequence = 5000;
+let telegramMessageSequence = 100;
+
+interface Sender {
+  id: number;
+  first_name?: string;
+  username?: string;
+  language_code?: string;
+}
+
+function sender(id: number, username?: string): Sender {
+  return {
+    id,
+    first_name: 'علی',
+    ...(username !== undefined ? { username } : {}),
+    language_code: 'fa',
+  };
+}
+
+/** One update, with a fresh `update_id` so replies are not deduped against each other. */
+function update(body: Record<string, unknown>): Record<string, unknown> {
+  updateSequence += 1;
+  return { update_id: updateSequence, ...body };
+}
+
+function textMessage(from: Sender, text: string, extra: Record<string, unknown> = {}) {
+  telegramMessageSequence += 1;
+  return {
+    message_id: telegramMessageSequence,
+    from,
+    chat: { id: from.id, type: 'private' },
+    text,
+    ...extra,
+  };
+}
+
+interface WebhookResponse {
+  status: number;
+  body: string;
+}
+
+async function post(
+  payload: Record<string, unknown>,
+  options: { path?: string; token?: string } = {},
+): Promise<WebhookResponse> {
+  const response = await app.inject({
+    method: 'POST',
+    url: `/telegram/webhook/${options.path ?? SECRET_PATH}`,
+    headers: { 'x-telegram-bot-api-secret-token': options.token ?? SECRET_TOKEN },
+    payload,
+  });
+
+  return { status: response.statusCode, body: response.body };
+}
+
+beforeAll(async () => {
+  // The compiled module, for the reason the leak scan gives: NestJS DI reads
+  // `design:paramtypes`, which `tsc` emits and the test runner's transform does not.
+  const { AppModule } = (await import('../../dist/app.module.js')) as { AppModule: unknown };
+
+  app = await NestFactory.create<NestFastifyApplication>(
+    AppModule as Parameters<typeof NestFactory.create>[0],
+    new FastifyAdapter(),
+    { logger: false, abortOnError: false },
+  );
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+
+  participation = app.get(ParticipationService);
+  chats = app.get(ChatService);
+}, 120_000);
+
+afterAll(async () => {
+  await app.close();
+  await prisma.$disconnect();
+});
+
+beforeEach(async () => {
+  await resetDatabase(prisma);
+  fixture = await seedCatalog(prisma);
+});
+
+/** A host with a profile, an event, and the Telegram identity the bot will speak to. */
+async function seedHostAndEvent(): Promise<{ hostId: string; eventPublicId: string }> {
+  const host = await prisma.user.create({
+    data: {
+      onboardingState: 'PROFILE_COMPLETE',
+      telegramAccount: {
+        create: {
+          telegramUserId: BigInt(HOST_TELEGRAM_ID),
+          usernameCached: HOST_USERNAME,
+          firstNameCached: 'Leaky',
+        },
+      },
+      profile: { create: { displayName: 'میزبان', cityId: fixture.tehranId, birthYear: 1993 } },
+    },
+    select: { id: true },
+  });
+
+  const title = 'دورهمی بازی رومیزی';
+  const description = 'یک شب دوستانه برای بازی و گفتگو.';
+  const startsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const event = await prisma.event.create({
+    data: {
+      hostUserId: host.id,
+      title,
+      description,
+      titleNormalized: normalize(title),
+      descriptionNormalized: normalize(description),
+      categoryId: fixture.categoryId,
+      cityId: fixture.tehranId,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 3 * 60 * 60 * 1000),
+      capacity: 5,
+      costType: 'FREE',
+      status: 'PUBLISHED',
+      moderationStatus: 'APPROVED',
+      publishedAt: new Date(),
+    },
+    select: { publicId: true },
+  });
+
+  return { hostId: host.id, eventPublicId: event.publicId };
+}
+
+async function seedGuest(telegramUserId: number, displayName = 'میهمان'): Promise<string> {
+  const guest = await prisma.user.create({
+    data: {
+      onboardingState: 'PROFILE_COMPLETE',
+      telegramAccount: { create: { telegramUserId: BigInt(telegramUserId) } },
+      profile: { create: { displayName, cityId: fixture.tehranId, birthYear: 1995 } },
+    },
+    select: { id: true },
+  });
+  return guest.id;
+}
+
+/** The reply the bot queued for this Telegram user, if any. */
+async function replyTo(telegramUserId: number): Promise<{ templateKey: string; text: string }[]> {
+  const rows = await prisma.notification.findMany({
+    where: { user: { telegramAccount: { telegramUserId: BigInt(telegramUserId) } } },
+    orderBy: { createdAt: 'asc' },
+    select: { templateKey: true, payload: true },
+  });
+
+  return rows.map((row) => ({ templateKey: row.templateKey, text: noticeText(row.payload) }));
+}
+
+/** `bot.notice` carries its whole sentence in the payload; every other template does not. */
+function noticeText(payload: unknown): string {
+  if (typeof payload !== 'object' || payload === null) return '';
+  const text = (payload as Record<string, unknown>)['text'];
+  return typeof text === 'string' ? text : '';
+}
+
+/**
+ * Criterion 16: *"a wrong webhook secret is rejected without processing"*.
+ *
+ * The launch-readiness report listed this as implemented and untested, and noted
+ * that "a refactor that replaced it with `===` would pass every test in the
+ * repository". It no longer would.
+ *
+ * The **200 is the assertion**, not an accident of it: a 401 here would let an
+ * attacker probe for a valid secret by watching status codes, and ADR-0004 makes the
+ * identical response the whole point. "Without processing" is then asserted the only
+ * way it can be — by sending an update that *would* have created a user, and
+ * checking that no user exists.
+ */
+describe('the secret gate (criterion 16)', () => {
+  const startUpdate = () => update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') });
+
+  it.each([
+    ['a wrong secret token', { token: 'x'.repeat(64) }],
+    ['a wrong secret path', { path: 'a'.repeat(32) }],
+    ['no secret token at all', { token: '' }],
+    ['a token that is a prefix of the real one', { token: SECRET_TOKEN.slice(0, 32) }],
+    ['a token one character out', { token: `${SECRET_TOKEN.slice(0, -1)}0` }],
+  ])('%s is answered 200 and processed not at all', async (_name, options) => {
+    const response = await post(startUpdate(), options);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBe('{"ok":true}');
+    expect(await prisma.user.count()).toBe(0);
+  });
+
+  it('answers exactly the same to a correct secret, so the status leaks nothing', async () => {
+    const refused = await post(startUpdate(), { token: 'x'.repeat(64) });
+    const accepted = await post(startUpdate());
+
+    expect(accepted.status).toBe(refused.status);
+    expect(accepted.body).toBe(refused.body);
+    // …and the difference is entirely in what happened behind it.
+    expect(await prisma.user.count()).toBe(1);
+  });
+});
+
+/**
+ * M2's acceptance criterion, finally reachable: *"`/start` creates exactly one
+ * user"*.
+ */
+describe('/start', () => {
+  it('creates the user and queues a welcome', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID, HOST_USERNAME), '/start') }));
+
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: BigInt(HOST_TELEGRAM_ID) },
+      select: { usernameCached: true, user: { select: { onboardingState: true } } },
+    });
+
+    expect(account.user.onboardingState).toBe('NEW');
+    // Cached, never returned. It is the only place a username is stored (M2).
+    expect(account.usernameCached).toBe(HOST_USERNAME);
+    expect(await replyTo(HOST_TELEGRAM_ID)).toEqual([
+      { templateKey: TEMPLATES.BOT_WELCOME, text: '' },
+    ]);
+  });
+
+  /**
+   * Ten simultaneous taps, which is what a flaky connection and an impatient thumb
+   * actually produce. One user, decided by the UNIQUE index rather than by a check.
+   */
+  it('creates exactly one user under ten concurrent taps', async () => {
+    await Promise.all(
+      Array.from({ length: 10 }, () =>
+        post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') })),
+      ),
+    );
+
+    expect(await prisma.user.count()).toBe(1);
+    expect(await prisma.telegramAccount.count()).toBe(1);
+  });
+
+  /**
+   * A redelivered update — Telegram retries any webhook call that did not answer 200
+   * — must not produce a second message. The dedupe key is the `update_id`.
+   */
+  it('replies once when Telegram redelivers the same update', async () => {
+    const once = update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') });
+
+    await post(once);
+    await post(once);
+
+    expect(await prisma.notification.count()).toBe(1);
+  });
+
+  /** T6: the invite is recorded on the way in, and pays out after attendance. */
+  it('claims a referral code from the deep-link payload', async () => {
+    const referrerId = await seedGuest(700_111_222, 'دعوت‌کننده');
+    await prisma.user.update({
+      where: { id: referrerId },
+      data: { referralCode: 'ABCD2345' },
+    });
+
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start ref_ABCD2345') }));
+
+    const referral = await prisma.referral.findFirstOrThrow({
+      select: { referrerUserId: true, status: true },
+    });
+    expect(referral).toEqual({ referrerUserId: referrerId, status: 'PENDING' });
+    expect((await replyTo(HOST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
+      TEMPLATES.BOT_REFERRAL_ACCEPTED,
+    ]);
+  });
+
+  /**
+   * A stale or mistyped invite link still greets somebody.
+   *
+   * The alternative — an error as the first thing a new user reads — loses the user
+   * over a link they did not write.
+   */
+  it('welcomes anyway when the referral code is unusable', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start NOSUCHCODE') }));
+
+    expect(await prisma.referral.count()).toBe(0);
+    expect((await replyTo(HOST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
+      TEMPLATES.BOT_WELCOME,
+    ]);
+  });
+});
+
+/**
+ * The relay: a message typed into the bot's DM, delivered into a conversation.
+ *
+ * This is M8's release gate reduced to what an automated test can reach. The gate
+ * itself — two real Telegram accounts, raw payload inspection — is still a manual
+ * step, and what is asserted here is everything on this side of the Telegram API.
+ */
+describe('message:text', () => {
+  async function withOneChat(): Promise<{ guestTelegramId: number; chatPublicId: string }> {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+
+    expect(joined.chatPublicId).toBeDefined();
+    return { guestTelegramId: GUEST_TELEGRAM_ID, chatPublicId: joined.chatPublicId ?? '' };
+  }
+
+  it('relays into the sender’s only live conversation', async () => {
+    const { guestTelegramId, chatPublicId } = await withOneChat();
+
+    await post(
+      update({ message: textMessage(sender(guestTelegramId), 'سلام، ساعت هفت خوب است؟') }),
+    );
+
+    const stored = await prisma.chatMessage.findMany({
+      where: { chat: { publicId: chatPublicId }, kind: 'TEXT' },
+      select: { seq: true, sourceTelegramMessageId: true },
+    });
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.sourceTelegramMessageId).toBe(BigInt(telegramMessageSequence));
+
+    // Readable through the service, which decrypts — so this asserts the round trip
+    // and not merely that a row appeared.
+    const page = await chats.readMessages(await internalIdOf(guestTelegramId), chatPublicId, {});
+    expect(page.messages.map((message) => message.text)).toContain('سلام، ساعت هفت خوب است؟');
+  });
+
+  /**
+   * The relayed message is announced through the outbox, in the same transaction.
+   *
+   * Without the outbox row the recipient is never told, and the message sits in the
+   * database being technically correct.
+   */
+  it('emits the outbox event that tells the other side', async () => {
+    const { guestTelegramId } = await withOneChat();
+
+    await post(update({ message: textMessage(sender(guestTelegramId), 'ساعت هفت') }));
+
+    const events = await prisma.outboxEvent.findMany({
+      where: { eventType: 'chat.message' },
+      select: { payload: true },
+    });
+    expect(events).toHaveLength(1);
+    // M8's rule: ids and an alias, never the body. The worker decrypts at delivery.
+    expect(JSON.stringify(events[0]?.payload)).not.toContain('ساعت هفت');
+  });
+
+  /**
+   * **Nothing identity-shaped reaches the row or the announcement.**
+   *
+   * The sender's Telegram id and username are both present in the database and both
+   * available to the handler — `parseUpdate` hands the id to identity creation — so
+   * this is a real assertion rather than one about data that does not exist.
+   */
+  it('stores and announces nothing that identifies the sender', async () => {
+    const { guestTelegramId, chatPublicId } = await withOneChat();
+
+    await post(
+      update({
+        message: textMessage(sender(guestTelegramId, 'leaky_guest_handle'), 'من علی هستم', {
+          entities: [{ type: 'text_mention', offset: 3, length: 3, user: { id: 999_888_777 } }],
+        }),
+      }),
+    );
+
+    const rows = await prisma.chatMessage.findMany({
+      where: { chat: { publicId: chatPublicId } },
+      select: { bodyCiphertext: true, redactions: true, telegramMessageIds: true },
+    });
+    const outbox = await prisma.outboxEvent.findMany({ select: { payload: true } });
+
+    const serialised = [
+      JSON.stringify(rows.map((row) => ({ ...row, bodyCiphertext: undefined }))),
+      JSON.stringify(outbox),
+      Buffer.concat(rows.map((row) => Buffer.from(row.bodyCiphertext))).toString('utf8'),
+    ].join('\n');
+
+    expect(serialised).not.toContain(String(guestTelegramId));
+    expect(serialised).not.toContain('leaky_guest_handle');
+    expect(serialised).not.toContain('999888777');
+  });
+
+  /**
+   * Two live chats and no reply: the answer is genuinely unknown.
+   *
+   * Guessing would deliver a private message to the wrong stranger, which is the
+   * worst outcome available to this code path — so it refuses and says how to
+   * disambiguate.
+   */
+  it('refuses rather than guessing between two conversations', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const second = await seedHostAndEvent2();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+    await participation.join(guestId, second);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), 'سلام') }));
+
+    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
+    const replies = await replyTo(GUEST_TELEGRAM_ID);
+    expect(replies.at(-1)?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
+    expect(replies.at(-1)?.text).toContain('Reply');
+  });
+
+  /**
+   * A reply names the conversation exactly, by quoting a message we sent.
+   *
+   * The lookup is on `notification.telegram_message_id`, scoped to the sender — which
+   * is also the authorisation: an id from somebody else's conversation finds nothing.
+   */
+  it('routes a reply to the conversation it quotes', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const second = await seedHostAndEvent2();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const first = await participation.join(guestId, eventPublicId);
+    await participation.join(guestId, second);
+
+    // Stand in for the worker: a delivered notification about the *first* chat,
+    // recorded with the Telegram message id the reply will quote.
+    const delivered = await prisma.notification.create({
+      data: {
+        userId: guestId,
+        templateKey: TEMPLATES.CHAT_MESSAGE,
+        dedupeKey: 'test:delivered:1',
+        payload: { chatPublicId: first.chatPublicId, seq: 1, senderAlias: 'میزبان' },
+        status: 'SENT',
+        sentAt: new Date(),
+        telegramMessageId: 4242,
+      },
+      select: { telegramMessageId: true },
+    });
+
+    await post(
+      update({
+        message: textMessage(sender(GUEST_TELEGRAM_ID), 'باشه', {
+          reply_to_message: { message_id: delivered.telegramMessageId },
+        }),
+      }),
+    );
+
+    const relayed = await prisma.chatMessage.findMany({
+      where: { kind: 'TEXT' },
+      select: { chat: { select: { publicId: true } } },
+    });
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0]?.chat.publicId).toBe(first.chatPublicId);
+  });
+
+  it('tells somebody with no conversation what to do instead', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), 'سلام') }));
+
+    const replies = await replyTo(HOST_TELEGRAM_ID);
+    expect(replies.at(-1)?.text).toContain('گفتگوی بازی ندارید');
+  });
+
+  /**
+   * Criterion 11 through the bot: *"media in chat gets a Persian refusal and stores
+   * nothing"*.
+   */
+  it('refuses media in Persian and stores nothing', async () => {
+    const { guestTelegramId, chatPublicId } = await withOneChat();
+    telegramMessageSequence += 1;
+
+    await post(
+      update({
+        message: {
+          message_id: telegramMessageSequence,
+          from: sender(guestTelegramId),
+          chat: { id: guestTelegramId, type: 'private' },
+          photo: [{ file_id: 'x', file_unique_id: 'y', width: 100, height: 100 }],
+        },
+      }),
+    );
+
+    expect(
+      await prisma.chatMessage.count({ where: { chat: { publicId: chatPublicId }, kind: 'TEXT' } }),
+    ).toBe(0);
+    const replies = await replyTo(guestTelegramId);
+    expect(replies.at(-1)?.text).toContain('فقط ارسال متن');
+  });
+
+  /** A redelivered message update must not relay a second copy. */
+  it('relays once when Telegram redelivers the same message', async () => {
+    const { guestTelegramId, chatPublicId } = await withOneChat();
+    const once = update({ message: textMessage(sender(guestTelegramId), 'ساعت هفت') });
+
+    await post(once);
+    await post(once);
+
+    expect(
+      await prisma.chatMessage.count({ where: { chat: { publicId: chatPublicId }, kind: 'TEXT' } }),
+    ).toBe(1);
+  });
+});
+
+/** D10, the inbound half: the sender edits, and the stored copy follows. */
+describe('edited_message', () => {
+  it('propagates the edit to the stored message and announces it', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+
+    const original = textMessage(sender(GUEST_TELEGRAM_ID), 'ساعت هفت');
+    await post(update({ message: original }));
+    await post(
+      update({
+        edited_message: { ...original, text: 'ساعت هشت' },
+      }),
+    );
+
+    const page = await chats.readMessages(guestId, joined.chatPublicId ?? '', {});
+    const relayed = page.messages.filter((message) => message.kind === 'TEXT');
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0]?.text).toBe('ساعت هشت');
+    expect(relayed[0]?.editedAt).not.toBeNull();
+
+    // The recipient is told, which is the half M13 emitted and never routed.
+    expect(await prisma.outboxEvent.count({ where: { eventType: 'chat.message_edited' } })).toBe(1);
+  });
+
+  /**
+   * An edit to a message that was never relayed is silence, not an argument.
+   *
+   * Telegram sends `edited_message` for every edit in the bot's DM — including one
+   * to a `/start` somebody fixed a typo in.
+   */
+  it('ignores an edit to a message it never relayed', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    const before = await prisma.notification.count();
+
+    await post(update({ edited_message: textMessage(sender(HOST_TELEGRAM_ID), 'something else') }));
+
+    expect(await prisma.notification.count()).toBe(before);
+  });
+});
+
+/** The host's two buttons, and the third that ends a conversation. */
+describe('callback_query', () => {
+  async function pendingRequest(): Promise<{ participantPublicId: string; chatPublicId: string }> {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+
+    return {
+      participantPublicId: joined.publicId,
+      chatPublicId: joined.chatPublicId ?? '',
+    };
+  }
+
+  it('accepts a request when the host taps accept', async () => {
+    const { participantPublicId } = await pendingRequest();
+
+    await post(
+      update({
+        callback_query: {
+          id: 'q-accept',
+          from: sender(HOST_TELEGRAM_ID),
+          data: `chat:accept:${participantPublicId}`,
+        },
+      }),
+    );
+
+    const participant = await prisma.eventParticipant.findUniqueOrThrow({
+      where: { publicId: participantPublicId },
+      select: { status: true, acceptedAt: true },
+    });
+    expect(participant.status).toBe('ACCEPTED');
+    expect(participant.acceptedAt).not.toBeNull();
+  });
+
+  it('rejects a request when the host taps reject', async () => {
+    const { participantPublicId } = await pendingRequest();
+
+    await post(
+      update({
+        callback_query: {
+          id: 'q-reject',
+          from: sender(HOST_TELEGRAM_ID),
+          data: `chat:reject:${participantPublicId}`,
+        },
+      }),
+    );
+
+    expect(
+      (
+        await prisma.eventParticipant.findUniqueOrThrow({
+          where: { publicId: participantPublicId },
+          select: { status: true },
+        })
+      ).status,
+    ).toBe('REJECTED');
+  });
+
+  it('closes a conversation when either party taps close', async () => {
+    const { chatPublicId } = await pendingRequest();
+
+    await post(
+      update({
+        callback_query: {
+          id: 'q-close',
+          from: sender(GUEST_TELEGRAM_ID),
+          data: `chat:close:${chatPublicId}`,
+        },
+      }),
+    );
+
+    expect(
+      (
+        await prisma.anonymousChat.findUniqueOrThrow({
+          where: { publicId: chatPublicId },
+          select: { status: true },
+        })
+      ).status,
+    ).toBe('CLOSED');
+  });
+
+  /**
+   * **The button carries no authority.**
+   *
+   * `callback_data` is client input, so a tap can name any public id; the refusal
+   * has to come from the service. T3.2 puts the check in `ParticipationService`, and
+   * this is what proves the bot did not route around it.
+   */
+  it('refuses a decision from somebody who does not host the event', async () => {
+    const { participantPublicId } = await pendingRequest();
+    const stranger = 900_111_000;
+    await seedGuest(stranger, 'رهگذر');
+
+    await post(
+      update({
+        callback_query: {
+          id: 'q-forged',
+          from: sender(stranger),
+          data: `chat:accept:${participantPublicId}`,
+        },
+      }),
+    );
+
+    expect(
+      (
+        await prisma.eventParticipant.findUniqueOrThrow({
+          where: { publicId: participantPublicId },
+          select: { status: true },
+        })
+      ).status,
+    ).toBe('PENDING');
+  });
+
+  it('does nothing at all with a tampered callback payload', async () => {
+    const { participantPublicId } = await pendingRequest();
+
+    await post(
+      update({
+        callback_query: {
+          id: 'q-junk',
+          from: sender(HOST_TELEGRAM_ID),
+          data: 'chat:accept:\'; drop table "user"; --',
+        },
+      }),
+    );
+
+    expect(
+      (
+        await prisma.eventParticipant.findUniqueOrThrow({
+          where: { publicId: participantPublicId },
+          select: { status: true },
+        })
+      ).status,
+    ).toBe('PENDING');
+  });
+});
+
+/**
+ * Block detection.
+ *
+ * The flag is what stops the sender retrying against somebody who is gone, and
+ * ADR-0005 makes 403 terminal for exactly this reason.
+ */
+describe('my_chat_member', () => {
+  it('records a block and clears it again', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+
+    await post(
+      update({
+        my_chat_member: {
+          chat: { id: HOST_TELEGRAM_ID, type: 'private' },
+          from: sender(HOST_TELEGRAM_ID),
+          new_chat_member: { status: 'kicked' },
+        },
+      }),
+    );
+    expect(await blockedFlag()).toBe(true);
+
+    await post(
+      update({
+        my_chat_member: {
+          chat: { id: HOST_TELEGRAM_ID, type: 'private' },
+          from: sender(HOST_TELEGRAM_ID),
+          new_chat_member: { status: 'member' },
+        },
+      }),
+    );
+    expect(await blockedFlag()).toBe(false);
+  });
+
+  /** The bot administers its own channel (M14); that is not a user blocking us. */
+  it('ignores a membership change in the channel', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+
+    await post(
+      update({
+        my_chat_member: {
+          chat: { id: -1_001_234_567_890, type: 'channel' },
+          from: sender(HOST_TELEGRAM_ID),
+          new_chat_member: { status: 'kicked' },
+        },
+      }),
+    );
+
+    expect(await blockedFlag()).toBe(false);
+  });
+
+  async function blockedFlag(): Promise<boolean> {
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: BigInt(HOST_TELEGRAM_ID) },
+      select: { botBlocked: true },
+    });
+    return account.botBlocked;
+  }
+});
+
+/**
+ * Whatever else Telegram sends.
+ *
+ * The webhook answers 200 and does nothing, which is ADR-0004's contract — and the
+ * body being *hostile* rather than merely unknown must land in the same place, since
+ * a thrown parse would become a 500 and a Telegram retry loop.
+ */
+describe('an update this product has no opinion about', () => {
+  it.each([
+    [
+      'a channel post of ours',
+      { channel_post: { message_id: 1, chat: { id: -1, type: 'channel' } } },
+    ],
+    ['a poll answer', { poll_answer: { poll_id: '1', option_ids: [0] } }],
+    ['an unparseable body', { message: 'not an object' }],
+    ['nothing recognisable', { something_new_in_the_bot_api: {} }],
+  ])('%s is answered 200 and ignored', async (_name, body) => {
+    const response = await post(update(body));
+
+    expect(response.status).toBe(200);
+    expect(await prisma.user.count()).toBe(0);
+    expect(await prisma.notification.count()).toBe(0);
+  });
+});
+
+/** A second event with a different host, for the two-conversations cases. */
+async function seedHostAndEvent2(): Promise<string> {
+  const host = await prisma.user.create({
+    data: {
+      onboardingState: 'PROFILE_COMPLETE',
+      telegramAccount: { create: { telegramUserId: 800_444_555n } },
+      profile: { create: { displayName: 'میزبان دوم', cityId: fixture.tehranId, birthYear: 1990 } },
+    },
+    select: { id: true },
+  });
+
+  const title = 'پیاده‌روی صبحگاهی';
+  const description = 'یک مسیر کوتاه و دوستانه در پارک.';
+  const startsAt = new Date(Date.now() + 9 * 24 * 60 * 60 * 1000);
+  const event = await prisma.event.create({
+    data: {
+      hostUserId: host.id,
+      title,
+      description,
+      titleNormalized: normalize(title),
+      descriptionNormalized: normalize(description),
+      categoryId: fixture.categoryId,
+      cityId: fixture.tehranId,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 2 * 60 * 60 * 1000),
+      capacity: 5,
+      costType: 'FREE',
+      status: 'PUBLISHED',
+      moderationStatus: 'APPROVED',
+      publishedAt: new Date(),
+    },
+    select: { publicId: true },
+  });
+
+  return event.publicId;
+}
+
+async function internalIdOf(telegramUserId: number): Promise<string> {
+  const account = await prisma.telegramAccount.findUniqueOrThrow({
+    where: { telegramUserId: BigInt(telegramUserId) },
+    select: { userId: true },
+  });
+  return account.userId;
+}

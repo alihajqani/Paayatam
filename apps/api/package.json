@@ -19,6 +19,7 @@
     "@payetam/domain": "workspace:*",
     "@payetam/platform": "workspace:*",
     "@payetam/shared": "workspace:*",
+    "@payetam/telegram": "workspace:*",
     "fastify": "5.11.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",

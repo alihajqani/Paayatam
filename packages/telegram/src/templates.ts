@@ -1,4 +1,11 @@
+import { isPublicId } from './callback-data';
 import { escapeHtml, toPersianDigits } from './escape';
+import {
+  chatKeyboard,
+  hostDecisionKeyboard,
+  openAppKeyboard,
+  type InlineKeyboard,
+} from './keyboards';
 
 /**
  * Every Persian message the bot sends (plan §3.2).
@@ -29,10 +36,27 @@ export const TEMPLATES = {
   WAITLIST_PROMOTED_HOST: 'waitlist.promoted.host',
   EVENT_CANCELLED: 'event.cancelled',
   CHAT_MESSAGE: 'chat.message',
+  CHAT_MESSAGE_EDITED: 'chat.message_edited',
+  CHAT_MESSAGE_DELETED: 'chat.message_deleted',
   REVIEW_REVEALED: 'review.revealed',
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
   CONTENT_HIDDEN: 'moderation.content_hidden',
+
+  // ── What the bot says when somebody talks to *it* ──────────────────────────
+  /** The reply to `/start`. */
+  BOT_WELCOME: 'bot.welcome',
+  /** `/start <code>` with a referral code that was accepted. */
+  BOT_REFERRAL_ACCEPTED: 'bot.referral_accepted',
+  /**
+   * Anything the bot has to say about a request it could not carry out.
+   *
+   * A single passthrough template, deliberately: the Persian text comes from
+   * `ERROR_MESSAGES_FA`, which is already total over `ErrorCode` (criterion 12).
+   * A template per error code would be a second, partial copy of a catalogue that
+   * exists — and the copy is the one that would fall behind.
+   */
+  BOT_NOTICE: 'bot.notice',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -42,6 +66,8 @@ export interface RenderedMessage {
   text: string;
   /** A deep link into the Mini App, when the message is about something to open. */
   deepLink?: string;
+  /** Buttons under the message, already built (see `keyboards.ts`). */
+  keyboard?: InlineKeyboard;
 }
 
 type Payload = Record<string, unknown>;
@@ -57,40 +83,73 @@ function num(payload: Payload, key: string): string {
 }
 
 /**
+ * A public id, unescaped, for a callback payload or a URL.
+ *
+ * Separate from `str` on purpose: escaping is for text on its way into HTML, and a
+ * `callback_data` value is neither. Null when absent, so a template omits the
+ * keyboard rather than emitting a button that names nothing.
+ */
+function id(payload: Payload, key: string): string | null {
+  const value = payload[key];
+  return typeof value === 'string' && isPublicId(value) ? value : null;
+}
+
+/**
  * Renders a notification.
  *
  * Returns `null` for a template this build does not know, which is deliberate: a
  * notification queued by a newer deploy and processed by an older one should be
  * skipped and retried after the rollout, not crash the worker and stall the whole
  * queue behind it.
+ *
+ * `botUsername` is required rather than defaulted: it is what every button's link
+ * is built from, and a default would turn a missing configuration value into a
+ * keyboard full of links to somebody else's bot.
  */
-export function render(templateKey: string, payload: Payload): RenderedMessage | null {
+export function render(
+  templateKey: string,
+  payload: Payload,
+  botUsername: string,
+): RenderedMessage | null {
   switch (templateKey) {
-    case TEMPLATES.PARTICIPATION_REQUESTED_HOST:
+    /**
+     * The one notification with something to *decide*, so it carries the decision.
+     *
+     * The request expires in twenty-four hours (D9), and the difference between
+     * deciding from a notification and deciding from a screen somebody has to
+     * navigate to is the difference between an answered request and an expired one.
+     */
+    case TEMPLATES.PARTICIPATION_REQUESTED_HOST: {
+      const participant = id(payload, 'participantPublicId');
+      const deepLink = `participants/${participant ?? ''}`;
       return {
         text:
           `<b>درخواست تازه</b>\n\n` +
           `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.\n` +
           `می‌توانید پیش از تصمیم‌گیری با او گفتگو کنید.`,
-        deepLink: `participants/${str(payload, 'participantPublicId')}`,
+        deepLink,
+        ...(participant !== null
+          ? { keyboard: hostDecisionKeyboard(participant, botUsername, deepLink) }
+          : {}),
       };
+    }
 
     case TEMPLATES.PARTICIPATION_REQUESTED_GUEST:
-      return {
-        text:
-          `درخواست شما برای «${str(payload, 'eventTitle')}» ثبت شد.\n` +
+      return opened(
+        `درخواست شما برای «${str(payload, 'eventTitle')}» ثبت شد.\n` +
           `تا زمان تصمیم میزبان می‌توانید در گفتگو سؤال بپرسید.`,
-        deepLink: `chats/${str(payload, 'chatPublicId')}`,
-      };
+        `chats/${str(payload, 'chatPublicId')}`,
+        botUsername,
+      );
 
     case TEMPLATES.PARTICIPATION_ACCEPTED:
-      return {
-        text:
-          `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
+      return opened(
+        `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
           `از این پس می‌توانید اطلاعات تماس را در گفتگو رد و بدل کنید.`,
-        deepLink: `chats/${str(payload, 'chatPublicId')}`,
-      };
+        `chats/${str(payload, 'chatPublicId')}`,
+        botUsername,
+      );
 
     case TEMPLATES.PARTICIPATION_REJECTED:
       return {
@@ -101,22 +160,28 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
 
     /** D8: the promoted participant learns their status changed, immediately. */
     case TEMPLATES.WAITLIST_PROMOTED_GUEST:
-      return {
-        text:
-          `<b>یک جا باز شد</b>\n\n` +
+      return opened(
+        `<b>یک جا باز شد</b>\n\n` +
           `درخواست شما برای «${str(payload, 'eventTitle')}» از لیست انتظار خارج شد و ` +
           `اکنون در انتظار تصمیم میزبان است.`,
-        deepLink: `chats/${str(payload, 'chatPublicId')}`,
-      };
+        `chats/${str(payload, 'chatPublicId')}`,
+        botUsername,
+      );
 
-    /** D8: and so does the host, in the same domain event. */
-    case TEMPLATES.WAITLIST_PROMOTED_HOST:
+    /** D8: and so does the host, in the same domain event — decision buttons included. */
+    case TEMPLATES.WAITLIST_PROMOTED_HOST: {
+      const participant = id(payload, 'participantPublicId');
+      const deepLink = `participants/${participant ?? ''}`;
       return {
         text:
           `یک درخواست از لیست انتظار به «${str(payload, 'eventTitle')}» منتقل شد و ` +
           `منتظر تصمیم شماست.`,
-        deepLink: `participants/${str(payload, 'participantPublicId')}`,
+        deepLink,
+        ...(participant !== null
+          ? { keyboard: hostDecisionKeyboard(participant, botUsername, deepLink) }
+          : {}),
       };
+    }
 
     case TEMPLATES.EVENT_CANCELLED:
       return {
@@ -133,28 +198,50 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * product's central promise if it carried an identity (ADR-0009).
      */
     case TEMPLATES.CHAT_MESSAGE:
-      return {
-        text: `<b>${str(payload, 'senderAlias')}:</b>\n${str(payload, 'text')}`,
-        deepLink: `chats/${str(payload, 'chatPublicId')}`,
-      };
+      return relayed(
+        `<b>${str(payload, 'senderAlias')}:</b>\n${str(payload, 'text')}`,
+        payload,
+        botUsername,
+      );
+
+    /**
+     * The sender edited what they had said (D10).
+     *
+     * A **new message** rather than an edit of the delivered copy, and the marker
+     * says so: nothing populates `chat_message.telegram_message_ids`, so the
+     * product cannot find the recipient's copy to edit it. Delivering the corrected
+     * text late is honest; delivering nothing — which is what happened before this
+     * template existed — leaves the recipient acting on a sentence the sender has
+     * retracted.
+     */
+    case TEMPLATES.CHAT_MESSAGE_EDITED:
+      return relayed(
+        `<b>${str(payload, 'senderAlias')}</b> <i>(ویرایش شد)</i>:\n${str(payload, 'text')}`,
+        payload,
+        botUsername,
+      );
+
+    /** The sender deleted it. The replacement sentence comes from the domain (D10). */
+    case TEMPLATES.CHAT_MESSAGE_DELETED:
+      return relayed(`<i>${str(payload, 'replacementText')}</i>`, payload, botUsername);
 
     case TEMPLATES.REVIEW_WINDOW_OPEN:
-      return {
-        text:
-          `چطور بود؟\n\n` +
+      return opened(
+        `چطور بود؟\n\n` +
           `می‌توانید تا ${num(payload, 'daysLeft')} روز آینده بازخورد خود را درباره ` +
           `«${str(payload, 'eventTitle')}» ثبت کنید.`,
-        deepLink: `reviews/pending`,
-      };
+        `reviews/pending`,
+        botUsername,
+      );
 
     /** D7: both sides learn at the same instant, which is why one event fans out. */
     case TEMPLATES.REVIEW_REVEALED:
-      return {
-        text:
-          `<b>بازخوردها منتشر شد</b>\n\n` +
+      return opened(
+        `<b>بازخوردها منتشر شد</b>\n\n` +
           `بازخورد «${str(payload, 'eventTitle')}» اکنون قابل مشاهده است.`,
-        deepLink: `reviews/pending`,
-      };
+        `reviews/pending`,
+        botUsername,
+      );
 
     case TEMPLATES.NO_SHOW_RECORDED:
       return {
@@ -172,7 +259,59 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `پس از بررسی نتیجه را به شما اطلاع می‌دهیم.`,
       };
 
+    /**
+     * The answer to `/start` — the first sentence anybody reads about the product.
+     *
+     * It says what the anonymity actually is, because that is the promise people
+     * are being asked to rely on and «امن» on its own means nothing.
+     */
+    case TEMPLATES.BOT_WELCOME:
+      return opened(
+        `<b>به پایه‌تم خوش آمدید</b> 👋\n\n` +
+          `اینجا برای فعالیت‌های گروهی کوچک — کافه و بازی، پیاده‌روی و کوهنوردی — ` +
+          `همراه پیدا می‌کنید.\n\n` +
+          `تا زمانی که خودتان نخواهید، نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ ` +
+          `گفتگو با نام مستعار انجام می‌شود.`,
+        `home`,
+        botUsername,
+      );
+
+    /** `/start <code>`: the invite worked, and what it is worth is stated plainly. */
+    case TEMPLATES.BOT_REFERRAL_ACCEPTED:
+      return opened(
+        `<b>کد دعوت ثبت شد</b> ✅\n\n` +
+          `پس از شرکت در نخستین فعالیت، ${num(payload, 'pendingCoins')} سکه به حساب شما اضافه می‌شود.`,
+        `home`,
+        botUsername,
+      );
+
+    /** Whatever the bot has to say about a request it could not carry out. */
+    case TEMPLATES.BOT_NOTICE:
+      return { text: str(payload, 'text') };
+
     default:
       return null;
   }
+}
+
+/** A message whose only action is "open the app". */
+function opened(text: string, deepLink: string, botUsername: string): RenderedMessage {
+  return { text, deepLink, keyboard: openAppKeyboard(botUsername, deepLink) };
+}
+
+/**
+ * A message from inside a conversation.
+ *
+ * Carries the reply-and-close keyboard when the payload names a chat, which every
+ * relay payload does — the conditional is there so a malformed one degrades to a
+ * plain message rather than a button that closes nothing.
+ */
+function relayed(text: string, payload: Payload, botUsername: string): RenderedMessage {
+  const chat = id(payload, 'chatPublicId');
+  const deepLink = `chats/${chat ?? ''}`;
+  return {
+    text,
+    deepLink,
+    ...(chat !== null ? { keyboard: chatKeyboard(chat, botUsername, deepLink) } : {}),
+  };
 }

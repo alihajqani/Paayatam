@@ -1694,6 +1694,13 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  /// The bot's reply lookup: "which conversation is this a reply to?".
+  ///
+  /// A user replying to a relayed message in Telegram quotes a message id, and that
+  /// id is the only thing that says which of their conversations they meant. Scoped
+  /// by user, which is also the authorisation — an id from somebody else's
+  /// conversation finds nothing.
+  @@index([userId, telegramMessageId], map: "notification_delivered_idx")
   @@map("notification")
 }
 

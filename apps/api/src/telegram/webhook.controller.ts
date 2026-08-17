@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
+  Body,
   Controller,
   Headers,
   HttpCode,
@@ -11,7 +12,9 @@ import {
 } from '@nestjs/common';
 import type { Env } from '@payetam/config';
 import { ENV } from '@payetam/platform';
+import { parseUpdate } from '@payetam/telegram';
 import { Public } from '../auth/auth.guard';
+import { BotService } from './bot.service';
 
 /**
  * Telegram webhook receiver (ADR-0004).
@@ -35,24 +38,50 @@ import { Public } from '../auth/auth.guard';
 export class TelegramWebhookController {
   private readonly logger = new Logger(TelegramWebhookController.name);
 
-  constructor(@Inject(ENV) private readonly env: Env) {}
+  constructor(
+    @Inject(ENV) private readonly env: Env,
+    private readonly bot: BotService,
+  ) {}
 
   @Public()
   @Post('webhook/:secretPath')
   @HttpCode(HttpStatus.OK)
-  handleUpdate(
+  async handleUpdate(
     @Param('secretPath') secretPath: string,
     @Headers('x-telegram-bot-api-secret-token') secretToken: string | undefined,
-  ): { ok: true } {
+    @Body() body: unknown,
+  ): Promise<{ ok: true }> {
     if (!this.isAuthentic(secretPath, secretToken)) {
       // Logged without the offered values: they are attacker-controlled and one of
       // them is a near-miss of a real credential (T15).
       this.logger.warn('Rejected a webhook request that failed secret verification');
+      // **Returned before the body is parsed at all.** Criterion 16 is "rejected
+      // without processing", and that is a property of this ordering rather than of
+      // a comment: nothing below this line runs for a request with a wrong secret.
       return { ok: true };
     }
 
-    // Update dispatch to the grammY bot lands with the /start handler. Returning
-    // 200 already is correct: Telegram only needs to know we received it.
+    const update = parseUpdate(body);
+    // Null is ordinary: Telegram sends updates for things this product has no
+    // opinion about — a post in our own channel, a poll answer — and every one of
+    // them is ignored quietly.
+    if (update === null) return { ok: true };
+
+    /**
+     * Awaited, not fired and forgotten.
+     *
+     * The tempting alternative is to return immediately and let the handler run on,
+     * and it is wrong twice over: an update whose work is still in flight when the
+     * process is replaced is lost with no record anywhere, and Telegram's
+     * *sequential* delivery per chat is what keeps two quick messages in the order
+     * they were typed. `dispatch` is bounded — a few indexed queries, one
+     * transaction, one enqueue — and does no outbound Telegram call at all
+     * (ADR-0004: validate, persist, enqueue).
+     *
+     * It cannot throw: `dispatch` catches everything, precisely so this stays a 200
+     * whatever happens inside.
+     */
+    await this.bot.dispatch(update);
     return { ok: true };
   }
 

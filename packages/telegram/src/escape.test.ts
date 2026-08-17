@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { TEMPLATES, render } from './templates';
 
+/** Every button's link is built from it, so it is stated once and asserted on. */
+const BOT = 'payetam_test_bot';
+
 /**
  * T9's unit test: "bot HTML templates pass every user value through a
  * unit-tested `escapeHtml()`".
@@ -56,26 +59,47 @@ describe('no template emits injected markup', () => {
     eventTitle: HOSTILE,
     senderAlias: HOSTILE,
     text: HOSTILE,
+    replacementText: HOSTILE,
     participantPublicId: HOSTILE,
     chatPublicId: HOSTILE,
     daysLeft: 7,
+    pendingCoins: 5,
   };
+  const OWN_MARKUP = new Set(['<b>', '</b>', '<i>', '</i>']);
 
   it.each(Object.values(TEMPLATES))('%s', (templateKey) => {
-    const message = render(templateKey, FIELDS);
+    const message = render(templateKey, FIELDS, BOT);
 
     expect(message).not.toBeNull();
     expect(message?.text).not.toContain('<img');
-    // Every tag in the output is one the template itself wrote. `<b>` is the only
-    // markup any of them uses.
+    // Every tag in the output is one the template itself wrote.
     const tags = message?.text.match(/<[^>]*>/g) ?? [];
-    expect(tags.every((tag) => tag === '<b>' || tag === '</b>')).toBe(true);
+    expect(tags.every((tag) => OWN_MARKUP.has(tag))).toBe(true);
   });
 
   /** And the escaped form really is present where a value was interpolated. */
   it('escapes the value rather than dropping it', () => {
-    const message = render(TEMPLATES.PARTICIPATION_ACCEPTED, FIELDS);
+    const message = render(TEMPLATES.PARTICIPATION_ACCEPTED, FIELDS, BOT);
     expect(message?.text).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  /**
+   * The keyboard is markup too, and it is the half a text assertion cannot see.
+   *
+   * A hostile value where a public id belongs must not become a `callback_data`
+   * value or a URL. Both would be sent to Telegram verbatim — and a long one would
+   * make `encodeChatCallback` throw inside `render`, which fails the send job and
+   * then fails every retry of it.
+   */
+  it.each(Object.values(TEMPLATES))('%s builds no button from a hostile id', (templateKey) => {
+    const message = render(templateKey, FIELDS, BOT);
+
+    for (const button of (message?.keyboard ?? []).flat()) {
+      expect(button.callbackData ?? '').not.toContain(HOSTILE);
+      // The only links this package emits are to the bot itself.
+      expect(button.url ?? `https://t.me/${BOT}`).toMatch(/^https:\/\/t\.me\/payetam_test_bot/);
+      expect(button.url ?? '').not.toContain('<img');
+    }
   });
 });
 
@@ -87,7 +111,7 @@ describe('no template emits injected markup', () => {
  */
 describe('an unknown template', () => {
   it('renders nothing rather than throwing', () => {
-    expect(render('something.from.the.future', {})).toBeNull();
+    expect(render('something.from.the.future', {}, BOT)).toBeNull();
   });
 });
 
@@ -96,19 +120,81 @@ describe('an unknown template', () => {
  * product's central promise, so it gets its own assertion.
  */
 describe('the chat relay template', () => {
+  const CHAT = '11111111-2222-3333-4444-555555555555';
+
   it('carries the alias and the text, and nothing else', () => {
-    const message = render(TEMPLATES.CHAT_MESSAGE, {
-      senderAlias: 'میهمان ۱',
-      text: 'ساعت هفت جلوی کافه',
-      chatPublicId: 'abc',
-      // Fields a caller might wrongly include. The template reads neither.
-      telegramUserId: '573914882',
-      username: 'leaky_handle',
-    });
+    const message = render(
+      TEMPLATES.CHAT_MESSAGE,
+      {
+        senderAlias: 'میهمان ۱',
+        text: 'ساعت هفت جلوی کافه',
+        chatPublicId: CHAT,
+        // Fields a caller might wrongly include. The template reads neither.
+        telegramUserId: '573914882',
+        username: 'leaky_handle',
+      },
+      BOT,
+    );
 
     expect(message?.text).toContain('میهمان ۱');
     expect(message?.text).toContain('ساعت هفت جلوی کافه');
     expect(message?.text).not.toContain('573914882');
     expect(message?.text).not.toContain('leaky_handle');
+  });
+
+  /**
+   * The close button is where the plan's third callback comes from.
+   *
+   * `chat:close:<id>` has no other source, so a relay message with no keyboard
+   * would leave the handler for it unreachable — dead code that reads as a feature.
+   */
+  it('offers the close button, keyed on the chat', () => {
+    const message = render(TEMPLATES.CHAT_MESSAGE, { senderAlias: 'م', chatPublicId: CHAT }, BOT);
+    const buttons = (message?.keyboard ?? []).flat();
+
+    expect(buttons.map((button) => button.callbackData)).toContain(`chat:close:${CHAT}`);
+  });
+
+  /** An edit says so. Silence would leave the recipient acting on a retracted line. */
+  it('marks an edited message as edited', () => {
+    const message = render(
+      TEMPLATES.CHAT_MESSAGE_EDITED,
+      { senderAlias: 'میهمان ۱', text: 'ساعت هشت', chatPublicId: CHAT },
+      BOT,
+    );
+
+    expect(message?.text).toContain('ویرایش شد');
+    expect(message?.text).toContain('ساعت هشت');
+  });
+});
+
+/**
+ * The host's two buttons, which are the only source of `chat:accept|reject:<id>`.
+ */
+describe('the host decision keyboard', () => {
+  const PARTICIPANT = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  it.each([TEMPLATES.PARTICIPATION_REQUESTED_HOST, TEMPLATES.WAITLIST_PROMOTED_HOST])(
+    '%s offers accept and reject',
+    (templateKey) => {
+      const message = render(templateKey, { participantPublicId: PARTICIPANT }, BOT);
+      const data = (message?.keyboard ?? []).flat().map((button) => button.callbackData);
+
+      expect(data).toContain(`chat:accept:${PARTICIPANT}`);
+      expect(data).toContain(`chat:reject:${PARTICIPANT}`);
+    },
+  );
+
+  /** 64 bytes is Telegram's hard limit, and a UUID leaves it uncomfortably close. */
+  it("fits inside Telegram's callback_data limit", () => {
+    const message = render(
+      TEMPLATES.PARTICIPATION_REQUESTED_HOST,
+      { participantPublicId: PARTICIPANT },
+      BOT,
+    );
+
+    for (const button of (message?.keyboard ?? []).flat()) {
+      expect(Buffer.byteLength(button.callbackData ?? '', 'utf8')).toBeLessThanOrEqual(64);
+    }
   });
 });

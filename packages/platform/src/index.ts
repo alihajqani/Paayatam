@@ -9,6 +9,7 @@ export {
   DEFAULT_JOB_OPTIONS,
   JOBS,
   SCHEDULE,
+  jobId,
 } from './queue/queues';
 export type { QueueName, JobName } from './queue/queues';
 export { QueueService, QueueModule } from './queue/queue.module';

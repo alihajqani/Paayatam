@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Bot, GrammyError, HttpError } from 'grammy';
+import type { InlineKeyboardButton } from 'grammy/types';
 import { autoRetry } from '@grammyjs/auto-retry';
 import type { Env } from '@payetam/config';
 import { ENV } from '@payetam/platform';
+import type { InlineKeyboard } from '@payetam/telegram';
 
 /** What a send attempt produced, classified so the caller can decide what to do. */
 export type SendOutcome =
@@ -115,19 +117,68 @@ export class TelegramClient {
     }
   }
 
-  async send(chatId: bigint, text: string): Promise<SendOutcome> {
+  async send(chatId: bigint, text: string, keyboard?: InlineKeyboard): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 
     try {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
+        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
       });
       return { kind: 'SENT', messageId: message.message_id };
     } catch (error) {
       return classify(error);
     }
   }
+
+  /**
+   * Answer an inline-keyboard tap.
+   *
+   * **Failure is not worth retrying.** A callback query id is valid for a few
+   * seconds; by the time a backoff has elapsed, answering it can only fail again,
+   * and the *work* the tap asked for was committed before this was ever enqueued.
+   * The visible consequence of losing this is a spinner that times out on a
+   * decision that was in fact recorded — which is why the toast is a courtesy and
+   * the notification the other party receives is the real confirmation.
+   *
+   * Text is plain, not HTML: Telegram renders a callback answer as a toast and
+   * ignores `parse_mode` entirely. It is truncated to Telegram's 200-character
+   * limit rather than sent and refused.
+   */
+  async answerCallback(callbackQueryId: string, text: string): Promise<boolean> {
+    if (!this.bot) return false;
+
+    try {
+      await this.bot.api.answerCallbackQuery(callbackQueryId, { text: text.slice(0, 200) });
+      return true;
+    } catch (error) {
+      const outcome = classify(error);
+      this.logger.warn(
+        `Could not answer a callback query: ${outcome.kind === 'SENT' ? 'unknown' : outcome.reason}`,
+      );
+      return false;
+    }
+  }
+}
+
+/**
+ * Our keyboard shape → Telegram's.
+ *
+ * The translation lives here because this is the file that already knows the wire
+ * format; `packages/telegram` builds keyboards as plain data so the message
+ * catalogue stays testable with no bot instance and no token.
+ */
+function toReplyMarkup(keyboard: InlineKeyboard): { inline_keyboard: InlineKeyboardButton[][] } {
+  return {
+    inline_keyboard: keyboard.map((row) =>
+      row.map((button) =>
+        button.url !== undefined
+          ? { text: button.text, url: button.url }
+          : { text: button.text, callback_data: button.callbackData ?? '' },
+      ),
+    ),
+  };
 }
 
 /**

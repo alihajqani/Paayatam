@@ -1,17 +1,20 @@
 # Launch Readiness Report
 
-*Prepared at the end of M17, 2026-08-17, against commit `M17`.*
+*Prepared at the end of M17, 2026-08-17. **Revised 2026-08-17** after the bot's inbound
+half was built — see §7 for what changed and what the first version of this document
+got wrong.*
 
 The plan asks M17 to produce this document. Its job is to answer one question — **can
 this launch?** — and the answer is worth stating before the evidence:
 
-> **No, not yet. The backend is substantially complete and well tested. The two
-> frontends a launch needs do not exist.**
+> **No, not yet. The backend is substantially complete and well tested. The Mini App
+> a launch needs does not exist, and neither does the admin panel.**
 >
-> There is no screen on which a user can create an event, browse events, ask to join
-> one, hold a conversation, or leave a review. There is no screen on which a moderator
-> can act on a report. Every one of those flows works, is tested against a real
-> database, and is reachable only by an HTTP client.
+> A user can now start the bot, be greeted, hold a full anonymous conversation in
+> Telegram, and a host can accept or reject a request from a button. What no screen
+> exists for is *getting into* a conversation: browsing events, creating one, asking
+> to join, sharing contact details, leaving a review. There is no screen on which a
+> moderator can act on a report.
 
 That is not a surprise and it is not a regression. Ten milestones recorded "**No Mini
 App work**" as a deliberate deviation — M4, M5, M8, M9, M10 and M11 each say so in
@@ -29,23 +32,33 @@ missing.
 
 | Component | State | Evidence |
 | --- | --- | --- |
-| `packages/domain` | Complete for MVP | 1279+ tests, integration against real Postgres + Redis |
-| `packages/db` | Complete | 42 tables, 6 triggers, 9 migrations |
+| `packages/domain` | Complete for MVP | part of 1459 tests, integration against real Postgres + Redis |
+| `packages/db` | Complete | 42 tables, 6 triggers, 14 migrations |
 | `apps/api` | Complete for §6 **minus `Idempotency-Key`** | 65 endpoint probes in the response-leak scan |
 | `apps/worker` | Complete | outbox relay, 8 repeatable sweeps, DLQ |
-| Telegram bot | Complete | onboarding, notifications, anonymous chat, channel |
+| Telegram bot — outbound | Complete, and **delivering for the first time** | notifications, keyboards, channel posts, block detection — see §7 |
+| Telegram bot — inbound | Complete | `/start`, accept/reject/close buttons, text relay, edit propagation; 32 end-to-end tests |
 | `apps/miniapp` | **4 screens of ~15** | splash, terms, profile, home |
 | `apps/admin` | **Does not exist** | — |
 
 The Mini App has `SplashView`, `TermsView`, `ProfileView` and `HomeView`. That covers
 onboarding and nothing after it.
 
+**The shape of what is missing is now specific**, and it is worth stating precisely
+because it is easy to read the two "Complete" rows above as more than they are:
+everything *inside* an anonymous conversation is reachable through Telegram, and
+nothing that gets somebody *into* one is. A chat is created by a join; joining has no
+surface. So the relay works, is tested against a real database, and can be exercised
+end to end only if the join is made with an HTTP client.
+
 ---
 
 ## 2. The 32 acceptance criteria (§10)
 
 **Legend** — ✅ proven by an automated test · ⚠️ implemented, not covered by a test ·
-🚧 implemented in the backend, unreachable by a user · ❌ not built.
+🚧 implemented, no user surface reaches it · ❌ not built.
+
+Every remaining 🚧 is now *upstream* of a conversation rather than inside one.
 
 ### Successful flows
 
@@ -54,29 +67,29 @@ onboarding and nothing after it.
 | 1 | Onboarding grants coins **exactly once** | ✅ | `profile.service.int.test.ts` — 10 concurrent completions, one ledger row |
 | 2 | Clean event publishes, appears in discovery within 5 s | ✅ | `event.service.int.test.ts`, `discovery.service.int.test.ts`. Discovery is a synchronous Postgres read, so the 5 s budget is met by construction, not by tuning |
 | 3 | Persian search with ي/ك and half-space variants finds it | ✅ | `discovery.service.int.test.ts`, `persian-normalizer.test.ts` (ADR-0012) |
-| 4 | ≥5 messages, **zero identity leakage, verified against raw Telegram payloads** | ⚠️ 🚧 | `chat.service.int.test.ts` and the 65-endpoint leak scan prove the API and the domain. The clause "against raw Telegram payloads" is a **manual gate with two real accounts** and has not been performed — there is no chat screen to perform it on |
-| 5 | Acceptance opens the chat and increments `accepted_count` | ✅ 🚧 | `participation.service.int.test.ts`, `chat.service.int.test.ts` |
-| 6 | Contact sharing needs explicit confirmation and writes `consent` | ✅ 🚧 | `chat.service.int.test.ts` |
-| 7 | T+24 h reviews reveal simultaneously | ✅ 🚧 | `review.service.int.test.ts` (D7/D7a) |
+| 4 | ≥5 messages, **zero identity leakage, verified against raw Telegram payloads** | ⚠️ | `chat.service.int.test.ts`, the 65-endpoint leak scan, and `webhook.int.test.ts` — which sends real update bodies carrying a Telegram id, a username and a `text_mention`, then greps the stored row, the ciphertext and the outbox payload for all three. The clause "against raw Telegram payloads" is still a **manual gate with two real accounts**; it is now *performable* (see B4) and has not been performed |
+| 5 | Acceptance opens the chat and increments `accepted_count` | ✅ | `participation.service.int.test.ts`, `chat.service.int.test.ts`. The host's decision is now reachable from a button in the notification; the join that precedes it is not (see 9) |
+| 6 | Contact sharing needs explicit confirmation and writes `consent` | ✅ 🚧 | `chat.service.int.test.ts`. The confirmation step is deliberately a screen — a callback button would make «مطمئنید؟» a single tap |
+| 7 | T+24 h reviews reveal simultaneously | ✅ 🚧 | `review.service.int.test.ts` (D7/D7a). Submitting a review needs a form |
+| 8 | Blacklisted title never publishes; case records the blacklist version | ✅ | `moderation.service.int.test.ts` |
 
 ### Error flows
 
 | # | Criterion | State | Evidence |
 | --- | --- | --- | --- |
-| 8 | Blacklisted title never publishes; case records the blacklist version | ✅ | `moderation.service.int.test.ts` |
-| 9 | Full event returns `WAITLISTED` with a correct rank | ✅ 🚧 | `waitlist.int.test.ts` |
+| 9 | Full event returns `WAITLISTED` with a correct rank | ✅ 🚧 | `waitlist.int.test.ts`. **This is the one that blocks the rest**: joining has no surface, and a join is what creates a chat |
 | 10 | Under-18 refused with a clear Persian message | ✅ | `participation.service.int.test.ts` (`NOT_ELIGIBLE_AGE`), `profile.service.int.test.ts` |
-| 11 | Media in chat gets a Persian refusal and stores nothing | ✅ 🚧 | `chat.service.int.test.ts` |
-| 12 | Every error carries a stable `code` and a Persian `messageFa` | ✅ | `errors.test.ts` asserts the mapping is **total** over `ErrorCode` |
+| 11 | Media in chat gets a Persian refusal and stores nothing | ✅ | `chat.service.int.test.ts` and `webhook.int.test.ts` — a real photo update is answered with «فقط ارسال متن امکان‌پذیر است» and stores no message |
+| 12 | Every error carries a stable `code` and a Persian `messageFa` | ✅ | `errors.test.ts` asserts the mapping is **total** over `ErrorCode`. The bot's refusals read from the same catalogue rather than a second copy of it |
 
 ### Unauthorized
 
 | # | Criterion | State | Evidence |
 | --- | --- | --- | --- |
 | 13 | Tampered/expired/replayed `initData` ⇒ 401; A cannot read B's data | ⚠️ | **Tampered and expired: ✅** — `init-data.validator.test.ts` covers a tampered hash, a foreign bot token, a modified user id, an unsigned added field, and both freshness bounds. **Replayed: not asserted.** The guard is *exercised* by the leak scan (which must re-sign `initData` per call because each hash is claimed once) but nothing asserts the refusal. **A cannot read B's data: ✅** — the leak scan authenticates as a separate clean account. See §4 |
-| 14 | A non-host cannot accept/reject/cancel/edit | ✅ | `participation.service.int.test.ts`, `event.service.int.test.ts` (T3.2: checks in the service, not the controller) |
+| 14 | A non-host cannot accept/reject/cancel/edit | ✅ | `participation.service.int.test.ts`, `event.service.int.test.ts` (T3.2: checks in the service, not the controller) — and `webhook.int.test.ts` asserts the same through a forged inline button, which is the surface where the id is client-supplied |
 | 15 | The RBAC matrix matches exactly | ✅ | `rbac-matrix.int.test.ts` — asserted against the same catalogue `seed-rbac` writes |
-| 16 | A wrong webhook secret is rejected without processing | ⚠️ | Implemented in `webhook.controller.ts` with **constant-time** comparison of both the path and the token. **No test.** See §4 |
+| 16 | A wrong webhook secret is rejected without processing | ✅ | `webhook.int.test.ts` — five wrong-secret shapes, including a prefix of the real token and a token one character out. Each must answer **200 with an identical body** *and* leave no user row, which is the only way "without processing" is observable from outside |
 
 ### Duplicates
 
@@ -94,22 +107,25 @@ onboarding and nothing after it.
 | --- | --- | --- | --- |
 | 22 | 20 concurrent joins on capacity=5 ⇒ exactly 5/15, **50×**, zero failures | ✅ | `participation.service.int.test.ts`, 50 iterations, fresh event each |
 | 23 | Two concurrent accepts for the last seat ⇒ one `CAPACITY_EXCEEDED` | ✅ | `participation.service.int.test.ts` |
-| 24 | Two concurrent cancellations ⇒ two **distinct** promotions | ✅ | `waitlist.int.test.ts` — **raised from 25 to 50 iterations in M17**; §14 names this test and that number |
-| 25 | Concurrent spends of the last coins ⇒ exactly one succeeds | ✅ | `coin.service.int.test.ts` — **raised from 1 run to 50 iterations in M17**. A single pass through a race is a coin flip that landed the way you wanted |
-| 26 | Concurrent profile completions ⇒ exactly one reward | ✅ | `profile.service.int.test.ts` |
+| 24 | Two concurrent cancellations ⇒ two **distinct** promotions | ✅ | `waitlist.int.test.ts` — raised from 25 to 50 iterations in M17; §14 names this test and that number |
+| 25 | Concurrent spends of the last coins ⇒ exactly one succeeds | ✅ | `coin.service.int.test.ts` — raised from 1 run to 50 iterations in M17. A single pass through a race is a coin flip that landed the way you wanted |
+| 26 | Concurrent profile completions ⇒ exactly one reward | ✅ | `profile.service.int.test.ts`. `webhook.int.test.ts` adds the equivalent for `/start`: ten simultaneous taps, one user |
 
 ### Recovery
 
 | # | Criterion | State | Evidence |
 | --- | --- | --- | --- |
-| 27 | Killing the worker mid-delivery and restarting delivers exactly once | ⚠️ | The mechanism is proven — `notification.dedupe_key` UNIQUE plus a deterministic BullMQ job id (ADR-0005's two layers), both tested in `relay.int.test.ts`. **Killing an actual process is not tested**; the test simulates the interruption rather than causing it |
-| 28 | A crash between commit and enqueue still delivers via the outbox | ✅ | `relay.int.test.ts` — the backstop sweep drains rows the event-driven path never saw |
-| 29 | 429 retried per `retry_after`; 403 stops | ⚠️ | 429 is handled by grammY's `auto-retry`, which reads `retry_after`; 403 (bot blocked) is classified and marked undeliverable. `classify.test.ts` covers the classification. **The retry timing itself is the plugin's, and is not asserted here** |
+| 27 | Killing the worker mid-delivery and restarting delivers exactly once | ⚠️ | Both of ADR-0005's layers are now tested where they actually live: `notification.dedupe_key` in `relay.int.test.ts`, and the deterministic BullMQ job id in `queue.int.test.ts` **against real Redis** — which it was not before, and which is how a job id nothing could ever add went four milestones unnoticed (§7). **Killing an actual process is still not tested**; the test simulates the interruption rather than causing it |
+| 28 | A crash between commit and enqueue still delivers via the outbox | ✅ | `relay.int.test.ts` — the backstop sweep drains rows the event-driven path never saw. Note that until §7's fix the word "delivers" was false for *every* path, not only this one: the outbox → notification step worked and the notification → queue step threw |
+| 29 | 429 retried per `retry_after`; 403 stops | ⚠️ | 429 is handled by grammY's `auto-retry`, which reads `retry_after`; 403 (bot blocked) is classified and marked undeliverable. `classify.test.ts` covers the classification, and `webhook.int.test.ts` now covers the *other* direction — `my_chat_member` marking and clearing `bot_blocked`. **The retry timing itself is the plugin's, and is not asserted here** |
 | 30 | Exhausted retries are visible and re-drivable | ✅ | `job-failure.int.test.ts` — the row survives a Redis flush, which is the point |
 | 31 | A restore from last night's backup reproduces a working system, **timed and documented** | ⚠️ | Performed and documented: `docs/runbook-backup-restore.md`, **2 s** for a 144 kB development dump, 42 tables / 6 triggers / 4 extensions matching the live database. **At development scale only** — the runbook says so and names when to re-measure |
-| 32 | Every job produces the same end state when run twice | ✅ | Idempotency asserted per sweep across `lifecycle`, `waitlist`, `review`, `retention` and `relay` |
+| 32 | Every job produces the same end state when run twice | ✅ | Idempotency asserted per sweep across `lifecycle`, `waitlist`, `review`, `retention` and `relay`, and now for the enqueue itself: adding the same job id twice produces one job (`queue.int.test.ts`) |
 
-**Tally** — 22 ✅ · 5 ⚠️ · 1 ❌ · with **8 of the 22 unreachable by a user** (🚧).
+**Tally** — 26 ✅ · 5 ⚠️ · 1 ❌ · with **3 of the 26 unreachable by a user** (🚧), all of
+them upstream of a conversation. *(The first version of this document tallied "22 ✅ ·
+5 ⚠️ · 1 ❌", which adds to 28 rather than 32. The arithmetic was wrong; the marks in
+the table were not.)*
 
 ---
 
@@ -118,15 +134,21 @@ onboarding and nothing after it.
 ### B1 — No Mini App beyond onboarding · **blocks launch**
 
 A user can start the bot, accept the terms and complete a profile. Then the product
-stops. Creating an event, browsing, joining, chatting, accepting and reviewing are all
-implemented and all unreachable.
+stops. Creating an event, browsing, joining, sharing contact details and reviewing are
+all implemented and all unreachable.
 
-Roughly eleven screens are missing: event authoring, the discovery list, event detail,
-join/waitlist state, the chat thread, contact-share confirmation, the participant list
-with accept/reject, cancellation dialogs (the dry-run endpoints exist precisely to
-back them), the review form, coins and trust, and the invite screen.
+The bot narrows this but does not close it. **A conversation is now a real Telegram
+conversation** — messages, edits, the host's decision, closing — and that is the
+feature the product is built around. What has no surface is everything that leads to
+one, and it is the join in particular: no join, no chat, so the whole conversational
+half of the product is gated behind a screen that does not exist.
 
-*Estimate: comparable to two or three backend milestones. This is the launch.*
+Roughly nine screens are missing: event authoring, the discovery list, event detail,
+join/waitlist state, the participant list, cancellation dialogs (the dry-run endpoints
+exist precisely to back them), contact-share confirmation, the review form, and coins
+/ trust / invite.
+
+*Estimate: comparable to two backend milestones. This is the launch.*
 
 ### B2 — No admin panel · **blocks launch**
 
@@ -158,31 +180,50 @@ window, not a thing.
 response, plus an interceptor. It is a day, and it should be done before the coin sinks
 are reachable.*
 
-### B4 — The manual privacy gate has not been run · **blocks launch**
+### B4 — The manual privacy gate has not been run · **blocks launch, and is now runnable**
 
 §14 makes it the M8 release gate: "a manual two-real-accounts chat test with raw
-payload inspection". The five automated layers all pass, including the 65-endpoint leak
-scan. Layer 5 cannot see what layer 5 does not serialise — the *bot's* outbound
-payloads are constructed in the worker, and the assertion "zero identity leakage
-verified against raw Telegram payloads" is about what Telegram actually receives.
+payload inspection". This is the item whose status changed most.
 
-It cannot be run until B1 exists.
+Before the bot's inbound half, the gate was **impossible**: there was no surface on
+which two people could hold a conversation at all, so the previous version of this
+document recorded "it cannot be run until B1 exists". It can be run now. Two real
+Telegram accounts, a bot token, `setWebhook`, and one HTTP call each to create the
+join — the conversation itself, the aliases, the masking, the edits and the host's
+accept are all real Telegram traffic that can be captured and inspected.
+
+**It should be run before anything else on this list**, and the reason is §7's finding:
+the automated layers agreed with each other for four milestones while the feature they
+protect delivered empty messages. A live payload capture is the one check that has no
+shared assumption with the rest.
 
 ---
 
 ## 4. Gaps that are not blockers, and are real
 
-- **Criterion 16 has no test.** The webhook secret check is implemented correctly, with
-  constant-time comparison of both the path and the token, and nothing asserts it. A
-  refactor that replaced it with `===` would pass every test in the repository. Worth a
-  test before launch; not a blocker, because the code is right today.
-- **The replay refusal has no test either**, and it is the same shape of gap on the same
-  kind of control. The replay guard works — the leak scan would fail without it, because
-  it has to sign fresh `initData` for every call — but "works, and the suite would notice
-  if it stopped" is weaker than an assertion, and it is being relied on as *the* defence
-  against a captured `initData` being reused. Both of these are an afternoon.
-- **Criterion 27 simulates the kill rather than performing it.** Both idempotency layers
-  are tested. Nothing spawns a worker, kills it mid-delivery and restarts it.
+- **The replay refusal has no test.** The guard works — the leak scan would fail
+  without it, because it has to sign fresh `initData` for every call — but "works, and
+  the suite would notice if it stopped" is weaker than an assertion, and it is being
+  relied on as *the* defence against a captured `initData` being reused. An afternoon.
+- **An edit is delivered as a new message, not as an edit of the recipient's copy.**
+  `chat_message.telegram_message_ids` exists for exactly this and is written by
+  nothing, so the product cannot find the delivered copy to edit. The corrected text
+  does arrive, marked «ویرایش شد».
+- **Delete propagation has no trigger and cannot be reached.** The Bot API sends **no
+  update** when a user deletes a message in a private chat, so D10's delete half can
+  only ever be driven from a Mini App screen — and `POST /chats/:id/messages` has no
+  delete sibling. The domain method, its outbox event and its template are built and
+  tested; nothing calls them.
+- **No integration test drives a live BullMQ *worker*.** The producer side is covered
+  now (`queue.int.test.ts`), which is what §7's bug needed, and `WorkerFactory` — the
+  consumer, its retry mirroring and its DLQ write — is still exercised by nothing. M13
+  named this gap; half of it is closed.
+- **A relayed message is deduped by a read, not by an index.** A redelivered Telegram
+  update finds the message it already stored, which covers the sequential retries
+  Telegram actually produces; two *simultaneous* deliveries of one update would still
+  relay twice. Making the partial index UNIQUE cannot be expressed in `schema.prisma`.
+- **Criterion 27 simulates the kill rather than performing it.** Both idempotency
+  layers are tested. Nothing spawns a worker, kills it mid-delivery and restarts it.
 - **No upload endpoint and no `media` table.** M15 shipped the T13 validator with
   nothing behind it. Nothing in MVP uploads, so this is only a gap against a future.
 - **`audit_log` and `chat_message` are unpartitioned** by decision (M15), with partial
@@ -225,15 +266,121 @@ It cannot be run until B1 exists.
 
 ---
 
-## 6. Recommendation
+## 6. What the bot's inbound half delivered
 
-Do not launch. Build the Mini App and the admin panel, add `Idempotency-Key` before the
-coin sinks are reachable, then run the manual privacy gate and re-issue this report.
+Built after M17 and recorded in the plan as *M13-inbound*. §6's five surfaces, none of
+which existed:
 
-The backend is in good shape and that is worth saying plainly: 1300+ tests, the hard
-concurrency invariants proven at 50 iterations against real row locks, both ledgers
-reconciled over 1000 random operations, five layers of identity separation with an
-automated scan over every endpoint, and a restore that somebody actually ran. None of
-that is the thing standing between this repository and users.
+- **`/start [payload]`** — creates exactly one user under ten simultaneous taps, greets
+  in Persian with a button into the Mini App, and claims a referral code from the
+  deep-link payload. A stale or mistyped code still greets somebody: an error as the
+  first thing a new user reads loses the user over a link they did not write.
+- **`chat:accept|reject|close:<id>`** — the host decides from the notification itself,
+  which for a request that expires in 24 hours (D9) is the difference between an
+  answered request and an expired one. The button carries no authority: the id is
+  client-supplied, so a forged tap names a resource somebody does not own and
+  `ParticipationService` refuses it (asserted).
+- **The `message:text` relay** — resolved to a conversation by reply-first, then by
+  "exactly one live chat", and otherwise **refused with an explanation**. Delivering a
+  private message to the wrong stranger is the worst outcome available to this path, so
+  it is the one case that is not guessed.
+- **`edited_message` propagation** — the stored message follows the sender's edit, and
+  the recipient is told.
+- **`my_chat_member`** — a block marks the account and stops the sender burning the
+  rate budget on somebody who is gone; unblocking clears it. A membership change in our
+  own channel is ignored rather than read as a block.
 
-**The next milestone is the frontend, and §9 does not have one. That is the finding.**
+Plus the four things found on the way, which matter more than the surfaces:
+
+1. **Not one notification had ever been enqueued.** See §7 — this is the larger of the
+   two findings.
+2. **The relayed chat message was being delivered with an empty body.** Also §7.
+3. **`chat.message_edited` and `chat.message_deleted` reached the outbox and stopped
+   there** — `planNotifications` matched neither, and `fanout.test.ts` asserted that as
+   intended behaviour.
+4. **The CI integration job could not boot the real application** — `CHAT_ENCRYPTION_KEY`
+   and the JWT secrets come from `.env`, which CI does not have, so the response-leak
+   scan had been failing at construction rather than scanning anything.
+
+---
+
+## 7. What the first version of this report got wrong
+
+Worth recording plainly, because the error and the two bugs it hid are the same shape:
+**a status assembled from what the code contains rather than from what a user receives.**
+
+### The claim
+
+§1 said "Telegram bot | Complete | onboarding, notifications, anonymous chat, channel".
+Only the outbound half existed. The bot could send; it could not receive. `/start` did
+nothing, the accept and reject buttons did not exist, and a message typed to the bot was
+discarded by a webhook whose handler read:
+
+> `// Update dispatch to the grammY bot lands with the /start handler.`
+
+M13's own deviation note said so in as many words — "**None of that exists**" — and the
+report still carried "Complete".
+
+### The first bug: nothing was ever enqueued
+
+BullMQ composes its Redis keys as `prefix:queue:jobId`, and version 6 refuses a custom
+job id containing a colon: `Custom Id cannot contain :`. Every producer in the
+repository built its id as `notify:${notificationId}`.
+
+So `queue.add` threw — and it threw *after* `relay.drain()` had already marked the
+outbox row processed. The row looked delivered, the notification sat `PENDING` with
+**zero attempts**, and the backstop sweep had nothing left to recover. **Every
+acceptance, every rejection, every relayed message, every review reminder: queued in
+Postgres, never handed to a queue, never sent.** The outbound half of the bot — the row
+this report called "Complete" — had never delivered a single message.
+
+Nothing caught it because nothing drove a real queue. M13 said so in its deviations and
+the note was left standing: *"No integration test drives a live BullMQ worker."*
+Everything either side of the queue was tested; the queue was where it broke.
+
+**It was found by starting the API, sending one `/start`, and asking why nothing
+arrived.**
+
+### The second bug: the messages that did get through said nothing
+
+M8 deliberately wrote the chat outbox payload with ids and an alias and no message text,
+so that a plain jsonb column would never hold a sentence somebody wrote, and left a
+note: *"M13's relay decrypts the row the payload points at."* Nothing did.
+`render(CHAT_MESSAGE)` interpolated an absent `text`, so every relayed message would
+have gone out as «میهمان ۱:» followed by nothing — had any of them gone out at all.
+
+### The lesson
+
+Five layers of leak protection, a 65-endpoint scan and 1459 tests all passed, because
+every one of them asserts what must *not* be in a message and none of them asserted that
+a message arrives and says something. Both bugs are fixed and covered now — one by
+`jobId()` and a real-Redis test, the other by decrypting at delivery — but the general
+point is the one §14 already made and this document under-weighted: **the manual gate is
+not a formality.** Two real accounts and one conversation would have found both in an
+afternoon, years before any user did.
+
+---
+
+## 8. Recommendation
+
+1. **Run the manual privacy gate now** (B4). It is possible for the first time, it is
+   cheap, and §7 is the argument for doing it before anything else.
+2. Build the Mini App (B1), starting with discovery → event detail → **join**: that one
+   path is what makes the conversational half of the product reachable at all.
+3. Add `Idempotency-Key` (B3) before the coin sinks are reachable.
+4. Build the admin panel (B2).
+5. Re-issue this report.
+
+Do not launch. The backend is in good shape and that is worth saying plainly: 1459
+tests, the hard concurrency invariants proven at 50 iterations against real row locks,
+both ledgers reconciled over 1000 random operations, five layers of identity separation
+with an automated scan over every endpoint, a restore somebody actually ran, and a bot
+that now answers. None of that is the thing standing between this repository and users.
+
+It is worth saying the other half too, because §7 earns it: **a suite this size proved
+nothing about whether a message reaches a person.** Two of the four things found while
+building the bot were total failures of delivery sitting behind green tests. Whatever is
+built next, the first check should be somebody receiving something.
+
+**The next milestone is the frontend, and §9 does not have one. That is still the
+finding.**

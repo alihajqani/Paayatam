@@ -116,6 +116,37 @@ export class NotificationService {
     };
   }
 
+  /**
+   * "Which conversation is this a reply to?"
+   *
+   * The bot's relay needs it. A user with several live chats types into one Telegram
+   * conversation, so a plain message names no chat — but a *reply* does, implicitly:
+   * it quotes a message this product sent, and `markSent` recorded what Telegram
+   * called that message. Looking the id up in the recipient's own rows turns a reply
+   * into a chat id with no state to keep and nothing to trust from the client.
+   *
+   * Scoped to `userId`, which is the authorisation: an id from somebody else's
+   * conversation finds nothing here, so a forged `reply_to_message` cannot address a
+   * chat the sender is not in. Membership is still checked by `ChatService.send`.
+   *
+   * Returns null for a reply to something that is not a relayed message — a
+   * welcome, a review reminder, or a message the user wrote themselves.
+   */
+  async chatOfDeliveredMessage(userId: string, telegramMessageId: number): Promise<string | null> {
+    const row = await this.prisma.notification.findFirst({
+      where: { userId, telegramMessageId },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    if (!row) return null;
+
+    const payload = row.payload;
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+
+    const chatPublicId = (payload as Record<string, unknown>)['chatPublicId'];
+    return typeof chatPublicId === 'string' && chatPublicId !== '' ? chatPublicId : null;
+  }
+
   async markSent(id: string, telegramMessageId: number | null): Promise<void> {
     await this.prisma.notification.update({
       where: { id },

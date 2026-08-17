@@ -12,6 +12,7 @@ import {
   ReviewsModule,
   IdentityModule,
   ModerationModule,
+  NotificationsModule,
   OutboxModule,
   ParticipationModule,
   PrivacyModule,
@@ -44,6 +45,7 @@ import { RateLimitGuard } from './common/rate-limit.guard';
 import { ReportsController } from './moderation/reports.controller';
 import { OnboardingController } from './onboarding/onboarding.controller';
 import { ParticipationController } from './participation/participation.controller';
+import { BotService } from './telegram/bot.service';
 import { TelegramWebhookController } from './telegram/webhook.controller';
 
 /**
@@ -73,6 +75,11 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     DiscoveryModule,
     ParticipationModule,
     ChatModule,
+    // For `NotificationService` alone, and for one consumer: the bot's replies are
+    // notification rows so they are deduped, rendered and rate-limited like every
+    // other message. The relay it also provides is the worker's and is not driven
+    // from here — the API enqueues and never processes (ADR-0005).
+    NotificationsModule,
     PrivacyModule,
     HealthModule,
     // The registry itself is @Global(); this is the API's scrape endpoint and the
@@ -103,6 +110,10 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
   ],
   providers: [
     AuthService,
+    // The bot's inbound handler. A provider rather than a module of its own: it is
+    // an adapter over services every one of these modules already exports, and a
+    // module wrapping one class would be indirection with nothing inside it.
+    BotService,
     AdminAuthGuard,
     { provide: APP_GUARD, useClass: AuthGuard },
     // Ordered after authentication, so the bucket is keyed on the user when there
