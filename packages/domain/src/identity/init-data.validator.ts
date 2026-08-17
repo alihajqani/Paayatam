@@ -45,14 +45,23 @@ export interface ParsedInitData {
 export const DEFAULT_MAX_AGE_SECONDS = 300;
 
 /**
- * Fields excluded from the data-check-string.
+ * Fields excluded from the data-check-string: `hash`, and nothing else.
  *
- * `hash` is the value being verified. `signature` carries Telegram's newer Ed25519
- * third-party signature and is not part of the HMAC payload — including it makes
- * every check fail on clients that send it, which presents as "login works on some
- * devices and not others".
+ * Telegram specifies **two** validation schemes, and they exclude different fields.
+ * Mixing them up is what this constant used to do:
+ *
+ *  - **HMAC-SHA256 keyed by the bot token** — what this class performs. The
+ *    data-check-string is *every* received field except `hash`. `signature` is a
+ *    received field, so it is part of the signed payload.
+ *  - **Ed25519 against Telegram's public key** — third-party validation, which this
+ *    product does not perform. That scheme excludes both `hash` and `signature`.
+ *
+ * Excluding `signature` here applied the second scheme's rule to the first. Every
+ * client new enough to send `signature` — which is now all of them — failed with
+ * INVALID_INIT_DATA, while the unit tests passed because they signed their payloads
+ * with the same wrong exclusion.
  */
-const EXCLUDED_FROM_CHECK_STRING = new Set(['hash', 'signature']);
+const EXCLUDED_FROM_CHECK_STRING = new Set(['hash']);
 
 export class InitDataValidator {
   constructor(

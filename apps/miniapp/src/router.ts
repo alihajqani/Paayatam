@@ -40,7 +40,7 @@ router.beforeEach((to: RouteLocationNormalized) => {
   const session = useSessionStore();
   if (!session.ready) return '/';
 
-  const expected = stepFor(session.me?.onboardingState);
+  const expected = stepFor(session.onboardingState);
   return to.path === expected ? true : expected;
 });
 

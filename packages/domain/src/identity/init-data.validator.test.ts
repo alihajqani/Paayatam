@@ -79,13 +79,15 @@ describe('InitDataValidator — acceptance', () => {
     expect(parsed.startParam).toBe('ref_ABC123');
   });
 
-  it('ignores the signature field when building the check string', () => {
-    // Newer clients send an Ed25519 `signature`. It is not part of the HMAC payload;
-    // including it would make login fail on exactly those clients and work
-    // elsewhere — the worst kind of bug to diagnose in the field.
-    const signed = signInitData(validFields());
-    const withSignature = `${signed}&signature=abc123def456`;
-    expect(() => makeValidator().validate(withSignature)).not.toThrow();
+  it('includes the signature field in the check string', () => {
+    // Telegram's HMAC scheme excludes `hash` and nothing else, so a `signature` sent
+    // by the client is part of the signed payload. The Ed25519 third-party scheme is
+    // the one that excludes `signature`, and confusing the two rejected every client
+    // new enough to send the field — which is all of them.
+    const parsed = makeValidator().validate(
+      signInitData(validFields({ signature: 'abc123def456' })),
+    );
+    expect(parsed.user.telegramUserId).toBe(279058397n);
   });
 });
 
@@ -118,6 +120,17 @@ describe('InitDataValidator — forgery and tampering', () => {
     const signed = signInitData(validFields());
     expectCode(
       () => makeValidator().validate(`${signed}&is_admin=true`),
+      ErrorCode.INVALID_INIT_DATA,
+    );
+  });
+
+  it('rejects a signature appended after signing', () => {
+    // The mirror of the acceptance test above, and the guard against re-excluding
+    // `signature` from the check string: an unsigned `signature` is tampering like
+    // any other unsigned field, not a special case to skip over.
+    const signed = signInitData(validFields());
+    expectCode(
+      () => makeValidator().validate(`${signed}&signature=abc123def456`),
       ErrorCode.INVALID_INIT_DATA,
     );
   });
