@@ -8,7 +8,9 @@
     { "path": "../../packages/config" },
     { "path": "../../packages/shared" },
     { "path": "../../packages/db" },
-    { "path": "../../packages/platform" }
+    { "path": "../../packages/platform" },
+    { "path": "../../packages/telegram" },
+    { "path": "../../packages/domain" }
   ],
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]

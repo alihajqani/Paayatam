@@ -228,3 +228,11 @@ export type { CaseSummary } from './adminaccess/admin-operations.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';
+
+export { NotificationService } from './notifications/notification.service';
+export type { NotificationToSend, QueuedNotification } from './notifications/notification.service';
+export { planNotifications } from './notifications/fanout';
+export type { PlannedNotification } from './notifications/fanout';
+export { NotificationsModule } from './notifications/notifications.module';
+export { OutboxRelayService } from './outbox/relay.service';
+export type { RelayResult } from './outbox/relay.service';

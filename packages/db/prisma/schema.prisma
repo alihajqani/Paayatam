@@ -86,6 +86,7 @@ model User {
   referralsMade   Referral[]         @relation("ReferralsMade")
   reviewsWritten  Review[]           @relation("ReviewsWritten")
   reportsFiled    Report[]           @relation("ReportsFiled")
+  notifications   Notification[]
   reviewsReceived Review[]           @relation("ReviewsReceived")
   referralReceived Referral?         @relation("ReferralReceived")
 
@@ -1633,4 +1634,95 @@ model ChatUnsealGrant {
   @@index([adminUserId, grantedAt])
   @@index([expiresAt])
   @@map("chat_unseal_grant")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notifications and the dead-letter queue (ADR-0005)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum NotificationChannel {
+  TELEGRAM
+
+  @@map("notification_channel")
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  /// The bot is blocked, so there is nobody to deliver to. Terminal, and not a
+  /// failure to retry — retrying a block burns the global rate budget that other
+  /// users' notifications need (ADR-0005).
+  UNDELIVERABLE
+
+  @@map("notification_status")
+}
+
+/// One notification, and the record that it happened exactly once (ADR-0005).
+///
+/// `dedupe_key` is the **second** of the two independent idempotency layers. The
+/// first is BullMQ's deterministic `jobId`; this one is a UNIQUE index in
+/// Postgres, so even a flushed, replayed or migrated queue cannot produce a second
+/// message. Either layer alone would cover most failure modes. Both are cheap and
+/// they fail independently.
+model Notification {
+  id     String @id @default(uuid(7))
+  userId String @map("user_id")
+
+  channel     NotificationChannel @default(TELEGRAM)
+  /// Which Persian template renders it. The text lives in `packages/telegram`, so
+  /// changing wording is a deploy rather than a migration.
+  templateKey String              @map("template_key")
+  /// The facts the template interpolates. Public ids only — this is rendered into
+  /// a message body, so a Telegram identifier reaching here would reach a user
+  /// (ADR-0009, invariant 7).
+  payload     Json
+
+  /// Exactly-once, in the database.
+  dedupeKey String             @unique @map("dedupe_key")
+  status    NotificationStatus @default(PENDING)
+  attempts  Int                @default(0)
+  lastError String?            @map("last_error")
+  /// What Telegram called the message, so an edit or a delete can find it later.
+  telegramMessageId Int?       @map("telegram_message_id")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("notification")
+}
+
+/// The dead-letter queue, mirrored into Postgres (ADR-0005).
+///
+/// A job that exhausts its retries becomes a **row** rather than a log line: it is
+/// inspectable in the admin panel, it survives a Redis flush, and it can be
+/// re-driven. "Every failed job is a durable, inspectable row" is the property,
+/// and a log line is none of those things.
+model JobFailure {
+  id String @id @default(uuid(7))
+
+  queue   String
+  jobName String @map("job_name")
+  /// BullMQ's job id, which is deterministic — so a re-drive collides with the
+  /// original rather than producing a second delivery.
+  jobId   String @map("job_id")
+  payload Json
+  error   String
+  attempts Int   @default(0)
+
+  /// Set when somebody re-drove it, so the queue does not re-run the same failure
+  /// every time an admin opens the page.
+  redrivenAt DateTime? @map("redriven_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// One row per failed job, so a re-driven job that fails again updates rather
+  /// than accumulating.
+  @@unique([queue, jobId])
+  @@index([createdAt])
+  @@index([redrivenAt])
+  @@map("job_failure")
 }

@@ -4,13 +4,7 @@
     "rootDir": "./src",
     "outDir": "./dist"
   },
-  "references": [
-    { "path": "../config" },
-    { "path": "../shared" },
-    { "path": "../telegram" },
-    { "path": "../platform" },
-    { "path": "../db" }
-  ],
+  "references": [{ "path": "../shared" }],
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
 }

@@ -1,0 +1,178 @@
+import { describe, expect, it } from 'vitest';
+import { TEMPLATES } from '@payetam/telegram';
+import { planNotifications } from './fanout';
+
+/**
+ * Who gets told what (ADR-0005, M13).
+ *
+ * A pure function with a table, because this is the decision most likely to be
+ * wrong in a way nobody notices: **a missing recipient produces silence**, and
+ * silence looks like nothing having happened rather than like a bug. The
+ * integration test proves the relay writes what this plans; this proves the plan
+ * is right.
+ */
+
+const HOST = '11111111-1111-4111-8111-111111111111';
+const GUEST = '22222222-2222-4222-8222-222222222222';
+
+function row(eventType: string, payload: Record<string, unknown>) {
+  return { id: 'outbox-1', aggregateId: 'agg-1', eventType, payload };
+}
+
+describe('single-recipient events', () => {
+  it.each([
+    ['participation.accepted', TEMPLATES.PARTICIPATION_ACCEPTED],
+    ['participation.rejected', TEMPLATES.PARTICIPATION_REJECTED],
+    ['participation.no_show', TEMPLATES.NO_SHOW_RECORDED],
+  ])('%s tells the participant', (eventType, templateKey) => {
+    const planned = planNotifications(row(eventType, { participantUserPublicId: GUEST }));
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]).toMatchObject({ userPublicId: GUEST, templateKey });
+  });
+
+  /** M12: the owner, and never the reporters. */
+  it('moderation.content_hidden tells only the owner', () => {
+    const planned = planNotifications(
+      row('moderation.content_hidden', {
+        ownerUserPublicId: HOST,
+        reportCount: 3,
+      }),
+    );
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.userPublicId).toBe(HOST);
+  });
+});
+
+/**
+ * D8 and D7 both require **two** people told from **one** row, which is what makes
+ * "a crash cannot deliver one and lose the other" true by construction.
+ */
+describe('two-recipient events', () => {
+  it('waitlist.promoted tells the promoted participant and the host (D8)', () => {
+    const planned = planNotifications(
+      row('waitlist.promoted', { promotedUserPublicId: GUEST, hostUserPublicId: HOST }),
+    );
+
+    expect(planned).toHaveLength(2);
+    expect(planned.map((plan) => plan.templateKey).sort()).toEqual(
+      [TEMPLATES.WAITLIST_PROMOTED_GUEST, TEMPLATES.WAITLIST_PROMOTED_HOST].sort(),
+    );
+  });
+
+  it('review.revealed tells both sides at once (D7)', () => {
+    const planned = planNotifications(
+      row('review.revealed', { hostUserPublicId: HOST, guestUserPublicId: GUEST }),
+    );
+
+    expect(planned).toHaveLength(2);
+    expect(planned.every((plan) => plan.templateKey === TEMPLATES.REVIEW_REVEALED)).toBe(true);
+  });
+
+  it('participation.requested tells the host and the guest', () => {
+    const planned = planNotifications(
+      row('participation.requested', {
+        hostUserPublicId: HOST,
+        participantUserPublicId: GUEST,
+      }),
+    );
+
+    expect(planned).toHaveLength(2);
+  });
+});
+
+describe('event.cancelled_by_host (D9)', () => {
+  it('tells everybody affected, seat or not', () => {
+    const planned = planNotifications(
+      row('event.cancelled_by_host', {
+        participants: [
+          { participantPublicId: 'p1', userPublicId: HOST, hadSeat: true },
+          { participantPublicId: 'p2', userPublicId: GUEST, hadSeat: false },
+        ],
+      }),
+    );
+
+    expect(planned).toHaveLength(2);
+    expect(planned.map((plan) => plan.userPublicId).sort()).toEqual([HOST, GUEST].sort());
+  });
+
+  it('plans nothing for an event nobody had joined', () => {
+    expect(planNotifications(row('event.cancelled_by_host', { participants: [] }))).toEqual([]);
+  });
+
+  it('survives a malformed participant list rather than throwing', () => {
+    expect(planNotifications(row('event.cancelled_by_host', { participants: 'nonsense' }))).toEqual(
+      [],
+    );
+  });
+});
+
+/**
+ * **The dedupe key is derived from the row and the recipient, never from a
+ * timestamp.** That is what makes a redelivered relay pass a no-op: the same row
+ * fanned out twice produces the same keys, and the UNIQUE index absorbs the
+ * second.
+ */
+describe('dedupe keys', () => {
+  it('are identical across two passes over the same row', () => {
+    const input = row('waitlist.promoted', {
+      promotedUserPublicId: GUEST,
+      hostUserPublicId: HOST,
+    });
+
+    const first = planNotifications(input).map((plan) => plan.dedupeKey);
+    const second = planNotifications(input).map((plan) => plan.dedupeKey);
+
+    expect(second).toEqual(first);
+  });
+
+  /**
+   * One key per **recipient**, not per event. A shared key would deliver to
+   * whichever of the two people the relay reached first and silently drop the
+   * other — which for a promotion is the participant who most needs to know.
+   */
+  it('differ between the two recipients of one event', () => {
+    const planned = planNotifications(
+      row('waitlist.promoted', { promotedUserPublicId: GUEST, hostUserPublicId: HOST }),
+    );
+
+    expect(planned[0]?.dedupeKey).not.toBe(planned[1]?.dedupeKey);
+  });
+
+  /** Two different outbox rows never collide, even for the same recipient. */
+  it('differ between two rows about the same person', () => {
+    const first = planNotifications({
+      id: 'outbox-1',
+      aggregateId: 'agg',
+      eventType: 'participation.accepted',
+      payload: { participantUserPublicId: GUEST },
+    });
+    const second = planNotifications({
+      id: 'outbox-2',
+      aggregateId: 'agg',
+      eventType: 'participation.accepted',
+      payload: { participantUserPublicId: GUEST },
+    });
+
+    expect(first[0]?.dedupeKey).not.toBe(second[0]?.dedupeKey);
+  });
+});
+
+describe('events that notify nobody', () => {
+  /**
+   * Several exist to drive other consumers — M14's channel publisher reads the
+   * same rows. Returning an empty list rather than throwing is what keeps one
+   * unrecognised event from stalling the relay behind it.
+   */
+  it.each(['chat.contact_shared', 'chat.message_edited', 'something.unknown'])(
+    '%s plans nothing',
+    (eventType) => {
+      expect(planNotifications(row(eventType, {}))).toEqual([]);
+    },
+  );
+
+  it('plans nothing when the recipient is missing from the payload', () => {
+    expect(planNotifications(row('participation.accepted', {}))).toEqual([]);
+  });
+});

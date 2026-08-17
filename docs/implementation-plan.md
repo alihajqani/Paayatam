@@ -1329,16 +1329,17 @@ editing after reveal ⇒ 409; the T+24 h notification fires once even if the job
   therefore not tested here**: the reveal emits one outbox row per pair and `settleExpired` is idempotent,
   which is the half M11 owns — but the notification itself does not exist until M13 builds the relay and
   `notification.dedupe_key`. Stated rather than quietly counted as done.
-- **The test harness caps its connection pool, and adding one file is what forced it.** Every integration
-  file builds its own Prisma client, and the driver's default pool is `cpus * 2 + 1` — thirty-three on a
-  sixteen-core machine, against Postgres's default hundred. Vitest keeps finished workers alive, so three or
-  four live clients exhaust the server. **The failure does not look like exhaustion**: `TRUNCATE` in a
-  `beforeEach` fails, the fixture is left stale, and every test after it falls over on a foreign key pointing
-  at a row the reset never removed — 289 failures reading like a logic bug in whichever milestone happened to
-  add the file that tipped it over. The integration project passed alone the whole time; only the combined
-  run failed, which is what identified it. Capped at ten per client, which is far more than any one file
-  needs and leaves the concurrency suites queueing at the pool instead of at Postgres — they contend on row
-  locks, and the lock is the thing under test.
+- **The test harness caps its connection pool at ten per client.** Every integration file builds its own
+  Prisma client and the driver's default pool is `cpus * 2 + 1` — thirty-three on a sixteen-core machine,
+  against Postgres's default hundred. Ten is far more than any one file needs, and the concurrency suites
+  queue at the pool instead of at Postgres, which changes nothing they assert: they contend on row locks, and
+  the lock is the thing under test.
+  **Correction, established in M13:** this was treated at the time as the *cause* of a wave of 289 failures,
+  and it was not — it was a mitigation that made the real fault less likely to fire. The actual cause was
+  that `fileParallelism: false` did not hold for the integration project in the **combined** run, so files
+  meant to be sequential ran concurrently and raced each other's `TRUNCATE`. M13 hit the same fault with a
+  different symptom (a deadlock rather than stale fixtures) and fixed it properly with `singleFork`. The
+  pool cap is still worth having; it was not the answer.
 - **No Mini App work**, as in M4, M5 and M8–M10. The review screens are not built.
 
 **M12 — Reports & admin moderation** · *L*
@@ -1431,6 +1432,79 @@ coins; chat unseal without an open case is denied.
 Tests: a crash between commit and enqueue still delivers (kill the relay mid-flight, restart, assert
 delivery); duplicate job ids ⇒ one message; 429 honours `retry_after`; 403 marks `bot_blocked` and stops;
 exhausted retries land in `job_failure` and are re-drivable.
+
+**Deviations from this plan, decided during M13:**
+
+- **`packages/telegram` finally exists**, outstanding since M2. It holds the Persian message catalogue and
+  `escapeHtml`, and **not** the grammY bot — the client lives in `apps/worker`, because it is the only
+  process that talks to Telegram and a bot instance in a package both apps import would be a bot instance the
+  API could accidentally construct.
+- **The relay marks `processed_at` *after* writing the notifications, not before.** That ordering is the
+  whole design: a crash between the two re-reads the row and re-plans it, which is safe because the dedupe
+  keys are derived from the row rather than from the moment. Marking first would be faster and would lose
+  notifications on exactly the crash the outbox exists to survive.
+- **The dedupe key is one per recipient, not one per event.** A shared key would deliver to whichever of a
+  promotion's two people the relay reached first and silently drop the other — which is the participant who
+  most needs to know (D8).
+- **The fan-out is a pure function**, tested as a table without a queue or a database. This is the decision
+  most likely to be wrong in a way nobody notices: a missing recipient produces **silence**, and silence
+  looks like nothing having happened rather than like a bug.
+- **An event with no notification returns an empty list rather than throwing.** Several exist to drive other
+  consumers — M14's channel publisher reads the same rows — and a fan-out that refused an event it had no
+  message for would stall the relay behind it. A recipient who no longer exists (M15's anonymisation) drains
+  the row too, with a warning, for the same reason.
+- **429 never reaches the classifier.** grammY's `auto-retry` sits beneath the API call and sleeps for
+  exactly `retry_after`, which is the only correct response to a rate limit — a fixed backoff either wastes
+  time or returns too early and earns a longer penalty. If retries are exhausted the 429 surfaces as
+  `RETRY` and the queue's backoff takes over. `maxDelaySeconds` bounds it, because a job sleeping inside the
+  worker holds a concurrency slot and a queued one does not.
+- **403 is terminal and is *not* a failure.** It returns `BLOCKED` rather than throwing, precisely so the
+  caller cannot treat it as retryable — retrying a block burns the global rate budget other users'
+  notifications need. `chat not found` is a 400 but is the same situation and is treated the same way.
+- **A malformed request (400) stays retryable, deliberately.** It is *our* bug rather than the user's, so it
+  exhausts loudly into `job_failure` where somebody sees it — instead of being filed as "undeliverable" and
+  marking an innocent account as having blocked the bot.
+- **An unknown template is recorded and skipped, not retried.** A notification queued by a newer deploy and
+  processed by an older one would otherwise stall the whole queue behind it through a rollout.
+- **The rate limiter is on `telegram-send` alone.** Only Telegram limits us; throttling the relay would slow
+  the fan-out for nothing, and the fan-out is where latency is visible.
+- **`job_failure` is written only when a job has no attempts left**, and is one row per job rather than one
+  per attempt. The queue depth an admin sees is then the number of distinct problems rather than the number
+  of attempts anybody has made at them.
+- **BullMQ 6 replaced repeatable-job options with `upsertJobScheduler`**, which is an improvement rather than
+  a rename: the upsert means restarting the worker *replaces* a schedule instead of adding a second copy,
+  which is the classic way a "once a minute" sweep ends up running four times a minute after a month of
+  deploys.
+- **The daily sweeps are pinned to `Asia/Tehran`.** They are about a *person's* day — an attendance settled
+  at 03:00 UTC would settle in the middle of somebody's evening.
+- **The worker imports the same domain services the API does**, which is the point of `packages/domain`
+  existing: the sweeps are the methods M6, M10 and M11 wrote and left unscheduled, not a second
+  implementation. A job that promoted a waitlist differently from the request path would be a second source
+  of truth for the product's hardest invariant. **Three deferred deviations are discharged here** —
+  `expireOverdue`, the attendance settlement and the review-deadline sweep all now run on a schedule.
+- **Still not built, and this milestone does not close them.** §3.2 gives `packages/telegram` "grammY
+  composition, keyboards, fa message templates" and §6 lists the bot surface — `/start`, `callback_query`
+  accept/reject, the inbound `message:text` relay, `edited_message` propagation, `my_chat_member` block
+  detection. **None of that exists.** M13 builds the *outbound* half: the relay, the sender, the templates and
+  the schedules. The inbound half needs a webhook handler wired to grammY, and **M8's release gate — two real
+  Telegram accounts conversing with zero leakage, verified against raw payloads — therefore remains open.**
+  Stated plainly because it has now been outstanding across four milestones.
+- **The `moderation` queue is declared and unused.** ADR-0005 lists it for the blacklist-version re-scan,
+  which nothing triggers yet; the name exists so a producer and a consumer cannot later disagree about it.
+- **The integration project now runs in a single fork, and M11's diagnosis was wrong.** `fileParallelism:
+  false` is advisory enough that it did not hold once the unit project ran alongside: integration files that
+  were supposed to be sequential raced each other's `TRUNCATE` and deadlocked. M11 saw the same fault as a
+  wave of foreign-key failures, attributed it to connection-pool exhaustion, and capped the pool — which
+  made it rarer rather than impossible. **The tell both times was identical and should have been read
+  properly the first time: the integration project passed alone and failed only in the combined run.**
+  `poolOptions.forks.singleFork` makes the sequencing structural. M11's deviation note has been corrected
+  rather than left standing.
+- **No integration test drives a live BullMQ worker.** What is tested is every piece either side of the
+  queue: the relay's crash-safety and idempotency against a real database, the fan-out as a table, the
+  error classification against real `GrammyError` values, and the DLQ's shape and re-drive semantics. The
+  untested seam is BullMQ's own retry and dead-letter behaviour, which is the library's rather than ours —
+  but the mirroring code in `WorkerFactory` is exercised by nothing, and that is a genuine gap rather than a
+  judgement that it does not matter.
 
 **M14 — Telegram Channel** · *S* — only PUBLISHED + approved events publish; no duplicate post per event
 per kind; a hidden event's post is deleted; the post body contains no host identity.

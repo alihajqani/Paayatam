@@ -288,6 +288,16 @@ jobs:
           check_constraint chat_unseal_grant_is_time_boxed
           check_constraint chat_unseal_grant_reason_present
           check_constraint chat_unseal_grant_read_count_non_negative
+          # Notifications and the DLQ (M13). The dedupe key is the layer that holds
+          # when Redis does not exist any more — a flush, a replay, a migration —
+          # so losing it would leave the deterministic job id as the only guard.
+          check_index      notification_dedupe_key_key
+          check_constraint notification_sent_at_matches_status
+          check_constraint notification_attempts_non_negative
+          # One DLQ row per job, so the panel shows distinct problems rather than
+          # a count of how many times somebody has retried them.
+          check_index      job_failure_queue_job_id_key
+          check_constraint job_failure_attempts_non_negative
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

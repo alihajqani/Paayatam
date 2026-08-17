@@ -31,10 +31,24 @@ export default defineConfig({
           // Container startup dominates; the assertions themselves are fast.
           testTimeout: 60_000,
           hookTimeout: 120_000,
-          // Integration tests share a database. Running files in parallel would
-          // make them fight over the same rows and produce flaky results that
-          // look like concurrency bugs but are not.
+          /**
+           * Integration tests share one database, so they run one file at a time.
+           *
+           * **`singleFork` is what actually enforces it, and `fileParallelism`
+           * alone did not.** Run on its own the integration project was serial and
+           * green; run alongside the unit project it was not, and the symptoms
+           * were spectacular and misleading — first a `TRUNCATE` deadlock (two
+           * resets racing), earlier a wave of foreign-key failures that read as a
+           * logic bug in whichever milestone happened to add the file that tipped
+           * it over. Both were one cause: files that were supposed to be
+           * sequential were not, in the combined run only.
+           *
+           * Pinning the project to a single fork makes the guarantee structural
+           * rather than advisory. The unit project keeps its parallelism — it
+           * touches nothing shared.
+           */
           fileParallelism: false,
+          poolOptions: { forks: { singleFork: true } },
         },
       },
     ],

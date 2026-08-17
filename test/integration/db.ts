@@ -60,7 +60,8 @@ const TEST_POOL_SIZE = 10;
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE TABLE
-      "outbox_event", "moderation_case", "chat_action", "chat_message",
+      "notification", "job_failure", "outbox_event", "moderation_case",
+      "chat_action", "chat_message",
       "chat_participant", "chat_unseal_grant", "anonymous_chat",
       "review_pair", "review", "report", "role_change_request",
       "admin_user_role", "role_permission", "permission", "role", "admin_user",

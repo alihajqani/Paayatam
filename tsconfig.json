@@ -9,6 +9,7 @@
     { "path": "./packages/shared" },
     { "path": "./packages/db" },
     { "path": "./packages/platform" },
+    { "path": "./packages/telegram" },
     { "path": "./packages/domain" },
     { "path": "./apps/api" },
     { "path": "./apps/worker" }

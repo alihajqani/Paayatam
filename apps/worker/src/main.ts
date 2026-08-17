@@ -6,7 +6,8 @@ import { AppModule } from './app.module';
 
 /**
  * The worker is a Nest application *context*, not an HTTP server — it serves no
- * routes. It exists to run BullMQ processors (from M13).
+ * routes. It runs the BullMQ processors: the outbox relay, the Telegram sender,
+ * and the repeatable sweeps (ADR-0005).
  */
 async function bootstrap(): Promise<void> {
   let env;
@@ -35,7 +36,9 @@ async function bootstrap(): Promise<void> {
   logger.log(
     `Worker started (env=${env.NODE_ENV}, tz=${env.APP_TIMEZONE}, queuePrefix=${env.QUEUE_PREFIX})`,
   );
-  logger.log('No queues registered yet — processors are added in M12/M13.');
+  // The processors register themselves in `onModuleInit`, which has already run
+  // by this point — so by the time this line prints, the queues are live and the
+  // repeatable sweeps are scheduled.
 }
 
 void bootstrap();

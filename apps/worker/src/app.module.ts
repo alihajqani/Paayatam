@@ -1,22 +1,50 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '@payetam/db';
-import { ConfigModule, RedisModule } from '@payetam/platform';
+import {
+  AuditModule,
+  CatalogModule,
+  ChatModule,
+  EconomyModule,
+  EventsModule,
+  NotificationsModule,
+  OutboxModule,
+  ParticipationModule,
+  ReviewsModule,
+} from '@payetam/domain';
+import { ClockModule, ConfigModule, QueueModule, RedisModule } from '@payetam/platform';
+import { Processors } from './queues/processors.service';
+import { WorkerFactory } from './queues/worker.factory';
+import { TelegramClient } from './telegram/telegram.client';
 
 /**
- * Worker root module.
+ * Worker root module (ADR-0005).
  *
- * Imports the same infrastructure as the API and, from M13, the same domain
- * services. Every outbound Telegram call happens in this process rather than in a
- * request handler, so Telegram's rate limits shape queue throughput instead of API
- * latency (ADR-0005).
+ * It imports the **same domain services the API does**, which is the point of
+ * `packages/domain` existing at all: the sweeps this process runs are the same
+ * methods M6, M10 and M11 wrote and left unscheduled, not a second implementation
+ * of them. A job that promoted a waitlist differently from the request path would
+ * be a second source of truth for the product's hardest invariant.
  *
- * Queues and processors arrive with their milestones:
- *   - `domain-events` / outbox relay  → M13
- *   - `telegram-send`                 → M13
- *   - `scheduled` repeatable jobs     → M13
- *   - `moderation` re-scan            → M12
+ * Every outbound Telegram call happens here rather than in a request handler, so
+ * Telegram's ~30/s shapes queue throughput instead of API latency (invariant 11).
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, RedisModule],
+  imports: [
+    ConfigModule,
+    ClockModule,
+    PrismaModule,
+    RedisModule,
+    QueueModule,
+    AuditModule,
+    OutboxModule,
+    CatalogModule,
+    ChatModule,
+    EconomyModule,
+    EventsModule,
+    ParticipationModule,
+    ReviewsModule,
+    NotificationsModule,
+  ],
+  providers: [WorkerFactory, TelegramClient, Processors],
 })
 export class AppModule {}

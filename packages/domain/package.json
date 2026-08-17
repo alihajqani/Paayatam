@@ -15,6 +15,7 @@
     "@payetam/db": "workspace:*",
     "@payetam/platform": "workspace:*",
     "@payetam/shared": "workspace:*",
+    "@payetam/telegram": "workspace:*",
     "jose": "^6.2.9",
     "reflect-metadata": "^0.2.2"
   }

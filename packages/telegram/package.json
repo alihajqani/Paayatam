@@ -1,5 +1,5 @@
 {
-  "name": "@payetam/platform",
+  "name": "@payetam/telegram",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
@@ -9,10 +9,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nestjs/common": "^11.2.1",
-    "@payetam/config": "workspace:*",
-    "bullmq": "^6.1.2",
-    "ioredis": "^6.0.0",
-    "reflect-metadata": "^0.2.2"
+    "@payetam/shared": "workspace:*"
   }
 }

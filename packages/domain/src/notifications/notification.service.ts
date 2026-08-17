@@ -1,0 +1,164 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { PrismaService } from '@payetam/db';
+import type { Prisma } from '@payetam/db';
+import { CLOCK, type Clock } from '@payetam/platform';
+import { isUniqueViolation } from '../identity/user.service';
+
+export interface QueuedNotification {
+  id: string;
+  /** False when this key had already been queued — a redelivery, not a new one. */
+  created: boolean;
+}
+
+export interface NotificationToSend {
+  id: string;
+  userId: string;
+  templateKey: string;
+  payload: Prisma.JsonValue;
+  attempts: number;
+  /** Null when the account has no Telegram link, which should not happen. */
+  telegramUserId: bigint | null;
+  botBlocked: boolean;
+}
+
+/**
+ * The notification ledger (ADR-0005, plan §4.6).
+ *
+ * **The exactly-once *effect* lives here**, and it is the second of two
+ * independent layers. BullMQ's deterministic `jobId` is the first: re-adding an
+ * existing id is a no-op. `dedupe_key` is this one: a UNIQUE index in Postgres,
+ * so a queue that was flushed, replayed or migrated still cannot produce a second
+ * message. Either would cover most failure modes; both are cheap and they fail
+ * independently, which is the whole reason for having two.
+ *
+ * The row is also the answer to "did we tell them?" — a question support gets
+ * constantly and which a log line cannot answer six weeks later.
+ */
+@Injectable()
+export class NotificationService {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CLOCK) private readonly clock: Clock,
+  ) {}
+
+  /**
+   * Record a notification, or recognise that it already exists.
+   *
+   * The insert is attempted and the unique violation is caught, rather than
+   * reading first: a read-then-write has a window between the two, and two relay
+   * passes racing over the same outbox row is exactly the case this exists for.
+   */
+  async queue(input: {
+    userId: string;
+    templateKey: string;
+    dedupeKey: string;
+    payload: Prisma.InputJsonValue;
+  }): Promise<QueuedNotification> {
+    try {
+      const created = await this.prisma.notification.create({
+        data: {
+          userId: input.userId,
+          templateKey: input.templateKey,
+          dedupeKey: input.dedupeKey,
+          payload: input.payload,
+          createdAt: this.clock.now(),
+        },
+        select: { id: true },
+      });
+      return { id: created.id, created: true };
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+
+      const existing = await this.prisma.notification.findUniqueOrThrow({
+        where: { dedupeKey: input.dedupeKey },
+        select: { id: true },
+      });
+      return { id: existing.id, created: false };
+    }
+  }
+
+  /**
+   * Everything the sender needs, including whether there is anybody to send to.
+   *
+   * `telegram_user_id` is read **here and nowhere else outside `identity`** — this
+   * is the one path that legitimately needs it, because it is the path that
+   * actually talks to Telegram. It goes to the Telegram client and never into a
+   * payload, a log line or a response (invariant 7).
+   */
+  async load(id: string): Promise<NotificationToSend | null> {
+    const row = await this.prisma.notification.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        templateKey: true,
+        payload: true,
+        attempts: true,
+        status: true,
+        user: {
+          select: { telegramAccount: { select: { telegramUserId: true, botBlocked: true } } },
+        },
+      },
+    });
+    if (!row) return null;
+    // Already delivered. A redelivered job finds this and stops, which is the
+    // dedupe key doing its job on the *send* side rather than the queue side.
+    if (row.status === 'SENT' || row.status === 'UNDELIVERABLE') return null;
+
+    return {
+      id: row.id,
+      userId: row.userId,
+      templateKey: row.templateKey,
+      payload: row.payload,
+      attempts: row.attempts,
+      telegramUserId: row.user.telegramAccount?.telegramUserId ?? null,
+      botBlocked: row.user.telegramAccount?.botBlocked ?? false,
+    };
+  }
+
+  async markSent(id: string, telegramMessageId: number | null): Promise<void> {
+    await this.prisma.notification.update({
+      where: { id },
+      data: {
+        status: 'SENT',
+        sentAt: this.clock.now(),
+        telegramMessageId,
+        attempts: { increment: 1 },
+      },
+    });
+  }
+
+  async markFailed(id: string, error: string): Promise<void> {
+    await this.prisma.notification.update({
+      where: { id },
+      data: {
+        status: 'FAILED',
+        // Truncated: an error string is written by a library and a whole stack
+        // trace in a column nobody reads is a column nobody reads.
+        lastError: error.slice(0, 500),
+        attempts: { increment: 1 },
+      },
+    });
+  }
+
+  /**
+   * The bot is blocked, so there is nobody to deliver to.
+   *
+   * Terminal, and **not** a failure to retry: retrying a block burns the global
+   * rate budget that other users' notifications need (ADR-0005). The flag on
+   * `telegram_account` is what the Mini App reads to show its re-start banner —
+   * the only fix is the user's, and the product cannot make it for them (§12.6).
+   */
+  async markUndeliverable(id: string, userId: string): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.notification.update({
+        where: { id },
+        data: { status: 'UNDELIVERABLE', attempts: { increment: 1 } },
+      }),
+      this.prisma.telegramAccount.updateMany({
+        where: { userId },
+        data: { botBlocked: true },
+      }),
+    ]);
+  }
+}
