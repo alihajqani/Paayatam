@@ -1,0 +1,341 @@
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import type { PrismaClient, PrismaService } from '@payetam/db';
+import { FakeClock } from '@payetam/platform';
+import {
+  createTestPrisma,
+  createUser,
+  resetDatabase,
+  seedCatalog,
+  type CatalogFixture,
+} from '../../../../test/integration/db';
+import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../catalog/settings.service';
+import { OutboxService } from '../outbox/outbox.service';
+import { ReportService } from './report.service';
+
+/**
+ * Reports and the threshold that acts on them (M12, plan §11).
+ *
+ * The plan asks for the threshold "tested at 2 and 4" as well as at 3, and that is
+ * the interesting part: the boundary is where an off-by-one either hides an event
+ * two people disliked, or lets a fourth report be the one that finally works.
+ */
+
+const prisma: PrismaClient = createTestPrisma();
+const service = prisma as unknown as PrismaService;
+
+const NOW = new Date('2026-08-15T09:00:00.000Z');
+const clock = new FakeClock(NOW);
+
+const settings = new SettingsService(service);
+const audit = new AuditService(service, clock);
+const outbox = new OutboxService(service, clock);
+const reports = new ReportService(service, clock, settings, audit, outbox);
+
+let fixture: CatalogFixture;
+let hostId: string;
+let hostPublicId: string;
+
+async function createProfiledUser(): Promise<{ id: string; publicId: string }> {
+  const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+  await prisma.userProfile.create({
+    data: { userId, displayName: 'کاربر', cityId: fixture.tehranId, birthYear: 1995 },
+  });
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { publicId: true },
+  });
+  return { id: userId, publicId: user.publicId };
+}
+
+async function publishEvent(): Promise<string> {
+  const event = await prisma.event.create({
+    data: {
+      hostUserId: hostId,
+      title: 'شب بازی رومیزی',
+      description: 'یک دورهمی دوستانه برای بازی رومیزی و گپ.',
+      titleNormalized: 'شب بازی رومیزی',
+      descriptionNormalized: 'یک دورهمی دوستانه برای بازی رومیزی و گپ.',
+      categoryId: fixture.categoryId,
+      cityId: fixture.tehranId,
+      startsAt: new Date('2026-09-20T15:00:00.000Z'),
+      endsAt: new Date('2026-09-20T18:00:00.000Z'),
+      capacity: 5,
+      costType: 'FREE',
+      status: 'PUBLISHED',
+      moderationStatus: 'APPROVED',
+      publishedAt: NOW,
+    },
+    select: { publicId: true },
+  });
+  return event.publicId;
+}
+
+/** `count` different people each report the same event once. */
+async function reportedBy(eventPublicId: string, count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    const reporter = await createProfiledUser();
+    await reports.file(reporter.id, {
+      targetType: 'EVENT',
+      targetPublicId: eventPublicId,
+      reason: 'SPAM',
+    });
+  }
+}
+
+async function statusOf(publicId: string): Promise<string> {
+  const row = await prisma.event.findUniqueOrThrow({
+    where: { publicId },
+    select: { status: true },
+  });
+  return row.status;
+}
+
+beforeEach(async () => {
+  await resetDatabase(prisma);
+  clock.set(NOW);
+  fixture = await seedCatalog(prisma);
+  const host = await createProfiledUser();
+  hostId = host.id;
+  hostPublicId = host.publicId;
+});
+
+afterAll(async () => {
+  await prisma.$disconnect();
+});
+
+describe('one report per person per thing (invariant 5)', () => {
+  it('refuses a second report from the same person', async () => {
+    const eventPublicId = await publishEvent();
+    const reporter = await createProfiledUser();
+
+    await reports.file(reporter.id, {
+      targetType: 'EVENT',
+      targetPublicId: eventPublicId,
+      reason: 'SPAM',
+    });
+
+    await expect(
+      reports.file(reporter.id, {
+        targetType: 'EVENT',
+        targetPublicId: eventPublicId,
+        reason: 'HARASSMENT',
+      }),
+    ).rejects.toMatchObject({ code: 'ALREADY_REPORTED' });
+  });
+
+  /** The service check is one refactor from being skipped; this is not. */
+  it('is refused by the database too', async () => {
+    const eventPublicId = await publishEvent();
+    const reporter = await createProfiledUser();
+    await reports.file(reporter.id, {
+      targetType: 'EVENT',
+      targetPublicId: eventPublicId,
+      reason: 'SPAM',
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { id: true },
+    });
+
+    await expect(
+      prisma.report.create({
+        data: {
+          targetType: 'EVENT',
+          targetId: event.id,
+          reporterUserId: reporter.id,
+          reason: 'SCAM',
+        },
+      }),
+    ).rejects.toThrow(/target_type.*target_id.*reporter_user_id/s);
+  });
+
+  it('lets the same person report two different things', async () => {
+    const first = await publishEvent();
+    const second = await publishEvent();
+    const reporter = await createProfiledUser();
+
+    await reports.file(reporter.id, {
+      targetType: 'EVENT',
+      targetPublicId: first,
+      reason: 'SPAM',
+    });
+    await expect(
+      reports.file(reporter.id, {
+        targetType: 'EVENT',
+        targetPublicId: second,
+        reason: 'SPAM',
+      }),
+    ).resolves.toMatchObject({ status: 'OPEN' });
+  });
+
+  /** Inflating a count towards your own threshold is not a thing anybody may do. */
+  it('refuses somebody reporting their own event', async () => {
+    const eventPublicId = await publishEvent();
+
+    await expect(
+      reports.file(hostId, {
+        targetType: 'EVENT',
+        targetPublicId: eventPublicId,
+        reason: 'SPAM',
+      }),
+    ).rejects.toMatchObject({ code: 'CANNOT_REPORT_OWN_CONTENT' });
+  });
+});
+
+describe('the threshold (plan §11: three distinct reporters)', () => {
+  it('leaves an event visible at two', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 2);
+
+    await expect(statusOf(eventPublicId)).resolves.toBe('PUBLISHED');
+    await expect(prisma.moderationCase.count()).resolves.toBe(0);
+  });
+
+  it('hides it and opens a case at exactly three', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 3);
+
+    await expect(statusOf(eventPublicId)).resolves.toBe('HIDDEN');
+
+    const opened = await prisma.moderationCase.findFirstOrThrow();
+    expect(opened).toMatchObject({
+      subjectType: 'EVENT',
+      trigger: 'REPORT_THRESHOLD',
+      status: 'OPEN',
+      reportCount: 3,
+    });
+  });
+
+  /**
+   * A fourth report updates the case that exists rather than opening another.
+   * A queue holding three cases about one event is a queue three people work in
+   * parallel.
+   */
+  it('opens no second case at four, and keeps the count current', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 4);
+
+    await expect(prisma.moderationCase.count()).resolves.toBe(1);
+    const opened = await prisma.moderationCase.findFirstOrThrow();
+    expect(opened.reportCount).toBe(4);
+  });
+
+  it('reads the threshold from config, so tuning it needs no deploy', async () => {
+    await prisma.appSetting.create({ data: { key: 'moderation.report_threshold', value: 2 } });
+    const eventPublicId = await publishEvent();
+
+    await reportedBy(eventPublicId, 1);
+    await expect(statusOf(eventPublicId)).resolves.toBe('PUBLISHED');
+
+    await reportedBy(eventPublicId, 1);
+    await expect(statusOf(eventPublicId)).resolves.toBe('HIDDEN');
+  });
+
+  it('tells the reporter whether theirs was the one that triggered review', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 2);
+
+    const third = await createProfiledUser();
+    const filed = await reports.file(third.id, {
+      targetType: 'EVENT',
+      targetPublicId: eventPublicId,
+      reason: 'SPAM',
+    });
+
+    expect(filed.triggeredReview).toBe(true);
+  });
+
+  it('attaches every report to the case, including the ones filed before it', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 3);
+
+    const unattached = await prisma.report.count({ where: { moderationCaseId: null } });
+    expect(unattached).toBe(0);
+  });
+});
+
+/**
+ * The notification the plan singles out: *"the owner is notified **without any
+ * reporter identity**"*.
+ *
+ * A notification that named the reporter would make reporting an act with a
+ * personal cost, which is how a reporting system stops being used at exactly the
+ * moment it is needed.
+ */
+describe('what the owner is told', () => {
+  it('emits one event naming the owner and the count, and no reporter', async () => {
+    const eventPublicId = await publishEvent();
+
+    const reporters: string[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const reporter = await createProfiledUser();
+      reporters.push(reporter.publicId);
+      await reports.file(reporter.id, {
+        targetType: 'EVENT',
+        targetPublicId: eventPublicId,
+        reason: 'SPAM',
+      });
+    }
+
+    const emitted = await prisma.outboxEvent.findMany({
+      where: { eventType: 'moderation.content_hidden' },
+    });
+    expect(emitted).toHaveLength(1);
+
+    const payload = JSON.stringify(emitted[0]?.payload);
+    expect(payload).toContain(hostPublicId);
+    expect(payload).toContain(eventPublicId);
+    for (const reporter of reporters) {
+      expect(payload, 'a reporter must never be named').not.toContain(reporter);
+    }
+  });
+
+  it('says nothing at all below the threshold', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 2);
+
+    await expect(
+      prisma.outboxEvent.count({ where: { eventType: 'moderation.content_hidden' } }),
+    ).resolves.toBe(0);
+  });
+
+  /**
+   * Telling one side of an anonymous chat that the other reported them is the
+   * single notification this module must never send.
+   */
+  it('notifies nobody when a conversation is reported', async () => {
+    const guest = await createProfiledUser();
+    const eventPublicId = await publishEvent();
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { id: true },
+    });
+    const participant = await prisma.eventParticipant.create({
+      data: { eventId: event.id, userId: guest.id, status: 'PENDING' },
+      select: { id: true },
+    });
+    const chat = await prisma.anonymousChat.create({
+      data: { eventId: event.id, participantId: participant.id, status: 'ANONYMOUS' },
+      select: { publicId: true },
+    });
+
+    for (let index = 0; index < 3; index += 1) {
+      const reporter = await createProfiledUser();
+      await reports.file(reporter.id, {
+        targetType: 'MESSAGE',
+        targetPublicId: chat.publicId,
+        reason: 'HARASSMENT',
+      });
+    }
+
+    // A case, so break-glass has something to require — and no notification.
+    await expect(prisma.moderationCase.count({ where: { subjectType: 'MESSAGE' } })).resolves.toBe(
+      1,
+    );
+    await expect(
+      prisma.outboxEvent.count({ where: { eventType: 'moderation.content_hidden' } }),
+    ).resolves.toBe(0);
+  });
+});

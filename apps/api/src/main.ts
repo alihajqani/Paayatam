@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { EnvValidationError, loadEnv } from '@payetam/config';
+import { registerCookies } from './admin/cookie.setup';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -25,6 +26,11 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
     bufferLogs: true,
   });
+
+  // The admin panel authenticates with a cookie (ADR-0010), and a Fastify plugin
+  // has to be registered before the instance boots — which is why this one thing
+  // cannot live in AppModule the way the guard and the filter do.
+  await registerCookies(app);
 
   // The exception filter is registered inside AppModule via APP_FILTER, not
   // here: it belongs to the application rather than to this entry point, and

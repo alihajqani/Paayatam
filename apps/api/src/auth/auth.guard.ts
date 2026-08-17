@@ -54,6 +54,20 @@ export class AuthGuard implements CanActivate {
     if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
+
+    /**
+     * The admin API is a **different identity system** and this guard knows
+     * nothing about it (ADR-0010).
+     *
+     * `/admin/v1` authenticates with a Redis-backed cookie and a CSRF token, not
+     * with a Mini App bearer token, so applying this guard there would refuse
+     * every staff request with an error about a header the panel never sends.
+     * `AdminAuthGuard` is what protects those routes, and it is deny-by-default in
+     * exactly the same way — an admin route with no session is refused, and one
+     * with no *permission* is refused by the service beneath it.
+     */
+    if (request.url.startsWith('/admin/')) return true;
+
     const header = request.headers.authorization;
 
     if (!header?.startsWith('Bearer ')) {

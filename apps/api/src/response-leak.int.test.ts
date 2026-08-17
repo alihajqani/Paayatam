@@ -5,12 +5,18 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import type { PrismaClient } from '@payetam/db';
 import { ENV } from '@payetam/platform';
 import {
+  AdminAccessService,
   ChatService,
+  ChatUnsealService,
   CoinService,
+  ROLE_KEYS,
+  ROLE_NAMES_FA,
   ReferralService,
   SessionService,
   normalize,
 } from '@payetam/domain';
+import { ADMIN_SESSION_COOKIE } from './admin/admin.guard';
+import { registerCookies } from './admin/cookie.setup';
 import {
   createTestPrisma,
   resetDatabase,
@@ -57,6 +63,9 @@ let viewerParticipantPublicId: string;
 let chatPublicId: string;
 let reviewedParticipantPublicId: string;
 let hostPublicId: string;
+let adminCookie: string;
+let adminCsrf: string;
+let reviewPublicId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
@@ -70,6 +79,20 @@ interface Endpoint {
   url: string;
   /** Endpoints that answer without a session; the rest are sent one. */
   anonymous?: boolean;
+  /**
+   * Reached with the **staff** session instead of the user's.
+   *
+   * The admin API is a separate identity system with a separate session
+   * mechanism (ADR-0010), so scanning it needs a second credential — and it very
+   * much needs scanning: it is the surface that returns other people's records.
+   */
+  admin?: boolean;
+  /**
+   * A cookie of this endpoint's own, for the one route that destroys the session
+   * it is given. Without it, `logout` would sign the scan out on its first pass
+   * and every admin read after that would be a 401 the scan mistook for coverage.
+   */
+  adminCookieFor?: () => string;
   /**
    * Sent as JSON for the endpoints that read one.
    *
@@ -308,7 +331,7 @@ beforeAll(async () => {
         revealedAt,
         editDeadlineAt: revealedAt,
       },
-      select: { id: true },
+      select: { id: true, publicId: true },
     }),
     prisma.review.create({
       data: {
@@ -326,6 +349,8 @@ beforeAll(async () => {
       select: { id: true },
     }),
   ]);
+
+  reviewPublicId = aboutViewer.publicId;
 
   await prisma.reviewPair.create({
     data: {
@@ -418,6 +443,10 @@ beforeAll(async () => {
       }
     });
 
+  // The admin API authenticates with a cookie, and the plugin has to be on the
+  // instance before Nest boots it — the same call `bootstrap()` makes.
+  await registerCookies(app);
+
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
@@ -505,6 +534,82 @@ beforeAll(async () => {
   const nextRefresh = (): Record<string, unknown> => ({
     refreshToken: refreshTokens[refreshAttempt++ % refreshTokens.length]?.refreshToken ?? '',
   });
+
+  /**
+   * A staff account with every capability, so the admin API answers with real
+   * data rather than with refusals.
+   *
+   * SUPER_ADMIN on purpose: the scan is looking for what the *most* privileged
+   * response contains, and a role that could not reach an endpoint would leave it
+   * unscanned while looking scanned.
+   */
+  for (const key of Object.values(ROLE_KEYS)) {
+    await prisma.role.upsert({
+      where: { key },
+      update: {},
+      create: { key, name: ROLE_NAMES_FA[key] },
+    });
+  }
+  const adminAccess = app.get(AdminAccessService);
+  const adminPassword = 'leak-scan-admin-password';
+  const created = await adminAccess.createAdmin({
+    email: 'leak-scan@payetam.test',
+    password: adminPassword,
+    displayName: 'اسکن',
+    roles: [ROLE_KEYS.SUPER_ADMIN],
+  });
+  const { base32Decode, totpCode } = await import('@payetam/domain');
+  const signedIn = await adminAccess.login({
+    email: 'leak-scan@payetam.test',
+    password: adminPassword,
+    totpCode: totpCode(base32Decode(created.totpSecret), Date.now()),
+  });
+  adminCookie = signedIn.sessionToken;
+  adminCsrf = signedIn.csrfToken;
+
+  // Throwaway sessions for `logout`, which consumes the one it is handed. The
+  // CSRF token is shared because every one of these is the same account.
+  const disposableAdmin: string[] = [];
+  for (let index = 0; index < LEAK_PATTERNS.length + 1; index += 1) {
+    const extra = await adminAccess.login({
+      email: 'leak-scan@payetam.test',
+      password: adminPassword,
+      totpCode: totpCode(base32Decode(created.totpSecret), Date.now()),
+    });
+    disposableAdmin.push(extra.sessionToken);
+    adminCsrf = extra.csrfToken;
+  }
+  adminCookie = disposableAdmin[0] ?? adminCookie;
+  let logoutIndex = 1;
+
+  /**
+   * An open case on the chat, and a live grant against it.
+   *
+   * Break-glass needs all three of a permission, an open case and a reason (T14),
+   * so scanning the read path at all means satisfying them — and the read is the
+   * one endpoint in the product that returns decrypted private messages, which
+   * makes it the single most important response in this file to scan.
+   */
+  const chatRow = await prisma.anonymousChat.findFirstOrThrow({
+    where: { publicId: chatPublicId },
+    select: { id: true },
+  });
+  await prisma.moderationCase.create({
+    data: {
+      subjectType: 'MESSAGE',
+      subjectId: chatRow.id,
+      trigger: 'REPORT_THRESHOLD',
+      status: 'OPEN',
+      reportCount: 3,
+    },
+  });
+  const liveGrant = await app
+    .get(ChatUnsealService)
+    .grant(
+      { ...signedIn.session, adminUserId: created.adminUserId },
+      chatPublicId,
+      'scanning the unsealed read path for identity leakage',
+    );
 
   const currentTerms = await prisma.policyVersion.findFirstOrThrow({
     where: { type: 'TERMS', isCurrent: true },
@@ -638,6 +743,101 @@ beforeAll(async () => {
       url: `/api/v1/participants/${reviewedParticipantPublicId}/review`,
       body: { rating: 4, tags: [] },
     },
+    /**
+     * M12's user-facing half. Reporting is a *user* action, and the response says
+     * only that the report was filed — never how many others there are, which
+     * would let somebody probe how close a rival's event is to being hidden.
+     */
+    {
+      method: 'POST',
+      url: `/api/v1/events/${eventPublicId}/report`,
+      body: { reason: 'SPAM', description: 'تبلیغاتی به نظر می‌رسد' },
+    },
+    { method: 'POST', url: `/api/v1/users/${hostPublicId}/report`, body: { reason: 'HARASSMENT' } },
+    { method: 'POST', url: `/api/v1/reviews/${reviewPublicId}/report`, body: { reason: 'OTHER' } },
+    { method: 'POST', url: `/api/v1/chats/${chatPublicId}/report`, body: { reason: 'SAFETY' } },
+    /**
+     * M12's admin API, reached with the staff session.
+     *
+     * This is the surface that exists to show one person another person's records,
+     * so it is the surface where a Telegram identifier would be least surprising
+     * and most damaging. The moderation queue, the audit trail and the unsealed
+     * conversation are all scanned.
+     */
+    { method: 'GET', url: '/admin/v1/me', admin: true },
+    { method: 'GET', url: '/admin/v1/moderation/cases', admin: true },
+    { method: 'GET', url: '/admin/v1/audit', admin: true },
+    {
+      method: 'POST',
+      url: `/admin/v1/coins/adjust`,
+      admin: true,
+      body: {
+        userPublicId: hostPublicId,
+        amount: 5,
+        reason: 'goodwill gesture',
+        reference: 'leak-scan-adjust',
+      },
+    },
+    {
+      method: 'POST',
+      url: `/admin/v1/chats/${chatPublicId}/unseal`,
+      admin: true,
+      body: { reason: 'investigating a reported safety concern' },
+    },
+    { method: 'GET', url: `/admin/v1/chats/unseal/${liveGrant.grantId}`, admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/moderation/cases/no-such-case/decide',
+      admin: true,
+      body: { decision: 'APPROVED', note: 'nothing to answer' },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/trust/adjust',
+      admin: true,
+      body: {
+        userPublicId: hostPublicId,
+        delta: 1,
+        reason: 'manual correction',
+        reference: 'leak-scan-trust',
+      },
+    },
+    {
+      method: 'POST',
+      url: `/admin/v1/users/${hostPublicId}/status`,
+      admin: true,
+      body: { status: 'ACTIVE', reason: 'no action needed' },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/roles/requests',
+      admin: true,
+      body: {
+        subjectAdminId: created.adminUserId,
+        roleKey: 'MODERATOR',
+        granting: true,
+        reason: 'scan coverage',
+      },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/roles/requests/no-such-request/approve',
+      admin: true,
+    },
+    // Anonymous: logging in is how a session is obtained, so it cannot need one.
+    {
+      method: 'POST',
+      url: '/admin/v1/auth/login',
+      anonymous: true,
+      body: { email: 'leak-scan@payetam.test', password: 'wrong-password', totpCode: '000000' },
+    },
+    // Consumes the session it is given, so it gets one of its own each pass.
+    {
+      method: 'POST',
+      url: '/admin/v1/auth/logout',
+      admin: true,
+      adminCookieFor: () => disposableAdmin[logoutIndex++] ?? 'already-spent',
+    },
     // Last of all: it retires the viewer's event, and the passes that follow then
     // read the refusals — which are responses too.
     { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/cancel`, body: {} },
@@ -652,10 +852,20 @@ afterAll(async () => {
 async function fetchBody(endpoint: Endpoint): Promise<string> {
   const payload = typeof endpoint.body === 'function' ? endpoint.body() : endpoint.body;
 
+  const headers =
+    endpoint.anonymous === true
+      ? {}
+      : endpoint.admin === true
+        ? {
+            cookie: `${ADMIN_SESSION_COOKIE}=${endpoint.adminCookieFor?.() ?? adminCookie}`,
+            'x-csrf-token': adminCsrf,
+          }
+        : { authorization: `Bearer ${accessToken}` };
+
   const response = await app.inject({
     method: endpoint.method,
     url: endpoint.url,
-    ...(endpoint.anonymous === true ? {} : { headers: { authorization: `Bearer ${accessToken}` } }),
+    headers,
     ...(payload === undefined ? {} : { payload }),
   });
 
@@ -683,7 +893,20 @@ const statuses = new Map<string, number[]>();
  */
 const LEAK_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: 'the Telegram user id', pattern: new RegExp(String(TELEGRAM_USER_ID)) },
-  { name: 'an @username', pattern: /@[A-Za-z0-9_]{5,32}\b/ },
+  {
+    name: 'an @username',
+    /**
+     * A Telegram handle, not an email address.
+     *
+     * The lookbehind is what separates them: a handle appears after whitespace, a
+     * quote or the start of a value, while an email has its local part pressed up
+     * against the `@`. Without it this matched the domain of every address in every
+     * response — which M12 surfaced the moment the admin API started returning a
+     * staff member's own email to themselves. That is not a leak, and a detector
+     * that calls it one gets silenced rather than fixed.
+     */
+    pattern: /(?<![\w.+-])@[A-Za-z0-9_]{5,32}\b/,
+  },
   { name: 'a t.me link', pattern: /t\.me\//i },
   { name: 'a phone number', pattern: /(?:\+98|0)9\d{9}/ },
 ];

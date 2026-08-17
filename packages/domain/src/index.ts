@@ -203,3 +203,28 @@ export {
   assertReviewPairTransition,
 } from './reviews/state-machine';
 export { ReviewsModule } from './reviews/reviews.module';
+
+export { ReportService } from './moderation/report.service';
+export type { FileReportInput, FiledReport } from './moderation/report.service';
+
+export {
+  PERMISSIONS,
+  ROLE_KEYS,
+  ROLE_PERMISSIONS,
+  ROLE_NAMES_FA,
+  roleHas,
+} from './adminaccess/permissions';
+export type { Permission, RoleKey } from './adminaccess/permissions';
+export { base32Decode, base32Encode, totpCode, verifyTotp } from './adminaccess/totp';
+export { AdminCredentials, MIN_PASSWORD_LENGTH } from './adminaccess/admin-credentials';
+export {
+  AdminAccessService,
+  MAX_FAILED_ATTEMPTS,
+  permissionsFor,
+} from './adminaccess/admin-access.service';
+export type { AdminSession, LoginResult } from './adminaccess/admin-access.service';
+export { AdminOperationsService, adminAdjustmentKey } from './adminaccess/admin-operations.service';
+export type { CaseSummary } from './adminaccess/admin-operations.service';
+export { ChatUnsealService } from './adminaccess/chat-unseal.service';
+export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
+export { AdminAccessModule } from './adminaccess/adminaccess.module';

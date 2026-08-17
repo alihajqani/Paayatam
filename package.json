@@ -25,6 +25,7 @@
     "seed:policies": "tsx --env-file=.env tools/seed-policies.ts",
     "seed:catalog": "tsx --env-file=.env tools/seed-catalog.ts",
     "seed:blacklist": "tsx --env-file=.env tools/seed-blacklist.ts",
+    "seed:rbac": "tsx --env-file=.env tools/seed-rbac.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {

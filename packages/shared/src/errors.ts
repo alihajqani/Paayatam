@@ -67,6 +67,15 @@ export const ErrorCode = {
 
   // Moderation
   ALREADY_REPORTED: 'ALREADY_REPORTED',
+  CANNOT_REPORT_OWN_CONTENT: 'CANNOT_REPORT_OWN_CONTENT',
+
+  // Admin (ADR-0010)
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  UNSEAL_REQUIRES_OPEN_CASE: 'UNSEAL_REQUIRES_OPEN_CASE',
+  UNSEAL_REASON_REQUIRED: 'UNSEAL_REASON_REQUIRED',
+  UNSEAL_GRANT_EXPIRED: 'UNSEAL_GRANT_EXPIRED',
+  FOUR_EYES_REQUIRED: 'FOUR_EYES_REQUIRED',
 
   // Platform
   FORBIDDEN: 'FORBIDDEN',
@@ -132,6 +141,15 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   REVIEW_NOT_EDITABLE: 'این بازخورد دیگر قابل ویرایش نیست.',
 
   ALREADY_REPORTED: 'شما قبلاً این مورد را گزارش کرده‌اید.',
+  CANNOT_REPORT_OWN_CONTENT: 'نمی‌توانید محتوای خودتان را گزارش کنید.',
+
+  INVALID_CREDENTIALS: 'ایمیل، رمز عبور یا کد تأیید نادرست است.',
+  ACCOUNT_LOCKED: 'این حساب موقتاً قفل شده است. کمی بعد دوباره تلاش کنید.',
+  UNSEAL_REQUIRES_OPEN_CASE:
+    'برای دسترسی به گفتگو، ابتدا باید پروندهٔ بازی برای آن وجود داشته باشد.',
+  UNSEAL_REASON_REQUIRED: 'برای دسترسی به گفتگو، ثبت دلیل الزامی است.',
+  UNSEAL_GRANT_EXPIRED: 'مهلت دسترسی به این گفتگو به پایان رسیده است.',
+  FOUR_EYES_REQUIRED: 'این تغییر به تأیید یک مدیر دیگر نیاز دارد.',
 
   FORBIDDEN: 'شما به این بخش دسترسی ندارید.',
   NOT_FOUND: 'مورد درخواستی یافت نشد.',
@@ -157,6 +175,13 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   ALREADY_REFERRED: 409,
   ALREADY_REVIEWED: 409,
   ALREADY_REPORTED: 409,
+  CANNOT_REPORT_OWN_CONTENT: 403,
+  INVALID_CREDENTIALS: 401,
+  ACCOUNT_LOCKED: 429,
+  UNSEAL_REQUIRES_OPEN_CASE: 403,
+  UNSEAL_REASON_REQUIRED: 400,
+  UNSEAL_GRANT_EXPIRED: 403,
+  FOUR_EYES_REQUIRED: 403,
   CAPACITY_EXCEEDED: 409,
   CONFLICT_STALE_VERSION: 409,
   EVENT_ALREADY_STARTED: 409,

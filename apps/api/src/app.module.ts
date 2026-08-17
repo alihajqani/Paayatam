@@ -6,6 +6,7 @@ import {
   CatalogModule,
   ChatModule,
   DiscoveryModule,
+  AdminAccessModule,
   EconomyModule,
   EventsModule,
   ReviewsModule,
@@ -27,6 +28,9 @@ import { DiscoveryController } from './discovery/discovery.controller';
 import { EventsController } from './events/events.controller';
 import { HealthModule } from './health/health.module';
 import { ReviewsController } from './reviews/reviews.controller';
+import { AdminController } from './admin/admin.controller';
+import { AdminAuthGuard } from './admin/admin.guard';
+import { ReportsController } from './moderation/reports.controller';
 import { OnboardingController } from './onboarding/onboarding.controller';
 import { ParticipationController } from './participation/participation.controller';
 import { TelegramWebhookController } from './telegram/webhook.controller';
@@ -49,6 +53,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     OutboxModule,
     IdentityModule,
     CatalogModule,
+    AdminAccessModule,
     EconomyModule,
     ReviewsModule,
     ProfileModule,
@@ -69,10 +74,13 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     ChatController,
     EconomyController,
     ReviewsController,
+    ReportsController,
+    AdminController,
     TelegramWebhookController,
   ],
   providers: [
     AuthService,
+    AdminAuthGuard,
     { provide: APP_GUARD, useClass: AuthGuard },
     // Registered here rather than in `bootstrap()`, alongside the guard it
     // belongs with. Turning a domain `AppError` into its documented status and

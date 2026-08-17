@@ -1347,6 +1347,86 @@ opens a case (threshold read from config, also tested at 2 and 4); the owner is 
 reporter identity**; **an RBAC matrix test — every role × every admin endpoint**; SUPPORT cannot adjust
 coins; chat unseal without an open case is denied.
 
+**Deviations from this plan, decided during M12:**
+
+- **`MESSAGE` reports name the *conversation*, not a message.** §4.6 lists `MESSAGE` as a target type, but a
+  message has no public id — §4.4 exposes conversations by `anonymous_chat.public_id` and messages only by a
+  per-chat sequence, deliberately. Naming an individual message from outside would need an identifier the
+  product does not publish. Reporting a conversation is what a user can actually do, and it is also what
+  opens the case a break-glass grant then requires (T14), so the two features meet where they should.
+- **Nobody is notified when a conversation is reported.** Telling one side of an anonymous chat that the
+  other reported them is the single notification this module must never send, so `MESSAGE` reports have no
+  owner and emit nothing.
+- **`report.target_type` reuses `ModerationSubjectType` rather than declaring a parallel enum.** A report and
+  the case it opens are about the same kinds of thing, and two enums would drift the first time one gained a
+  member.
+- **The auto-hide threshold counts rows because the UNIQUE makes rows mean people.** That is the load-bearing
+  connection between invariant 5 and §11's "3 distinct users": without
+  `UNIQUE (target_type, target_id, reporter_user_id)`, one determined person could hide anybody's event by
+  clicking three times. The count is taken *after* the insert and inside the same transaction, so two
+  simultaneous third reports cannot both see two.
+- **A fourth report updates the existing case rather than opening another.** A queue holding three cases
+  about one event is a queue three people work in parallel.
+- **Reporting your own content is refused.** Not in the plan, but allowing it would let somebody inflate a
+  count towards their own threshold, and "report your own event" is not a meaningful action.
+- **TOTP is hand-rolled**, for the reason M2 hand-rolled the `initData` HMAC: it is thirty lines of RFC 6238
+  arithmetic with published test vectors, it needs no I/O, and a dependency on the code path that decides who
+  reaches the moderation panel is a supply-chain risk. Tested against the RFC's own vectors. `argon2id` is
+  **not** hand-rolled — `@node-rs/argon2` is the one new runtime dependency, because a memory-hard hash is
+  exactly the kind of primitive nobody should write themselves.
+- **`@node-rs/argon2` exports `Algorithm` as an ambient const enum**, which `isolatedModules` cannot inline —
+  importing it compiles and then fails at runtime with `undefined`. The algorithm is written as the literal
+  `2` with a comment saying why.
+- **Login answers identically for every failure.** Unknown email, wrong password, wrong code and suspended
+  account all return `INVALID_CREDENTIALS`, and an unknown email still costs a hash so it cannot be
+  distinguished with a stopwatch. Distinguishing them would turn the endpoint into an oracle for which staff
+  addresses exist. The *audit* row records which factor failed, because a defender needs that and an attacker
+  never sees it.
+- **The lockout counter advances on a wrong TOTP code, not only a wrong password**, so somebody who has the
+  password but not the phone cannot brute-force six digits at leisure. Progressive rather than a flat window,
+  because a flat window is a rate limit an attacker waits out.
+- **The four-eyes rule is a CHECK, not only a service check.** `approved_by_id <> requested_by_id` in the
+  database is what stops one compromised `role.manage` account quietly becoming every role at once — which is
+  precisely what an attacker would do with the account they most want.
+- **`chat_unseal_grant` is a row, not a flag**, and its three conditions are three columns: a case id that is
+  `NOT NULL`, a reason with a length CHECK, and an expiry with `expires_at > granted_at`. "Reading a chat
+  requires an open case" is therefore a schema fact rather than a service check.
+- **One audit row per message read, never the message body.** T14 says per-message and it is easy to soften
+  into per-session; a session row answers "somebody opened this chat" while a per-message row answers what
+  they actually read. The body is never copied into the trail — an audit log holding the plaintext defeats
+  the encrypted column beside it.
+- **`ChatModule` now exports `MessageCipher`**, which it deliberately did not before. There is exactly one
+  other consumer — the break-glass path — and the import in `AdminAccessModule` is what makes "who can
+  decrypt a private message?" answerable by reading two module files.
+- **The global Mini App `AuthGuard` skips `/admin/`.** The admin API is a different identity system with a
+  different session mechanism, so the Mini App guard would refuse every staff request with an error about a
+  header the panel never sends. `AdminAuthGuard` protects those routes and is deny-by-default in the same
+  way, with authorisation underneath it in the services.
+- **Cookie registration is a function both composition points call, not a module provider.** A Fastify plugin
+  must be on the instance before Nest boots it, and a provider runs during `init()` — too late. This is the
+  opposite of the call M6 made for the exception filter, and it is forced rather than preferred; the
+  response-leak scan calls it and then asserts admin reads actually succeed, so forgetting it fails a test.
+- **The leak scan's `@username` detector matched every email address.** M12 surfaced it the moment the admin
+  API started returning a staff member's own address to themselves. A Telegram handle follows whitespace or a
+  quote; an email has its local part pressed against the `@`. The pattern now has a lookbehind, which is a
+  strictly better detector rather than an exception carved out for one endpoint.
+- **The scan reaches the admin API with a real staff session**, including the one endpoint in the product
+  that returns decrypted private messages. That read is the single most important response in the file to
+  scan, and scanning it at all meant satisfying all three break-glass conditions in the fixture.
+- **`POST /admin/v1/coins/adjust` takes a client-supplied `reference` as its idempotency key.** Only the
+  caller knows whether a request is a retry, and a generated key would make a flaky connection double
+  somebody's balance.
+- **Built but not in §6's list**: `/admin/v1/me`, `/admin/v1/trust/adjust`, `/admin/v1/users/:id/status`,
+  `/admin/v1/roles/requests` and its approval, and four user-facing report endpoints rather than the one §6
+  names — a reporting system that only covers events cannot be used for the things that actually hurt people.
+- **Not built, and deliberately deferred**: the dashboard aggregates, and CRUD over catalog, policies,
+  settings and the blacklist. §6 lists them and the plan's own §1 says "everything else is CRUD"; they are
+  admin-authenticated wrappers over tables that already exist, they add nothing to the invariants this
+  milestone is about, and each would need its own row in the RBAC matrix. **Stated as outstanding rather than
+  quietly counted as done.**
+- **No admin SPA.** `apps/admin` does not exist. M12 is the API and its authorisation; the Vue panel is not
+  built, as with every other surface so far.
+
 **M13 — Notification jobs** · *M*
 Tests: a crash between commit and enqueue still delivers (kill the relay mid-flight, restart, assert
 delivery); duplicate job ids ⇒ one message; 429 honours `retry_after`; 403 marks `bot_blocked` and stops;

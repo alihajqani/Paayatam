@@ -171,6 +171,20 @@ export const SETTING_DEFAULTS = {
   'trust.review_rating_1': -5,
 
   /**
+   * Distinct reporters before a subject is auto-hidden and a case opened
+   * (plan §11).
+   *
+   * Three is low on purpose. Hiding is reversible and a moderator decides what
+   * actually happens; what the automation decides is only that enough people
+   * objected for a human to look, and that in the meantime the thing should stop
+   * being seen. `UNIQUE (target, reporter)` is what makes "three" mean three
+   * people rather than three clicks.
+   */
+  'moderation.report_threshold': 3,
+  /** How long a break-glass chat grant lasts (ADR-0010, T14: fifteen minutes). */
+  'moderation.unseal_window_minutes': 15,
+
+  /**
    * How long after an event ends before attendance is settled.
    *
    * A window rather than "immediately at the end": the host has to be able to

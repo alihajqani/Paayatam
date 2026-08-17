@@ -85,6 +85,7 @@ model User {
   trustLedger     TrustScoreLedger[]
   referralsMade   Referral[]         @relation("ReferralsMade")
   reviewsWritten  Review[]           @relation("ReviewsWritten")
+  reportsFiled    Report[]           @relation("ReportsFiled")
   reviewsReceived Review[]           @relation("ReviewsReceived")
   referralReceived Referral?         @relation("ReferralReceived")
 
@@ -900,6 +901,7 @@ model AnonymousChat {
   chatParticipants ChatParticipant[]
   messages         ChatMessage[]
   actions          ChatAction[]
+  unsealGrants     ChatUnsealGrant[]
 
   @@index([eventId])
   /// The retention purge's query (M15): closed chats whose 90 days are up.
@@ -1155,6 +1157,9 @@ model ModerationCase {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  reports      Report[]
+  unsealGrants ChatUnsealGrant[]
+
   @@index([status, createdAt])
   @@index([subjectType, subjectId])
   @@map("moderation_case")
@@ -1400,4 +1405,232 @@ model ReviewPair {
   /// what the partial predicate would have done.
   @@index([status, deadlineAt], map: "review_pair_due_idx")
   @@map("review_pair")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reports (plan §4.6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Why somebody reported something. A closed list, so the moderation queue can be
+/// filtered and counted; the free text lives in `description`.
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  INAPPROPRIATE
+  SCAM
+  IMPERSONATION
+  SAFETY
+  OTHER
+
+  @@map("report_reason")
+}
+
+enum ReportStatus {
+  OPEN
+  ACTIONED
+  DISMISSED
+
+  @@map("report_status")
+}
+
+/// One person's report of one thing (plan §4.6, invariant 5).
+///
+/// `UNIQUE (target_type, target_id, reporter_user_id)` is "you cannot report the
+/// same thing twice", in the database. It is also what makes the auto-hide
+/// threshold mean **distinct people**: counting rows counts reporters, because the
+/// index makes a second row from the same person impossible.
+model Report {
+  id       String @id @default(uuid(7))
+  publicId String @unique @default(uuid(4)) @map("public_id")
+
+  /// Reuses `ModerationSubjectType` rather than declaring a parallel enum: a
+  /// report and the case it opens are about the same kinds of thing, and two
+  /// enums would drift the first time one gained a member.
+  targetType     ModerationSubjectType @map("target_type")
+  targetId       String                @map("target_id")
+  reporterUserId String                @map("reporter_user_id")
+
+  reason      ReportReason
+  description String?
+
+  status           ReportStatus @default(OPEN)
+  moderationCaseId String?      @map("moderation_case_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  reporter       User            @relation("ReportsFiled", fields: [reporterUserId], references: [id], onDelete: Restrict)
+  moderationCase ModerationCase? @relation(fields: [moderationCaseId], references: [id], onDelete: SetNull)
+
+  /// Invariant 5.
+  @@unique([targetType, targetId, reporterUserId])
+  /// The threshold count, and the moderation queue's "what has been reported".
+  @@index([targetType, targetId, status])
+  @@index([status, createdAt])
+  @@map("report")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin identity and RBAC (ADR-0010)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AdminUserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+
+  @@map("admin_user_status")
+}
+
+/// Staff. **No foreign key to `user`, and never one** (ADR-0010).
+///
+/// The two identity systems share no table, no token format and no session
+/// namespace, so a privilege-escalation bug in user-facing code cannot become an
+/// admin compromise — and admin access does not follow from somebody's personal
+/// Telegram being taken over.
+model AdminUser {
+  id    String @id @default(uuid(7))
+  /// CITEXT, so `Ali@x.com` and `ali@x.com` are one account rather than two.
+  email String @unique @db.Citext
+
+  /// argon2id, memory-hard, per-user salt inside the encoded hash.
+  passwordHash String @map("password_hash")
+  /// AES-256-GCM at rest, same cipher the chat bodies use. TOTP is **mandatory**
+  /// (D11), so this is not nullable — an admin without a second factor is not a
+  /// state this table can represent.
+  totpSecretEnc String @map("totp_secret_enc")
+
+  displayName String          @map("display_name")
+  status      AdminUserStatus @default(ACTIVE)
+
+  /// Progressive lockout after five failures (D11). Reset on a successful login.
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt    DateTime? @map("last_login_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  roles           AdminUserRole[]
+  unsealGrants    ChatUnsealGrant[]
+  roleChangesMade RoleChangeRequest[] @relation("RoleChangeRequestedBy")
+  roleChangesSeen RoleChangeRequest[] @relation("RoleChangeApprovedBy")
+
+  @@index([status])
+  @@map("admin_user")
+}
+
+model Role {
+  id   String @id @default(uuid(7))
+  /// `SUPER_ADMIN`, `MODERATOR`, `SUPPORT`, `ANALYST` (ADR-0010).
+  key  String @unique
+  name String
+
+  permissions RolePermission[]
+  admins      AdminUserRole[]
+
+  @@map("role")
+}
+
+/// A fine-grained capability — `event.moderate`, `coin.adjust`, `chat.read`.
+///
+/// Granted to roles rather than hardcoded to role names, so adding a capability is
+/// a row rather than a new code path (ADR-0010, rule 1).
+model Permission {
+  id          String  @id @default(uuid(7))
+  key         String  @unique
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permission")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permission")
+}
+
+model AdminUserRole {
+  adminUserId String   @map("admin_user_id")
+  roleId      String   @map("role_id")
+  grantedAt   DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([adminUserId, roleId])
+  @@map("admin_user_role")
+}
+
+enum RoleChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("role_change_status")
+}
+
+/// Four-eyes on role changes (ADR-0010, rule 4).
+///
+/// A `SUPER_ADMIN` cannot unilaterally grant capabilities — not even to
+/// themselves. The request and its approval are two rows written by two different
+/// admins, and the CHECK below is what makes "different" a fact rather than a
+/// convention.
+model RoleChangeRequest {
+  id String @id @default(uuid(7))
+
+  /// The admin whose roles would change.
+  subjectAdminId String   @map("subject_admin_id")
+  roleKey        String   @map("role_key")
+  /// True to grant, false to revoke.
+  granting       Boolean
+  reason         String
+
+  requestedById String           @map("requested_by_id")
+  approvedById  String?          @map("approved_by_id")
+  status        RoleChangeStatus @default(PENDING)
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  decidedAt  DateTime? @map("decided_at") @db.Timestamptz(3)
+
+  requestedBy AdminUser  @relation("RoleChangeRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  approvedBy  AdminUser? @relation("RoleChangeApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@map("role_change_request")
+}
+
+/// A time-boxed permission to read one conversation (ADR-0010, T14).
+///
+/// Reading private messages requires **all three** of `chat.read`, an open
+/// `moderation_case` naming that chat, and a written reason — and then only for
+/// fifteen minutes. Every individual message read writes its own `audit_log` row,
+/// not one row for the session, so "what did they actually look at" is answerable.
+model ChatUnsealGrant {
+  id String @id @default(uuid(7))
+
+  chatId           String @map("chat_id")
+  adminUserId      String @map("admin_user_id")
+  moderationCaseId String @map("moderation_case_id")
+  reason           String
+
+  grantedAt DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  /// Counts messages actually read under this grant, for the weekly digest.
+  readCount Int      @default(0) @map("read_count")
+
+  chat           AnonymousChat  @relation(fields: [chatId], references: [id], onDelete: Restrict)
+  adminUser      AdminUser      @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  moderationCase ModerationCase @relation(fields: [moderationCaseId], references: [id], onDelete: Restrict)
+
+  @@index([adminUserId, grantedAt])
+  @@index([expiresAt])
+  @@map("chat_unseal_grant")
 }

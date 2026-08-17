@@ -61,7 +61,9 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE TABLE
       "outbox_event", "moderation_case", "chat_action", "chat_message",
-      "chat_participant", "anonymous_chat", "review_pair", "review",
+      "chat_participant", "chat_unseal_grant", "anonymous_chat",
+      "review_pair", "review", "report", "role_change_request",
+      "admin_user_role", "role_permission", "permission", "role", "admin_user",
       "event_participant", "event", "blacklist_term",
       "blacklist_version", "user_interest", "user_profile", "referral",
       "trust_score_ledger", "trust_score", "coin_ledger",

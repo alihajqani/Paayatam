@@ -271,6 +271,23 @@ jobs:
           check_constraint review_pair_window_ordered
           check_constraint review_pair_status_matches_contents
           check_constraint review_pair_revealed_at_matches_status
+          # Reports and the admin surface (M12). The first index is invariant 5,
+          # and it is also what makes the auto-hide threshold count *people*:
+          # without it, one determined reporter could hide anybody's event.
+          check_index      report_target_type_target_id_reporter_user_id_key
+          check_index      admin_user_email_key
+          check_constraint report_description_length
+          check_constraint admin_user_failed_attempts_non_negative
+          # Four-eyes on role changes (ADR-0010 rule 4), in the database — the
+          # service check is one refactor away from being skipped, and this is
+          # what stops one compromised account becoming every role at once.
+          check_constraint role_change_request_needs_second_pair_of_eyes
+          check_constraint role_change_request_decided_at_matches_status
+          # Break-glass (T14). A grant that never expires is standing access, and
+          # a reason nobody has to write is a reason nobody writes.
+          check_constraint chat_unseal_grant_is_time_boxed
+          check_constraint chat_unseal_grant_reason_present
+          check_constraint chat_unseal_grant_read_count_non_negative
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam
