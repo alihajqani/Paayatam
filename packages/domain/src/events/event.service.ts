@@ -770,6 +770,7 @@ export class EventService {
             eventType: 'event.cancelled_by_host',
             payload: {
               eventPublicId: locked.publicId,
+              eventTitle: locked.title,
               startsAt: locked.startsAt.toISOString(),
               participants: notified,
             },

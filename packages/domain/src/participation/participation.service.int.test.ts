@@ -10,6 +10,8 @@ import {
   seedCatalog,
   type CatalogFixture,
 } from '../../../../test/integration/db';
+import { render } from '@payetam/telegram';
+import { planNotifications } from '../notifications/fanout';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
@@ -636,6 +638,93 @@ describe('capacity edits race joins (ADR-0006, rule 1)', () => {
 
     expect(event.acceptedCount).toBe(3);
     expect(event.capacity).toBe(3);
+  });
+});
+
+/**
+ * What a user actually receives, rendered from what the service actually emitted.
+ *
+ * This is the gap the original bug lived in. The templates were tested with
+ * hand-written payloads that contained `eventTitle`, and the services were tested for
+ * the rows they wrote — so nothing ever rendered a *real* payload, and every
+ * notification that names an event reached users as `«»`. Ten template lines read
+ * `eventTitle`; no emitter wrote one.
+ *
+ * Driving the real flow and rendering the real row is the only arrangement in which
+ * that is visible at all.
+ */
+describe('the notification a real acceptance produces', () => {
+  /** `«»`, with or without whitespace between the guillemets. */
+  const EMPTY_QUOTES = /«\s*»/;
+
+  async function renderedFor(eventType: string): Promise<string[]> {
+    const row = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return planNotifications({
+      id: row.id,
+      eventType: row.eventType,
+      aggregateId: row.aggregateId,
+      payload: row.payload as Record<string, unknown>,
+    }).map((plan) => render(plan.templateKey, plan.payload, 'payetambot')?.text ?? '');
+  }
+
+  it('names the event instead of showing an empty «»', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await participation.accept(hostId, request.publicId);
+
+    const [text] = await renderedFor('participation.accepted');
+    expect(text).toBeDefined();
+    expect(text).not.toMatch(EMPTY_QUOTES);
+    expect(text).toContain('دورهمی');
+  });
+
+  it('deep-links the conversation the acceptance opened, not `chats/`', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+    await participation.accept(hostId, request.publicId);
+
+    const row = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'participation.accepted' },
+    });
+    const payload = row.payload as Record<string, unknown>;
+
+    expect(payload['chatPublicId']).toEqual(expect.any(String));
+    expect(payload['chatPublicId']).not.toBe('');
+    expect(payload['chatPublicId']).toBe(request.chatPublicId);
+  });
+
+  it('names the event in a rejection too', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await participation.reject(hostId, request.publicId);
+
+    const [text] = await renderedFor('participation.rejected');
+    expect(text).not.toMatch(EMPTY_QUOTES);
+    expect(text).toContain('دورهمی');
+  });
+
+  it('names the event in both halves of the join notification', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    await participation.join(joiner, eventPublicId);
+
+    const texts = await renderedFor('participation.requested');
+
+    // Host and guest: the guest half is only planned when the payload names them.
+    expect(texts).toHaveLength(2);
+    for (const text of texts) {
+      expect(text).not.toMatch(EMPTY_QUOTES);
+      expect(text).toContain('دورهمی');
+    }
   });
 });
 

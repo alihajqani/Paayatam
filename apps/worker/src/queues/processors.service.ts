@@ -209,6 +209,13 @@ export class Processors implements OnModuleInit {
    * deviation notes. This is that job. They are idempotent and read the server
    * clock, which is what makes running one twice a no-op rather than a double
    * charge.
+   *
+   * A sweep that *did* something drains the outbox immediately afterwards rather
+   * than leaving its events for the next backstop. These sweeps are the only
+   * producers of domain events inside the worker — the API nudges the relay from its
+   * own side (`RelayNudgeInterceptor`) — and a promotion or an expiry that a user is
+   * waiting to hear about should not sit for five minutes because the thing that
+   * created it happened to be a cron job.
    */
   private async onScheduled(job: Job): Promise<void> {
     switch (job.name) {
@@ -222,13 +229,22 @@ export class Processors implements OnModuleInit {
 
       case JOBS.EXPIRE_PENDING: {
         const expired = await this.participation.expireOverdue();
-        if (expired > 0) this.logger.log(`Expired ${String(expired)} overdue requests`);
+        if (expired > 0) {
+          this.logger.log(`Expired ${String(expired)} overdue requests`);
+          await this.onDomainEvent(job);
+        }
         return;
       }
 
       case JOBS.PROMOTE_WAITLIST: {
         const promoted = await this.participation.sweepWaitlists();
-        if (promoted > 0) this.logger.log(`Promoted ${String(promoted)} from waitlists`);
+        if (promoted > 0) {
+          this.logger.log(`Promoted ${String(promoted)} from waitlists`);
+          // A promotion is somebody being told they got a seat. Draining here rather
+          // than waiting for the next backstop is the difference between "you are in"
+          // arriving now and arriving up to five minutes later.
+          await this.onDomainEvent(job);
+        }
         return;
       }
 
@@ -238,14 +254,17 @@ export class Processors implements OnModuleInit {
           this.logger.log(
             `Retired ${String(result.completed)} completed, ${String(result.expired)} expired`,
           );
+          await this.onDomainEvent(job);
         }
         return;
       }
 
       case JOBS.SETTLE_ATTENDANCE: {
         const settled = await this.lifecycle.settleAttendance();
-        if (settled.attended > 0)
+        if (settled.attended > 0) {
           this.logger.log(`Settled ${String(settled.attended)} attendances`);
+          await this.onDomainEvent(job);
+        }
         return;
       }
 

@@ -86,7 +86,7 @@ async function createEvent(capacity = 1, startsAt: Date = STARTS_AT): Promise<st
       moderationStatus: 'APPROVED',
       publishedAt: NOW,
     },
-    select: { publicId: true },
+    select: { publicId: true, title: true },
   });
   return event.publicId;
 }
@@ -421,6 +421,15 @@ describe('both parties are notified (D8)', () => {
     expect(payload['promotedUserPublicId']).toBe(promotedUser.publicId);
     expect(payload['participantPublicId']).toBe(rows[1]!.publicId);
     expect(payload['hostDeadlineAt']).toBe('2026-08-15T21:00:00.000Z');
+
+    /**
+     * Both templates built from this row say «…» about the event and one of them
+     * deep-links the conversation. Neither key was ever written, so both promotion
+     * notifications reached real users reading `«»` with a link to `chats/`.
+     */
+    expect(payload['eventTitle']).toEqual(expect.stringContaining('دورهمی'));
+    expect(payload['chatPublicId']).toEqual(expect.any(String));
+    expect(payload['chatPublicId']).not.toBe('');
   });
 
   /**
@@ -455,6 +464,10 @@ describe('both parties are notified (D8)', () => {
     expect(payload['status']).toBe('PENDING');
     expect(requested.processedAt).toBeNull();
     expect(requested.attempts).toBe(0);
+    // The host's notification names the event; without this it read «».
+    expect(payload['eventTitle']).toEqual(expect.stringContaining('دورهمی'));
+    // The guest is told too, and the fan-out only plans that half when it is named.
+    expect(payload['participantUserPublicId']).toEqual(expect.any(String));
   });
 
   /**

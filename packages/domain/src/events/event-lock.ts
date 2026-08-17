@@ -33,6 +33,16 @@ export interface LockedEvent {
   acceptedCount: number;
   startsAt: Date;
   deletedAt: Date | null;
+  /**
+   * Carried so the notifications these paths emit can name the event.
+   *
+   * Every template that says «…» about an event reads `eventTitle` from the outbox
+   * payload, and no emitter provided one — so all of them rendered «» to real users.
+   * The title has to come from inside the transaction that emits the row, and the
+   * event row is already being read here; fetching it separately would be a second
+   * query under the lock, which rule 3 exists to prevent.
+   */
+  title: string;
 }
 
 /**
@@ -40,6 +50,8 @@ export interface LockedEvent {
  *
  * Narrow on purpose: the lock is held while the transaction runs, so a column
  * selected here is a column somebody may be tempted to do something slow with.
+ * `title` earns its place by being the opposite: a plain string copied straight into
+ * an outbox payload, on a row this query already reads.
  */
 const LOCKED_COLUMNS = Prisma.sql`
   e."id",
@@ -49,7 +61,8 @@ const LOCKED_COLUMNS = Prisma.sql`
   e."capacity",
   e."accepted_count" AS "acceptedCount",
   e."starts_at"      AS "startsAt",
-  e."deleted_at"     AS "deletedAt"
+  e."deleted_at"     AS "deletedAt",
+  e."title"
 `;
 
 export async function lockEventForUpdate(

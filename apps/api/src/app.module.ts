@@ -31,6 +31,7 @@ import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor';
+import { RelayNudgeInterceptor } from './common/relay-nudge.interceptor';
 import { AppExceptionFilter } from './common/app-exception.filter';
 import { CatalogController } from './catalog/catalog.controller';
 import { ChatController } from './chat/chat.controller';
@@ -132,6 +133,13 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
      * After the guards, so `request.user` is populated: a key is scoped to a caller.
      */
     { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
+    /**
+     * Wakes the outbox relay as soon as a request that may have written one returns
+     * (ADR-0005's event-driven path, which had a consumer and no producer). The
+     * five-minute `OUTBOX_BACKSTOP` stays exactly as it is — it is the guarantee,
+     * not the mechanism.
+     */
+    { provide: APP_INTERCEPTOR, useClass: RelayNudgeInterceptor },
     // Registered here rather than in `bootstrap()`, alongside the guard it
     // belongs with. Turning a domain `AppError` into its documented status and
     // Persian message is part of what this application *is*, not a step one

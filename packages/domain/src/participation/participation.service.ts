@@ -180,7 +180,9 @@ export class ParticipationService {
             payload: {
               participantPublicId: participant.publicId,
               eventPublicId: event.publicId,
+              eventTitle: event.title,
               hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
+              participantUserPublicId: await this.publicIdOf(tx, userId),
               chatPublicId: chat.publicId,
               status,
             },
@@ -261,7 +263,11 @@ export class ParticipationService {
           payload: {
             participantPublicId: updated.publicId,
             eventPublicId: event.publicId,
+            eventTitle: event.title,
             participantUserPublicId: await this.publicIdOf(tx, participant.userId),
+            // The template deep-links straight into the conversation this
+            // acceptance opened; without it the button pointed at `chats/`.
+            chatPublicId: updated.chat?.publicId ?? '',
           },
         },
         tx,
@@ -321,6 +327,7 @@ export class ParticipationService {
           payload: {
             participantPublicId: updated.publicId,
             eventPublicId: event.publicId,
+            eventTitle: event.title,
             participantUserPublicId: await this.publicIdOf(tx, participant.userId),
           },
         },
@@ -590,6 +597,8 @@ export class ParticipationService {
       const next = await tx.eventParticipant.findFirst({
         where: { eventId: event.id, status: 'WAITLISTED' },
         orderBy: [{ requestedAt: 'asc' }, { id: 'asc' }],
+        // The promoted guest's notification links into their conversation.
+        include: PARTICIPANT_CHAT,
       });
       if (!next) break;
 
@@ -641,8 +650,10 @@ export class ParticipationService {
           payload: {
             participantPublicId: next.publicId,
             eventPublicId: event.publicId,
+            eventTitle: event.title,
             hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
             promotedUserPublicId: await this.publicIdOf(tx, next.userId),
+            chatPublicId: next.chat?.publicId ?? '',
             hostDeadlineAt: hostDeadlineAt.toISOString(),
           },
         },

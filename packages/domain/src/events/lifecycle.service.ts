@@ -425,6 +425,7 @@ export class EventLifecycleService {
             payload: {
               participantPublicId,
               eventPublicId: event.publicId,
+              eventTitle: event.title,
               coinsCharged: penalty.coinsCharged,
             },
           },

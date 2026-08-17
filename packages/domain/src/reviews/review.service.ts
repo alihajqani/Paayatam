@@ -681,7 +681,11 @@ export class ReviewService {
           select: {
             publicId: true,
             user: { select: { publicId: true } },
-            event: { select: { publicId: true, host: { select: { publicId: true } } } },
+            // `title` so the reveal notification can name the event: every template
+            // that says «…» reads `eventTitle` from the payload.
+            event: {
+              select: { publicId: true, title: true, host: { select: { publicId: true } } },
+            },
           },
         },
         hostReview: { select: { id: true, status: true, rating: true, revieweeUserId: true } },
@@ -722,6 +726,7 @@ export class ReviewService {
         payload: {
           participantPublicId: pair.participant.publicId,
           eventPublicId: pair.participant.event.publicId,
+          eventTitle: pair.participant.event.title,
           hostUserPublicId: pair.participant.event.host.publicId,
           guestUserPublicId: pair.participant.user.publicId,
           outcome,
