@@ -79,6 +79,8 @@ export const JOBS = {
   OUTBOX_BACKSTOP: 'outbox-backstop',
   REVIEW_SWEEP: 'review-sweep',
   SETTLE_ATTENDANCE: 'settle-attendance',
+  /** Publish newly-eligible events, and take down posts that have gone stale. */
+  CHANNEL_SYNC: 'channel-sync',
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
@@ -99,4 +101,5 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
   { name: JOBS.OUTBOX_BACKSTOP, pattern: '*/5 * * * *' },
   { name: JOBS.REVIEW_SWEEP, pattern: '0 * * * *' },
   { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
+  { name: JOBS.CHANNEL_SYNC, pattern: '*/5 * * * *' },
 ];

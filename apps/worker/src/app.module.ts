@@ -3,6 +3,7 @@ import { PrismaModule } from '@payetam/db';
 import {
   AuditModule,
   CatalogModule,
+  ChannelModule,
   ChatModule,
   EconomyModule,
   EventsModule,
@@ -38,6 +39,7 @@ import { TelegramClient } from './telegram/telegram.client';
     AuditModule,
     OutboxModule,
     CatalogModule,
+    ChannelModule,
     ChatModule,
     EconomyModule,
     EventsModule,

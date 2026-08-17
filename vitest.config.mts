@@ -34,8 +34,8 @@ export default defineConfig({
           /**
            * Integration tests share one database, so they run one file at a time.
            *
-           * **`singleFork` is what actually enforces it, and `fileParallelism`
-           * alone did not.** Run on its own the integration project was serial and
+           * **`maxWorkers: 1` is what actually enforces it, and
+           * `fileParallelism` alone did not.** Run on its own the integration project was serial and
            * green; run alongside the unit project it was not, and the symptoms
            * were spectacular and misleading — first a `TRUNCATE` deadlock (two
            * resets racing), earlier a wave of foreign-key failures that read as a
@@ -43,12 +43,18 @@ export default defineConfig({
            * it over. Both were one cause: files that were supposed to be
            * sequential were not, in the combined run only.
            *
-           * Pinning the project to a single fork makes the guarantee structural
-           * rather than advisory. The unit project keeps its parallelism — it
-           * touches nothing shared.
+           * `maxWorkers: 1` is what enforces it. `fileParallelism: false` alone is
+           * advisory enough that it did not hold, and `poolOptions.forks.singleFork`
+           * — the first attempt at a fix — was silently ignored: Vitest 4 removed
+           * `poolOptions`, and an ignored option looks exactly like a working one
+           * until the deprecation warning is read. One worker cannot run two files
+           * at once, which is the guarantee stated as a constraint rather than as a
+           * preference.
+           *
+           * The unit project keeps its parallelism — it touches nothing shared.
            */
           fileParallelism: false,
-          poolOptions: { forks: { singleFork: true } },
+          maxWorkers: 1,
         },
       },
     ],

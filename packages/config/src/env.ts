@@ -84,6 +84,8 @@ export const envSchema = z
     TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().min(16).optional(),
     TELEGRAM_MODE: z.enum(['webhook', 'polling']).default('polling'),
     TELEGRAM_CHANNEL_ID: z.string().optional(),
+    /** Only used to build the deep link in a channel post (M14). */
+    TELEGRAM_BOT_USERNAME: z.string().optional(),
 
     // ── Cryptography — required from M2/M8, and always in production ──────────
     CHAT_ENCRYPTION_KEY: base64Key(32).optional(),

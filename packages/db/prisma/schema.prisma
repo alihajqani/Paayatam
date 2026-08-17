@@ -673,6 +673,7 @@ model Event {
   participants EventParticipant[]
   reviews      Review[]
   reviewPairs  ReviewPair[]
+  channelPosts ChannelPost[]
   chats        AnonymousChat[]
 
   @@index([status, startsAt])
@@ -1725,4 +1726,50 @@ model JobFailure {
   @@index([createdAt])
   @@index([redrivenAt])
   @@map("job_failure")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Channel publishing (M14, plan §3.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Why an event earned a place in the channel.
+///
+/// Three reasons, and they are not interchangeable: VIP and BOOST are **bought**
+/// (M9's two coin sinks), while TRENDING is **earned** by demand. Keeping them
+/// apart is what lets the same event appear once for each reason without the
+/// channel repeating itself — and what makes "did they pay for this?" answerable.
+enum ChannelPostKind {
+  VIP
+  BOOSTED
+  TRENDING
+
+  @@map("channel_post_kind")
+}
+
+/// One post in the channel, and the record that it happened once.
+///
+/// `UNIQUE (event_id, kind)` is the whole duplicate guard — the plan's "no
+/// duplicate post per event per kind", in the database rather than in a check the
+/// publisher has to remember. The publisher inserts and lets the index decide,
+/// because a read-then-write has a window and a channel that double-posts is a
+/// channel people mute.
+model ChannelPost {
+  id      String          @id @default(uuid(7))
+  eventId String          @map("event_id")
+  kind    ChannelPostKind
+
+  /// What Telegram called it, which is what a later delete needs.
+  telegramMessageId Int?      @map("telegram_message_id")
+  postedAt          DateTime? @map("posted_at") @db.Timestamptz(3)
+  /// Set when the post was removed because the event stopped being publishable.
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, kind])
+  /// The delete sweep's read: posts that are live and whose event no longer is.
+  @@index([deletedAt, postedAt])
+  @@map("channel_post")
 }

@@ -31,8 +31,14 @@ export type SendOutcome =
 export class TelegramClient {
   private readonly logger = new Logger(TelegramClient.name);
   private readonly bot: Bot | null;
+  private readonly channelId: string | undefined;
+  readonly botUsername: string;
 
   constructor(@Inject(ENV) env: Env) {
+    this.channelId = env.TELEGRAM_CHANNEL_ID;
+    // Only used to build the deep link in a channel post. A wrong value produces a
+    // broken link rather than a wrong destination, so it is not worth failing over.
+    this.botUsername = env.TELEGRAM_BOT_USERNAME ?? 'payetam_bot';
     const token = env.TELEGRAM_BOT_TOKEN;
     if (token === undefined || token === '') {
       // Development and CI have no token. Failing at construction would stop the
@@ -59,6 +65,56 @@ export class TelegramClient {
    * relay into a request-forger on their behalf (T11 refuses exactly this for
    * `external_link`).
    */
+  /**
+   * Post to the channel.
+   *
+   * A separate method from `send` because the failure modes differ: a channel post
+   * that fails is not "this user blocked us", it is "the bot is not an admin of
+   * the channel" or "the channel id is wrong" — configuration problems that a
+   * retry will not fix but which must be loud rather than silently marking
+   * somebody undeliverable.
+   */
+  async postToChannel(text: string): Promise<SendOutcome> {
+    if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
+    if (this.channelId === undefined || this.channelId === '') {
+      return { kind: 'RETRY', reason: 'TELEGRAM_CHANNEL_ID is not configured' };
+    }
+
+    try {
+      const message = await this.bot.api.sendMessage(this.channelId, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+      });
+      return { kind: 'SENT', messageId: message.message_id };
+    } catch (error) {
+      return classify(error);
+    }
+  }
+
+  /**
+   * Take a channel post down.
+   *
+   * A message that is already gone counts as success: the goal is "this is not in
+   * the channel", and something else having removed it first satisfies that. Any
+   * other reading would retry forever against a message that does not exist.
+   */
+  async deleteChannelPost(messageId: number): Promise<boolean> {
+    if (!this.bot || this.channelId === undefined || this.channelId === '') return false;
+
+    try {
+      await this.bot.api.deleteMessage(this.channelId, messageId);
+      return true;
+    } catch (error) {
+      const outcome = classify(error);
+      if (outcome.kind === 'SENT') return true;
+      if (outcome.kind === 'BLOCKED') return true;
+      // Telegram refuses to delete anything older than 48 hours in some chats.
+      // Treated as done for the same reason a missing message is: retrying cannot
+      // change it, and the row must stop being reconsidered on every sweep.
+      return /message to delete not found|message can't be deleted/i.test(outcome.reason);
+    }
+  }
+
   async send(chatId: bigint, text: string): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 

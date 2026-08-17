@@ -171,6 +171,20 @@ export const SETTING_DEFAULTS = {
   'trust.review_rating_1': -5,
 
   /**
+   * The channel (plan §1, M14).
+   *
+   * `enabled` is a kill switch rather than a feature flag: a public surface the
+   * product cannot stop writing to is a public surface that keeps posting through
+   * an incident. `1` is on, `0` is off, and it is read on every pass.
+   *
+   * The trending threshold is deliberately a *request* count rather than a view
+   * count — asking to join is a real signal a person produced, while a view is
+   * mostly a measure of how often something was already shown.
+   */
+  'channel.enabled': 1,
+  'channel.trending_request_threshold': 10,
+
+  /**
    * Distinct reporters before a subject is auto-hidden and a case opened
    * (plan §11).
    *

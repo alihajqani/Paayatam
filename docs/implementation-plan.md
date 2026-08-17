@@ -1509,6 +1509,50 @@ exhausted retries land in `job_failure` and are re-drivable.
 **M14 — Telegram Channel** · *S* — only PUBLISHED + approved events publish; no duplicate post per event
 per kind; a hidden event's post is deleted; the post body contains no host identity.
 
+**Deviations from this plan, decided during M14:**
+
+- **Three post kinds, not one.** VIP and BOOSTED are **bought** (M9's two coin sinks); TRENDING is **earned**
+  by demand. Keeping them apart is what lets one event appear once for each reason without the channel
+  repeating itself, and what keeps "did they pay for this placement?" answerable later.
+- **`UNIQUE (event_id, kind)` is the duplicate guard**, and the publisher inserts and lets the index decide
+  rather than reading first. A read-then-write has a window, and a channel that double-posts is a channel
+  people mute.
+- **The row is created *unposted*.** `posted_at` and `telegram_message_id` are filled in only once Telegram
+  confirms, so a crash between the claim and the send leaves a row the next pass completes rather than a post
+  nothing recorded. A CHECK ties the two columns together: a row claiming to be posted with no message id is
+  a post nothing can ever take down.
+- **A failed send releases its claim.** Leaving it would mean one failed post permanently barred that event
+  from the channel — the unique index would refuse every future claim, and nothing would say why.
+- **A taken-down row is kept, not deleted.** It is the record that the event *was* promoted, which a coin
+  dispute needs: a host who paid for VIP and lost the post to moderation has a question, and "there is no
+  row" is not an answer. It also stops the event being re-posted the moment it becomes publishable again.
+- **Takedown is wider than the plan's "hidden".** Cancelled, rejected, soft-deleted and simply *started* all
+  mean the post now advertises something that is not on. A channel full of dead links is what makes people
+  stop reading it.
+- **Takedowns run before new posts** in the sweep, so a channel being read right now stops advertising a
+  cancelled event before it gains new entries.
+- **`renderChannelPost` takes a narrow content type, not an event row.** There is no host field for a future
+  edit to interpolate, which is how "the post body contains no host identity" is made structural rather than
+  remembered. The channel is a public surface with no authentication in front of it: whatever appears there
+  is readable by anyone who finds it, forever, including after the event is over and the account is deleted.
+- **Dates are rendered Gregorian, not Jalali.** `Intl` has no Persian calendar formatter available in every
+  Node build, and a wrong date in a public channel is worse than a Gregorian one. The Mini App renders Jalali,
+  where the conversion is done properly.
+- **`channel.enabled` is a kill switch rather than a feature flag**, read on every pass: a public surface the
+  product cannot stop writing to is one that keeps posting through an incident.
+- **The trending threshold counts *requests*, not views.** Asking to join is a signal a person produced; a
+  view is mostly a measure of how often something was already shown — and M5 deliberately kept `view_count`
+  out of ranking for the same reason.
+- **A third bug in the test harness, and the second in this area.** M11 blamed connection-pool exhaustion,
+  M13 replaced that with `poolOptions.forks.singleFork` — and **Vitest 4 removed `poolOptions`, so that fix
+  was silently ignored.** An ignored option looks exactly like a working one until somebody reads the
+  deprecation warning. `maxWorkers: 1` is the supported form and is what actually serialises the integration
+  project. Recorded here rather than quietly amended in M13's note, because the lesson is the pattern: two
+  successive "fixes" to this were wrong, and both times the suite went green anyway.
+- **No admin control over the channel.** §6's admin surface does not include channel management, and none is
+  built: what publishes is decided by the settings and by what hosts bought. A moderator who wants a post
+  gone hides or rejects the event, and the sweep takes it down.
+
 **M15 — Security hardening** · *L* — rate limits, helmet/CSP, log redactor, anonymization + retention jobs.
 Tests: the redactor asserted against every sensitive field name; the response-leak scan across every
 endpoint; upload rejects a polyglot and an SVG; anonymization leaves no PII and no dangling FKs; the purge

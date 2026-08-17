@@ -298,6 +298,12 @@ jobs:
           # a count of how many times somebody has retried them.
           check_index      job_failure_queue_job_id_key
           check_constraint job_failure_attempts_non_negative
+          # Channel publishing (M14). The unique index is the whole duplicate
+          # guard — a channel that double-posts is a channel people mute — and a
+          # posted row with no message id is a post nothing can ever take down.
+          check_index      channel_post_event_id_kind_key
+          check_constraint channel_post_posted_has_message_id
+          check_constraint channel_post_deleted_after_posted
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

@@ -236,3 +236,7 @@ export type { PlannedNotification } from './notifications/fanout';
 export { NotificationsModule } from './notifications/notifications.module';
 export { OutboxRelayService } from './outbox/relay.service';
 export type { RelayResult } from './outbox/relay.service';
+
+export { ChannelService } from './channel/channel.service';
+export type { PublishablePost, TakedownTarget } from './channel/channel.service';
+export { ChannelModule } from './channel/channel.module';

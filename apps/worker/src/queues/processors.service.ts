@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
+  ChannelService,
   EventLifecycleService,
   NotificationService,
   OutboxRelayService,
@@ -8,7 +9,7 @@ import {
   ReviewService,
 } from '@payetam/domain';
 import { JOBS, QUEUES, QueueService, SCHEDULE } from '@payetam/platform';
-import { render } from '@payetam/telegram';
+import { render, renderChannelPost } from '@payetam/telegram';
 import { TelegramClient } from '../telegram/telegram.client';
 import { WorkerFactory } from './worker.factory';
 
@@ -33,6 +34,7 @@ export class Processors implements OnModuleInit {
     private readonly participation: ParticipationService,
     private readonly lifecycle: EventLifecycleService,
     private readonly reviews: ReviewService,
+    private readonly channel: ChannelService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -178,6 +180,11 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      case JOBS.CHANNEL_SYNC: {
+        await this.syncChannel();
+        return;
+      }
+
       case JOBS.REVIEW_SWEEP: {
         const settled = await this.reviews.settleExpired();
         if (settled.partial + settled.empty > 0) {
@@ -190,6 +197,50 @@ export class Processors implements OnModuleInit {
 
       default:
         this.logger.warn(`Unknown scheduled job ${job.name}`);
+    }
+  }
+
+  /**
+   * Publish what has newly earned a post, and take down what has gone stale.
+   *
+   * The order matters: takedowns first, so a channel being read *right now* stops
+   * advertising a cancelled event before it gains new entries. A reader who taps a
+   * dead link is a reader who trusts the channel less.
+   *
+   * A failed post releases its claim rather than leaving the row behind. Leaving
+   * it would mean one failed send permanently barred that event from the channel —
+   * the unique index would refuse every future claim, and nothing would say why.
+   */
+  private async syncChannel(): Promise<void> {
+    for (const target of await this.channel.findTakedowns()) {
+      const removed = await this.telegram.deleteChannelPost(target.telegramMessageId);
+      if (removed) await this.channel.markTakenDown(target.postId);
+    }
+
+    for (const post of await this.channel.claimPending()) {
+      const outcome = await this.telegram.postToChannel(
+        renderChannelPost({
+          kind: post.kind,
+          title: post.title,
+          categoryName: post.categoryName,
+          cityName: post.cityName,
+          districtName: post.districtName,
+          startsAt: post.startsAt,
+          capacity: post.capacity,
+          acceptedCount: post.acceptedCount,
+          costType: post.costType,
+          costAmount: post.costAmount,
+          eventPublicId: post.eventPublicId,
+          botUsername: this.telegram.botUsername,
+        }),
+      );
+
+      if (outcome.kind === 'SENT') {
+        await this.channel.markPosted(post.postId, outcome.messageId);
+      } else {
+        await this.channel.releaseClaim(post.postId);
+        this.logger.warn(`Channel post for ${post.eventPublicId} failed: ${outcome.reason}`);
+      }
     }
   }
 }
