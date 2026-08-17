@@ -14,9 +14,16 @@ import {
   ModerationModule,
   OutboxModule,
   ParticipationModule,
+  PrivacyModule,
   ProfileModule,
 } from '@payetam/domain';
-import { ClockModule, ConfigModule, RedisModule } from '@payetam/platform';
+import {
+  ClockModule,
+  ConfigModule,
+  PiiHashModule,
+  RateLimitModule,
+  RedisModule,
+} from '@payetam/platform';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
@@ -30,6 +37,7 @@ import { HealthModule } from './health/health.module';
 import { ReviewsController } from './reviews/reviews.controller';
 import { AdminController } from './admin/admin.controller';
 import { AdminAuthGuard } from './admin/admin.guard';
+import { RateLimitGuard } from './common/rate-limit.guard';
 import { ReportsController } from './moderation/reports.controller';
 import { OnboardingController } from './onboarding/onboarding.controller';
 import { ParticipationController } from './participation/participation.controller';
@@ -62,7 +70,12 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     DiscoveryModule,
     ParticipationModule,
     ChatModule,
+    PrivacyModule,
     HealthModule,
+    PiiHashModule,
+    // The rate limiter is consumed by an APP_GUARD, so it has to resolve in the
+    // root injector (T12).
+    RateLimitModule,
   ],
   controllers: [
     AuthController,
@@ -82,6 +95,9 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     AuthService,
     AdminAuthGuard,
     { provide: APP_GUARD, useClass: AuthGuard },
+    // Ordered after authentication, so the bucket is keyed on the user when there
+    // is one and on the IP only when there is not (T12).
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     // Registered here rather than in `bootstrap()`, alongside the guard it
     // belongs with. Turning a domain `AppError` into its documented status and
     // Persian message is part of what this application *is*, not a step one

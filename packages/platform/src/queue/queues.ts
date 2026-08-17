@@ -81,6 +81,8 @@ export const JOBS = {
   SETTLE_ATTENDANCE: 'settle-attendance',
   /** Publish newly-eligible events, and take down posts that have gone stale. */
   CHANNEL_SYNC: 'channel-sync',
+  /** The retention purge (§8): expired chats, notifications, outbox and audit rows. */
+  RETENTION_PURGE: 'retention-purge',
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
@@ -102,4 +104,14 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
   { name: JOBS.REVIEW_SWEEP, pattern: '0 * * * *' },
   { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
   { name: JOBS.CHANNEL_SYNC, pattern: '*/5 * * * *' },
+  /**
+   * Once a night, in the quietest hour Tehran has.
+   *
+   * A privacy commitment measured in days does not need to be honoured to the
+   * minute, and the purge takes locks on tables the product reads all day. 04:00
+   * local is after the attendance settlement at 03:00, so the two never contend,
+   * and it is far enough from either end of the evening that a purge running long
+   * costs nobody anything.
+   */
+  { name: JOBS.RETENTION_PURGE, pattern: '0 4 * * *', tz: 'Asia/Tehran' },
 ];

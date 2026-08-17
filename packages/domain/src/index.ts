@@ -240,3 +240,9 @@ export type { RelayResult } from './outbox/relay.service';
 export { ChannelService } from './channel/channel.service';
 export type { PublishablePost, TakedownTarget } from './channel/channel.service';
 export { ChannelModule } from './channel/channel.module';
+
+export { AnonymizationService, ANONYMOUS_DISPLAY_NAME } from './privacy/anonymization.service';
+export type { AnonymizationResult } from './privacy/anonymization.service';
+export { RetentionService, RETENTION } from './privacy/retention.service';
+export type { PurgeResult } from './privacy/retention.service';
+export { PrivacyModule } from './privacy/privacy.module';

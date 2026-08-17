@@ -12,6 +12,7 @@ import {
   type MyChatsResponse,
   type SendChatMessageRequest,
 } from '@payetam/shared';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
 import { toChatMessagesResponse, toChatMessageView, toChatSummaryView } from './chat.view';
@@ -76,6 +77,7 @@ export class ChatController {
    * one of them in the same sanitizer.
    */
   @Post('chats/:publicId/messages')
+  @RateLimit('CHAT_SEND')
   async send(
     @Param('publicId') publicId: string,
     @Body(new ZodValidationPipe(sendChatMessageRequest)) body: SendChatMessageRequest,

@@ -22,8 +22,10 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
  * secret without removing the lookup.
  */
 export async function registerCookies(app: NestFastifyApplication): Promise<void> {
-  // Cast because `@fastify/cookie`'s own types describe the instance it produces
-  // (one that has `parseCookie`), which by definition is not the instance it is
-  // being registered on. Nest's `register` signature has no way to express that.
-  await app.register(fastifyCookie as unknown as Parameters<typeof app.register>[0]);
+  // This needed a `as unknown as` cast until M16, and the cast was a symptom rather
+  // than a necessity: two copies of fastify were resolved (`@nestjs/platform-fastify`
+  // pins 5.11.3 exactly, `apps/api` asked for ^5.12.0), so the instance the plugin
+  // described and the instance it was registered on were genuinely different types.
+  // With one copy in the lockfile the signatures line up and the cast is gone.
+  await app.register(fastifyCookie);
 }

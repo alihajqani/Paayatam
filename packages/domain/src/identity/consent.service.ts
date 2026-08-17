@@ -1,8 +1,6 @@
-import { createHmac } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import type { Env } from '@payetam/config';
 import { PrismaService } from '@payetam/db';
-import { CLOCK, ENV, type Clock } from '@payetam/platform';
+import { CLOCK, PiiHasher, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 
 export interface CurrentPolicy {
@@ -23,7 +21,7 @@ export class ConsentService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(ENV) private readonly env: Env,
+    private readonly pii: PiiHasher,
   ) {}
 
   async currentPolicies(): Promise<CurrentPolicy[]> {
@@ -81,8 +79,8 @@ export class ConsentService {
     }
 
     const acceptedAt = this.clock.now();
-    const ipHash = this.hashPii(context.ipAddress);
-    const userAgentHash = this.hashPii(context.userAgent);
+    const ipHash = this.pii.hash(context.ipAddress);
+    const userAgentHash = this.pii.hash(context.userAgent);
 
     await this.prisma.$transaction(async (tx) => {
       // `createMany` + `skipDuplicates` compiles to a single INSERT ... ON CONFLICT
@@ -127,15 +125,5 @@ export class ConsentService {
     });
 
     return accepted === required.length;
-  }
-
-  /**
-   * HMAC with a server pepper. We never store a raw IP or user agent (ADR-0009):
-   * this is enough to spot one account accepting terms from a hundred addresses,
-   * and not enough to reconstruct where someone was.
-   */
-  private hashPii(value: string | undefined): string | null {
-    if (!value || !this.env.PII_HASH_PEPPER) return null;
-    return createHmac('sha256', this.env.PII_HASH_PEPPER).update(value).digest('hex');
   }
 }

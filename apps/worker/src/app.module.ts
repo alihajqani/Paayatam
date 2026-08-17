@@ -10,9 +10,16 @@ import {
   NotificationsModule,
   OutboxModule,
   ParticipationModule,
+  PrivacyModule,
   ReviewsModule,
 } from '@payetam/domain';
-import { ClockModule, ConfigModule, QueueModule, RedisModule } from '@payetam/platform';
+import {
+  ClockModule,
+  ConfigModule,
+  PiiHashModule,
+  QueueModule,
+  RedisModule,
+} from '@payetam/platform';
 import { Processors } from './queues/processors.service';
 import { WorkerFactory } from './queues/worker.factory';
 import { TelegramClient } from './telegram/telegram.client';
@@ -36,6 +43,7 @@ import { TelegramClient } from './telegram/telegram.client';
     PrismaModule,
     RedisModule,
     QueueModule,
+    PiiHashModule,
     AuditModule,
     OutboxModule,
     CatalogModule,
@@ -46,6 +54,7 @@ import { TelegramClient } from './telegram/telegram.client';
     ParticipationModule,
     ReviewsModule,
     NotificationsModule,
+    PrivacyModule,
   ],
   providers: [WorkerFactory, TelegramClient, Processors],
 })

@@ -228,3 +228,6 @@ export type {
   AuditEntryView,
   AuditLogResponse,
 } from './contracts/admin';
+
+export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';
+export type { ImageFormat, UploadVerdict, UploadRejection } from './upload';

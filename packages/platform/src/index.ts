@@ -12,3 +12,11 @@ export {
 } from './queue/queues';
 export type { QueueName, JobName } from './queue/queues';
 export { QueueService, QueueModule } from './queue/queue.module';
+export { RateLimitService, RateLimitModule, RATE_LIMITS } from './ratelimit/rate-limit.service';
+export type {
+  RateLimitPolicy,
+  RateLimitVerdict,
+  RateLimitClass,
+} from './ratelimit/rate-limit.service';
+export { redact, isSensitive, REDACTED, REDACTED_FIELDS } from './logging/redact';
+export { PiiHasher, PiiHashModule } from './crypto/pii-hash';

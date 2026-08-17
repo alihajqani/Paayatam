@@ -8,6 +8,7 @@ import {
   type MyParticipationsResponse,
   type ParticipationView,
 } from '@payetam/shared';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
 import { toParticipantSummaryView, toParticipationView } from './participation.view';
@@ -31,6 +32,7 @@ export class ParticipationController {
    * 201 either way. A waitlisted request is a created request, not a refused one.
    */
   @Post('events/:publicId/join')
+  @RateLimit('PARTICIPATION_JOIN')
   @HttpCode(HttpStatus.CREATED)
   async join(
     @Param('publicId') publicId: string,

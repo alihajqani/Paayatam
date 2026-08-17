@@ -6,6 +6,7 @@ import {
   type FileReportResponse,
 } from '@payetam/shared';
 import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 /**
@@ -28,6 +29,7 @@ export class ReportsController {
   ) {}
 
   @Post('events/:publicId/report')
+  @RateLimit('REPORT_FILE')
   @HttpCode(HttpStatus.CREATED)
   async reportEvent(
     @Param('publicId') publicId: string,
@@ -44,6 +46,7 @@ export class ReportsController {
   }
 
   @Post('users/:publicId/report')
+  @RateLimit('REPORT_FILE')
   @HttpCode(HttpStatus.CREATED)
   async reportUser(
     @Param('publicId') publicId: string,
@@ -60,6 +63,7 @@ export class ReportsController {
   }
 
   @Post('reviews/:publicId/report')
+  @RateLimit('REPORT_FILE')
   @HttpCode(HttpStatus.CREATED)
   async reportReview(
     @Param('publicId') publicId: string,
@@ -89,6 +93,7 @@ export class ReportsController {
    * reported them is the single notification this module must never send.
    */
   @Post('chats/:publicId/report')
+  @RateLimit('REPORT_FILE')
   @HttpCode(HttpStatus.CREATED)
   async reportChat(
     @Param('publicId') publicId: string,

@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { refreshRequest, telegramAuthRequest, type AuthResponse } from '@payetam/shared';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { RateLimit } from '../common/rate-limit.guard';
 import { Public } from './auth.guard';
 import { AuthService } from './auth.service';
 
@@ -17,6 +18,7 @@ export class AuthController {
    */
   @Public()
   @Post('telegram')
+  @RateLimit('AUTH')
   @HttpCode(HttpStatus.OK)
   async telegram(
     @Body(new ZodValidationPipe(telegramAuthRequest)) body: { initData: string },

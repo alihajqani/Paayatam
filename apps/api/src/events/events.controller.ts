@@ -19,6 +19,7 @@ import {
   type MyEventsResponse,
   type UpdateEventRequest,
 } from '@payetam/shared';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
 import { toEventView } from './event.view';
@@ -41,6 +42,7 @@ export class EventsController {
    * is the outcome to optimise against.
    */
   @Post('events')
+  @RateLimit('EVENT_CREATE')
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ZodValidationPipe(createEventRequest)) body: CreateEventRequest,

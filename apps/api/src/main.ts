@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { EnvValidationError, loadEnv } from '@payetam/config';
 import { registerCookies } from './admin/cookie.setup';
+import { registerSecurityHeaders } from './common/security-headers';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -31,6 +32,7 @@ async function bootstrap(): Promise<void> {
   // has to be registered before the instance boots — which is why this one thing
   // cannot live in AppModule the way the guard and the filter do.
   await registerCookies(app);
+  registerSecurityHeaders(app, env.NODE_ENV === 'production');
 
   // The exception filter is registered inside AppModule via APP_FILTER, not
   // here: it belongs to the application rather than to this entry point, and
@@ -45,7 +47,7 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   // 0.0.0.0 so the process is reachable from outside its container. Exposure is
-  // controlled by nginx and the firewall, not by binding to localhost (M16).
+  // controlled by nginx and the firewall, not by binding to localhost.
   await app.listen(env.API_PORT, '0.0.0.0');
 
   new Logger('Bootstrap').log(

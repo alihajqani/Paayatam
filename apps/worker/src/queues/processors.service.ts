@@ -6,6 +6,7 @@ import {
   NotificationService,
   OutboxRelayService,
   ParticipationService,
+  RetentionService,
   ReviewService,
 } from '@payetam/domain';
 import { JOBS, QUEUES, QueueService, SCHEDULE } from '@payetam/platform';
@@ -35,6 +36,7 @@ export class Processors implements OnModuleInit {
     private readonly lifecycle: EventLifecycleService,
     private readonly reviews: ReviewService,
     private readonly channel: ChannelService,
+    private readonly retention: RetentionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -182,6 +184,25 @@ export class Processors implements OnModuleInit {
 
       case JOBS.CHANNEL_SYNC: {
         await this.syncChannel();
+        return;
+      }
+
+      /**
+       * The retention purge (§8), which M15 built as a service and left here to
+       * schedule — the same split every other sweep above went through.
+       *
+       * Logged unconditionally, unlike the sweeps. A purge that quietly stopped
+       * finding anything is indistinguishable from a purge that quietly stopped
+       * running, and the difference is a privacy commitment being broken with no
+       * signal at all. One line a night is a cheap way to be able to tell.
+       */
+      case JOBS.RETENTION_PURGE: {
+        const purged = await this.retention.purge();
+        this.logger.log(
+          `Retention purge: ${String(purged.chatMessages)} messages, ` +
+            `${String(purged.chats)} chats, ${String(purged.notifications)} notifications, ` +
+            `${String(purged.outboxRows)} outbox, ${String(purged.auditRows)} audit`,
+        );
         return;
       }
 

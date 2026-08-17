@@ -18,6 +18,7 @@ import {
   ChatUnsealService,
   type AdminSession,
 } from '@payetam/domain';
+import { PiiHasher } from '@payetam/platform';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
@@ -40,6 +41,7 @@ import {
   type UnsealGrantResponse,
   type UnsealedChatResponse,
 } from '@payetam/shared';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import {
   ADMIN_SESSION_COOKIE,
@@ -69,6 +71,7 @@ export class AdminController {
     private readonly access: AdminAccessService,
     private readonly operations: AdminOperationsService,
     private readonly unseal: ChatUnsealService,
+    private readonly pii: PiiHasher,
   ) {}
 
   /**
@@ -80,6 +83,7 @@ export class AdminController {
    * cannot use it without the other.
    */
   @Post('auth/login')
+  @RateLimit('ADMIN_LOGIN')
   @PublicAdminRoute()
   @HttpCode(HttpStatus.OK)
   async login(
@@ -91,7 +95,7 @@ export class AdminController {
       email: body.email,
       password: body.password,
       totpCode: body.totpCode,
-      ...(request.ip !== undefined ? { ipHash: hashIp(request.ip) } : {}),
+      ...(hashed(this.pii.hash(request.ip)) ?? {}),
     });
 
     reply.setCookie(ADMIN_SESSION_COOKIE, result.sessionToken, {
@@ -225,7 +229,7 @@ export class AdminController {
       admin,
       publicId,
       body.reason,
-      request.ip !== undefined ? hashIp(request.ip) : undefined,
+      this.pii.hash(request.ip) ?? undefined,
     );
     return {
       grantId: grant.grantId,
@@ -295,12 +299,12 @@ export class AdminController {
 }
 
 /**
- * A placeholder until M15 wires the real HMAC pepper through.
+ * `{ ipHash }` or nothing, never `{ ipHash: undefined }`.
  *
- * §8 is unambiguous that a raw IP is never stored, so this returns a marker rather
- * than the address — a wrong-but-harmless value now is better than a real IP in
- * `audit_log` that M15 then has to go and delete.
+ * `exactOptionalPropertyTypes` distinguishes absent from present-and-undefined, and
+ * `PiiHasher` returns null for both "no address" and "no pepper configured" — the
+ * two cases the login path treats identically.
  */
-function hashIp(_ip: string): string {
-  return 'pending-m15';
+function hashed(value: string | null): { ipHash: string } | undefined {
+  return value === null ? undefined : { ipHash: value };
 }

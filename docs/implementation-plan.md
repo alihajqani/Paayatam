@@ -1558,6 +1558,90 @@ Tests: the redactor asserted against every sensitive field name; the response-le
 endpoint; upload rejects a polyglot and an SVG; anonymization leaves no PII and no dangling FKs; the purge
 deletes exactly the expired rows and nothing else.
 
+**Deviations from this plan, decided during M15:**
+
+- **The rate limits are constants, not `app_setting` rows.** This is the one place the product deliberately
+  breaks §4.2's "every policy number lives in the database", and the reason is the failure mode: a limit read
+  from Postgres on every request is a round trip added to the hot path *and* a limiter that stops working
+  when the database is the thing under strain — which is exactly the moment it matters. These change by
+  deploy.
+- **The limiter did not actually fail open, and the test is what proved it.** The service documented "if
+  Redis is unreachable, allow the request" and implemented it as a `try`/`catch`. But `RedisService` sets
+  `maxRetriesPerRequest: null` — right for a queue, where waiting for a reconnect beats losing a job — which
+  means an unreachable Redis makes commands *queue indefinitely* rather than reject. Nothing throws, so
+  nothing is caught, and every request hangs: worse than either failing open or failing closed. A 250 ms
+  deadline is what turns the claim into a behaviour. The test points a client at a dead port rather than
+  stubbing an error, because a stub would have agreed with the comment.
+- **Endpoints are limited by opting in, not by default.** `@RateLimit(CLASS)` names the bucket; an endpoint
+  without the decorator is unlimited. That is the opposite of the deny-by-default posture used everywhere
+  else in this codebase, and it is deliberate: a global default would silently throttle the internal health
+  check, the webhook Telegram retries, and every endpoint a later milestone adds — and the failure would look
+  like flakiness, not like a limit.
+- **`AUTH` and `ADMIN_LOGIN` are additions to T12's list.** T12 names four user-facing classes. Both of these
+  are reachable without an account, which makes `POST /auth/telegram` a free HMAC oracle at unlimited rate.
+  They key on IP rather than on a user, because there is no user yet.
+- **Security headers are hand-written, not `helmet`.** The plan says "helmet/CSP". This API serves JSON to a
+  Telegram WebView and an admin panel; nearly everything helmet sets is about documents, and the one thing
+  that matters here — a CSP that permits nothing — is three lines. The remaining headers (`nosniff`,
+  `no-referrer`, `no-store`, `DENY`, CORP same-origin, HSTS in production only) are set explicitly, which
+  also means each one is readable next to the reason it is there.
+- **Uploads ship as a validator with no endpoint behind it.** T13 is satisfied — magic-byte sniffing, an SVG
+  rejection with its own reason code, a polyglot marker sweep over the *whole* buffer, a size cap and a
+  dimension cap — but there is no upload route and no `media` table, because nothing in the MVP uploads
+  anything. Writing the endpoint first would have meant guessing at storage, and the validator is the half
+  that is hard to get right later.
+- **SVG is refused by name, separately from "unknown format".** "We do not accept SVG" is something a user
+  can act on; an unknown-format error for a perfectly valid SVG looks like a bug in the product.
+- **Anonymisation is anonymisation, not deletion, and the tests assert what *survives*.** A review is part of
+  somebody else's reputation, a ledger row is one side of an accounting identity, a consent record is the
+  evidence that consent was given. So the ratings stay and the words go; both ledgers, `consent` and
+  `audit_log` are untouched; the user row survives marked DELETED because everything above points at it. A
+  test that only checked the deletions would pass just as happily against a cascading delete.
+- **The no-dangling-FK test walks `pg_constraint` rather than a list.** The failure it is built for is a
+  table added in a later milestone that nobody thought about here, and a hand-written list would still pass
+  green on that day. The per-constraint count is built by Postgres via `format` + `query_to_xml` inside one
+  tagged `$queryRaw`, because `$queryRawUnsafe` with a template literal reads exactly like the injection
+  pattern CI greps for (T10) — and "it was only a catalog name" is what the next person to copy it will also
+  believe.
+- **The purge would have failed on every real conversation.** It deleted `chat_message` and then the chat.
+  Four tables reference `anonymous_chat`, all RESTRICT, and a chat always has two `chat_participant` rows —
+  so an empty database purged perfectly and a populated one raised. `CHAT_DEPENDENTS` is now exported and
+  asserted against `pg_constraint`, so a fifth table cannot be added and forgotten: the only symptom would
+  have been chat bodies quietly outliving the ninety days they were promised.
+- **A break-glass grant does not extend a conversation's life.** `chat_unseal_grant` is deleted with the
+  chat. It looks like erasing accountability until you notice `audit_log` holds `chat.unseal_granted` and one
+  `chat.message_read` per message for twenty-four months, independently. The grant is fifteen minutes of
+  operational state; keeping the chat alive because somebody once had cause to read it would make a
+  break-glass read *extend* retention, which is backwards.
+- **`audit_log` and `chat_message` are still not partitioned**, deferred here from M1 and M8 and now decided
+  rather than deferred again: they stay unpartitioned and the purge stays an indexed DELETE. Partitioning
+  `chat_message` by month cannot help, because retention keys on the chat's `retention_expires_at` — a
+  conversation spanning a month boundary would put its messages in two partitions with one expiry between
+  them, so no partition could ever be dropped wholesale. `audit_log` could be partitioned usefully, but
+  Prisma cannot express it and the operational cost (a partition-creation job that fails silently is a table
+  that stops accepting writes) is real today while the size problem is hypothetical. Both have partial
+  indexes on their retention columns; a nightly DELETE against those is fine at MVP volume. Revisit when
+  either table passes roughly ten million rows.
+- **The purge is scheduled at 04:00 Tehran**, after the 03:00 attendance settlement so the two never contend
+  for the same rows, and it logs unconditionally — a purge that quietly stopped finding anything is
+  indistinguishable from one that quietly stopped running, and the difference is a privacy commitment broken
+  with no signal at all.
+- **`PiiHasher` replaced M12's `pending-m15` placeholder** and `ConsentService`'s private copy of the same
+  HMAC. Peppered, because the IPv4 space is 2³² addresses and a bare SHA-256 of an IP is a longer way of
+  writing the address down. Null rather than a fallback when no pepper is configured: a development database
+  with empty IP columns is the right way round, and production cannot start without one.
+- **The redactor is a field denylist plus a narrow pattern sweep**, and `REDACTED_FIELDS` is exported so the
+  test iterates it rather than restating it — a field added to the redactor is covered automatically, and one
+  removed cannot pass silently. The patterns are deliberately narrow: anything matching "a long number" would
+  redact prices, counts and timestamps, and a redactor that mangles ordinary logs is one somebody turns off.
+- **Two copies of fastify were in the lockfile, and are now one.** `@nestjs/platform-fastify` pins `fastify`
+  at exactly 5.11.3 while `apps/api` asked for `^5.12.0`, so both resolved. `@fastify/cookie` augments the
+  instance type from *one* of them, which is why M12 had to write `app.register(fastifyCookie as unknown as
+  …)` — the cast was a symptom, not a necessity, and with one copy it is gone. This was never only a type
+  problem: two fastify instances in one process means a plugin registered against a different prototype chain
+  than the code using it. Found while writing M16's Fastify hooks, fixed here because this is the commit whose
+  code the cast lives in.
+
 **M16 — Observability, deployment, backups** · *L* — pino + request ids; `/metrics` (queue depth, job
 failures, p95, join-conflict rate); nightly `pg_dump` + WAL archiving with **an actually-rehearsed restore
 recorded with a real duration**; graceful shutdown draining in-flight jobs.
