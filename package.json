@@ -21,6 +21,7 @@
     "test:integration": "vitest run --project integration",
     "db:generate": "pnpm --filter @payetam/db db:generate",
     "db:migrate": "pnpm --filter @payetam/db db:migrate",
+    "db:migrate:deploy": "pnpm --filter @payetam/db db:migrate:deploy",
     "db:studio": "pnpm --filter @payetam/db db:studio",
     "seed:policies": "tsx --env-file=.env tools/seed-policies.ts",
     "seed:catalog": "tsx --env-file=.env tools/seed-catalog.ts",

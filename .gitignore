@@ -30,6 +30,13 @@ redis-data/
 uploads/
 backups/
 
+# Local run state: PID files, per-service logs, tunnel URLs, the Mini App mode.
+# Written by `make dev` (tools/devstack.sh), never by a build.
+.dev/
+
+# Locally downloaded installers (e.g. the cloudflared package for `make tunnel`).
+*.deb
+
 # Editors / OS
 .vscode/*
 !.vscode/extensions.json
