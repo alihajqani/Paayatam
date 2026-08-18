@@ -290,6 +290,12 @@ make webhook-info   # what Telegram thinks the webhook is, and any delivery erro
 `TELEGRAM_WEBHOOK_SECRET_TOKEN` from `.env` at the moment it runs; nothing is stored anywhere else, and
 `setWebhook` subscribes to exactly the four update types the bot parses.
 
+It waits for the tunnel to answer publicly before it registers anything, because Telegram resolves the
+hostname itself and **a failed `setWebhook` clears the webhook the bot already had**. A brand-new
+quick-tunnel hostname can take a minute to reach Telegram's resolver; if `make webhook` gives up
+anyway, the hostname is usually stuck in a negative cache — `make tunnel-stop && make tunnel` for a
+fresh one, then `make webhook` again.
+
 In [@BotFather](https://t.me/BotFather), once per tunnel:
 
 - `/mybots` → your bot → **Bot Settings → Menu Button** (or **Configure Mini App**) → paste the

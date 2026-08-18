@@ -44,6 +44,10 @@ TUNNEL_SERVICES="tunnel-api tunnel-miniapp"
 # from the run that just died.
 MAX_LOG_BYTES=$((5 * 1024 * 1024))
 
+# setWebhook against a tunnel opened seconds ago races Telegram's own DNS lookup.
+WEBHOOK_ATTEMPTS=6
+WEBHOOK_RETRY_SECONDS=10
+
 # ── output ────────────────────────────────────────────────────────────────────
 
 if [ -t 1 ]; then
@@ -643,9 +647,11 @@ telegram_call() {
   local method="$1"; shift
   local token; token="$(env_get TELEGRAM_BOT_TOKEN)"
   [ -n "$token" ] || die "TELEGRAM_BOT_TOKEN is not set in .env (get one from @BotFather)."
-  # The token is passed on stdin-free argv only inside this function and never
-  # printed; --fail-with-body so a Telegram error is still readable.
-  curl -sS --fail-with-body "https://api.telegram.org/bot$token/$method" "$@"
+  # --fail-with-body so Telegram's own explanation is still readable, and every
+  # line filtered so the token cannot reach the terminal by way of a curl error
+  # message: it is full control of the bot.
+  curl -sS --fail-with-body "https://api.telegram.org/bot$token/$method" "$@" 2>&1 |
+    sed "s|$token|<BOT-TOKEN>|g"
 }
 
 cmd_webhook() {
@@ -660,16 +666,49 @@ cmd_webhook() {
   [ -n "$path" ] || die "TELEGRAM_WEBHOOK_SECRET_PATH is not set in .env."
   [ -n "$secret" ] || die "TELEGRAM_WEBHOOK_SECRET_TOKEN is not set in .env."
 
+  # Telegram resolves the hostname itself while registering, and a failed
+  # setWebhook *clears* whatever webhook the bot had. So the tunnel is proved
+  # reachable from the public internet first, and only then is the bot's
+  # configuration touched.
+  step "Waiting for the tunnel hostname to resolve"
+  wait_http "$url/health" 'the API tunnel' 180 ||
+    die "the tunnel is not answering publicly yet. Nothing was changed on Telegram's side; try again, or 'make tunnel-stop && make tunnel' for a fresh hostname."
+
   step "Registering the webhook with Telegram"
-  # allowed_updates is exactly what packages/telegram's parseUpdate understands.
-  # Anything else Telegram might send is dropped on arrival anyway; not subscribing
-  # to it saves the round trip.
-  telegram_call setWebhook \
-    --data-urlencode "url=$url/telegram/webhook/$path" \
-    --data-urlencode "secret_token=$secret" \
-    --data-urlencode 'allowed_updates=["message","edited_message","callback_query","my_chat_member"]'
-  echo
-  ok "webhook → $url/telegram/webhook/<secret path>"
+
+  # Retried, because the first attempt against a brand-new quick tunnel loses a
+  # race with DNS: Telegram resolves the host itself while registering, and
+  # answers `Failed to resolve host` for a hostname that works seconds later.
+  # A failed setWebhook also *clears* the previous one, so giving up on the first
+  # error would leave the bot with no webhook at all.
+  local attempt=1 body
+  while :; do
+    # allowed_updates is exactly what packages/telegram's parseUpdate understands.
+    # Anything else Telegram might send is dropped on arrival anyway; not
+    # subscribing to it saves the round trip.
+    body="$(telegram_call setWebhook \
+      --data-urlencode "url=$url/telegram/webhook/$path" \
+      --data-urlencode "secret_token=$secret" \
+      --data-urlencode 'allowed_updates=["message","edited_message","callback_query","my_chat_member"]' || true)"
+
+    case "$body" in
+      *'"ok":true'*)
+        ok "webhook → $url/telegram/webhook/<secret path>"
+        return 0
+        ;;
+    esac
+
+    if [ "$attempt" -ge "$WEBHOOK_ATTEMPTS" ]; then
+      printf '  %s\n' "$body"
+      warn "Telegram can reject a hostname it looked up too early for as long as its"
+      warn "  negative cache holds. 'make tunnel-stop && make tunnel' gets a fresh one."
+      die "Telegram refused the webhook $WEBHOOK_ATTEMPTS times. The bot now has no webhook — fix this and run 'make webhook' again."
+    fi
+    warn "attempt $attempt/$WEBHOOK_ATTEMPTS refused: $body"
+    warn "  a fresh tunnel hostname can take a minute to reach Telegram's resolver; retrying"
+    sleep "$WEBHOOK_RETRY_SECONDS"
+    attempt=$((attempt + 1))
+  done
 }
 
 cmd_webhook_info() {
