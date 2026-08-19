@@ -34,8 +34,8 @@ const NOW = new Date('2026-08-15T09:00:00.000Z');
 const clock = new FakeClock(NOW);
 const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 
-const catalog = new CatalogService(service);
 const settings = new SettingsService(service);
+const catalog = new CatalogService(service, settings);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const audit = new AuditService(service, clock);

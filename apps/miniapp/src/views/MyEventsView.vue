@@ -7,8 +7,14 @@ import type {
   ParticipantStatus,
 } from '@payetam/shared';
 import { ApiError } from '@/api/client';
+import PromotionDialog from '@/components/PromotionDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
-import { formatEventWhen, formatRelative } from '@/format/datetime';
+import {
+  formatEventDate,
+  formatEventTime,
+  formatEventWhen,
+  formatRelative,
+} from '@/format/datetime';
 import { formatCoins, toPersianDigits } from '@/format/fa';
 import { haptic } from '@/telegram/webapp';
 import { useEventsStore } from '@/stores/events';
@@ -36,14 +42,26 @@ const actionError = ref<string | null>(null);
 const expanded = ref<string | null>(null);
 const deciding = ref<string | null>(null);
 
-const boosting = ref<string | null>(null);
-const boostInFlight = ref(false);
+/** Which event has the promotion dialog open. */
+const promoting = ref<string | null>(null);
 const cancelling = ref<string | null>(null);
 const cancelPreview = ref<HostCancellationPreviewResponse | null>(null);
 const cancelReason = ref('');
 
 /** Set by the authoring screen, so a freshly created event is obvious in the list. */
 const createdPublicId = computed(() => String(route.query['created'] ?? ''));
+
+/**
+ * Whether the post-creation offer has been waved away.
+ *
+ * The offer appears once, for the event just created, and skipping it is a plain
+ * button rather than a buried gesture — promotion is optional and nothing about the
+ * event depends on buying it.
+ */
+const offerDismissed = ref(false);
+const showCreationOffer = computed(
+  () => createdPublicId.value !== '' && !offerDismissed.value && promoting.value === null,
+);
 
 const state = computed(() => {
   if (loadError.value !== null) return 'error' as const;
@@ -123,30 +141,14 @@ async function decide(
   }
 }
 
-function startBoost(publicId: string): void {
-  actionError.value = null;
-  boosting.value = publicId;
-}
-
 /**
- * Spends coins, and is the one place in the product where a duplicate request costs
- * real money — so the store sends an `Idempotency-Key` and the button is disabled in
- * flight. Belt and braces on purpose: the disabled button is the frontend half of
- * §3.7's double-submit rule, and the key is the half that survives a lost response.
+ * Reloads after a purchase so the new state is what the server says it is.
+ *
+ * `channelStatus` in particular is derived server-side from the `channel_post` rows,
+ * so the only way to learn that the sweep has published is to ask again.
  */
-async function confirmBoost(publicId: string): Promise<void> {
-  actionError.value = null;
-  boostInFlight.value = true;
-  try {
-    await events.boost(publicId);
-    haptic('success');
-    boosting.value = null;
-  } catch (cause) {
-    haptic('error');
-    actionError.value = cause instanceof ApiError ? cause.messageFa : 'برجسته‌کردن انجام نشد.';
-  } finally {
-    boostInFlight.value = false;
-  }
+async function onPromoted(): Promise<void> {
+  await events.loadMyEvents().catch(() => undefined);
 }
 
 async function startCancel(publicId: string): Promise<void> {
@@ -206,6 +208,38 @@ onMounted(load);
 
       <p v-if="actionError" class="text-tg-destructive">{{ actionError }}</p>
 
+      <!--
+        The offer, immediately after creation (§3.7).
+        Optional by construction: «فعلاً نه» dismisses it and the event is already
+        published and joinable either way. Nothing here gates the event on spending.
+      -->
+      <section
+        v-if="showCreationOffer"
+        class="flex flex-col gap-2 rounded-2xl bg-tg-section-bg p-4"
+      >
+        <h2 class="font-medium">رویداد شما ساخته شد 🎉</h2>
+        <p class="text-sm text-tg-hint">
+          می‌خواهید آن را در کانال ویژهٔ پایه‌تَم هم معرفی کنید تا افراد بیشتری ببینندش؟ این کار
+          اختیاری است.
+        </p>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="min-h-11 flex-1 rounded-xl bg-tg-button text-sm text-tg-button-text"
+            @click="promoting = createdPublicId"
+          >
+            دیدن گزینه‌ها
+          </button>
+          <button
+            type="button"
+            class="min-h-11 rounded-xl bg-tg-secondary-bg px-4 text-sm"
+            @click="offerDismissed = true"
+          >
+            فعلاً نه
+          </button>
+        </div>
+      </section>
+
       <ul class="flex flex-col gap-3">
         <li
           v-for="event in events.myEvents"
@@ -253,13 +287,12 @@ onMounted(load);
               ویرایش
             </button>
             <button
-              v-if="event.status === 'PUBLISHED' && !event.isVip"
+              v-if="event.status === 'PUBLISHED'"
               type="button"
-              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm disabled:opacity-50"
-              :disabled="boosting === event.publicId"
-              @click="startBoost(event.publicId)"
+              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm"
+              @click="promoting = promoting === event.publicId ? null : event.publicId"
             >
-              برجسته‌کردن
+              معرفی در کانال ویژه
             </button>
             <button
               v-if="event.status === 'PUBLISHED' || event.status === 'PENDING_MODERATION'"
@@ -318,37 +351,34 @@ onMounted(load);
             </div>
           </div>
 
-          <p v-if="event.boostedUntil" class="text-sm text-tg-hint">
-            برجسته تا {{ formatRelative(event.boostedUntil) }}
-          </p>
-
-          <!-- The coin sink, confirmed before it spends (M9). -->
-          <div
-            v-if="boosting === event.publicId"
-            class="flex flex-col gap-2 rounded-xl bg-tg-bg p-3"
-          >
-            <p class="text-sm font-medium">این رویداد برجسته شود؟</p>
-            <p class="text-sm text-tg-hint">
-              برجسته‌کردن از موجودی سکهٔ شما کم می‌کند و رویداد را برای مدتی بالاتر نشان می‌دهد.
+          <!--
+            What was bought, and where it has got to. Three states rather than a
+            claim of success: the channel post is produced by a sweep, so saying
+            "published" at purchase time would be a promise the product cannot keep.
+          -->
+          <div v-if="event.isVip || event.boostedUntil" class="flex flex-col gap-1 text-sm">
+            <p v-if="event.isVip" class="text-tg-hint"><b>ویژه</b> — این وضعیت دائمی است.</p>
+            <p v-if="event.boostedUntil" class="text-tg-hint">
+              برجسته تا {{ formatEventDate(event.boostedUntil) }}،
+              {{ formatEventTime(event.boostedUntil) }}
+              ({{ formatRelative(event.boostedUntil) }})
             </p>
-            <div class="flex gap-2">
-              <button
-                type="button"
-                class="min-h-11 flex-1 rounded-xl bg-tg-button text-sm text-tg-button-text disabled:opacity-50"
-                :disabled="boostInFlight"
-                @click="confirmBoost(event.publicId)"
-              >
-                {{ boostInFlight ? 'در حال ثبت…' : 'بله، برجسته کن' }}
-              </button>
-              <button
-                type="button"
-                class="min-h-11 rounded-xl bg-tg-secondary-bg px-4 text-sm"
-                @click="boosting = null"
-              >
-                انصراف
-              </button>
-            </div>
+            <p v-if="event.channelStatus === 'QUEUED'" class="text-tg-hint">
+              در نوبت انتشار در کانال ویژه — معمولاً چند دقیقه طول می‌کشد.
+            </p>
+            <p v-else-if="event.channelStatus === 'PUBLISHED'" class="text-tg-accent">
+              در کانال ویژه منتشر شد.
+            </p>
           </div>
+
+          <!-- Buying a channel placement: prices, balance and the difference between
+               a window and a standing, all before anything is charged. -->
+          <PromotionDialog
+            v-if="promoting === event.publicId"
+            :event="event"
+            @done="onPromoted"
+            @dismiss="promoting = null"
+          />
 
           <!-- Cancellation, priced before it is committed. -->
           <div

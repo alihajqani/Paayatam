@@ -39,8 +39,8 @@ const NOW = new Date('2026-08-15T09:00:00.000Z');
 const clock = new FakeClock(NOW);
 const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 
-const catalog = new CatalogService(service);
 const settings = new SettingsService(service);
+const catalog = new CatalogService(service, settings);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
 const audit = new AuditService(service, clock);
@@ -543,6 +543,69 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
       actorType: 'ADMIN',
     });
   }
+
+  /**
+   * What the host is told about the channel, and when.
+   *
+   * The post is produced by a five-minute sweep, so the honest sequence is
+   * NONE → QUEUED → PUBLISHED. Reporting `PUBLISHED` at purchase time would be a
+   * claim about Telegram the product has not yet earned, and reading the claim row
+   * alone would flicker back to NONE whenever a failed send released it.
+   */
+  it('reports NONE before anything is bought', async () => {
+    const created = await events.create(hostId, validInput());
+
+    expect(created.channelStatus).toBe('NONE');
+  });
+
+  it('reports QUEUED the moment coins are spent, not PUBLISHED', async () => {
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+
+    const boosted = await events.boost(hostId, created.publicId, 'BOOST');
+
+    expect(boosted.channelStatus).toBe('QUEUED');
+  });
+
+  it('reports PUBLISHED once the sweep records a Telegram message id', async () => {
+    await fund(hostId, 250);
+    const created = await events.create(hostId, validInput());
+    await events.boost(hostId, created.publicId, 'VIP');
+
+    // What `ChannelService.markPosted` writes after Telegram confirms.
+    const row = await prisma.event.findFirstOrThrow({
+      where: { publicId: created.publicId },
+      select: { id: true },
+    });
+    await prisma.channelPost.create({
+      data: { eventId: row.id, kind: 'VIP', telegramMessageId: 4242, postedAt: NOW },
+    });
+
+    const [mine] = await events.listOwned(hostId);
+    expect(mine?.channelStatus).toBe('PUBLISHED');
+  });
+
+  it('stays QUEUED when a failed send released its claim', async () => {
+    // `releaseClaim` deletes the row so the next sweep can retry. The host has paid,
+    // so the answer is still "on its way" rather than "nothing bought".
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+    await events.boost(hostId, created.publicId, 'BOOST');
+
+    const [mine] = await events.listOwned(hostId);
+    expect(mine?.channelStatus).toBe('QUEUED');
+  });
+
+  it('reports NONE again once the boost window has lapsed', async () => {
+    await fund(hostId, 100);
+    const created = await events.create(hostId, validInput());
+    await events.boost(hostId, created.publicId, 'BOOST');
+
+    clock.set(new Date(NOW.getTime() + 25 * 3_600_000));
+    const [mine] = await events.listOwned(hostId);
+
+    expect(mine?.channelStatus).toBe('NONE');
+  });
 
   it('opens a window and charges the configured price', async () => {
     await fund(hostId, 100);

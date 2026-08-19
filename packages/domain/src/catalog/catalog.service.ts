@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { Prisma } from '@payetam/db';
 import { AppError, ErrorCode } from '@payetam/shared';
+import { SettingsService } from './settings.service';
 
 export interface NamedRef {
   id: string;
@@ -9,10 +10,18 @@ export interface NamedRef {
   nameFa: string;
 }
 
+/** What promoting an event currently costs, straight from `app_setting`. */
+export interface PromotionPricingSnapshot {
+  boostCoins: number;
+  boostDurationHours: number;
+  vipCoins: number;
+}
+
 export interface CatalogSnapshot {
   cities: (NamedRef & { districts: NamedRef[] })[];
   categories: (NamedRef & { icon: string | null })[];
   interests: (NamedRef & { categoryId: string | null })[];
+  promotion: PromotionPricingSnapshot;
 }
 
 /** The place a user says they are, once it has been checked against the catalog. */
@@ -31,7 +40,10 @@ export interface ResolvedLocation {
  */
 @Injectable()
 export class CatalogService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+  ) {}
 
   /**
    * Everything selectable, in one read.
@@ -41,7 +53,7 @@ export class CatalogService {
    * over a mobile connection for no benefit.
    */
   async snapshot(): Promise<CatalogSnapshot> {
-    const [cities, categories, interests] = await Promise.all([
+    const [cities, categories, interests, promotion] = await Promise.all([
       this.prisma.city.findMany({
         where: { isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
@@ -63,6 +75,16 @@ export class CatalogService {
         orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
         select: { id: true, slug: true, nameFa: true, categoryId: true },
       }),
+      /**
+       * The same three settings `EventService.boost` charges against.
+       *
+       * Read through `SettingsService` rather than duplicated as constants, so the
+       * price a host is shown and the price they are charged cannot disagree — and
+       * so an admin changing `economy.boost_coins` changes both at once. The
+       * service falls back to the documented default when a row is missing, which
+       * is why this cannot render a blank price.
+       */
+      this.promotionPricing(),
     ]);
 
     return {
@@ -74,7 +96,19 @@ export class CatalogService {
       })),
       categories,
       interests,
+      promotion,
     };
+  }
+
+  /** Public because the price is not a secret — it is what the buyer is agreeing to. */
+  async promotionPricing(): Promise<PromotionPricingSnapshot> {
+    const [boostCoins, boostDurationHours, vipCoins] = await Promise.all([
+      this.settings.getInt('economy.boost_coins'),
+      this.settings.getInt('economy.boost_duration_hours'),
+      this.settings.getInt('economy.vip_coins'),
+    ]);
+
+    return { boostCoins, boostDurationHours, vipCoins };
   }
 
   /**

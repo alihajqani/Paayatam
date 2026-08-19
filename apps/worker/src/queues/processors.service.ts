@@ -10,7 +10,7 @@ import {
   RetentionService,
   ReviewService,
 } from '@payetam/domain';
-import { JOBS, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
+import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
 import { TEMPLATES, render, renderChannelPost } from '@payetam/telegram';
 import { TelegramClient } from '../telegram/telegram.client';
 import { WorkerFactory } from './worker.factory';
@@ -23,6 +23,9 @@ import { WorkerFactory } from './worker.factory';
  * `telegram-send` is throttled, and the relay is free to run as fast as Postgres
  * allows.
  */
+/** Three consecutive five-minute sweeps: loud within the hour, quiet on a blip. */
+const CHANNEL_FAILURE_ALERT_THRESHOLD = 3;
+
 @Injectable()
 export class Processors implements OnModuleInit {
   private readonly logger = new Logger(Processors.name);
@@ -40,7 +43,20 @@ export class Processors implements OnModuleInit {
     private readonly reviews: ReviewService,
     private readonly channel: ChannelService,
     private readonly retention: RetentionService,
+    /** Channel publishing outcomes, so a stuck channel is visible on /metrics (M16). */
+    private readonly metrics: MetricsRegistry,
   ) {}
+
+  /**
+   * Consecutive sweeps in which every channel post attempt failed.
+   *
+   * In memory on purpose. A failed send *deletes* its claim row so the next pass can
+   * retry, which means there is nowhere in the database to keep a per-post attempt
+   * count without inventing a table for it. What actually needs escalating is not
+   * one post but the standing condition — the bot is not an admin of the channel, or
+   * the id is wrong — and that is a property of the sweep, not of a row.
+   */
+  private consecutiveChannelFailures = 0;
 
   async onModuleInit(): Promise<void> {
     this.workers.create(QUEUES.DOMAIN_EVENTS, (job) => this.onDomainEvent(job));
@@ -319,6 +335,10 @@ export class Processors implements OnModuleInit {
    * the unique index would refuse every future claim, and nothing would say why.
    */
   private async syncChannel(): Promise<void> {
+    let sent = 0;
+    let failed = 0;
+    let lastReason: string | null = null;
+
     for (const target of await this.channel.findTakedowns()) {
       const removed = await this.telegram.deleteChannelPost(target.telegramMessageId);
       if (removed) await this.channel.markTakenDown(target.postId);
@@ -344,10 +364,64 @@ export class Processors implements OnModuleInit {
 
       if (outcome.kind === 'SENT') {
         await this.channel.markPosted(post.postId, outcome.messageId);
+        this.metrics.counter(
+          'payetam_channel_post_total',
+          'Channel publication attempts by outcome.',
+          { outcome: 'sent' },
+        );
+        sent += 1;
       } else {
         await this.channel.releaseClaim(post.postId);
+        this.metrics.counter(
+          'payetam_channel_post_total',
+          'Channel publication attempts by outcome.',
+          { outcome: 'failed' },
+        );
+        failed += 1;
+        lastReason = outcome.reason;
         this.logger.warn(`Channel post for ${post.eventPublicId} failed: ${outcome.reason}`);
       }
+    }
+
+    this.reportChannelHealth(sent, failed, lastReason);
+  }
+
+  /**
+   * Escalates a channel that has stopped working, instead of leaving it as warnings.
+   *
+   * The failure this exists for is a configuration one — the bot was never made an
+   * admin, or `TELEGRAM_CHANNEL_ID` is wrong — and `postToChannel` already classifies
+   * it as retryable rather than terminal, so it retries forever and every individual
+   * warning looks survivable. Somebody paid coins for each of those posts.
+   *
+   * The threshold is deliberately small: three consecutive sweeps is fifteen minutes,
+   * which is long enough not to fire on one bad minute and short enough that a launch
+   * misconfiguration is loud the same hour. The metric carries the same fact for
+   * anything scraping `/metrics`.
+   */
+  private reportChannelHealth(sent: number, failed: number, lastReason: string | null): void {
+    if (failed === 0) {
+      this.consecutiveChannelFailures = 0;
+      return;
+    }
+    if (sent > 0) return; // A partial failure is a per-post problem, not a stuck channel.
+
+    this.consecutiveChannelFailures += 1;
+    this.metrics.counter(
+      'payetam_channel_sweep_failed_total',
+      'Channel sweeps in which every publication attempt failed.',
+      {},
+    );
+
+    if (this.consecutiveChannelFailures >= CHANNEL_FAILURE_ALERT_THRESHOLD) {
+      // The reason is the client's own classification, which never contains the
+      // channel id or the token — those are configuration, and this line is read by
+      // whoever operates the deployment.
+      this.logger.error(
+        `Channel publishing has failed ${String(this.consecutiveChannelFailures)} sweeps in a row ` +
+          `(${String(failed)} post(s) pending). Last reason: ${lastReason ?? 'unknown'}. ` +
+          'Check that TELEGRAM_CHANNEL_ID is set and the bot is an administrator of that channel.',
+      );
     }
   }
 }

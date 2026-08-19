@@ -36,6 +36,7 @@ export function toEventView(event: EventDetail): EventView {
     publishedAt: event.publishedAt?.toISOString() ?? null,
     boostedUntil: event.boostedUntil?.toISOString() ?? null,
     isVip: event.isVip,
+    channelStatus: event.channelStatus,
     version: event.version,
     createdAt: event.createdAt.toISOString(),
   };

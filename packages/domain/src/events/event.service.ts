@@ -10,7 +10,7 @@ import type {
 } from '@payetam/db';
 import type { Env } from '@payetam/config';
 import { CLOCK, ENV, type Clock } from '@payetam/platform';
-import { AppError, ErrorCode } from '@payetam/shared';
+import { AppError, ErrorCode, type ChannelPublicationStatus } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
@@ -151,6 +151,15 @@ export interface EventDetail {
    * the forty coins bought a window and when it ends.
    */
   boostedUntil: Date | null;
+  /**
+   * How far the paid promotion has got toward the channel.
+   *
+   * Derived rather than stored: `NONE` when nothing was bought, `PUBLISHED` once a
+   * `channel_post` row carries a Telegram message id, and `QUEUED` in between —
+   * which includes the case where a send failed and released its claim, because
+   * from the host's side "paid, not there yet" is the same answer either way.
+   */
+  channelStatus: ChannelPublicationStatus;
   isVip: boolean;
   version: number;
   createdAt: Date;
@@ -170,6 +179,16 @@ const EVENT_INCLUDE = {
   category: { select: { id: true, slug: true, nameFa: true } },
   city: { select: { id: true, slug: true, nameFa: true } },
   district: { select: { id: true, slug: true, nameFa: true } },
+  /**
+   * Only what says whether a post exists and whether Telegram confirmed it.
+   *
+   * Live rows only: a taken-down post is not a current publication, and counting
+   * one would tell a host their expired boost is still in the channel.
+   */
+  channelPosts: {
+    where: { deletedAt: null },
+    select: { postedAt: true },
+  },
 } satisfies Prisma.EventInclude;
 
 /**
@@ -601,7 +620,7 @@ export class EventService {
       where: { id },
       include: EVENT_INCLUDE,
     });
-    return toEventDetail(event);
+    return toEventDetail(event, this.clock.now());
   }
 
   /**
@@ -798,7 +817,7 @@ export class EventService {
     });
 
     return {
-      event: toEventDetail(event),
+      event: toEventDetail(event, this.clock.now()),
       cancelled: result.cancelled,
       hadSeats: result.hadSeats,
       coinsCharged: result.coinsCharged,
@@ -857,7 +876,8 @@ export class EventService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    return events.map(toEventDetail);
+    const now = this.clock.now();
+    return events.map((event) => toEventDetail(event, now));
   }
 
   async findOwned(hostUserId: string, publicId: string): Promise<EventDetail> {
@@ -870,7 +890,7 @@ export class EventService {
     if (!event || event.deletedAt !== null || event.hostUserId !== hostUserId) {
       throw new AppError(ErrorCode.EVENT_NOT_FOUND);
     }
-    return toEventDetail(event);
+    return toEventDetail(event, this.clock.now());
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -1046,7 +1066,21 @@ async function currentCityId(tx: Prisma.TransactionClient, eventId: string): Pro
 
 type EventRow = Prisma.EventGetPayload<{ include: typeof EVENT_INCLUDE }>;
 
-function toEventDetail(event: EventRow): EventDetail {
+/**
+ * `NONE`, `QUEUED` or `PUBLISHED`, from what was bought and what Telegram confirmed.
+ *
+ * The `bought` test comes first deliberately. A failed send deletes its claim row,
+ * so a status read from rows alone would drop to `NONE` between sweeps for an event
+ * the host has already paid to promote.
+ */
+function channelStatusOf(event: EventRow, now: Date): ChannelPublicationStatus {
+  const bought = event.isVip || (event.boostedUntil !== null && event.boostedUntil > now);
+  if (!bought) return 'NONE';
+  const posts = event.channelPosts ?? [];
+  return posts.some((post) => post.postedAt !== null) ? 'PUBLISHED' : 'QUEUED';
+}
+
+function toEventDetail(event: EventRow, now: Date): EventDetail {
   return {
     publicId: event.publicId,
     title: event.title,
@@ -1070,6 +1104,7 @@ function toEventDetail(event: EventRow): EventDetail {
     moderationStatus: event.moderationStatus,
     publishedAt: event.publishedAt,
     boostedUntil: event.boostedUntil,
+    channelStatus: channelStatusOf(event, now),
     isVip: event.isVip,
     version: event.version,
     createdAt: event.createdAt,

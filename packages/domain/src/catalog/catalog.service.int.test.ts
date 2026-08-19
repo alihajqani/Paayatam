@@ -7,6 +7,7 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { CatalogService } from './catalog.service';
+import { SettingsService } from './settings.service';
 
 /**
  * The catalog's one job: nothing inactive is ever offered, and nothing inactive
@@ -15,7 +16,8 @@ import { CatalogService } from './catalog.service';
  */
 
 const prisma: PrismaClient = createTestPrisma();
-const catalog = new CatalogService(prisma as unknown as PrismaService);
+const service = prisma as unknown as PrismaService;
+const catalog = new CatalogService(service, new SettingsService(service));
 
 let fixture: CatalogFixture;
 
@@ -26,6 +28,42 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await prisma.$disconnect();
+});
+
+/**
+ * The prices a host is shown before being charged.
+ *
+ * They ride on the catalog because they are the same kind of thing as the rest of it:
+ * small, admin-managed and needed before a choice can be rendered. Asserting they
+ * come from `app_setting` rather than from a constant is the point — a price baked
+ * into the bundle is wrong the first time anybody edits the setting, and the person
+ * who discovers that is the host paying the old number.
+ */
+describe('CatalogService promotion pricing', () => {
+  /** No `app_setting` rows in this database, which is the fallback path itself. */
+  it('falls back to the documented defaults when nothing is configured', async () => {
+    const snapshot = await catalog.snapshot();
+
+    // Whole positive integers, never NaN or null: a blank price on a confirmation
+    // screen would be worse than a wrong one, because nobody would question it.
+    expect(snapshot.promotion).toEqual({
+      boostCoins: 40,
+      boostDurationHours: 24,
+      vipCoins: 100,
+    });
+  });
+
+  it('follows the setting once an admin configures one', async () => {
+    await prisma.appSetting.create({ data: { key: 'economy.boost_coins', value: 55 } });
+
+    const snapshot = await catalog.snapshot();
+
+    expect(snapshot.promotion.boostCoins).toBe(55);
+    // The others keep their defaults, so one edit cannot silently move a price
+    // nobody touched.
+    expect(snapshot.promotion.vipCoins).toBe(100);
+    expect(snapshot.promotion.boostDurationHours).toBe(24);
+  });
 });
 
 describe('CatalogService.snapshot', () => {

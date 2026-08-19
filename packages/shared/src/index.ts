@@ -22,8 +22,20 @@ export type {
   AcceptConsentRequest,
 } from './contracts/auth';
 
-export { cityView, categoryView, interestView, catalogResponse } from './contracts/catalog';
-export type { CityView, CategoryView, InterestView, CatalogResponse } from './contracts/catalog';
+export {
+  cityView,
+  categoryView,
+  interestView,
+  promotionPricing,
+  catalogResponse,
+} from './contracts/catalog';
+export type {
+  CityView,
+  CategoryView,
+  InterestView,
+  PromotionPricing,
+  CatalogResponse,
+} from './contracts/catalog';
 
 export {
   gender,
@@ -46,6 +58,7 @@ export {
   costType,
   genderPreference,
   eventStatus,
+  channelPublicationStatus,
   eventModerationStatus,
   createEventRequest,
   updateEventRequest,
@@ -56,6 +69,7 @@ export type {
   CostType,
   GenderPreference,
   EventStatus,
+  ChannelPublicationStatus,
   EventModerationStatus,
   CreateEventRequest,
   UpdateEventRequest,

@@ -7,6 +7,7 @@ vi.mock('@/api/client', () => ({
   request,
   ApiError: class extends Error {},
   setAccessToken: vi.fn(),
+  newIdempotencyKey: () => 'fixed-key',
 }));
 
 const { emptyFilters, useEventsStore } = await import('./events');
@@ -192,6 +193,50 @@ describe('authoring', () => {
 
     expect(store.myEvents).toHaveLength(1);
     expect(store.myEvents[0]?.title).toBe('نو');
+  });
+
+  /**
+   * The one endpoint where a duplicate request costs real money. The domain key is
+   * derived from the *window* a boost produces, so a genuine second purchase
+   * correctly charges again — which is exactly why the HTTP key is what stands
+   * between a dropped response and a second 40-coin charge.
+   */
+  it('sends an Idempotency-Key with a boost', async () => {
+    request.mockResolvedValue({ publicId: 'e-1', isVip: false });
+    const store = useEventsStore();
+
+    await store.boost('e-1');
+
+    expect(request).toHaveBeenCalledWith('/events/e-1/boost', {
+      method: 'POST',
+      body: { kind: 'BOOST' },
+      idempotencyKey: 'fixed-key',
+    });
+  });
+
+  it('sends the kind the host chose', async () => {
+    request.mockResolvedValue({ publicId: 'e-1', isVip: true });
+    const store = useEventsStore();
+
+    await store.boost('e-1', 'VIP');
+
+    expect(request).toHaveBeenCalledWith(
+      '/events/e-1/boost',
+      expect.objectContaining({ body: { kind: 'VIP' } }),
+    );
+  });
+
+  it('replaces the event in place so the new promotion state is shown', async () => {
+    request.mockResolvedValueOnce({ events: [{ publicId: 'e-1', isVip: false }] });
+    const store = useEventsStore();
+    await store.loadMyEvents();
+
+    request.mockResolvedValueOnce({ publicId: 'e-1', isVip: true, channelStatus: 'QUEUED' });
+    await store.boost('e-1', 'VIP');
+
+    expect(store.myEvents).toHaveLength(1);
+    expect(store.myEvents[0]?.isVip).toBe(true);
+    expect(store.myEvents[0]?.channelStatus).toBe('QUEUED');
   });
 
   it('asks the dry-run endpoint without mutating anything', async () => {
