@@ -35,6 +35,10 @@ backups/
 # Written by `make dev` (tools/devstack.sh), never by a build.
 .dev/
 
+# Deploy state on a server: which release is running, and which to roll back to.
+# Written by scripts/deploy.sh, and specific to one machine.
+.deploy/
+
 # Locally downloaded installers (e.g. the cloudflared package for `make tunnel`).
 *.deb
 
