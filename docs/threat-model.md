@@ -1,6 +1,8 @@
 # PayeTam — Threat Model
 
 **Status:** living document. Update whenever a milestone adds an attack surface.
+**Last reviewed:** 2026-08-21, after M19 — which added the admin panel (T3.7, T3.8), disclosed R8 to
+the user it affects, and made rate-limit crossings durable (T6.1).
 **Method:** asset-driven. We enumerate what is worth attacking, then how it would be attacked, then what
 stops it — and we name the controls that do **not** yet exist rather than implying full coverage.
 
@@ -75,6 +77,8 @@ Status legend: **✅ designed** (control specified, milestone assigned) · **⏳
 | T3.4 | Admin privilege escalation | Deny-by-default RBAC, service-layer checks, four-eyes on role changes, **RBAC matrix test** | M12 | ✅ |
 | T3.5 | Insider reads chats casually | Break-glass: permission **+** open case **+** written reason, 15-min box, **per-message audit**, weekly digest to SUPER_ADMIN | M12 | ✅ |
 | T3.6 | **A SUPER_ADMIN with database access bypasses every application control** | None technical. Mitigated organisationally: minimise who holds DB credentials; audit log is append-only | — | ⚠️ accepted |
+| T3.7 | **A stolen admin session reads user records** (M19's panel) | The panel adds no capability the API did not already have and no read that skips `assertPermission` — the RBAC matrix covers all 35 operations. Session is `HttpOnly` + `Secure` + `SameSite=Lax`, CSRF on every mutation, re-read from Redis per request so revocation is immediate, 12-hour idle expiry. **The bio is masked** on the user-detail page: a user who typed contact details into it consented to nothing, and `user.read` is held by `SUPPORT`. Nothing in the panel can reach `telegram_account` | M19 | ✅ |
+| T3.8 | **A stolen admin session spends the promotional budget** | Reads mask every gift code (`NOWR••••4F2Z`) and routes address them by `public_id`; the plaintext is returned once, by the call that created it, and by nothing else. Code search is **exact**, so an operator holding a code can find it and an operator holding nothing cannot enumerate a campaign (ADR-0016) | M19 | ✅ |
 
 ### Integrity (A4, A5, A6)
 
@@ -106,7 +110,7 @@ Status legend: **✅ designed** (control specified, milestone assigned) · **⏳
 
 | ID | Threat | Control | Milestone | Status |
 |---|---|---|---|---|
-| T6.1 | Spam events / spam joins / spam messages | Redis token buckets per user + IP + endpoint class: events 5/day, joins 20/day, messages 30/min, reports 10/day | M15 | ⏳ |
+| T6.1 | Spam events / spam joins / spam messages | Redis token buckets per user + IP + endpoint class: events 5/day, joins 20/day, messages 30/min, reports 10/day, gift codes 10/hour. **M19 added the record**: `payetam_rate_limited_total{class}` and one `audit_log` row on the *first* refusal of each window — per-request rows would make the trail the amplification the limiter exists to prevent. The anonymous caller is recorded by a peppered HMAC, never by their address | M15, M19 | ✅ |
 | T6.2 | Report brigading to silence a legitimate host | 3 **distinct** reporters required; auto-hide is reversible; every case is human-reviewed | M12 | ✅ |
 | T6.3 | Notification flooding a user | Per-chat rate limiting; dedupe keys | M13 | ✅ |
 | T6.4 | Exhausting the global Telegram rate budget | Single `telegram-send` queue with a 25/s global limiter; `403` stops retrying immediately | M13 | ✅ |
@@ -129,7 +133,8 @@ Status legend: **✅ designed** (control specified, milestone assigned) · **⏳
 
 ## 4. Accepted risks (explicit)
 
-These have no control and are accepted deliberately. Each needs a named owner before launch.
+These have no control and are accepted deliberately. **Each needs a named owner before launch, and
+none has one** — it is the item that has been open longest, and M19 added two more to the list.
 
 | # | Risk | Rationale |
 |---|---|---|
@@ -141,6 +146,8 @@ These have no control and are accepted deliberately. Each needs a named owner be
 | R6 | **Sybil resistance is partial** | Telegram account creation is outside our control (T4.10) |
 | R7 | **Timing correlation in anonymous chat** | Out of scope for MVP (T2.9) |
 | R8 | **A host can tell that the same person asked to join two of their events** | The participant list has given a host every requester's display name since M6, so this was never prevented — the per-chat alias only made the host's *conversation list* unreadable while the correlation stayed available one screen away. ADR-0014 (M18) accepts the risk explicitly and titles conversations «name — event»; **M19 discloses it to the user** in `ChatsView` rather than accepting it silently on their behalf, and `cross-event-correlation.int.test.ts` pins the boundary in both directions — what a host can see across their own two queues, and the absence that keeps it local: **no query in the product turns a person into the list of events they touched.** Discovery filters on place, time, cost and eligibility and on no identity; a revealed review names neither the event nor the reviewer; a chat summary carries the counterpart's name and no identifier behind it; the participant list is host-only and answers `EVENT_NOT_FOUND` to anybody else. Aliases are numbered per event, so the pseudonym itself is not a correlation key. What remains protected, and is unaffected, is everything in `telegram_account` (T2.4, invariant 7) |
+| R9 | **The admin panel is protected by a login and nothing else** | It is not tunnelled, has no `allowedHosts` and is `noindex` — but none of those is a network control. A production deployment should put an IP allowlist or a VPN in front of it *in addition to* the login. Named here because it is a deployment decision, not a code one, and it currently has no owner |
+| R10 | **A bulk-minted batch of gift codes is unrecoverable** | Deliberate: the plaintext is returned once and stored nowhere the panel can read, which is what makes a stolen session unable to spend it (ADR-0016). An operator who loses a batch disables it by `batchId` and mints another. The cost is real and is the price of the property |
 
 ---
 
