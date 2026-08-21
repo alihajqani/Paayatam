@@ -98,6 +98,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'گزارش کد هدیه', permission: PERMISSIONS.GIFT_CODE_MANAGE, group: null },
   },
   {
+    path: '/referrals',
+    name: 'referrals',
+    component: () => import('@/views/ReferralsView.vue'),
+    meta: { title: 'معرفی دوستان', permission: PERMISSIONS.REFERRAL_MANAGE, group: 'economy' },
+  },
+  {
+    path: '/ledger',
+    name: 'ledger',
+    component: () => import('@/views/LedgerView.vue'),
+    meta: { title: 'دفتر سکه', permission: PERMISSIONS.LEDGER_READ, group: 'economy' },
+  },
+  {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/ForbiddenView.vue'),
