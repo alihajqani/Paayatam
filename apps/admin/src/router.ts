@@ -64,6 +64,28 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'پروندهٔ کاربر', permission: PERMISSIONS.USER_READ, group: null },
   },
   {
+    path: '/events',
+    name: 'events',
+    component: () => import('@/views/EventsView.vue'),
+    meta: { title: 'فعالیت‌ها', permission: PERMISSIONS.EVENT_MODERATE, group: 'moderation' },
+  },
+  {
+    path: '/reports',
+    name: 'reports',
+    component: () => import('@/views/ReportsView.vue'),
+    meta: { title: 'گزارش‌های تخلف', permission: PERMISSIONS.REPORT_REVIEW, group: 'moderation' },
+  },
+  {
+    path: '/cases',
+    name: 'cases',
+    component: () => import('@/views/CasesView.vue'),
+    meta: {
+      title: 'پرونده‌های بررسی',
+      permission: PERMISSIONS.EVENT_MODERATE,
+      group: 'moderation',
+    },
+  },
+  {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/ForbiddenView.vue'),
