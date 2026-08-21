@@ -100,6 +100,58 @@ export const envSchema = z
     STORAGE_LOCAL_PATH: z.string().default('./uploads'),
     MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(5_242_880),
 
+    // ── Deployment topology (M20) ────────────────────────────────────────────
+    /**
+     * Which upstream hops may set `X-Forwarded-For`.
+     *
+     * Unset means "trust nothing", which is correct for a process reached
+     * directly and **wrong for every reverse-proxied deployment**: Fastify then
+     * reports the proxy's own address as `request.ip`, and three things quietly
+     * break at once. The IP rate-limit buckets collapse into one shared bucket,
+     * so `AUTH`'s 30-a-minute becomes a global cap that the product's own users
+     * exhaust (M20 found this while writing the production compose stack). Every
+     * `ip_hash` in `audit_log` becomes the same hash, which is the column that
+     * exists to tell one abuser from another. And `/metrics` — which refuses
+     * anything that is not a private address — starts seeing a private address
+     * on every request, including the ones from the internet.
+     *
+     * Accepted forms are `proxy-addr`'s, because that is what Fastify hands it to:
+     * a hop count (`1`), a comma-separated list of addresses or CIDR blocks
+     * (`172.18.0.0/16`), or one of the names `loopback`, `linklocal`, `uniquelocal`.
+     *
+     * **A list, not `true`.** Trusting every hop lets any client set its own
+     * apparent address by sending the header, which hands an attacker the rate
+     * limiter and the audit trail together.
+     */
+    TRUST_PROXY: z
+      .string()
+      .min(1)
+      .refine((value) => value !== 'true' && value !== '1', {
+        message:
+          'must name the trusted hops (a CIDR list, a hop count above 1, or "loopback") — ' +
+          'trusting every hop lets any client forge X-Forwarded-For',
+      })
+      .optional(),
+
+    // ── Monitoring (M20) ─────────────────────────────────────────────────────
+    /**
+     * Chat the worker posts operational alerts to. A group id is negative.
+     *
+     * Optional everywhere, including production: a deployment with no alerting
+     * channel is a worse deployment, not a broken one, and failing to boot over
+     * it would take the product down for the sake of its own monitoring.
+     */
+    MONITORING_CHAT_ID: z.string().optional(),
+    /**
+     * Shortest gap between two alerts about the same thing.
+     *
+     * The failure this exists for is a queue that has started failing every job:
+     * without a floor, the alerting path becomes the amplifier, and the group
+     * fills with the same line until Telegram rate-limits the bot and the *next*
+     * incident is the one nobody hears about.
+     */
+    MONITORING_ALERT_COOLDOWN_SECONDS: z.coerce.number().int().min(0).default(300),
+
     // ── Safety rails ─────────────────────────────────────────────────────────
     ALLOW_PROD_SEED: booleanFlag.default(false),
   })

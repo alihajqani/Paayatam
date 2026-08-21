@@ -6,6 +6,7 @@ import { AppLogger, MetricsRegistry } from '@payetam/platform';
 import { registerCookies } from './admin/cookie.setup';
 import { registerObservability } from './common/observability';
 import { registerSecurityHeaders } from './common/security-headers';
+import { resolveTrustProxy } from './common/trust-proxy';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -33,10 +34,23 @@ async function bootstrap(): Promise<void> {
    */
   const logger = new AppLogger(env.LOG_LEVEL, env.NODE_ENV !== 'production');
 
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
-    logger,
-    bufferLogs: true,
-  });
+  /**
+   * `trustProxy` is what makes `request.ip` the *caller's* address rather than
+   * nginx's (M20). Three things read that value and all three are wrong without
+   * it behind a proxy: the IP rate-limit buckets (one shared bucket for the whole
+   * internet), the `ip_hash` column in `audit_log` (one hash for everybody), and
+   * `/metrics`, which allows private addresses and would see one on every request.
+   *
+   * Configured rather than hardcoded, and defaulting to off, because the same
+   * image runs behind nginx in production and directly under `pnpm dev` locally —
+   * and a process reached directly must trust nothing, or a client picks its own
+   * apparent address by sending the header.
+   */
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter({ trustProxy: resolveTrustProxy(env.TRUST_PROXY) }),
+    { logger, bufferLogs: true },
+  );
 
   // The admin panel authenticates with a cookie (ADR-0010), and a Fastify plugin
   // has to be registered before the instance boots — which is why this one thing
@@ -77,6 +91,9 @@ async function bootstrap(): Promise<void> {
     port: env.API_PORT,
     env: env.NODE_ENV,
     tz: env.APP_TIMEZONE,
+    // Logged because "the rate limiter is counting every user as one caller" has
+    // no other visible symptom until it starts refusing people.
+    trustProxy: env.TRUST_PROXY ?? 'none',
   });
 }
 

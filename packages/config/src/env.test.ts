@@ -117,6 +117,53 @@ describe('loadEnv', () => {
     expect(env.TELEGRAM_MODE).toBe('webhook');
   });
 
+  it('leaves TRUST_PROXY unset by default, so nothing is trusted', () => {
+    // A process reached directly must not let a client choose its own apparent
+    // address by sending X-Forwarded-For. Off is the only safe default.
+    expect(loadEnv(minimalEnv).TRUST_PROXY).toBeUndefined();
+  });
+
+  it('accepts the shapes proxy-addr understands for TRUST_PROXY', () => {
+    expect(loadEnv({ ...minimalEnv, TRUST_PROXY: '172.18.0.0/16' }).TRUST_PROXY).toBe(
+      '172.18.0.0/16',
+    );
+    expect(loadEnv({ ...minimalEnv, TRUST_PROXY: 'loopback' }).TRUST_PROXY).toBe('loopback');
+    expect(loadEnv({ ...minimalEnv, TRUST_PROXY: '2' }).TRUST_PROXY).toBe('2');
+  });
+
+  it('refuses a TRUST_PROXY that trusts every hop', () => {
+    // `true` and `1` both mean "believe whatever X-Forwarded-For says", which
+    // hands an attacker the rate limiter and the audit trail at the same time.
+    for (const value of ['true', '1']) {
+      let problems: string[] = [];
+      try {
+        loadEnv({ ...minimalEnv, TRUST_PROXY: value });
+      } catch (error) {
+        problems = (error as EnvValidationError).problems;
+      }
+      expect(problems.join('\n')).toMatch(/TRUST_PROXY/);
+    }
+  });
+
+  it('treats monitoring as optional in production and defaults the alert floor', () => {
+    // A deployment with no alerting channel is a worse deployment, not a broken
+    // one — refusing to boot over it would take the product down for monitoring.
+    const env = loadEnv(productionEnv);
+    expect(env.MONITORING_CHAT_ID).toBeUndefined();
+    expect(env.MONITORING_ALERT_COOLDOWN_SECONDS).toBe(300);
+  });
+
+  it('coerces the alert cooldown and allows disabling it', () => {
+    expect(
+      loadEnv({ ...minimalEnv, MONITORING_ALERT_COOLDOWN_SECONDS: '60' })
+        .MONITORING_ALERT_COOLDOWN_SECONDS,
+    ).toBe(60);
+    expect(
+      loadEnv({ ...minimalEnv, MONITORING_ALERT_COOLDOWN_SECONDS: '0' })
+        .MONITORING_ALERT_COOLDOWN_SECONDS,
+    ).toBe(0);
+  });
+
   it('does not leak values into the error message', () => {
     const secret = 'super-secret-value-that-must-never-be-printed';
     let message = '';
