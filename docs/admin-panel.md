@@ -242,29 +242,47 @@ No setting needs a restart.
 
 ## 8. Deploying it
 
-The bundle is static. nginx serves it and proxies the API on the same origin:
-
-```nginx
-location /admin/v1/ {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-
-location /admin {
-    alias /srv/payetam/admin/;
-    try_files $uri $uri/ /admin/index.html;   # history-mode routing
-}
-```
+The bundle is static, and in production it is **baked into the nginx image** and served from a host of
+its own. The working configuration is `docker/sites-available/admin.paayatam.ir.conf`; the whole
+procedure is in [`DEPLOYMENT.md`](../DEPLOYMENT.md).
 
 `pnpm --filter @payetam/admin build` writes `apps/admin/dist`. `pnpm build` builds it alongside the
-Mini App.
+Mini App, and `docker/Dockerfile`'s `web` target copies both into the image — which is what makes a
+rollback restore the panel as well as the API.
 
-**Do not expose it more widely than it needs to be.** It is not tunnelled by `make tunnel` and has no
-`allowedHosts` list, because it is opened by a person at a desk. In production it should sit behind
-whatever network control the deployment has — an IP allowlist or a VPN — *in addition to* the login,
-not instead of it.
+### A dedicated host, not a sub-path
+
+This section used to show `location /admin { alias …; }`. **That cannot work with this build**, and it
+is worth saying why rather than just deleting it: neither `vite.config.ts` sets `base`, so the bundle
+references its assets at `/assets/…`. Mounted under `/admin`, every one of them 404s — the page loads
+and stays blank, which reads like a JavaScript error rather than like a path problem.
+
+So the panel gets `admin.paayatam.ir` and is served at `/`, which is what the build already assumes.
+The alternative — adding `base: '/admin/'` to `apps/admin/vite.config.ts` — is a real option, but it is
+a code change, and it would put the panel on the same origin as the Mini App, where the two CSPs have
+to differ (the Mini App must allow framing by Telegram; the panel must not be framed at all).
+
+### Same origin as the admin API, which is not optional
+
+`admin.paayatam.ir` serves the bundle *and* proxies `/admin/v1/` to the API. Both halves are forced:
+
+- The API sends **no CORS headers** (`apps/api/src/common/security-headers.ts`).
+- The session cookie is `Secure`, `SameSite=Lax`, `path=/admin`, and sets no `Domain` — so it is
+  host-only. A panel on a different origin would simply never send it, and every request would 401
+  with nothing in the browser console to explain why.
+
+### On restricting access
+
+**No network restriction is applied.** That is a recorded decision rather than an omission — see
+[`SECURITY.md`](../SECURITY.md) §4, risk 1: the operator has no fixed address and no VPN, and a control
+they cannot administer is one they will disable during an incident. What stands in front of the panel
+is TOTP plus the session cookie, which is genuinely two-factor, and nginx rate-limits `/admin/v1/`
+below `ADMIN_LOGIN`'s own per-address limit.
+
+An `allow`/`deny` block is pre-written and commented in the site file, at **server** level so it covers
+the API and the bundle together — an allowlist on `/admin/v1/` alone leaves the login page reachable,
+and one on `/` alone leaves the API reachable, which is the half that matters. Uncomment it the day
+there is a fixed address to allow.
 
 ---
 

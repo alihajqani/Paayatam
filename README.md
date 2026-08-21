@@ -93,6 +93,8 @@ including two delivery bugs that sat behind a green test suite for four mileston
 | [`docs/adr/`](docs/adr/README.md) | Architecture Decision Records — one decision each, with what was rejected and why |
 | [`docs/threat-model.md`](docs/threat-model.md) | Assets, adversaries, controls, and **explicitly accepted risks** |
 | [`docs/glossary-fa.md`](docs/glossary-fa.md) | Persian ↔ English terms, error messages, typography rules |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md) | **Putting it on a server.** Step by step, from a bare VPS to a verified deploy |
+| [`SECURITY.md`](SECURITY.md) | What the production stack exposes, what protects it, and what is accepted |
 
 **Working on this project?** Read the plan and the ADR index before changing architecture. Decisions recorded
 there are frozen; changing one means a new ADR and an update to the plan, not an edit in passing.
@@ -435,12 +437,141 @@ injection silently yields `undefined` and the app fails at request time rather t
 
 ---
 
+## Production
+
+Everything runs in Docker Compose on one VPS. [`DEPLOYMENT.md`](DEPLOYMENT.md) is
+the step-by-step guide; this is the shape of it.
+
+### The topology
+
+```
+                        internet
+                            │
+                    :80 ────┴──── :443
+                            │
+                    ┌───────────────┐        the only published ports
+                    │     nginx     │        TLS, static bundles, proxy
+                    └───────┬───────┘
+        app.paayatam.ir     │     admin.paayatam.ir
+        /            /api/  │  /admin/v1/         /
+    miniapp bundle ─────────┼───────────── admin bundle
+                            │  frontend network
+                    ┌───────┴───────┐
+                    │      api      │  NestJS on Fastify, uid 1000, read-only fs
+                    └───────┬───────┘
+                            │  internal network
+              ┌─────────────┼─────────────┐
+        ┌─────┴─────┐ ┌─────┴─────┐ ┌─────┴──────┐
+        │ postgres  │ │   redis   │ │   worker   │──→ api.telegram.org
+        │    16     │ │     7     │ │   BullMQ   │
+        └───────────┘ └───────────┘ └────────────┘
+```
+
+Postgres, Redis, the API and the worker publish **no host port**. The worker is
+the only process that talks to Telegram (invariant 11).
+
+**Both SPAs must share an origin with the API, and this is forced by the code
+rather than chosen.** The API sends no CORS headers, both clients build relative
+paths, and the admin session cookie is `Secure`, `SameSite=Lax`, host-only and
+scoped to `/admin`. A separate `api.paayatam.ir` would fail every request in the
+browser. So `app.paayatam.ir` serves the Mini App *and* proxies `/api/` and
+`/telegram/webhook/`; `admin.paayatam.ir` serves the panel *and* proxies
+`/admin/v1/`.
+
+### The files
+
+| Path | What |
+|---|---|
+| `docker/Dockerfile` | Multi-stage. Targets: `api`, `worker`, `web` (nginx + both bundles), `tools` (migrations and seeds) |
+| `docker/docker-compose.prod.yml` | The whole stack. Standalone — it does not extend the development `docker-compose.yml` |
+| `docker/nginx.conf`, `sites-available/`, `snippets/` | TLS, both origins, the closed endpoints |
+| `.env.production.example` | Every variable, with the command that generates each secret |
+| `scripts/` | Deploy, rollback, migrate, backup, restore, smoke tests |
+
+### The commands
+
+```bash
+./scripts/check-env.sh                              # before anything: is .env sane?
+./scripts/init-letsencrypt.sh --email you@…         # once, after DNS resolves
+./scripts/deploy.sh v0.2.0                          # build, migrate, start, verify
+./scripts/rollback.sh                               # back to the previous tag
+./scripts/smoke-tests.sh                            # 24 assertions against what is running
+./scripts/backup.sh                                 # dump, verify, encrypt, copy off-host
+./scripts/restore-rehearsal.sh                      # prove the backup restores
+./scripts/set-webhook.sh --info                     # what Telegram thinks the webhook is
+./scripts/compose.sh logs -f api worker             # docker compose, from anywhere
+```
+
+`scripts/compose.sh` exists because Compose resolves `env_file` and relative
+volume paths against the compose file's own directory, so a bare
+`docker compose -f docker/…` behaves differently depending on where you ran it.
+
+### Generating the secrets
+
+```bash
+openssl rand -hex 24      # TELEGRAM_WEBHOOK_SECRET_PATH
+openssl rand -hex 32      # TELEGRAM_WEBHOOK_SECRET_TOKEN
+openssl rand -base64 32   # CHAT_ENCRYPTION_KEY
+openssl rand -base64 32   # PII_HASH_PEPPER
+openssl rand -base64 48   # JWT_ACCESS_SECRET
+openssl rand -base64 48   # JWT_REFRESH_SECRET
+openssl rand -base64 24   # POSTGRES_PASSWORD
+openssl rand -base64 24   # REDIS_PASSWORD
+```
+
+`POSTGRES_PASSWORD` and `REDIS_PASSWORD` each appear **twice** in `.env` — once on
+their own line and once inside the matching URL. Neither Compose's `env_file` nor
+Node's `--env-file` expands `${…}`, so they really are two copies;
+`scripts/check-env.sh` is what keeps them equal.
+
+### Backup, restore, rollback
+
+- **Backup** wraps the existing `tools/backup.sh` — custom format, verified with
+  `pg_restore --list`, rotated only after that verification passes — then encrypts
+  to a GPG public key whose private half is deliberately *not* on the server, and
+  copies off-host. 14-day retention.
+- **Restore** stops the writers, dumps the state it is about to discard, restores
+  into a *new* database and renames it into place, then checks the table count,
+  the `coin_ledger` append-only triggers and the ledger reconciliation before
+  letting the API near it.
+- **Rollback** rebuilds the previous tag and restarts. Because the bundles are
+  baked into the nginx image, the frontend goes back too. It does **not** undo
+  migrations — the script counts what was applied since the target and makes you
+  read them before continuing.
+
+### Monitoring
+
+The worker posts to a Telegram group (`MONITORING_CHAT_ID`) when a job exhausts
+its retries; `scripts/notify-telegram.sh` does the same for failed backups,
+deploys and rollbacks. Alerts are throttled per key with the suppressed count
+carried forward, so a queue failing every job produces one message per window
+rather than a flood that gets the bot rate-limited.
+
+Everything else is structured JSON on stdout, capped at 10 MB × 5 files per
+service, plus Prometheus metrics at `/metrics` — reachable only from inside the
+compose network.
+
+### One conflict with `docs/production-deployment-todo.md`
+
+That document lists `TRUST_PROXY` among the variables that "do not exist in the
+code and must not be added". It was accurate when written, and this milestone
+overrules it: the variable did not exist, and the deployment it describes needs
+it. Behind any reverse proxy — nginx in Docker, or nginx on the host in front of
+systemd — Fastify reports the proxy's address as `request.ip`, so every IP
+rate-limit bucket is shared by the whole internet, every `ip_hash` in `audit_log`
+is identical, and `/metrics`' private-address check passes for everyone. See
+[`SECURITY.md`](SECURITY.md) §3.
+
+---
+
 ## Security
 
-- **Never commit secrets.** `.env*` is git-ignored; `.env.example` holds placeholders only.
+- **Never commit secrets.** `.env*` is git-ignored; `.env.example` and
+  `.env.production.example` hold placeholders only.
 - Report a vulnerability privately to the maintainers, not in a public issue.
 - Read [`docs/threat-model.md`](docs/threat-model.md) before touching authentication, chat, the economy, or
-  the admin panel.
+  the admin panel, and [`SECURITY.md`](SECURITY.md) before changing anything about the
+  deployment — it carries the accepted risks and the secret-rotation table.
 
 **Stated honestly:** chat messages are encrypted at rest with a key the application server holds. That
 protects database dumps, backups and a stolen disk. It is **not** end-to-end encryption and does not protect
