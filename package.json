@@ -30,12 +30,15 @@
     "seed:settings": "tsx --env-file=.env tools/seed-settings.ts",
     "seed:events": "tsx --env-file=.env tools/seed-events.ts",
     "seed:gift-codes-dev": "tsx --env-file=.env tools/seed-gift-codes-dev.ts",
+    "create-admin": "tsx --env-file-if-exists=.env tools/create-admin.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@payetam/config": "workspace:*",
     "@payetam/db": "workspace:*",
     "@payetam/domain": "workspace:*",
+    "@payetam/platform": "workspace:*",
     "@prisma/adapter-pg": "^7.9.1",
     "@types/node": "^22.10.0",
     "@vitejs/plugin-vue": "^6.0.4",

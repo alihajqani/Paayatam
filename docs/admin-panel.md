@@ -51,12 +51,22 @@ There is no self-service sign-up and there is not going to be one: `admin_user` 
 
 ```bash
 pnpm seed:rbac        # roles and permissions, from the code catalogue — required first
+pnpm create-admin --email you@example.com --name 'Your Name' --roles SUPER_ADMIN
 ```
 
-Then, from a `tsx` script or a REPL against the API's module graph, call `createAdmin({ email,
-password, displayName, roles })` and provision the returned secret into an authenticator app. It is
-encrypted at rest and is never readable again; a lost authenticator is an out-of-band recovery
-procedure, not an endpoint.
+`tools/create-admin.ts` calls `createAdmin` rather than reimplementing it, so the row, the roles and
+the audit entry are still written in one transaction. It asks for the password on the terminal —
+never as an argument, because `ps` is world-readable — and prints the TOTP secret to stdout, once,
+with an `otpauth://` URI you can turn into a QR code.
+
+Provision it into an authenticator immediately and sign in once to confirm before closing the
+terminal. The secret is encrypted at rest and is never readable again; a lost authenticator is an
+out-of-band recovery procedure, not an endpoint — which is also the argument for making a **second**
+account while you are here.
+
+In production it asks you to type `create` first. That is the same rail `tools/seed-guard.ts` puts in
+front of every other production write, and for the same reason: the mistake worth catching is not
+"did you mean to do this" but "are you pointed at the database you think you are".
 
 ### Sample data for the gift-code screens
 

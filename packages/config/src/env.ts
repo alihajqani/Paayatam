@@ -119,17 +119,19 @@ export const envSchema = z
      * a hop count (`1`), a comma-separated list of addresses or CIDR blocks
      * (`172.18.0.0/16`), or one of the names `loopback`, `linklocal`, `uniquelocal`.
      *
-     * **A list, not `true`.** Trusting every hop lets any client set its own
-     * apparent address by sending the header, which hands an attacker the rate
-     * limiter and the audit trail together.
+     * **Never "trust everything".** `true` would believe whatever
+     * `X-Forwarded-For` says, which lets any client choose its own apparent
+     * address and hands an attacker the rate limiter and the audit trail
+     * together. A count is fine — `1` means "the one hop in front of me" — and
+     * that is the value refused here, in the spelling that means *all*.
      */
     TRUST_PROXY: z
       .string()
       .min(1)
-      .refine((value) => value !== 'true' && value !== '1', {
+      .refine((value) => !['true', 'yes', 'on', 'all', '*'].includes(value.trim().toLowerCase()), {
         message:
-          'must name the trusted hops (a CIDR list, a hop count above 1, or "loopback") — ' +
-          'trusting every hop lets any client forge X-Forwarded-For',
+          'must name the trusted hops — a CIDR list (172.28.0.0/24), a hop count (1), ' +
+          'or "loopback". Trusting every hop lets any client forge X-Forwarded-For.',
       })
       .optional(),
 

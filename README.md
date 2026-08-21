@@ -551,10 +551,11 @@ Everything else is structured JSON on stdout, capped at 10 MB × 5 files per
 service, plus Prometheus metrics at `/metrics` — reachable only from inside the
 compose network.
 
-### One conflict with `docs/production-deployment-todo.md`
+### One conflict with the deployment TODO
 
-That document lists `TRUST_PROXY` among the variables that "do not exist in the
-code and must not be added". It was accurate when written, and this milestone
+`docs/production-deployment-todo.md` — a local working document, deliberately not
+tracked — lists `TRUST_PROXY` among the variables that "do not exist in the code
+and must not be added". It was accurate when written, and this milestone
 overrules it: the variable did not exist, and the deployment it describes needs
 it. Behind any reverse proxy — nginx in Docker, or nginx on the host in front of
 systemd — Fastify reports the proxy's address as `request.ip`, so every IP

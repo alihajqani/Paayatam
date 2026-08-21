@@ -12,8 +12,8 @@
 # ── Where the secrets come from ──────────────────────────────────────────────
 #
 # Every service that needs one reads `env_file: ../.env` — the same
-# `/srv/payetam/.env` the systemd units in docs/production-deployment-todo.md
-# use. Deliberately **not** `${POSTGRES_PASSWORD}`-style interpolation: Compose
+# `/srv/payetam/.env` DEPLOYMENT.md §5 sets up.
+# Deliberately **not** `${POSTGRES_PASSWORD}`-style interpolation: Compose
 # resolves those while parsing, so `docker compose config` would print the
 # database password, the bot token and both JWT secrets to stdout — into a
 # terminal, a CI log, or a pasted bug report. Nothing here interpolates a secret,

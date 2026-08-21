@@ -350,12 +350,14 @@ authenticator, delete the account and make another.
 
 ```bash
 cd /srv/payetam
-./scripts/compose.sh --profile tools run --rm tools pnpm tsx tools/create-admin.ts
+./scripts/compose.sh --profile tools run --rm -it tools \
+  pnpm create-admin --email you@example.com --name 'Your Name' --roles SUPER_ADMIN
 ```
 
-If that script does not exist in your checkout, `docs/admin-panel.md` §"Creating
-the first staff account" has the current procedure — that document is the source
-of truth for the panel and is kept up to date with it.
+`-it` is not optional: the password is asked for on the terminal, never passed as
+an argument, because `ps` is world-readable and a command line ends up in shell
+history. The roles are `SUPER_ADMIN`, `MODERATOR`, `SUPPORT` and `ANALYST` —
+`docs/admin-panel.md` §3 has what each can reach.
 
 Then, at `https://admin.paayatam.ir`:
 

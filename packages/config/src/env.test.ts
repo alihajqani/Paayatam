@@ -124,17 +124,19 @@ describe('loadEnv', () => {
   });
 
   it('accepts the shapes proxy-addr understands for TRUST_PROXY', () => {
-    expect(loadEnv({ ...minimalEnv, TRUST_PROXY: '172.18.0.0/16' }).TRUST_PROXY).toBe(
-      '172.18.0.0/16',
+    expect(loadEnv({ ...minimalEnv, TRUST_PROXY: '172.28.0.0/24' }).TRUST_PROXY).toBe(
+      '172.28.0.0/24',
     );
     expect(loadEnv({ ...minimalEnv, TRUST_PROXY: 'loopback' }).TRUST_PROXY).toBe('loopback');
-    expect(loadEnv({ ...minimalEnv, TRUST_PROXY: '2' }).TRUST_PROXY).toBe('2');
+    // A hop count, which is what one nginx in front of the API is.
+    expect(loadEnv({ ...minimalEnv, TRUST_PROXY: '1' }).TRUST_PROXY).toBe('1');
   });
 
   it('refuses a TRUST_PROXY that trusts every hop', () => {
-    // `true` and `1` both mean "believe whatever X-Forwarded-For says", which
-    // hands an attacker the rate limiter and the audit trail at the same time.
-    for (const value of ['true', '1']) {
+    // These all mean "believe whatever X-Forwarded-For says", which hands an
+    // attacker the rate limiter and the audit trail at the same time. `1` is
+    // deliberately not among them: as a hop count it is the correct value here.
+    for (const value of ['true', 'TRUE', 'yes', 'on', 'all', '*']) {
       let problems: string[] = [];
       try {
         loadEnv({ ...minimalEnv, TRUST_PROXY: value });

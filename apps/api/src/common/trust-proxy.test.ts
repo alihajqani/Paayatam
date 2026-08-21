@@ -32,8 +32,9 @@ describe('resolveTrustProxy', () => {
 
   it('never returns true, whatever it is given', () => {
     // `true` trusts every hop, which hands an attacker both the rate limiter and
-    // the ip_hash column. env.ts refuses the literal 'true'; this asserts the
-    // conversion cannot produce it by another route either.
+    // the ip_hash column. env.ts refuses the spellings that mean "everything";
+    // this asserts the conversion cannot produce `true` by another route either —
+    // note '1' comes back as the *number* 1, a hop count, not as a boolean.
     for (const input of [undefined, '', 'true', '1', 'loopback', '10.0.0.0/8']) {
       expect(resolveTrustProxy(input)).not.toBe(true);
     }
