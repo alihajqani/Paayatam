@@ -574,12 +574,14 @@ Both are the kind this document exists for.
 
 ### Tests
 
-**1050 unit + Mini App + admin, 887 integration, across 82 files.** New in M19: the gift-code
+**909 unit + Mini App + admin across 42 files, and 988 integration across 40 files** — measured
+2026-08-21. New in M19: the gift-code
 campaign suite (bulk minting, collision rollback, masking, the per-user cap over historical rows,
 retuning that does not rewrite history), per-code and per-campaign analytics, the referral rejection
 suite (including the one that matters — settle attendance twice against a rejected referral and find
 no ledger rows), the cross-event correlation boundary, the admin insight and moderation suites, the
 B4 gate, and 54 admin-panel cases over the client, the store and the route guard.
 
-The RBAC matrix went from 13 operations to 35, and the response-leak scan from 65 endpoints to 78 —
-including the one response in the product that deliberately returns secrets.
+The RBAC matrix went from 13 operations to 35, and the response-leak scan now walks 97 endpoint
+entries — including the one response in the product that deliberately returns secrets, and every
+admin read the panel makes.
