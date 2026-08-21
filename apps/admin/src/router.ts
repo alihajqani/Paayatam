@@ -52,6 +52,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'نمای کلی', permission: PERMISSIONS.DASHBOARD_READ, group: 'overview' },
   },
   {
+    path: '/users',
+    name: 'users',
+    component: () => import('@/views/UsersView.vue'),
+    meta: { title: 'کاربران', permission: PERMISSIONS.USER_READ, group: 'overview' },
+  },
+  {
+    path: '/users/:publicId',
+    name: 'user-detail',
+    component: () => import('@/views/UserDetailView.vue'),
+    meta: { title: 'پروندهٔ کاربر', permission: PERMISSIONS.USER_READ, group: null },
+  },
+  {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/ForbiddenView.vue'),
