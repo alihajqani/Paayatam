@@ -1,7 +1,8 @@
-# Secrets — never commit. Only .env.example is tracked.
+# Secrets — never commit. Only the templates are tracked.
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
 secrets/

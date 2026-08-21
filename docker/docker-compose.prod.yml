@@ -1,0 +1,442 @@
+# PayeTam — production stack (M20).
+#
+# Standalone: this file does not extend docker-compose.yml, which is a
+# development convenience that publishes Postgres and Redis on the host and uses
+# a password with CHANGE_ME_LOCAL_ONLY in it. Nothing from there should be able
+# to leak in here by inheritance.
+#
+# Run it through `scripts/compose.sh`, which pins the project name and points at
+# this file from the repository root. Everything below also works with a bare
+# `docker compose -f docker/docker-compose.prod.yml …`.
+#
+# ── Where the secrets come from ──────────────────────────────────────────────
+#
+# Every service that needs one reads `env_file: ../.env` — the same
+# `/srv/payetam/.env` the systemd units in docs/production-deployment-todo.md
+# use. Deliberately **not** `${POSTGRES_PASSWORD}`-style interpolation: Compose
+# resolves those while parsing, so `docker compose config` would print the
+# database password, the bot token and both JWT secrets to stdout — into a
+# terminal, a CI log, or a pasted bug report. Nothing here interpolates a secret,
+# so `config` is safe to run and safe to share.
+#
+# ── What is reachable from outside ───────────────────────────────────────────
+#
+# Only nginx publishes ports. Postgres, Redis, the API and the worker have no
+# host port at all; they are reachable from other containers on their networks
+# and from nowhere else. `expose:` documents the port for a reader — it does not
+# publish anything.
+
+name: payetam
+
+# ── Anchors ──────────────────────────────────────────────────────────────────
+#
+# Repeated blocks, defined once. The logging block especially: an unrotated
+# json-file log is the most common way a small VPS runs out of disk, and it is
+# per-service, so one service missing the block is one service that can still
+# fill the volume and take the rest down with it.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  # PID 1 reaps and forwards signals. Node installs its own SIGTERM handler
+  # (Nest's `enableShutdownHooks`), so this is belt and braces rather than the
+  # thing that makes a graceful stop work — but it costs nothing.
+  init: true
+
+services:
+  # ── Postgres ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    <<: *hardening
+    # POSTGRES_PASSWORD comes from the env file; the two below are fixed by the
+    # DATABASE_URL every other service uses, so they are literals rather than
+    # one more thing to keep in sync across two files.
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_USER: payetam
+      POSTGRES_DB: payetam
+      # Storage is UTC everywhere (ADR-0008). Asia/Tehran is applied at the
+      # application layer and never by a database session.
+      TZ: UTC
+      PGTZ: UTC
+      # Sets the flags on `initdb` for a *new* cluster only. Harmless on an
+      # existing one, and it is what makes the C collation deterministic.
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    command:
+      - postgres
+      # Production logging: statements are off, but anything slow, any lock wait
+      # and every connection error is recorded. `log_min_duration_statement` is
+      # the one that pays for itself — the capacity path takes a row lock
+      # (ADR-0006), and contention there shows up here first.
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - log_lock_waits=on
+      - -c
+      - log_connections=off
+      - -c
+      - log_disconnections=off
+      - -c
+      - max_connections=60
+      # Modest, and sized for a 2 GB VPS. Raise together with the memory limit
+      # below, never on its own: shared_buffers is allocated at startup and a
+      # value above the cgroup limit is an OOM kill at boot rather than a warning.
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U payetam -d payetam']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - internal
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
+    stop_grace_period: 30s
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    <<: *hardening
+    env_file:
+      - ../.env
+    # The password is written to a config file inside the container rather than
+    # passed as `--requirepass <value>`, so it does not sit in the process
+    # command line where `ps` and `docker inspect` both show it. `umask 077`
+    # before the write, because the file holds a credential.
+    #
+    # AOF everysec: BullMQ jobs survive a restart. Losing them is recoverable —
+    # the transactional outbox lives in Postgres (ADR-0005) — but there is no
+    # reason to make recovery work harder than it must.
+    #
+    # `noeviction` with a maxmemory below the container limit is deliberate. The
+    # default (no maxmemory) means the cgroup kills the process, losing every
+    # queued job at once; `allkeys-lru` would be worse still, silently evicting
+    # jobs and sessions. Refusing a write is loud, recoverable, and alerts.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        umask 077
+        printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis.conf
+        exec redis-server /tmp/redis.conf \
+          --appendonly yes \
+          --appendfsync everysec \
+          --dir /data \
+          --maxmemory 192mb \
+          --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      # `REDISCLI_AUTH` rather than `-a`, which prints a warning to stderr on
+      # every probe and puts the password in the container's process list.
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - internal
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256m
+    stop_grace_period: 15s
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: api
+    image: payetam/api:${PAYETAM_VERSION:-local}
+    restart: unless-stopped
+    <<: *hardening
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - '3000'
+    healthcheck:
+      # `$$` so the *container's* shell expands it. A single `$` would be
+      # interpolated by Compose from the deploy host's environment instead,
+      # which is a different variable that is usually not set.
+      test:
+        ['CMD-SHELL', 'wget --quiet --tries=1 --spider http://127.0.0.1:$${API_PORT:-3000}/health']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    networks:
+      # Both: `frontend` is how nginx reaches it, `internal` is how it reaches
+      # Postgres and Redis. nginx has no route to the database as a result.
+      - frontend
+      - internal
+    logging: *logging
+    # Nothing writes to the filesystem — logs go to stdout and there is no active
+    # upload path. A container that cannot rewrite its own code is one less thing
+    # an RCE can turn into persistence.
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512m
+    # Fastify's close waits for in-flight requests, so this is how long a deploy
+    # will wait for a slow response rather than cutting it in half.
+    stop_grace_period: 30s
+
+  # ── Worker ─────────────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: worker
+    image: payetam/worker:${PAYETAM_VERSION:-local}
+    restart: unless-stopped
+    <<: *hardening
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # Not a technical requirement — the worker needs neither the API's process
+      # nor its port. It is an ordering choice: the API failing its own health
+      # check usually means the environment or the schema is wrong, and starting
+      # the only process that talks to Telegram into that is how a bad config
+      # becomes messages sent to real users.
+      api:
+        condition: service_healthy
+    networks:
+      # `internal` only, and it still has egress: the network is a plain bridge,
+      # not `internal: true`, because this is the one process that calls
+      # api.telegram.org (invariant 11). Isolation here comes from publishing no
+      # port, not from cutting outbound traffic the product needs.
+      - internal
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 512m
+    # Longer than the API's. On SIGTERM the worker finishes the job it is holding
+    # rather than abandoning it; an abandoned job is recoverable through the
+    # outbox, but redelivery is a retry nobody asked for (ADR-0005).
+    stop_grace_period: 60s
+
+  # ── nginx ──────────────────────────────────────────────────────────────────
+  nginx:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: web
+    image: payetam/web:${PAYETAM_VERSION:-local}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    depends_on:
+      # `service_started`, not `service_healthy`, and this is the one dependency
+      # worth arguing about. If nginx waited for a healthy API, then an API that
+      # cannot start — a bad migration, a missing variable — would also take down
+      # the static Mini App shell *and* the ACME challenge path, so a long outage
+      # would end with expired certificates on top of everything else. Started is
+      # enough: the container exists, so Docker's DNS resolves `api` and nginx
+      # boots. A dead upstream is a 502 on /api, which is the correct answer.
+      api:
+        condition: service_started
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      # Configuration is mounted, so a proxy tweak is a restart rather than an
+      # image rebuild. The two bundles are *not* mounted — they are baked into
+      # the image (see docker/Dockerfile, target `web`), which is what makes a
+      # rollback restore the frontend as well as the API.
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./sites-available:/etc/nginx/sites-available:ro
+      - ./sites-enabled:/etc/nginx/sites-enabled:ro
+      - ./snippets:/etc/nginx/snippets:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-www:/var/www/html:ro
+    # A reload every twelve hours, so a certificate renewed by `certbot-renew`
+    # is actually served. The alternative is handing certbot the Docker socket,
+    # which is root on the host — an unreasonable price for `nginx -s reload`.
+    # The reload is graceful and costs nothing when nothing has changed.
+    command:
+      - sh
+      - -c
+      - |
+        while :; do sleep 12h & wait $${!}; nginx -s reload 2>/dev/null || true; done &
+        exec nginx -g 'daemon off;'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --quiet --tries=1 --spider http://127.0.0.1/nginx-health']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - frontend
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m
+      - /var/run:size=8m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 192m
+    stop_grace_period: 20s
+
+  # ── certbot: issuing a certificate ─────────────────────────────────────────
+  #
+  # Behind a profile, so `docker compose up -d` never starts it. Issuance is a
+  # thing you do on purpose, occasionally, with arguments — not a service.
+  #
+  # `scripts/init-letsencrypt.sh` drives it. Run by hand it looks like:
+  #
+  #   docker compose --profile certbot run --rm certbot certonly \
+  #     --webroot -w /var/www/html -d app.paayatam.ir
+  #
+  # The user's original sketch had this service running the renewal *loop* while
+  # nginx waited for it to complete and it waited for nginx — a cycle Compose
+  # refuses, around a loop that never completes. Splitting issuance from renewal
+  # is what makes both halves expressible.
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ['certbot']
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/html
+    networks:
+      - frontend
+    logging: *logging
+
+  # ── certbot-renew: keeping it valid ────────────────────────────────────────
+  #
+  # A loop rather than a cron entry, because a cron daemon inside a container is
+  # a second init system to supervise. Twice a day is Let's Encrypt's own
+  # recommendation: `renew` is a no-op until a certificate is inside 30 days of
+  # expiry, so the frequency costs nothing and means a failed attempt has 60
+  # chances to succeed before anything expires.
+  #
+  # nginx picks up the new file on its 12-hourly reload, above.
+  certbot-renew:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    depends_on:
+      nginx:
+        condition: service_started
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/html
+    # `trap exit TERM` so `docker compose down` does not wait out the sleep.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - trap exit TERM; while :; do certbot renew --webroot -w /var/www/html --quiet; sleep 12h & wait $${!}; done
+    networks:
+      - frontend
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128m
+
+  # ── tools: migrations and seeds ────────────────────────────────────────────
+  #
+  # Also profile-gated: it is run with `run --rm`, never `up`. The image carries
+  # the full build tree because `prisma migrate deploy` needs the Prisma CLI and
+  # the migration files, and every seed runs through `tsx` — devDependencies the
+  # runtime images deliberately do not carry.
+  #
+  # This is what keeps the server's only requirement to Docker. `scripts/migrate.sh`
+  # is the entry point; `docs/DEPLOYMENT.md` has the seed commands.
+  tools:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: tools
+    image: payetam/tools:${PAYETAM_VERSION:-local}
+    profiles: ['tools']
+    env_file:
+      - ../.env
+    volumes:
+      # Mounted as well as loaded, because the seed scripts run through
+      # `tsx --env-file=.env` (see the root package.json) and Node *throws* when
+      # that file is absent. The env_file above is what Prisma reads; this is
+      # what stops `pnpm seed:rbac` failing before it starts.
+      - ../.env:/app/.env:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *logging
+
+networks:
+  # Pinned subnets, because `TRUST_PROXY` names the frontend range: the API only
+  # believes an `X-Forwarded-For` that arrives from it. Docker would otherwise
+  # pick a range per host, and the same `.env` would be right on one machine and
+  # wrong on the next — with the failure showing up as a rate limiter that
+  # counts the whole internet as one caller, which is invisible until it refuses
+  # somebody. Change these only together with TRUST_PROXY.
+  frontend:
+    name: payetam-frontend
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+  internal:
+    name: payetam-internal
+    ipam:
+      config:
+        - subnet: 172.28.1.0/24
+
+volumes:
+  postgres-data:
+    name: payetam-postgres-data
+  redis-data:
+    name: payetam-redis-data
+  certbot-etc:
+    name: payetam-certbot-etc
+  certbot-www:
+    name: payetam-certbot-www
