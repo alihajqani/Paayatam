@@ -77,7 +77,7 @@ Every remaining 🚧 is now *upstream* of a conversation rather than inside one.
 | 1 | Onboarding grants coins **exactly once** | ✅ | `profile.service.int.test.ts` — 10 concurrent completions, one ledger row |
 | 2 | Clean event publishes, appears in discovery within 5 s | ✅ | `event.service.int.test.ts`, `discovery.service.int.test.ts`. Discovery is a synchronous Postgres read, so the 5 s budget is met by construction, not by tuning |
 | 3 | Persian search with ي/ك and half-space variants finds it | ✅ | `discovery.service.int.test.ts`, `persian-normalizer.test.ts` (ADR-0012) |
-| 4 | ≥5 messages, **zero identity leakage, verified against raw Telegram payloads** | ⚠️ | `chat.service.int.test.ts`, the 65-endpoint leak scan, and `webhook.int.test.ts` — which sends real update bodies carrying a Telegram id, a username and a `text_mention`, then greps the stored row, the ciphertext and the outbox payload for all three. The clause "against raw Telegram payloads" is still a **manual gate with two real accounts**; it is now *performable* (see B4) and has not been performed |
+| 4 | ≥5 messages, **zero identity leakage, verified against raw Telegram payloads** | ✅ | **Executed 2026-08-21** — `privacy-gate.int.test.ts` and [`b4-privacy-gate.md`](b4-privacy-gate.md). Two accounts created through signed `initData`, five messages across both surfaces including a real `text_mention` update, and a sweep of every response *and* every stored payload — `notification.payload` (what the worker hands to Telegram), the outbox, the ciphertext at rest, and `audit_log`. Also `chat.service.int.test.ts`, the leak scan, `webhook.int.test.ts`. **One clause is still owed to a human**: what a Telegram *client* renders, which no process that never calls Telegram can observe. The procedure is written down (§5 there) |
 | 5 | Acceptance opens the chat and increments `accepted_count` | ✅ | `participation.service.int.test.ts`, `chat.service.int.test.ts`. The host's decision is now reachable from a button in the notification; the join that precedes it is not (see 9) |
 | 6 | Contact sharing needs explicit confirmation and writes `consent` | ✅ | `chat.service.int.test.ts`, and **the screen now exists** (`ChatsView`): a two-step confirmation that states plainly what sharing does and does not do — the platform holds no phone number and surrenders no username; what changes is that the caller's own messages stop being masked. Deliberately not a callback button, which would make «مطمئنید؟» a single tap |
 | 7 | T+24 h reviews reveal simultaneously | ✅ | `review.service.int.test.ts` (D7/D7a), and **the form now exists** (`ReviewsView`): rating, the closed tag vocabulary, optional comment, and an edit path that asks `editableUntil` rather than doing its own arithmetic. Nothing of the counterparty's review is fetched, because no contract to fetch it exists |
@@ -214,7 +214,34 @@ window, not a thing.
 response, plus an interceptor. It is a day, and it should be done before the coin sinks
 are reachable.*
 
-### B4 — The manual privacy gate has not been run · **blocks launch, and is now runnable**
+### B4 — The manual privacy gate · **CLOSED, 2026-08-21**
+
+Executed and automated. `privacy-gate.int.test.ts` walks two accounts created through
+signed `initData` — real Telegram ids, a real `@username`, a phone number in each
+bio — through five messages across **both** surfaces, including three real Telegram
+update bodies posted to the real webhook and one carrying a `text_mention` entity
+with a raw numeric user id inside it. It then sweeps every response *and* every
+stored payload: `notification.payload`, which is what the worker hands to Telegram
+and is as close to a raw Telegram payload as a process that never calls Telegram can
+get; the outbox; the ciphertext at rest; `audit_log`; and the chat tables.
+
+Twenty assertions, all green. Three failed on the first run and all three were the
+gate finding something — a walk that had made the bot's disambiguation kick in, a
+sweep that could not tell a caller's own bio from a disclosure, and a sweep that could
+not tell a disclosure from a consent. Full account in
+[`b4-privacy-gate.md`](b4-privacy-gate.md) §4.
+
+**What is still owed to a human** is one live capture from a real Telegram client:
+what it *renders* — a forwarded-from attribution, a profile link on a name, a resolved
+link preview — which is the only thing no automated gate on this side can see. The
+procedure is written down step by step so it can be performed by somebody who did not
+write it. It is a **pre-launch recommendation**, not a blocker: every layer beneath
+what a client renders is now asserted on every commit.
+
+The original finding, kept because it explains why the automated version was built
+the way it was:
+
+### ~~B4 — The manual privacy gate has not been run~~ · *superseded above*
 
 §14 makes it the M8 release gate: "a manual two-real-accounts chat test with raw
 payload inspection". This is the item whose status changed most.
@@ -400,7 +427,10 @@ afternoon, years before any user did.
 
 0. **Rewrite the `ChatsView` anonymity sentence** (added after M18, §9). It is a false
    statement to users and it is five minutes' work.
-1. **Run the manual privacy gate now** (B4). It is possible for the first time, it is
+1. ~~**Run the manual privacy gate now** (B4).~~ **Done, 2026-08-21** — automated as
+   `privacy-gate.int.test.ts`, documented in [`b4-privacy-gate.md`](b4-privacy-gate.md),
+   with one live-client capture left as a pre-launch recommendation. The original
+   reasoning, which still holds for that remaining step: it is possible for the first time, it is
    cheap, and §7 is the argument for doing it before anything else.
 2. Build the Mini App (B1), starting with discovery → event detail → **join**: that one
    path is what makes the conversational half of the product reachable at all.
