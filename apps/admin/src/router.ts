@@ -110,6 +110,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'دفتر سکه', permission: PERMISSIONS.LEDGER_READ, group: 'economy' },
   },
   {
+    path: '/audit',
+    name: 'audit',
+    component: () => import('@/views/AuditView.vue'),
+    meta: { title: 'گزارش رخدادها', permission: PERMISSIONS.AUDIT_READ, group: 'system' },
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('@/views/SettingsView.vue'),
+    meta: { title: 'تنظیمات', permission: PERMISSIONS.SETTINGS_MANAGE, group: 'system' },
+  },
+  {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/ForbiddenView.vue'),
