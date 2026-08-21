@@ -21,6 +21,7 @@ import {
   QueueModule,
   RedisModule,
 } from '@payetam/platform';
+import { TelegramLoggerService } from './monitoring/telegram-logger.service';
 import { Processors } from './queues/processors.service';
 import { WorkerFactory } from './queues/worker.factory';
 import { TelegramClient } from './telegram/telegram.client';
@@ -58,6 +59,6 @@ import { TelegramClient } from './telegram/telegram.client';
     NotificationsModule,
     PrivacyModule,
   ],
-  providers: [WorkerFactory, TelegramClient, Processors],
+  providers: [WorkerFactory, TelegramClient, TelegramLoggerService, Processors],
 })
 export class AppModule {}

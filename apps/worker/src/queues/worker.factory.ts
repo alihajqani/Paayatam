@@ -11,6 +11,7 @@ import {
   QUEUES,
   type QueueName,
 } from '@payetam/platform';
+import { TelegramLoggerService } from '../monitoring/telegram-logger.service';
 
 /**
  * Builds BullMQ workers, and mirrors every exhausted job into `job_failure`.
@@ -34,6 +35,13 @@ export class WorkerFactory implements OnModuleDestroy {
     @Inject(ENV) private readonly env: Env,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly metrics: MetricsRegistry,
+    /**
+     * Alerts for the failures nobody is watching a dashboard for (M20).
+     *
+     * Only *exhausted* jobs reach it. A retry that succeeded is a counter's
+     * business, and paging on it would train everybody to ignore the channel.
+     */
+    private readonly alerts: TelegramLoggerService,
   ) {}
 
   create(name: QueueName, processor: Processor): Worker {
@@ -129,10 +137,29 @@ export class WorkerFactory implements OnModuleDestroy {
         },
       });
       this.logger.error(`${queue}/${job.name} exhausted; recorded in job_failure`);
+
+      // Keyed on queue and job name rather than on the job id, so a queue
+      // failing a thousand jobs produces one alert per window with a suppressed
+      // count on it — not a thousand messages that get the bot rate-limited.
+      this.alerts.alert(`job-exhausted:${queue}:${job.name}`, 'error', 'A job gave up', {
+        queue,
+        job: job.name,
+        attempts: job.attemptsMade,
+        error: error.message.slice(0, 300),
+      });
     } catch (writeError) {
       // The DLQ write failing is the one error that must not be swallowed: it
       // means a job was lost *and* nothing recorded it.
       this.logger.error(`Failed to record job_failure for ${queue}/${job.name}`, writeError);
+
+      // Its own key, and worse than the failure above: this is the case where
+      // the only record of the lost job is a log line on a host nobody is
+      // tailing. If Postgres is what broke, this is also the first sign of it.
+      this.alerts.alert('job-failure-write', 'error', 'Could not record a failed job', {
+        queue,
+        job: job.name,
+        reason: writeError instanceof Error ? writeError.message.slice(0, 300) : String(writeError),
+      });
     }
   }
 
