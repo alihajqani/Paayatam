@@ -74,6 +74,16 @@ export const adminSessionView = z.object({
 });
 export type AdminSessionView = z.infer<typeof adminSessionView>;
 
+/**
+ * What `POST /auth/login` and `GET /me` both answer with.
+ *
+ * One shape for both, because the panel needs the same two things in both cases:
+ * who it is signed in as, and the token to echo. A reloaded tab has the cookie
+ * and no token — the token is deliberately never persisted client-side — so `/me`
+ * is what restores its ability to mutate. Returning it on an authenticated
+ * same-origin GET is the ordinary synchroniser-token delivery: a cross-site page
+ * can cause the request and can never read the response.
+ */
 export const adminLoginResponse = z.object({
   /** Echoed in a header on every mutating request; the session rides in a cookie. */
   csrfToken: z.string(),

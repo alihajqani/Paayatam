@@ -26,6 +26,8 @@
     "packages/db/src/generated/**",
     // The Mini App is a browser program — DOM lib, bundler resolution, `.vue`
     // imports — and has its own `vue-tsc` pass in the package's typecheck script.
-    "apps/miniapp/**"
+    "apps/miniapp/**",
+    // The admin panel is the second one (M19), for exactly the same reasons.
+    "apps/admin/**"
   ]
 }

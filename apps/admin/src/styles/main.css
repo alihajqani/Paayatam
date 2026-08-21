@@ -1,0 +1,114 @@
+@import 'tailwindcss';
+
+/*
+ * Vazirmatn, self-hosted from node_modules — never a CDN, for the reason
+ * ADR-0003 gives about Iranian reachability. The same variable cut the Mini App
+ * uses, so the two surfaces read as one product.
+ */
+@import 'vazirmatn/Vazirmatn-Variable-font-face.css' layer(base);
+
+/*
+ * The panel has **its own palette**, and that is the plan's decision rather than
+ * a preference (§3.7): *"the same Vue stack but a conventional desktop-first
+ * layout … it deliberately does not use Telegram theming — it is not a Telegram
+ * surface."*
+ *
+ * So the Mini App's rule — no component may write a hex value, every colour is a
+ * `--tg-theme-*` token — cannot apply here, because there is no Telegram client
+ * to report one. The rule that replaces it is the same shape: **no component may
+ * write a hex value; every colour is a token defined below.** What changes is
+ * where the tokens come from.
+ *
+ * Dark is handled by redefining the tokens under `prefers-color-scheme`, so a
+ * moderator working a queue at two in the morning gets a dark panel without a
+ * single line of per-component dark-mode code.
+ */
+@theme {
+  --font-sans: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-ink: #101828;
+  --color-ink-soft: #475467;
+  --color-ink-faint: #667085;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f7f8fa;
+  --color-surface-raised: #ffffff;
+  --color-line: #e4e7ec;
+  --color-line-strong: #d0d5dd;
+
+  --color-brand: #1f6feb;
+  --color-brand-ink: #ffffff;
+  --color-brand-soft: #eaf2ff;
+
+  --color-danger: #d92d20;
+  --color-danger-soft: #fef3f2;
+  --color-warn: #b54708;
+  --color-warn-soft: #fffaeb;
+  --color-good: #067647;
+  --color-good-soft: #ecfdf3;
+  --color-neutral-soft: #f2f4f7;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-ink: #e6e9ef;
+    --color-ink-soft: #a6adba;
+    --color-ink-faint: #808896;
+    --color-surface: #14161a;
+    --color-surface-sunken: #0e1013;
+    --color-surface-raised: #1b1e24;
+    --color-line: #262a31;
+    --color-line-strong: #363b44;
+
+    --color-brand: #4c8dff;
+    --color-brand-ink: #0b0d10;
+    --color-brand-soft: #16233a;
+
+    --color-danger: #f97066;
+    --color-danger-soft: #2a1614;
+    --color-warn: #fdb022;
+    --color-warn-soft: #2a2113;
+    --color-good: #47cd89;
+    --color-good-soft: #10261b;
+    --color-neutral-soft: #20242b;
+  }
+}
+
+@layer base {
+  html {
+    /* Persian at 16px is denser than Latin; 1.7 keeps a table row breathable
+       without making it two lines tall (glossary §5). */
+    line-height: 1.7;
+    color-scheme: light dark;
+  }
+
+  body {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  /* This surface is worked with a keyboard — a queue is `Tab`, `Enter`, `Tab` —
+     so the focus ring is not decoration. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+
+  /*
+   * Latin digits inside Persian text are the one place `dir="rtl"` gets a table
+   * wrong: an id like `01a0-…` renders with its segments reversed. `bdi` isolates
+   * it, and every identifier and every number in the panel is wrapped in one.
+   */
+  bdi {
+    unicode-bidi: isolate;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

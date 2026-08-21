@@ -25,6 +25,8 @@
     // The Mini App is a browser program: DOM lib, bundler resolution, `.vue`
     // imports. It has its own lint project in eslint.config.mjs, because putting
     // it in this Node-typed one would report `window` as undefined.
-    "apps/miniapp/**"
+    "apps/miniapp/**",
+    // The admin panel is the second browser program (M19), and has its own too.
+    "apps/admin/**"
   ]
 }

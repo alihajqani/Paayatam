@@ -37,7 +37,7 @@ STATE_DIR="$DEV_DIR/state"
 
 # Services in start order. `stop` walks this list backwards, so the API goes down
 # before the compiler that feeds it.
-APP_SERVICES="tsc api worker miniapp-build miniapp"
+APP_SERVICES="tsc api worker miniapp-build miniapp admin"
 TUNNEL_SERVICES="tunnel-api tunnel-miniapp"
 
 # Log files are rotated rather than truncated: the interesting log is usually the one
@@ -75,8 +75,12 @@ env_get() {
 
 API_PORT="$(env_get API_PORT)"; API_PORT="${API_PORT:-3000}"
 MINIAPP_PORT="${MINIAPP_PORT:-5173}"
+# The admin panel (M19). Its own port, and deliberately never tunnelled: it is
+# opened by a person in a browser and has no reason to be publicly reachable.
+ADMIN_PORT="${ADMIN_PORT:-5174}"
 API_BASE="http://127.0.0.1:$API_PORT"
 MINIAPP_BASE="http://127.0.0.1:$MINIAPP_PORT"
+ADMIN_BASE="http://127.0.0.1:$ADMIN_PORT"
 
 # dev = Vite's dev server with HMR, for working on the Mini App in a browser.
 # preview = `vite build --watch` feeding `vite preview`, which is the bundle a
@@ -140,6 +144,14 @@ svc_spec() {
         SVC_SIG='vite --port'
         SVC_ARGV=(pnpm exec vite --port "$MINIAPP_PORT" --strictPort)
       fi
+      ;;
+    admin)
+      # Always the dev server. The Mini App has a preview mode because Telegram
+      # downloads its bundle over a tunnel on a phone; the panel is loaded from
+      # localhost on a desk, where HMR is the only thing that matters.
+      SVC_DIR='apps/admin'; SVC_PORT="$ADMIN_PORT"
+      SVC_SIG='vite --port'
+      SVC_ARGV=(pnpm exec vite --port "$ADMIN_PORT" --strictPort)
       ;;
     # The signature carries the port: two cloudflared processes with the same
     # working directory and the same executable are told apart by nothing else.
@@ -463,6 +475,7 @@ cmd_dev() {
   start_svc api
   start_svc worker
   start_miniapp
+  start_svc admin
 
   step "Waiting for the stack to answer"
   # Every check runs even if an earlier one failed, and the tail of the offending
@@ -473,6 +486,7 @@ cmd_dev() {
   wait_http "$API_BASE/health" 'API /health' 90 || { failed=1; log_tail api; }
   wait_http "$API_BASE/ready" 'API /ready' 60 || { failed=1; log_tail api; }
   wait_http "$MINIAPP_BASE/" 'Mini App' 120 || { failed=1; log_tail miniapp; }
+  wait_http "$ADMIN_BASE/" 'Admin panel' 120 || { failed=1; log_tail admin; }
   # The worker serves nothing, so its readiness is its own startup line.
   wait_log worker 'Worker started' 'worker started' 60 || { failed=1; log_tail worker; }
 
@@ -480,6 +494,7 @@ cmd_dev() {
   cmd_status
   echo
   printf '%sMini App%s   %s   (mode: %s)\n' "$C_BOLD" "$C_RESET" "$MINIAPP_BASE" "$(miniapp_mode)"
+  printf '%sAdmin%s      %s\n' "$C_BOLD" "$C_RESET" "$ADMIN_BASE"
   printf '%sAPI%s        %s\n' "$C_BOLD" "$C_RESET" "$API_BASE"
   printf '%sLogs%s       make logs         %sone service:%s make logs SERVICE=api\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET"
   printf '%sTelegram%s   make tunnel       %sthen make webhook%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET"
@@ -548,6 +563,8 @@ cmd_status() {
   printf '  %-16s %s\n' "$API_BASE/ready" "${body:-unreachable}"
   body="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 "$MINIAPP_BASE/" 2>/dev/null || true)"
   printf '  %-16s %s\n' "$MINIAPP_BASE/" "HTTP ${body:-unreachable}"
+  body="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 "$ADMIN_BASE/" 2>/dev/null || true)"
+  printf '  %-16s %s\n' "$ADMIN_BASE/" "HTTP ${body:-unreachable}"
 
   local f
   if compgen -G "$STATE_DIR/tunnel-*.url" >/dev/null 2>&1; then

@@ -48,6 +48,46 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@22.20.1)(jsdom@30.0.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
 
+  apps/admin:
+    dependencies:
+      '@payetam/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      pinia:
+        specifier: ^3.0.4
+        version: 3.0.4(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
+      vue:
+        specifier: ^3.5.41
+        version: 3.5.41(typescript@5.9.3)
+      vue-router:
+        specifier: ^4.6.4
+        version: 4.6.4(vue@3.5.41(typescript@5.9.3))
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
+      '@vitejs/plugin-vue':
+        specifier: ^6.0.4
+        version: 6.0.8(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))(vue@3.5.41(typescript@5.9.3))
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vazirmatn:
+        specifier: ^33.0.3
+        version: 33.0.3
+      vite:
+        specifier: ^8.2.1
+        version: 8.2.1(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)
+      vue-tsc:
+        specifier: ^3.3.10
+        version: 3.3.10(typescript@5.9.3)
+
   apps/api:
     dependencies:
       '@fastify/cookie':

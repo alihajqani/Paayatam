@@ -114,6 +114,19 @@ export default tseslint.config(
     },
   },
 
+  // The admin panel is the second browser program (M19). Same arrangement, same
+  // reasons — and `no-console` stays on: a panel that logs a user's public id to
+  // the browser console has put it somewhere a screenshot picks it up.
+  {
+    files: ['apps/admin/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: ['./apps/admin/tsconfig.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+
   // Developer CLI scripts and the test harness. `console` is their user
   // interface, not a stray debug statement, and neither is ever part of a
   // deployed image — so the T15 concern behind the rule does not apply.

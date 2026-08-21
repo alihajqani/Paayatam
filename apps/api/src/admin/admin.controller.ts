@@ -207,14 +207,37 @@ export class AdminController {
     reply.clearCookie(ADMIN_SESSION_COOKIE, { path: '/admin' });
   }
 
-  /** Who am I and what may I do. The panel hides buttons with this; nothing more. */
+  /**
+   * Who am I, what may I do, and the token to echo (ADR-0010).
+   *
+   * The permissions are what the panel hides buttons with, and nothing more —
+   * every one of them is checked again in the service layer.
+   *
+   * **The CSRF token comes back here as well as from login**, and that is what
+   * makes the panel survive a reload. The token is deliberately not persisted by
+   * the client: putting it in `localStorage` would hand the second half of the
+   * pair to anything that can run on the origin, which is the whole reason it is
+   * split from the cookie. So a reloaded tab has the cookie and no token, and
+   * would be able to read everything and mutate nothing.
+   *
+   * Returning it on an authenticated same-origin `GET` is the ordinary
+   * synchroniser-token delivery, and it is safe for the reason the pattern works
+   * at all: a cross-site page can *cause* this request with the cookie attached
+   * and can never **read** the response. Nothing here is reachable by JSONP,
+   * `<script src>` or a form post, and the API sets no CORS headers.
+   */
   @Get('me')
-  me(@CurrentAdmin() admin: AdminSession): AdminLoginResponse['session'] {
+  me(@CurrentAdmin() admin: AdminSession & { csrfToken?: string }): AdminLoginResponse {
     return {
-      email: admin.email,
-      displayName: admin.displayName,
-      roles: admin.roles,
-      permissions: admin.permissions,
+      // Present because `AdminAuthGuard` resolves the whole stored session,
+      // which carries it beside the identity.
+      csrfToken: admin.csrfToken ?? '',
+      session: {
+        email: admin.email,
+        displayName: admin.displayName,
+        roles: admin.roles,
+        permissions: admin.permissions,
+      },
     };
   }
 

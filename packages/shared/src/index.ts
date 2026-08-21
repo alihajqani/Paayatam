@@ -198,6 +198,9 @@ export type {
   UserReviewsResponse,
 } from './contracts/reviews';
 
+export { PERMISSIONS, permissionKey } from './contracts/permissions';
+export type { Permission } from './contracts/permissions';
+
 export {
   reportReason,
   reportTargetType,

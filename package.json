@@ -10,8 +10,8 @@
   },
   "scripts": {
     "dev": "tsc -b && (tsc -b --watch --preserveWatchOutput & pnpm -r --parallel --filter \"./apps/**\" dev)",
-    "build": "tsc -b && pnpm --filter @payetam/miniapp build",
-    "typecheck": "tsc -b && tsc -p tsconfig.typecheck.json && pnpm --filter @payetam/miniapp typecheck",
+    "build": "tsc -b && pnpm --filter @payetam/miniapp build && pnpm --filter @payetam/admin build",
+    "typecheck": "tsc -b && tsc -p tsconfig.typecheck.json && pnpm --filter @payetam/miniapp typecheck && pnpm --filter @payetam/admin typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
