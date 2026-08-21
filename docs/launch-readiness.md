@@ -7,6 +7,13 @@ got wrong. **Revised again 2026-08-20** after M18; see §9.*
 The plan asks M17 to produce this document. Its job is to answer one question — **can
 this launch?** — and the answer is worth stating before the evidence:
 
+> **Revised 2026-08-21 after M19 — see §10.** Both blockers named below are closed: the
+> admin panel exists and the privacy gate has been run. What is left before launch is
+> configuration and one live capture, not construction.
+>
+> The verdict this document opened with, kept because the rest of it is written against
+> it:
+>
 > **No, not yet. The backend is substantially complete and well tested. The Mini App
 > a launch needs does not exist, and neither does the admin panel.**
 >
@@ -177,15 +184,30 @@ payload, and delivery going through the queue rather than inline.
 
 *Estimate for what is left: small, and no longer on the critical path.*
 
-### B2 — No admin panel · **blocks launch**
+### B2 — No admin panel · **CLOSED, 2026-08-21**
 
-`apps/admin` does not exist. The admin API is complete and authorised (ADR-0010, 15/15
-on the RBAC matrix), and the only way to reach it is an HTTP client.
+`apps/admin` exists: twelve screens over the API M12 built, in the Vue stack §3.2 has
+named for it since M0. RTL Persian with its own palette, because it is not a Telegram
+surface (§3.7). Session cookie plus CSRF token, permission-aware navigation and route
+guards reading the same `meta` — and every one of those permissions checked again in
+the service layer, which is where invariant 12 lives.
 
-The auto-hide at three reports works without a human. Everything after it does not: no
-moderator can decide a case, adjust coins or trust, set a user's status, approve a role
-change, or use the break-glass unseal. A product that takes reports and cannot act on
-them is worse than one that takes none, because it has promised.
+A moderator can now decide a case, close a report, hide or restore an event, suspend or
+ban an account, adjust coins and trust, mint and stop a campaign, review the fraud
+queue, search the ledger, reconcile it, read the audit trail and change a policy number.
+[`admin-panel.md`](admin-panel.md) is the operator's account of it.
+
+**Two capabilities are deliberately still API-only**: break-glass chat unseal and
+four-eyes role changes. Both work and are tested; each is a workflow that deserves
+designing rather than a button, and the panel does not mock one up. `admin-panel.md` §6
+lists them with the rest of what the API cannot do.
+
+The original finding, kept because it is what the panel was built against:
+
+*The admin API is complete and authorised (ADR-0010), and the only way to reach it is an
+HTTP client. The auto-hide at three reports works without a human. Everything after it
+does not. A product that takes reports and cannot act on them is worse than one that
+takes none, because it has promised.*
 
 ### B3 — `Idempotency-Key` · **CLOSED, 2026-08-17**
 
@@ -457,14 +479,15 @@ finding.**
 ## 9. What M18 changed (2026-08-20)
 
 Three user-visible gaps and one absent capability. None of them moves the
-recommendation above: **the answer is still no, and for the same two reasons** — B2 (no
-admin panel) and B4 (the manual privacy gate has never been run).
+recommendation above: **the answer was still no, and for the same two reasons** — B2 (no
+admin panel) and B4 (the manual privacy gate has never been run). **Both closed in M19;
+see §10.**
 
 | Change | Effect on readiness |
 |---|---|
 | Trust Score on the event page and in the host's request queue | Closes a real hole in the product's own logic: §11 has priced reputation since M9 and it reached no screen where anybody decides. Nothing about launch readiness turns on it |
 | Conversations titled «name — event», in the Mini App **and** the bot's relay | Fixes the one place where the anonymous-chat surface was genuinely unusable: a single Telegram thread carrying several conversations all headed «میهمان ۱» |
-| Gift codes, end to end | A new capability. **Inherits B2**: with no panel, minting and disabling a campaign is a `curl` session, documented in `project-review.md` §13 |
+| Gift codes, end to end | A new capability. Inherited B2 at the time; **M19 gave it a panel** and reshaped the surface (ADR-0016) |
 | Referral sharing and status in the wallet | UI only; the backend has been complete since M9 |
 
 **Two findings worth recording, because both are the kind this document exists for.**
@@ -482,10 +505,81 @@ admin panel) and B4 (the manual privacy gate has never been run).
    product-voice decision, and the commit that made it inaccurate is the wrong place to
    make it. **It should be rewritten before launch** — added to the recommendation list
    as item 0, because it is a five-minute change that is currently a false statement to
-   users.
+   users. **Rewritten in M19 — see §10.**
 
 **Tests:** 1626 across 70 files, of which 21 are new in M18 — a gift-code integration
 suite (concurrency at 50 and 25 iterations, both caps, both windows, the CHECK
 constraints asserted directly), an admin gift-code suite, the Trust-Score pairing
 assertion in the participant queue, the conversation-title cases in chat, the relay
 header unit tests, and the wallet store's redemption path.
+
+---
+
+## 10. M19 — both blockers closed
+
+*Added 2026-08-21.*
+
+The two things §3 called blockers are done, and the two findings §9 recorded are resolved.
+
+| | Was | Now |
+|---|---|---|
+| **B2** | No admin panel; a report was not actionable without `curl` | `apps/admin`, 12 screens ([`admin-panel.md`](admin-panel.md)) |
+| **B4** | The privacy gate had never been run | Executed and automated, 20 assertions ([`b4-privacy-gate.md`](b4-privacy-gate.md)) |
+| §9 finding 2 | `ChatsView` told users something untrue | Rewritten, and pinned by assertions including one that fails if the old sentence returns |
+| §16 of the review | `referral.status = REJECTED` written by nothing | Wired as an administrative act with a reason code, a signature and an audit row |
+| §16 of the review | No bulk gift-code minting, no analytics | Both built, alongside ADR-0016's reclassification of a code as a bearer secret |
+
+### Criterion 4 is now ✅
+
+The row in §2 has the detail. What changed is that the clause "verified against raw Telegram
+payloads" is checked on every commit rather than pending a manual session that never happened.
+
+**One clause is still owed to a human**: what a Telegram *client* renders — a forwarded-from
+attribution, a profile link on a name, a resolved link preview. No process that never calls Telegram
+can observe it. The procedure is written down step by step so somebody who did not write it can
+perform it, and it is a **pre-launch recommendation** rather than a blocker: every layer beneath what
+a client renders is asserted.
+
+### What actually stands between this and a launch now
+
+None of these is construction.
+
+1. **The live-client privacy capture** (§5 of `b4-privacy-gate.md`). Two real accounts, one session.
+2. **Production staff accounts.** There is no self-service sign-up and there is not going to be one —
+   `admin_user` has no foreign key to `user`, and the separation is the security control. Each
+   account's TOTP secret is returned once, at creation. `admin-panel.md` §1.
+3. **A network control in front of the panel** — an IP allowlist or a VPN, *in addition to* the login
+   rather than instead of it. It is not tunnelled and has no `allowedHosts`, but neither of those is
+   a control.
+4. **Owners for R1–R8** in the threat model. Every accepted risk needs a name against it, and this is
+   the item that has been open longest.
+5. **The legal questions in §5 of the threat model.** Seven of them, and none is an engineering task.
+
+### Two findings from M19 itself
+
+Both are the kind this document exists for.
+
+1. **The leak scan caught a real disclosure the day the screen was added.** The admin user-detail
+   page returned the profile bio raw, and a user who typed their phone number into their bio has not
+   consented to hand it to staff — `user.read` is held by `SUPPORT`, the role most exposed to social
+   engineering, and the bio reaches no other user anywhere in the product. It is masked now with the
+   same `sanitizeInbound` the chat relay uses, and the page says how many fragments were removed so a
+   moderator can tell masking from an empty bio.
+2. **The privacy gate failed three times on its first run, and none of the three was a broken
+   control.** One was a badly ordered walk that made the bot's "which conversation did you mean?"
+   disambiguation fire correctly. Two were the sweep being unable to tell a caller's own bio from a
+   disclosure, and a disclosure from a *consent* — a phone number reaching the counterparty **after**
+   the owner shared it is the feature. The fix was to make the gate express the difference rather
+   than to lower the bar, and it now asserts both halves.
+
+### Tests
+
+**1050 unit + Mini App + admin, 887 integration, across 82 files.** New in M19: the gift-code
+campaign suite (bulk minting, collision rollback, masking, the per-user cap over historical rows,
+retuning that does not rewrite history), per-code and per-campaign analytics, the referral rejection
+suite (including the one that matters — settle attendance twice against a rejected referral and find
+no ledger rows), the cross-event correlation boundary, the admin insight and moderation suites, the
+B4 gate, and 54 admin-panel cases over the client, the store and the route guard.
+
+The RBAC matrix went from 13 operations to 35, and the response-leak scan from 65 endpoints to 78 —
+including the one response in the product that deliberately returns secrets.

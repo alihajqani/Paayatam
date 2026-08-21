@@ -49,6 +49,29 @@ an enum value, a log line or an API field name.
 | Terms and conditions | قوانین و شرایط استفاده | |
 | Consent | پذیرش قوانین | |
 
+## 1a. Admin panel terms (M19)
+
+Internal vocabulary. None of it appears on a user-facing surface — the panel is staff-only.
+
+| English (code) | Persian (panel) | Notes |
+|---|---|---|
+| Admin panel | پنل مدیریت | |
+| Dashboard | نمای کلی | Not «داشبورد» |
+| Permission | مجوز | |
+| Role | نقش | `SUPER_ADMIN` مدیر ارشد · `MODERATOR` ناظر · `SUPPORT` پشتیبانی · `ANALYST` تحلیل‌گر |
+| Audit log | گزارش رخدادها | Deliberately not «لاگ» and not «گزارش» alone — «گزارش» is a user's abuse report (§1) |
+| Moderation case | پروندهٔ بررسی | The thing the automation opens; a report is «گزارش تخلف» |
+| Coin ledger | دفتر سکه | |
+| Reconciliation | تطبیق موجودی‌ها با دفتر | ADR-0007's invariant, asked of the live database |
+| Manual adjustment | اصلاح دستی | Never «تغییر موجودی» — it is a new ledger row, not an edit |
+| Reversal | برگشت تراکنش | |
+| Batch (of gift codes) | دسته | The unit one bulk mint produced |
+| Masked code | کد پنهان‌شده | `NOWR••••4F2Z` — the only form a list ever shows |
+| Public id | شناسهٔ عمومی | Always inside `<bdi>`; Latin, never converted to Persian digits |
+| Fraud signal | نشانهٔ سوءاستفاده | Internal only; the user is never told which one fired |
+| Read-only session | نشست فقط خواندنی | A tab holding the cookie and no CSRF token |
+| Forbidden | دسترسی ندارید | Names the missing permission, because the fix is a role change |
+
 ## 2. Status labels
 
 | Enum (code) | Persian (UI) |
@@ -159,4 +182,7 @@ do next, never expose internals, never blame the user.
   never shown — «شمارهٔ تلگرام، نام کاربری و شمارهٔ تماس» — then what *is* shown («نام نمایشی» و «عنوان
   فعالیت»), then the consequence. Never «هویت شما پنهان می‌ماند» unqualified: the product does not keep
   that promise and has not since M6. The strings live in `apps/miniapp/src/copy/privacy.ts`.
+- **Latin identifiers inside Persian text (M19):** always wrapped in `<bdi>`. A UUID or a code renders
+  with its segments reversed under `dir="rtl"` otherwise, and these are the strings an operator copies
+  into a report. They stay Latin — a `public_id` in Persian digits is not the same string.
 - **Tone:** polite plural (شما), warm and direct. Avoid bureaucratic phrasing and avoid exclamation marks.

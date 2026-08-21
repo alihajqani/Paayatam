@@ -1,6 +1,10 @@
 # ADR-0015: Gift and discount codes as a sibling of the referral, not a second economy
 
-- **Status:** Accepted (2026-08-20)
+- **Status:** Accepted (2026-08-20). **Its management surface is amended by
+  [ADR-0016](0016-gift-code-campaigns-and-admin-panel.md) (2026-08-21)** — the redemption path below
+  is unchanged and still current; what changed is that a gift code is treated as a **bearer secret**
+  rather than an identifier, so reads mask it, every admin route addresses it by `public_id`, and the
+  plaintext is returned exactly once
 - **Decides:** nothing frozen — this is new surface
 - **Invariant owned:** none new. It is bound by invariants 2, 3 and 12.
 
@@ -67,6 +71,10 @@ trying, or discover they already have the coins.
 `INVALID_REFERRAL_CODE` covers both "unknown" and "banned referrer": telling them apart turns the
 endpoint into a way to enumerate which campaigns exist.
 
+**Since M19 a refusal also writes one `audit_log` row** with its reason code and never the code that
+was tried, because a Prometheus counter resets on deploy and cannot report a campaign six weeks later
+(ADR-0016 §5).
+
 ### Management is an admin operation, guarded by its own permission
 
 `GiftCodeAdminService` lives in `adminaccess` — not with the redemption path — because it needs
@@ -101,11 +109,13 @@ records everything that succeeded; a counter would be a worse copy of it.
 - The admin API can create, disable, list and monitor codes today, with no panel.
 
 **Negative**
-- **There is no admin panel to drive it from** (blocker B2 is still open). Codes are managed over
-  `admin/v1` with a session cookie and a CSRF token, which in practice means `curl` or a script until
-  B2 closes. Documented in the project review; not a reason to defer the backend.
-- No bulk minting, and no per-code analytics beyond a redeemed count. Both are additive.
-- `perUserLimit > 1` is supported and probably unwise; the default is 1 and the schema comment says so.
+- ~~**There is no admin panel to drive it from**~~ — **B2 closed in M19.** Campaigns are managed from
+  `apps/admin`; the `curl` recipes the project review carried are gone, because two of the three
+  stopped working when ADR-0016 moved every route onto `public_id`.
+- ~~No bulk minting, and no per-code analytics beyond a redeemed count.~~ **Both built in M19**
+  (ADR-0016).
+- ~~`perUserLimit > 1` is supported and probably unwise~~ — **capped at 1 in M19** for anything newly
+  created. The column is deliberately not constrained, so historical rows above 1 keep working.
 - A code's coin amount is snapshotted onto the redemption row, so retuning `gift_code.coins` does not
   rewrite history — which is correct, and means the list's `coins` and an old ledger row can disagree.
 

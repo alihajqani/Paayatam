@@ -26,8 +26,8 @@ outdoor activity, sport, learning. Three surfaces over one backend:
 - **Bot** — onboarding, notifications, accept/reject from a button, and the **anonymous chat relay**.
 - **Channel** — VIP, boosted and trending activities, posted by the worker.
 
-Plus an **admin API** for moderation, the economy and audit. (The admin *panel* — a frontend — does not
-exist. See §13.)
+Plus an **admin panel** (`apps/admin`) over the admin API, for moderation, the economy and audit —
+built in M19, which closed blocker B2. See [`admin-panel.md`](admin-panel.md).
 
 The differentiator is that **a chat exists from the request, not from the acceptance**: two strangers
 negotiate a meeting before either has committed to anything.
@@ -115,6 +115,8 @@ apps/
   api/       NestJS HTTP adapter. Controllers + view mappers only; no business logic.
   worker/    BullMQ consumers. The outbox relay, eight sweeps, the Telegram client.
   miniapp/   Vue 3 SPA served by Vite. 13 screens.
+  admin/     Vue 3 SPA served by Vite. 12 screens, RTL Persian, its own palette —
+             it is not a Telegram surface (M19, §3.7).
 packages/
   domain/    ALL business logic. Imports no HTTP framework, no grammY. The reason
              the bot and the Mini App cannot disagree.
@@ -345,10 +347,24 @@ Mutating endpoints accept `Idempotency-Key`; a replay returns the byte-identical
 
 ### 5.2 `/admin/v1`
 
-`auth/login` (email + password + TOTP, all three, always) · `auth/logout` · `me` ·
+`auth/login` (email + password + TOTP, all three, always) · `auth/logout` · `me` (identity **and**
+the CSRF token, so a reloaded panel can still act — M19) ·
 `moderation/cases` + `.../decide` · `coins/adjust` · `trust/adjust` · `users/:publicId/status` ·
 `chats/:publicId/unseal` + `chats/unseal/:grantId` (break-glass) · `roles/requests` +
-`.../approve` (four-eyes) · `audit` · **`gift-codes` (create/list) and `gift-codes/:code/active`** (M18).
+`.../approve` (four-eyes) · `audit`.
+
+**Gift codes** (M18, reshaped in M19 by ADR-0016 — every route addresses a code by `public_id`, and
+no read returns one): `POST|GET gift-codes` · `POST gift-codes/batch` · `PATCH gift-codes/:publicId` ·
+`POST gift-codes/:publicId/active` · `GET gift-codes/campaigns` ·
+`GET gift-codes/:publicId/analytics` · `GET gift-codes/:publicId/redemptions`.
+
+**Referral review** (M19, permission `referral.manage`): `GET referrals` · `GET referrals/:id` ·
+`POST referrals/:id/reject` · `POST referrals/:id/reinstate`.
+
+**The panel's own reads** (M19): `GET dashboard` · `GET users` + `users/:publicId` · `GET events` +
+`events/:publicId` + `POST events/:publicId/moderate` · `GET reports` +
+`POST reports/:publicId/decide` · `GET ledger` + `ledger/reconcile` · `GET audit/search` ·
+`GET settings` + `POST settings/:key`.
 
 **There is no permission check in the admin controller.** ADR-0010 rule 2 puts authorisation in the
 service layer, because a controller guard protects one route while a service check protects every
@@ -679,46 +695,47 @@ Four refusals: `GIFT_CODE_INVALID` (unknown **or** disabled — deliberately ind
 `GIFT_CODE_EXPIRED`, `GIFT_CODE_ALREADY_REDEEMED`, `GIFT_CODE_EXHAUSTED`.
 
 **Management** is `/admin/v1/gift-codes`, guarded by `giftcode.manage`, held by `SUPER_ADMIN` alone.
-Minting coins from nothing is the same class of capability as `coin.adjust`. Since there is no admin
-panel yet, §13 documents how to drive it.
+Minting coins from nothing is the same class of capability as `coin.adjust`. M19 gave it a panel and
+reclassified the code itself as a **bearer secret** (ADR-0016): reads mask it, every route addresses
+it by `public_id`, and bulk minting hands the plaintext over exactly once. §13 is the operator's
+summary.
 
 `GIFT_CODE_REDEEM` is rate-limited to **10/hour** — the tightest bucket in the product, because this is
 the only endpoint where guessing pays.
 
 ---
 
-## 13. Managing gift codes without a panel
+## 13. Managing gift codes
 
-The admin *API* exists; the admin *frontend* does not (blocker B2). Until it does, codes are managed
-over `/admin/v1` with a session cookie and a CSRF token.
+**From the panel** — `http://127.0.0.1:5174/gift-codes` locally, guarded by `giftcode.manage`. Mint
+one, mint a batch of up to a thousand, watch a campaign drain, read its analytics, retune it, stop
+it. [`admin-panel.md`](admin-panel.md) §4 is the operator's account of it.
 
-```bash
-# 1. Sign in. Email + password + TOTP, all three, always.
-curl -sS -c /tmp/admin.jar -X POST http://localhost:3000/admin/v1/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"email":"you@payetam.test","password":"…","totpCode":"123456"}'
-# → { "csrfToken": "…", "session": { … } }   Keep the token; every mutation echoes it.
+The `curl` recipes this section used to carry were removed in M19 rather than corrected, because two
+of the three no longer work and the third would teach the wrong habit:
 
-# 2. Mint a code.
-curl -sS -b /tmp/admin.jar -X POST http://localhost:3000/admin/v1/gift-codes \
-  -H 'content-type: application/json' -H "x-csrf-token: $CSRF" \
-  -d '{"code":"NOWRUZ1405","coins":50,"maxRedemptions":500,"perUserLimit":1,
-       "expiresAt":"2026-04-01T00:00:00.000Z","note":"Nowruz campaign"}'
+| M18 | M19 | Why |
+|---|---|---|
+| `GET /admin/v1/gift-codes` returned `codes[].code` | returns `codes[].codeMasked` + `codes[].publicId` | A list of live codes turns a stolen admin cookie into the promotional budget |
+| `POST /admin/v1/gift-codes/NOWRUZ1405/active` | `POST /admin/v1/gift-codes/:publicId/active` | A code in a URL path is a code in the access log — which ADR-0015 forbade and then did |
+| — | `POST /admin/v1/gift-codes/batch` | Server-side CSPRNG generation; the plaintext is returned **once** and is not recoverable |
 
-# 3. Watch it drain.
-curl -sS -b /tmp/admin.jar http://localhost:3000/admin/v1/gift-codes
-# → codes[].redeemedCount against codes[].maxRedemptions
+The whole of ADR-0016's reasoning is that a gift code is a **bearer secret**, not an identifier.
 
-# 4. Stop it now, without back-dating anything.
-curl -sS -b /tmp/admin.jar -X POST http://localhost:3000/admin/v1/gift-codes/NOWRUZ1405/active \
-  -H 'content-type: application/json' -H "x-csrf-token: $CSRF" -d '{"isActive":false}'
-```
+If you do need the API directly — a script, a partner integration — the session is still a cookie
+plus a CSRF token from `POST /admin/v1/auth/login`, and `GET /admin/v1/me` returns the token again so
+a long-lived script can recover it. Finding one specific code is
+`GET /admin/v1/gift-codes?code=NOWRUZ1405`, matched **exactly**: an operator holding a code can find
+its row and an operator holding nothing cannot enumerate a campaign.
 
-`GET /admin/v1/audit?targetType=gift_code` shows who minted, enabled or disabled what.
-`payetam_gift_code_redemptions_total{result}` on `/metrics` shows redemptions and refusals by reason.
+`GET /admin/v1/audit/search?action=giftcode.` shows who minted, enabled, disabled or retuned what —
+and, since M19, every refused redemption with its reason.
+`payetam_gift_code_redemptions_total{result}` on `/metrics` is still the alerting surface; the
+durable rows behind the panel's report are what a campaign is reported from (ADR-0016 §5).
 
-**Mint long codes.** The alphabet is the operator's choice, and the rate limit plus the caps are what
-bound a guessing sweep — not the code's length alone.
+**Length is no longer the operator's problem.** A batch draws 12 characters from a 31-character
+alphabet by default — ≈ 7.7 × 10¹⁷ codes — and the 10-an-hour bucket bounds a sweep of it to longer
+than any campaign lasts.
 
 ---
 
@@ -773,10 +790,12 @@ schemas in `packages/shared` are the single validation definition), no CDN or WA
 
 ### Blocking launch
 
+**Both blockers closed in M19.** What remains below is real and none of it blocks.
+
 | # | What | Notes |
 |---|---|---|
-| **B2** | **No admin panel.** | The API, RBAC, four-eyes and break-glass all exist and are tested. There is no frontend, so a report is not actionable by a human without `curl`. Gift codes inherit this (§13). |
-| **B4** | **The manual privacy gate has never been run.** | Criterion 4 requires two real Telegram accounts exchanging ≥ 5 messages with zero identity leakage verified against raw payloads. It is now *performable* and has not been performed. |
+| ~~**B2**~~ | ~~No admin panel.~~ **CLOSED, 2026-08-21** | `apps/admin` exists: twelve screens over the API M12 built, RTL Persian, permission-aware navigation and route guards over the same `meta` the service checks again. Reports are actionable, campaigns are mintable, the ledger is searchable and reconcilable. See [`admin-panel.md`](admin-panel.md). Two admin capabilities are deliberately still API-only — break-glass unseal and four-eyes role changes — and §6 there says why |
+| ~~**B4**~~ | ~~The manual privacy gate has never been run.~~ **CLOSED, 2026-08-21** | Executed and automated as `privacy-gate.int.test.ts`: two accounts created through signed `initData`, five messages across both surfaces including a real `text_mention` update, and a sweep of every response *and* every stored payload. Twenty assertions. One clause is still owed to a human — what a Telegram *client* renders — and the procedure is written down in [`b4-privacy-gate.md`](b4-privacy-gate.md) §5 |
 
 ### Real gaps that are not blockers
 
@@ -795,19 +814,30 @@ schemas in `packages/shared` are the single validation definition), no CDN or WA
 - **Rate limiting is `⏳` in the threat model** but is implemented and integration-tested; the status
   column is stale there.
 - **Media in chat is refused** — text only in MVP, deferred to v1.1 behind a flag with `copyMessage`.
-- **No bulk gift-code minting and no per-code analytics** beyond a redemption count.
+- ~~**No bulk gift-code minting and no per-code analytics.**~~ **Both built in M19** (ADR-0016).
+- **A moderation case cannot be claimed or escalated from the panel**, because the API cannot:
+  `moderation_case.assigned_admin_id` is written by nothing and `decideCase` takes `APPROVED` or
+  `REJECTED` only. Two moderators working one queue collide on the decision and get
+  `INVALID_STATE_TRANSITION`, which is honest and not friendly.
+- **Break-glass unseal and four-eyes role changes have no screen.** The API has both and both are
+  tested; each is a workflow that deserves designing rather than a button, and the panel does not
+  mock one up (`admin-panel.md` §6).
+- **No CSV export** of the ledger or the audit trail. Both are paginated reads; an export is a
+  decision about where a file of user records is allowed to go, and it belongs with a retention
+  answer.
 
 ### Ambiguous or misleading, and worth fixing
 
-- **`ChatsView` still says identities stay hidden «تا زمانی که خودشان نخواهند».** That is true of
-  *contact details* and was never true of display names — the host has read them in the participant list
-  since M6, and since M18 they title the conversation. **This copy is now actively misleading and should
-  be rewritten.** Flagged in ADR-0014's consequences; deliberately not changed in passing, because it is
-  a user-facing promise and deserves a considered sentence rather than a hurried one.
+- ~~**`ChatsView` still says identities stay hidden «تا زمانی که خودشان نخواهند».**~~ **Rewritten in
+  M19.** The disclosure now names the three identifiers that are never shown, admits the display name
+  and the activity title are, and states the consequence — a host with several activities can tell two
+  requests came from one person (R8). It lives in `apps/miniapp/src/copy/privacy.ts` with assertions
+  over it, including one that fails if the old sentence returns.
 - **Migration numbering skips `0010`** (§4). Inert, but surprising.
-- **`referral.status` has a `REJECTED` value that nothing ever writes.** Fraud is recorded and reviewed
-  by a human; there is no code path that rejects a referral. Either wire it to an admin action or drop
-  it.
+- ~~**`referral.status` has a `REJECTED` value that nothing ever writes.**~~ **Wired in M19** as an
+  administrative act with a reason code, a signature and an audit row (migration 0019). A referral
+  whose qualifying attendance simply has not happened stays `PENDING`; a referral that has already
+  paid cannot be rejected at all.
 - **`CoinService.penalize` writing no row when it clamps to zero** is safe only because it is always
   called inside a terminal state transition. That is a real coupling, documented in the method, and it
   would become a bug the first time a penalty is charged outside one.
@@ -824,15 +854,27 @@ schemas in `packages/shared` are the single validation definition), no CDN or WA
 
 ## 17. Recommendations
 
+**Done in M19** — the first four of the previous list, in order:
+
+1. ~~Build the admin panel (B2).~~ `apps/admin`, twelve screens ([`admin-panel.md`](admin-panel.md)).
+2. ~~Run the two-account privacy gate (B4).~~ Executed, automated, documented
+   ([`b4-privacy-gate.md`](b4-privacy-gate.md)) — with one live-client capture left as a pre-launch
+   recommendation rather than a blocker.
+3. ~~Rewrite the `ChatsView` anonymity copy.~~ Rewritten, and pinned by assertions.
+4. ~~Bulk gift-code minting and per-code analytics.~~ Built, along with the reclassification of a code
+   as a bearer secret (ADR-0016).
+5. ~~A `REJECTED` path for referrals.~~ Wired, as an administrative act with a reason code.
+
 **Before launch, in order:**
 
-1. **Build the admin panel (B2).** Everything behind it exists. Without it, moderation, the economy and
-   gift codes are a shell session.
-2. **Run the two-account privacy gate (B4).** It is the only acceptance criterion that cannot be
-   automated, and it covers the product's central promise.
-3. **Rewrite the `ChatsView` anonymity copy.** A promise the product does not keep is worse than no
-   promise.
-4. **Name owners for R1–R8** in the threat model. Every accepted risk needs one.
+1. **Perform the live-client half of the privacy gate** — two real Telegram accounts, one capture of
+   what a client *renders*. `b4-privacy-gate.md` §5 is the procedure, written so somebody who did not
+   write it can perform it.
+2. **Name owners for R1–R8** in the threat model. Every accepted risk needs one.
+3. **Create the production staff accounts and provision their TOTP.** There is no self-service
+   sign-up and there is not going to be one; `admin-panel.md` §1 is the procedure.
+4. **Decide the network control in front of the panel** — an IP allowlist or a VPN, *in addition to*
+   the login rather than instead of it.
 
 **Shortly after:**
 
@@ -842,10 +884,12 @@ schemas in `packages/shared` are the single validation definition), no CDN or WA
 8. Measure a restore at production scale and re-record the number.
 9. Assert the `initData` replay refusal directly.
 
-**Worth doing when the economy gets busy:**
+**Worth doing when the queue gets busy:**
 
-10. **Bulk gift-code minting** — one campaign, N single-use codes — plus per-code redemption analytics.
-11. **A `REJECTED` path for referrals**, or delete the enum value.
+10. **Claim/assign and escalate on a moderation case.** The column exists and nothing writes it; two
+    moderators on one queue currently collide on the decision.
+11. **Screens for break-glass unseal and four-eyes role changes.** Both APIs exist and are tested;
+    each is a workflow that deserves designing rather than a button.
 12. Consider surfacing the Trust Score on `EventCard` in discovery, not only on the detail page. The
     field is already on the wire.
 13. Feed `event.view_count` from a batched job. It is deliberately not incremented on the read path,
@@ -853,7 +897,31 @@ schemas in `packages/shared` are the single validation definition), no CDN or WA
 
 ---
 
-## 18. What M18 changed
+## 18. What M19 changed
+
+Six things, and both launch blockers.
+
+| # | Feature | Layers touched |
+|---|---|---|
+| 1 | **The admin panel** (B2) | `apps/admin` — 12 screens, session + CSRF, permission-aware routing; `AdminInsightService` and 13 new endpoints behind them; `GET /me` now returns the CSRF token so a reload works |
+| 2 | **The B4 privacy gate** | `privacy-gate.int.test.ts` — two signed-in accounts, five messages across both surfaces, a sweep of every response and every stored payload |
+| 3 | **`ChatsView`'s privacy copy** | `apps/miniapp/src/copy/privacy.ts` + assertions; threat model T2.5/R8; ADR-0014's consequences |
+| 4 | **Gift-code campaigns** (ADR-0016) | Migration 0018 — `public_id`, `campaign`, `batch_id`, an analytics index; bulk minting, masked reads, `perUserLimit = 1`, per-code and per-campaign analytics; durable refusal records |
+| 5 | **`referral.status = REJECTED`** | Migration 0019 — a rejection enum, four columns and two CHECKs; a transition table; `ReferralAdminService`; one new permission; `WalletView`'s third branch |
+| 6 | **Development gift-code seeding** | `tools/gift-code-fixtures.ts` + `make seed-gift-codes-dev`, behind an allowlist with no production escape hatch |
+
+**Two findings the work produced rather than assumed.** The leak scan caught the admin user-detail
+page returning a raw bio — a user who typed their number into it has not consented to hand it to
+staff — and it is masked now with the same `sanitizeInbound` the chat relay uses. And the privacy
+gate failed three times on its first run, each time because a naive sweep cannot tell a caller's own
+data from a disclosure, or a disclosure from a consent.
+
+**Permissions grew by one**: `referral.manage`. Everything else the panel needed already had a key,
+which is the evidence ADR-0010's catalogue was the right shape.
+
+---
+
+## 19. What M18 changed
 
 Five features, and the documentation reconciliation that came with them.
 

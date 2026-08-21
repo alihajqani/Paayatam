@@ -479,10 +479,18 @@ confirmation dialog) · `GET /me/participations`
 else; what it grants is a column)
 **Bot** — `/start [payload]` · `callback_query: chat:accept|reject|close:<id>` · `message:text` relay ·
 `edited_message` propagation · `my_chat_member` block detection
-**Admin** — login (email+password+TOTP) · dashboard · users · events + moderation queue · reports ·
+**Admin** (M19 built the panel over all of this: `GET /admin/v1/dashboard`, `users` +
+`users/:publicId`, `events` + `events/:publicId` + `events/:publicId/moderate`, `reports` +
+`reports/:publicId/decide`, `ledger` + `ledger/reconcile`, `audit/search`, `settings` +
+`settings/:key`, and `referrals` + reject/reinstate under `referral.manage`) —
+login (email+password+TOTP) · dashboard · users · events + moderation queue · reports ·
 blacklist · catalog · policies · settings · coin ledger + `POST /admin/v1/coins/adjust` · trust ledger ·
 audit log · roles · **`POST /admin/v1/chats/:id/unseal`** (break-glass, see §8) ·
-**gift codes (M18): `POST|GET /admin/v1/gift-codes`, `POST /admin/v1/gift-codes/:code/active`** —
+**gift codes (M18, reshaped in M19 by ADR-0016 — every route addresses a code by `public_id`, and no
+read returns one): `POST|GET /admin/v1/gift-codes`, `POST /admin/v1/gift-codes/batch`,
+`PATCH /admin/v1/gift-codes/:publicId`, `POST /admin/v1/gift-codes/:publicId/active`,
+`GET /admin/v1/gift-codes/campaigns`, `GET /admin/v1/gift-codes/:publicId/analytics`,
+`GET /admin/v1/gift-codes/:publicId/redemptions`** —
 permission `giftcode.manage`, `SUPER_ADMIN` only, for the reason `coin.adjust` is kept from `SUPPORT`
 
 ---
@@ -1966,6 +1974,7 @@ conversations apart, and hand somebody coins.
   knowing gift codes exist. Three guards in order — the `gift_code` row lock for the global cap,
   `UNIQUE (gift_code_id, user_id, seq)` for the per-user limit, `coin_ledger.idempotency_key` for the coins.
   Management is `/admin/v1/gift-codes` under a new `giftcode.manage` permission held by `SUPER_ADMIN` alone.
+  (M19 reshaped that surface — ADR-0016.)
 - **The referral feature got the UI it was missing.** The backend has been complete since M9 — code
   generation, claim, self-referral and duplicate refusals, velocity signals, both payouts in one transaction
   keyed on attendance — and `WalletView` showed a code and an input box. It now shares or copies the code and
@@ -2043,8 +2052,28 @@ catalogue was the right shape: a panel built seven milestones later needed one n
 
 Tests: bulk minting under collision; a disabled code refused at redemption while a stale client still shows
 it live; concurrent redemption of the last slot; a rejected referral that cannot pay; a rejection that
-cannot be applied to an already-`REWARDED` referral; the two-account privacy walk; the RBAC matrix extended
+cannot be applied to an already-qualified referral; the two-account privacy walk; the RBAC matrix extended
 to every new operation; the leak scan extended to every new endpoint.
+
+**Delivered, and the two deviations worth recording:**
+
+- **`GET /admin/v1/me` now returns the CSRF token as well as the identity.** Not planned, and required:
+  the token is deliberately never persisted client-side, so a reloaded tab held the cookie and no token
+  and could read everything while mutating nothing. Returning it on an authenticated same-origin GET is
+  the ordinary synchroniser-token delivery — a cross-site page can cause the request and can never read
+  the response.
+- **The permission catalogue moved to `@payetam/shared`.** It is a contract: `/me` returns these strings
+  and the panel reads them to decide what to show. `packages/domain` re-exports it and keeps the part no
+  client may assume anything about — which role holds which permission.
+
+**And one finding the work produced.** The leak scan caught the admin user-detail page returning a
+profile bio raw, on the day the screen was added. A user who types a phone number into their bio has not
+consented to hand it to staff, and `user.read` is held by `SUPPORT` — the role most exposed to social
+engineering. It is masked now with the same `sanitizeInbound` the chat relay uses.
+
+**Deliberately not built**, because the API does not have them and the panel does not mock one up: claim
+or escalate on a moderation case, a break-glass unseal screen, four-eyes role-change screens, and CSV
+export of the ledger or the audit trail. All four are listed in `docs/admin-panel.md` §6.
 
 ---
 
@@ -2105,7 +2134,7 @@ working system, timed and documented; (32) every job produces the same end state
 | Host response deadline | `min(24h, event−3h)` → `EXPIRED` |
 | Waitlist promotion deadline | `min(12h, event−3h)` |
 | Review window | opens T+24 h, deadline T+7 d, edit window 1 h |
-| **Gift codes (M18)** | **Not in `app_setting`.** Every number that decides a redemption — the coins, the global cap, the per-user limit, the window, the kill switch — is a **column on `gift_code`**, because they are per-campaign rather than per-platform. A single shared default would make two simultaneous campaigns impossible. Minted through `/admin/v1/gift-codes` (ADR-0015) |
+| **Gift codes (M18)** | **Not in `app_setting`.** Every number that decides a redemption — the coins, the global cap, the per-user limit, the window, the kill switch — is a **column on `gift_code`**, because they are per-campaign rather than per-platform. A single shared default would make two simultaneous campaigns impossible. Minted through `/admin/v1/gift-codes` (ADR-0015). **M19 added two *platform* limits that do live here**, because they bound what a campaign may be rather than what one is: `giftcode.max_batch_size` (1000) and `giftcode.max_per_user_limit` (1) |
 | Gift-code redemption rate limit | **10/hour per user** — the tightest bucket in the product, because this is the only endpoint where guessing pays (T6.7) |
 
 ---

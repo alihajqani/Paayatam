@@ -16,6 +16,17 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
+**Milestone 19 complete — both launch blockers closed.** The admin panel exists (`apps/admin`, twelve
+screens over the API M12 built), and the two-account privacy gate has been executed and automated.
+See [`docs/admin-panel.md`](docs/admin-panel.md) and
+[`docs/b4-privacy-gate.md`](docs/b4-privacy-gate.md).
+
+M19 also gave gift codes campaigns, bulk minting and per-code analytics — and reclassified a code as
+a **bearer secret** ([ADR-0016](docs/adr/0016-gift-code-campaigns-and-admin-panel.md)): reads mask
+it, every route addresses it by `public_id`, and the plaintext is returned exactly once. The
+`ChatsView` privacy copy that had been wrong since M6 is rewritten, and
+`referral.status = REJECTED` — an enum value nothing wrote — is wired as an administrative act.
+
 **Milestone 18 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
 complete a profile from the Mini App and receive the onboarding coins exactly once (M3), create events
 that pass through Persian auto-moderation before publishing (M4), browse, filter and search what
@@ -36,7 +47,7 @@ Telegram notifications (M13) with the worker as the only thing in the product th
 the notification itself, and a message typed to the bot is relayed into the conversation it belongs to —
 resolved by which message it replies to, or by the sender having exactly one live chat, and refused with
 an explanation when neither answers. Edits follow. Blocking is detected. M8's two-real-accounts release
-gate is therefore *performable* for the first time, and has not been performed.
+gate was therefore *performable* for the first time — and **was performed in M19**.
 
 **The core loop is now usable from the Mini App.** A host writes an event, a stranger finds it, opens it
 and asks to join; the host accepts or rejects — from the notification or from the participant list — and
@@ -203,8 +214,10 @@ In order, that:
 3. `pnpm db:generate` — the Prisma client is generated, never committed;
 4. `pnpm db:migrate:deploy` — applies migrations;
 5. `pnpm exec tsc -b` — builds the project graph once, so there is compiled output to run;
-6. starts `pnpm exec tsc -b --watch --preserveWatchOutput`, the API, the worker and the Mini App;
-7. waits for `/health`, `/ready`, the Mini App and the worker's startup line, then prints the status.
+6. starts `pnpm exec tsc -b --watch --preserveWatchOutput`, the API, the worker, the Mini App and the
+   admin panel;
+7. waits for `/health`, `/ready`, the Mini App, the admin panel and the worker's startup line, then
+   prints the status.
 
 First run on a cold machine takes about half a minute; afterwards `make dev` is a few seconds because
 everything it would start is already up.
@@ -216,9 +229,17 @@ make seed      # policies, catalog (cities, districts, categories, interests), b
                # RBAC, settings, and a few demo events
 ```
 
-There is **no seed for gift codes**, deliberately: a code that grants coins is a campaign somebody decided
-to run, not reference data. They are minted through `/admin/v1/gift-codes` — see
-[`docs/project-review.md`](docs/project-review.md) §13 for the exact requests until the admin panel exists.
+**`make seed` writes no gift codes**, deliberately: a code that grants coins is a campaign somebody
+decided to run, not reference data — and a valuable code committed to a repository is a code
+everybody who ever cloned it holds. Campaigns are minted from the panel (`/gift-codes`).
+
+For local work there is a separate command, gated by an **allowlist** of environments rather than a
+"not production" check, with no `ALLOW_PROD_SEED` escape hatch:
+
+```bash
+make seed-gift-codes-dev    # DEV/TEST only — six named fixtures, one per redemption outcome,
+                            # plus a fresh batch of 25. Refuses under any other NODE_ENV.
+```
 
 ### 4. Day-to-day
 
@@ -257,6 +278,7 @@ make status
 curl localhost:3000/health   # {"status":"ok","uptimeSeconds":…}
 curl localhost:3000/ready    # {"ready":true,"checks":{"database":"up","redis":"up"}}
 curl -I localhost:5173       # 200 — the Mini App
+curl -I localhost:5174       # 200 — the admin panel
 ```
 
 `/ready` is the database and Redis check: it answers `{"database":"up","redis":"up"}` only if both
@@ -292,7 +314,28 @@ through a tunnel. `make tunnel` switches to `preview` on its own.
 has none — so the screens render, and anything that calls the API answers `UNAUTHENTICATED`. Real
 sign-in needs the tunnel below.
 
-### 7. Testing inside Telegram
+### 7. Working on the admin panel
+
+The panel runs at `localhost:5174` and proxies `/admin` to the API.
+
+**That proxy is a requirement, not a convenience.** The staff session is an `HttpOnly` cookie scoped
+to `/admin` and the API sets no CORS headers, so the panel and the API have to be the same origin —
+a cross-origin panel is signed out on every request with no useful error to read. In production nginx
+serves the bundle and proxies `/admin/v1`; see [`docs/admin-panel.md`](docs/admin-panel.md) §8.
+
+The cookie is `Secure`. Browsers treat `localhost` and `127.0.0.1` as trustworthy, so it works in
+development — but not over plain HTTP to a LAN address. Use `https` anywhere that is not loopback.
+
+**Signing in needs a staff account**, and there is no self-service sign-up: `admin_user` has no
+foreign key to `user`, and that separation is the security control. Run `pnpm seed:rbac` first (roles
+and permissions, from the code catalogue), then create an account through
+`AdminAccessService.createAdmin`, which returns the TOTP secret **once**. `docs/admin-panel.md` §1 is
+the procedure.
+
+The panel is deliberately **not** tunnelled by `make tunnel`: it is opened by a person at a desk and
+has no reason to be publicly reachable.
+
+### 8. Testing inside Telegram
 
 ```bash
 make dev
@@ -334,7 +377,7 @@ un-registers the webhook when you are finished.
 Vite rejects an unrecognised `Host` header, and a tunnel is exactly what that defence looks like.
 
 <a id="telegram-channel"></a>
-### 8. The Telegram channel
+### 9. The Telegram channel
 
 VIP, boosted and trending events are posted to a channel (M14) by the worker. Two things must be true:
 
@@ -350,13 +393,13 @@ and, after three consecutive failed sweeps, logs
 an administrator of that channel.` If the channel is not working, that line is where to look first.
 
 <a id="tests"></a>
-### 9. Checks and tests
+### 10. Checks and tests
 
 ```bash
 make typecheck      # tsc -b across the workspace, then vue-tsc for the Mini App
 make lint
 make format-check
-make test           # Vitest: unit, miniapp (jsdom) and integration
+make test           # Vitest: unit, miniapp (jsdom), admin (jsdom) and integration
 make test-int       # the integration project alone — real Postgres
 make check          # typecheck + lint + test — the three gates CI runs
 make build
@@ -369,12 +412,13 @@ development data instead.
 Nothing transactional is ever mocked. Capacity, ledger and waitlist tests run against a real database,
 because the guarantees they check are database guarantees.
 
-### 10. Ports, and when something is already using one
+### 11. Ports, and when something is already using one
 
 | Port | What |
 |---|---|
 | 3000 | API (`API_PORT`) — `/health`, `/ready`, `/metrics`, `/telegram/webhook/:secret` |
 | 5173 | Mini App (dev server or preview) |
+| 5174 | Admin panel (`ADMIN_PORT`) — proxies `/admin` to the API |
 | 55432 | Postgres, bound to `127.0.0.1` |
 | 56379 | Redis, bound to `127.0.0.1` |
 
