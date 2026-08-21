@@ -628,6 +628,7 @@ Every milestone ends with: tests green, `pnpm typecheck` clean, docs updated, re
 | 16 | Observability, deployment, backups | L | 15 |
 | 17 | Seed data & launch checklist | M | 16 |
 | 18 | Reputation display, conversation titles & gift codes | M | 9, 12 |
+| 19 | **Admin panel, gift-code campaigns, referral rejection & the privacy gate** | XL | 12, 18 |
 
 **Critical path:** M1→M2→M3→M4→M6→M8→M9→M10. **M6 (capacity) and M8 (anonymous chat) must not be rushed.**
 Rough total ≈ 55–70 working days for one engineer.
@@ -1985,6 +1986,65 @@ conversations apart, and hand somebody coins.
   needed to run one campaign.
 - **`referral.status = 'REJECTED'` is still written by nothing.** M18 did not wire it and did not remove it;
   flagged in the project review as a decision somebody has to make.
+
+**M19 — Admin panel, gift-code campaigns, referral rejection & the privacy gate** · *XL* — the milestone that
+closes B2 and B4. Everything here was reachable from a shell before it and is now reachable by a person.
+
+The scope is the four items `project-review.md` §17 left open, plus the frontend that made them unusable.
+
+- **`apps/admin` exists** — Vue 3 + Vite + Pinia + Tailwind, the stack §3.2 has always named for it, and a
+  conventional data-table layout rather than the Telegram-native one (§3.7). RTL Persian, because the people
+  who work the moderation queue read Persian; the *layout* uses logical properties throughout, so an LTR
+  locale is a `dir` attribute rather than a rewrite. It talks to `/admin/v1` with the existing cookie +
+  CSRF session, and **every button it hides is still refused by the service** — a hidden button is a
+  courtesy (ADR-0010 rule 2).
+- **`ChatsView`'s privacy copy is rewritten.** The old sentence promised that identities stay hidden «تا
+  زمانی که خودشان نخواهند», which was true of contact details and was never true of display names —
+  ADR-0014 made that gap explicit and deliberately did not fix the copy in passing. The replacement says
+  what is actually hidden (شمارهٔ تلگرام، شمارهٔ تماس، نام کاربری), what is visible (نام نمایشی و عنوان
+  فعالیت, inside that conversation), and that contact sharing needs an explicit confirmation.
+- **Gift codes gain campaigns**: bulk minting with server-side CSPRNG code generation, a `campaign` label, a
+  `batch_id`, and per-code and per-campaign analytics. `perUserLimit` is capped at **1** for new codes
+  ([ADR-0016](adr/0016-gift-code-campaigns-and-admin-panel.md)); historical rows above 1 are preserved and
+  keep working, because rewriting them would rewrite the ledger's explanation of itself.
+- **`referral.status = 'REJECTED'` is wired.** It was an enum value nothing wrote — §16 of the project
+  review asked for a decision, and the decision is to wire it rather than drop it: fraud signals were
+  already recorded for human review and there was no way for that human to act. Rejection is an
+  **administrative** act with a reason code, it goes through `assertTransition`, it writes `audit_log`, and
+  a rejected referral can never pay out. A referral whose qualifying action has simply not happened yet
+  stays `PENDING` — that distinction is the whole reason the state exists.
+- **The B4 two-account privacy gate is executed** and recorded in
+  [`docs/b4-privacy-gate.md`](b4-privacy-gate.md), with the automated half added to
+  `privacy-gate.int.test.ts` so it cannot silently rot.
+
+### Data model (migration `0018`)
+
+| Table | Change | Why |
+|---|---|---|
+| `gift_code` | `+ campaign TEXT`, `+ batch_id TEXT`, indexes on both | A campaign is the unit an operator reasons about; a batch is the unit they minted in one go and may export once |
+| `gift_code_redemption` | `+ INDEX (gift_code_id, created_at)` | Per-code analytics — first/last redemption, a trend over time — without a sequential scan |
+| `referral` | `+ rejected_at`, `+ rejection_reason` (new enum), `+ rejected_by_admin_id` FK, `+ review_note`, `CHECK` | A rejection nobody signed and nobody explained is not reviewable later — the same rule §7 applies to a moderation decision |
+| `app_setting` | two new keys, `giftcode.max_batch_size` and `giftcode.max_per_user_limit` | §11's rule: every tunable number lives in the database |
+
+`gift_code.per_user_limit` keeps its `CHECK (> 0)`. The cap at 1 is enforced in the **contract and the
+service**, not in the column, precisely so historical rows above 1 remain valid — a constraint tightened
+over live data is a migration that fails on the data it was meant to describe.
+
+### New permissions
+
+**One**: `referral.manage` — review a referral's fraud signals, reject it, or put a rejected one back to
+`PENDING`. Granted to `SUPER_ADMIN` and `MODERATOR`; withholding a reward is a moderation act, not an
+economic one, and nothing here can *pay* anybody — a reinstated referral still has to earn its attendance.
+
+Every other capability the panel needs already had a permission, which is the evidence that ADR-0010's
+catalogue was the right shape: a panel built seven milestones later needed one new row.
+
+### Acceptance
+
+Tests: bulk minting under collision; a disabled code refused at redemption while a stale client still shows
+it live; concurrent redemption of the last slot; a rejected referral that cannot pay; a rejection that
+cannot be applied to an already-`REWARDED` referral; the two-account privacy walk; the RBAC matrix extended
+to every new operation; the leak scan extended to every new endpoint.
 
 ---
 
