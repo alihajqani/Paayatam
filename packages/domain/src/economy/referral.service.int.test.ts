@@ -372,11 +372,17 @@ describe('the summary', () => {
 
   it('says whether the caller was themselves referred, and whether it paid', async () => {
     await referrals.claim(referred, await codeOf(referrer));
-    expect((await referrals.summaryFor(referred)).referredBy).toEqual({ qualified: false });
+    expect((await referrals.summaryFor(referred)).referredBy).toEqual({
+      status: 'PENDING',
+      qualified: false,
+    });
 
     await attendAnEvent(referred);
     await referrals.qualifyForAttendance(referred);
-    expect((await referrals.summaryFor(referred)).referredBy).toEqual({ qualified: true });
+    expect((await referrals.summaryFor(referred)).referredBy).toEqual({
+      status: 'QUALIFIED',
+      qualified: true,
+    });
   });
 
   it('reports nothing for somebody who was never referred', async () => {

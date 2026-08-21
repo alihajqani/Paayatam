@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
-import type { Prisma } from '@payetam/db';
+import type { Prisma, ReferralStatus } from '@payetam/db';
 import { CLOCK, METRICS, MetricsRegistry, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
@@ -41,8 +41,19 @@ export interface ReferralSummary {
   qualified: number;
   /** Coins this user has earned from referrals, referrer and referred alike. */
   coinsEarned: number;
-  /** Set when the caller was themselves referred, and whether it has paid out. */
-  referredBy: { qualified: boolean } | null;
+  /**
+   * Set when the caller was themselves referred.
+   *
+   * `status` from M19: `REJECTED` became reachable, and a screen that only knew
+   * "qualified or not" would render a refused referral as "still waiting" —
+   * forever, and untruthfully. `qualified` is kept beside it because it is what
+   * every existing caller reads and it means exactly what it always did.
+   *
+   * **No reason code here.** Why a referral was refused is on the admin surface;
+   * naming the signal that fired to the person it fired on is telling a farmer
+   * what to change (T6).
+   */
+  referredBy: { status: ReferralStatus; qualified: boolean } | null;
 }
 
 export interface ReferralClaim {
@@ -118,7 +129,9 @@ export class ReferralService {
       invited,
       qualified,
       coinsEarned: earned._sum.amount ?? 0,
-      referredBy: received ? { qualified: received.status === 'QUALIFIED' } : null,
+      referredBy: received
+        ? { status: received.status, qualified: received.status === 'QUALIFIED' }
+        : null,
     };
   }
 

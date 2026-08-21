@@ -18,8 +18,10 @@ import {
   AdminOperationsService,
   ChatUnsealService,
   GiftCodeAdminService,
+  ReferralAdminService,
   type AdminSession,
   type GiftCodeSummary,
+  type ReferralReview,
 } from '@payetam/domain';
 import { PiiHasher } from '@payetam/platform';
 import {
@@ -32,6 +34,9 @@ import {
   decideCaseRequest,
   giftCodeListQuery,
   pageQuery,
+  referralListQuery,
+  reinstateReferralRequest,
+  rejectReferralRequest,
   requestRoleChangeRequest,
   setGiftCodeActiveRequest,
   setUserStatusRequest,
@@ -57,6 +62,11 @@ import {
   type ModerationCaseStatus,
   type ModerationQueueResponse,
   type PageQuery,
+  type ReferralListQuery,
+  type ReferralListResponse,
+  type ReferralReviewView,
+  type ReinstateReferralRequest,
+  type RejectReferralRequest,
   type RequestRoleChangeRequest,
   type SetGiftCodeActiveRequest,
   type SetUserStatusRequest,
@@ -96,6 +106,7 @@ export class AdminController {
     private readonly operations: AdminOperationsService,
     private readonly unseal: ChatUnsealService,
     private readonly giftCodes: GiftCodeAdminService,
+    private readonly referrals: ReferralAdminService,
     private readonly pii: PiiHasher,
   ) {}
 
@@ -437,6 +448,74 @@ export class AdminController {
     return toGiftCodeView(await this.giftCodes.setActive(admin, publicId, body.isActive));
   }
 
+  // ── Referral review (M19, T6) ──────────────────────────────────────────────
+
+  /**
+   * The fraud queue T6 has been writing signals into since M9.
+   *
+   * `referral.manage`, held by `SUPER_ADMIN` and `MODERATOR`. Nothing behind it
+   * can pay anybody — a rejection withholds a reward that has not been earned
+   * and a reinstatement only restores the chance to earn it — which is why it is
+   * not as narrow as `coin.adjust`.
+   */
+  @Get('referrals')
+  async listReferrals(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(referralListQuery)) query: ReferralListQuery,
+  ): Promise<ReferralListResponse> {
+    const page = await this.referrals.list(admin, {
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.flagged !== undefined ? { flaggedOnly: query.flagged === 'true' } : {}),
+      ...(query.referrerPublicId !== undefined ? { referrerPublicId: query.referrerPublicId } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { referrals: page.referrals.map(toReferralReviewView), total: page.total };
+  }
+
+  @Get('referrals/:id')
+  async getReferral(
+    @Param('id') id: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ReferralReviewView> {
+    return toReferralReviewView(await this.referrals.get(admin, id));
+  }
+
+  /**
+   * Refuse a referral, in writing.
+   *
+   * A reason code **and** a note, both mandatory. §7 requires a signature and an
+   * explanation on a terminal moderation decision, and this is the other terminal
+   * decision in the product that withholds money.
+   */
+  @Post('referrals/:id/reject')
+  async rejectReferral(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(rejectReferralRequest)) body: RejectReferralRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ReferralReviewView> {
+    return toReferralReviewView(
+      await this.referrals.reject(admin, id, { reason: body.reason, note: body.note }),
+    );
+  }
+
+  /**
+   * Put a rejected referral back into the ordinary path.
+   *
+   * **Pays nobody.** It restores `PENDING`; the referral then earns its reward
+   * the ordinary way, with `ReferralService` checking the attendance itself. There
+   * is deliberately no `REJECTED → QUALIFIED` edge — an admin may restore a
+   * chance and may not grant a reward.
+   */
+  @Post('referrals/:id/reinstate')
+  async reinstateReferral(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(reinstateReferralRequest)) body: ReinstateReferralRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ReferralReviewView> {
+    return toReferralReviewView(await this.referrals.reinstate(admin, id, body.note));
+  }
+
   @Post('users/:publicId/status')
   @HttpCode(HttpStatus.NO_CONTENT)
   async setUserStatus(
@@ -600,5 +679,30 @@ function toWindow(query: AnalyticsWindowQuery): { from?: Date; to?: Date } {
   return {
     ...(query.from !== undefined ? { from: new Date(query.from) } : {}),
     ...(query.to !== undefined ? { to: new Date(query.to) } : {}),
+  };
+}
+
+/**
+ * Field by field, never a spread (§3.6 layer 2).
+ *
+ * `referral` carries two internal user ids and the ledger row that paid it. The
+ * ids never leave the backend, and the ledger id belongs to the economy views
+ * rather than to a fraud queue. `fraudSignals` and `reviewNote` are here because
+ * this is the admin surface and they are what the review is *for* — neither
+ * appears on anything a user can reach.
+ */
+function toReferralReviewView(review: ReferralReview): ReferralReviewView {
+  return {
+    id: review.id,
+    referrerPublicId: review.referrerPublicId,
+    referredPublicId: review.referredPublicId,
+    status: review.status,
+    flagged: review.flagged,
+    fraudSignals: review.fraudSignals,
+    qualifiedAt: review.qualifiedAt?.toISOString() ?? null,
+    rejectedAt: review.rejectedAt?.toISOString() ?? null,
+    rejectionReason: review.rejectionReason,
+    reviewNote: review.reviewNote,
+    createdAt: review.createdAt.toISOString(),
   };
 }

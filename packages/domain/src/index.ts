@@ -62,6 +62,7 @@ export {
   referrerRewardKey,
 } from './economy/referral.service';
 export type { ReferralClaim, ReferralSummary } from './economy/referral.service';
+export { REFERRAL_TRANSITIONS, assertReferralTransition } from './economy/referral-state-machine';
 export {
   GiftCodeService,
   GIFT_CODE_REASON,
@@ -256,6 +257,12 @@ export type {
   GiftCodeState,
   GiftCodeSummary,
 } from './adminaccess/gift-code-admin.service';
+export { ReferralAdminService } from './adminaccess/referral-admin.service';
+export type {
+  ReferralListFilters,
+  ReferralPage,
+  ReferralReview,
+} from './adminaccess/referral-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';

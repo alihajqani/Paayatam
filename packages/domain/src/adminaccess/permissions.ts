@@ -50,6 +50,22 @@ export const PERMISSIONS = {
    * the one that must not be able to.
    */
   GIFT_CODE_MANAGE: 'giftcode.manage',
+  /**
+   * Review a referral's fraud signals, reject it, or put a rejected one back to
+   * `PENDING` (M19).
+   *
+   * Its own permission rather than a reuse of `coin.adjust`, because it is the
+   * *opposite* capability: nothing behind this key can pay anybody. A rejection
+   * withholds a reward that has not been earned yet, and a reinstatement only
+   * restores the referral's ability to earn one — the attendance condition is
+   * still checked by `ReferralService`, which is why `MODERATOR` can hold this
+   * while `coin.adjust` stays with `SUPER_ADMIN` alone.
+   *
+   * It exists at all because T6 recorded velocity signals "for admin review" and
+   * gave the admin no way to act on the review. An enum value nothing writes and
+   * a signal nobody can act on are the same bug seen from two sides.
+   */
+  REFERRAL_MANAGE: 'referral.manage',
   /** Read the audit trail. */
   AUDIT_READ: 'audit.read',
   /** Request or approve a role change. Four-eyes applies on top (rule 4). */
@@ -88,6 +104,9 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly Permission[]> = {
     PERMISSIONS.BLACKLIST_MANAGE,
     PERMISSIONS.LEDGER_READ,
     PERMISSIONS.CHAT_READ,
+    // Fraud review is moderation, and this is the half of it that was missing:
+    // `fraud_signals` have been recorded since M9 for a human who had no button.
+    PERMISSIONS.REFERRAL_MANAGE,
     PERMISSIONS.AUDIT_READ,
   ],
 

@@ -521,6 +521,36 @@ enum ReferralStatus {
   @@map("referral_status")
 }
 
+/// Why a referral was rejected (M19).
+///
+/// A **code**, not free text, for the reason every other terminal state in the
+/// product carries one: it has to be countable ("how many do we reject for
+/// velocity?") and it has to be renderable in Persian to the person it happened
+/// to. The free-text half is `review_note`, which stays internal — telling a
+/// suspected farmer which signal fired is telling them what to change.
+///
+/// **`PENDING` is not a rejection.** A referral whose qualifying attendance has
+/// simply not happened yet stays `PENDING` indefinitely if need be; rejecting it
+/// would be the automatic refusal T6 exists to avoid, and a wrong one silently
+/// steals a real user's reward.
+enum ReferralRejectionReason {
+  /// The referrer and the referred user are the same person. Also a CHECK.
+  SELF_REFERRAL
+  /// This user already had a referrer. Also a UNIQUE.
+  DUPLICATE
+  /// The code did not resolve, or the referrer is banned.
+  INVALID_CODE
+  /// A human read `fraud_signals` and agreed with them.
+  FRAUD
+  /// The qualifying action can never happen — a deleted account, an anonymised
+  /// profile. Distinct from "has not happened yet", which is `PENDING`.
+  INELIGIBLE
+  /// Everything else a named admin signed for.
+  ADMIN_DECISION
+
+  @@map("referral_rejection_reason")
+}
+
 /// Who invited whom (T6).
 ///
 /// `referred_user_id` is UNIQUE, so a user has at most one referrer — for life,
@@ -545,14 +575,33 @@ model Referral {
   /// Velocity and pattern signals for admin review (T6). Never an automatic
   /// rejection: a false positive here silently steals somebody's reward.
   fraudSignals   Json?          @map("fraud_signals")
+
+  /// The rejection, if there was one (M19). All of these move together, and two
+  /// CHECKs say so: `status = 'REJECTED'` requires a timestamp and a reason, and
+  /// anything else requires neither. It is §7's rule for a moderation case —
+  /// "terminal states require `decided_by` + `decision_note`" — applied to the
+  /// other terminal decision in the product that withholds money.
+  rejectedAt        DateTime?                @map("rejected_at") @db.Timestamptz(3)
+  rejectionReason   ReferralRejectionReason? @map("rejection_reason")
+  /// Null when the state machine rejected it rather than a person — the enum has
+  /// values for both, and "which admin?" must not be answerable when none did.
+  rejectedByAdminId String?                  @map("rejected_by_admin_id")
+  /// Internal only, never projected to either user: naming the signal that fired
+  /// is telling a farmer what to change next time.
+  reviewNote        String?                  @map("review_note")
+
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  referrer User @relation("ReferralsMade", fields: [referrerUserId], references: [id], onDelete: Restrict)
-  referred User @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: Restrict)
+  referrer   User       @relation("ReferralsMade", fields: [referrerUserId], references: [id], onDelete: Restrict)
+  referred   User       @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: Restrict)
+  rejectedBy AdminUser? @relation(fields: [rejectedByAdminId], references: [id], onDelete: SetNull)
 
   @@index([referrerUserId, createdAt])
   @@index([status])
+  /// The admin queue: "referrals in this state, newest first". `(status)` alone
+  /// has served the settlement path since 0009 and cannot order a page.
+  @@index([status, createdAt])
   @@map("referral")
 }
 
@@ -1718,6 +1767,7 @@ model AdminUser {
   roleChangesMade RoleChangeRequest[] @relation("RoleChangeRequestedBy")
   roleChangesSeen RoleChangeRequest[] @relation("RoleChangeApprovedBy")
   giftCodesCreated GiftCode[]
+  referralsRejected Referral[]
 
   @@index([status])
   @@map("admin_user")

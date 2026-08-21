@@ -17,6 +17,7 @@ import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
+import { ReferralAdminService } from './referral-admin.service';
 import {
   PERMISSIONS,
   ROLE_KEYS,
@@ -66,6 +67,7 @@ const access = new AdminAccessService(service, clock, redis, credentials, audit)
 const operations = new AdminOperationsService(service, clock, access, coins, trust, audit);
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);
 const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);
+const referrals = new ReferralAdminService(service, clock, access, audit);
 
 /**
  * One admin operation, and the permission it demands.
@@ -207,6 +209,32 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.GIFT_CODE_MANAGE,
     run: (session) => giftCodes.redemptions(session, NO_SUCH_ID),
   },
+  /**
+   * M19's referral review (T6). `referral.manage` is held by `SUPER_ADMIN` and
+   * `MODERATOR` and by neither `SUPPORT` nor `ANALYST` — which is what these four
+   * rows assert, and the reason it can be wider than `coin.adjust` is that
+   * nothing behind it can move a balance.
+   */
+  {
+    name: 'GET /admin/v1/referrals',
+    permission: PERMISSIONS.REFERRAL_MANAGE,
+    run: (session) => referrals.list(session),
+  },
+  {
+    name: 'GET /admin/v1/referrals/:id',
+    permission: PERMISSIONS.REFERRAL_MANAGE,
+    run: (session) => referrals.get(session, NO_SUCH_ID),
+  },
+  {
+    name: 'POST /admin/v1/referrals/:id/reject',
+    permission: PERMISSIONS.REFERRAL_MANAGE,
+    run: (session) => referrals.reject(session, NO_SUCH_ID, { reason: 'FRAUD', note: 'x' }),
+  },
+  {
+    name: 'POST /admin/v1/referrals/:id/reinstate',
+    permission: PERMISSIONS.REFERRAL_MANAGE,
+    run: (session) => referrals.reinstate(session, NO_SUCH_ID, 'x'),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -244,7 +272,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(18);
+    expect(OPERATIONS).toHaveLength(22);
   });
 
   for (const role of ROLES) {

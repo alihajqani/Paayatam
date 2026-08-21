@@ -91,8 +91,24 @@ export const referralResponse = z.object({
   /** How many of those attended an event and paid out. */
   qualified: z.number().int().nonnegative(),
   coinsEarned: z.number().int().nonnegative(),
-  /** Set when the caller was themselves referred. */
-  referredBy: z.object({ qualified: z.boolean() }).nullable(),
+  /**
+   * Set when the caller was themselves referred.
+   *
+   * `status` was added in M19, when `REJECTED` became a state something writes: a
+   * screen that only knew "qualified or not" rendered a refused referral as
+   * «در انتظار» forever. `qualified` stays beside it, meaning what it always
+   * meant.
+   *
+   * There is no reason code here on purpose. Why a referral was refused lives on
+   * the admin surface — naming the signal that fired to the person it fired on is
+   * telling a farmer what to change (T6).
+   */
+  referredBy: z
+    .object({
+      status: z.enum(['PENDING', 'QUALIFIED', 'REJECTED']),
+      qualified: z.boolean(),
+    })
+    .nullable(),
 });
 export type ReferralResponse = z.infer<typeof referralResponse>;
 

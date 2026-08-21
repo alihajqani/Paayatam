@@ -68,6 +68,8 @@ let adminCsrf: string;
 let reviewPublicId: string;
 /** M19 addresses a gift code by `public_id`; the code itself is a secret. */
 let scannedGiftCodePublicId: string;
+/** The referral the scan rejects and reinstates, over and over, one pass each. */
+let scannedReferralId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
@@ -655,6 +657,48 @@ beforeAll(async () => {
     })
   ).publicId;
 
+  /**
+   * A referral of its own, for the review queue.
+   *
+   * Between two throwaway accounts rather than between the fixture pair, because
+   * `POST /api/v1/referrals/claim` is itself scanned and has to reach its
+   * *success* body at least once — pre-claiming for the viewer would leave that
+   * endpoint answering `ALREADY_REFERRED` on every pass.
+   *
+   * The referrer carries the leaky identifiers, so the queue has something to
+   * leak if it were going to. Reject and reinstate form a **cycle** —
+   * `PENDING → REJECTED → PENDING` — so each pass leaves the row where it found
+   * it and the next pass reads a success rather than a transition refusal.
+   */
+  const scanReferrer = await prisma.user.create({
+    data: {
+      onboardingState: 'PROFILE_COMPLETE',
+      telegramAccount: {
+        create: { telegramUserId: TELEGRAM_USER_ID + 1n, usernameCached: TELEGRAM_USERNAME },
+      },
+      profile: {
+        create: { displayName: 'معرف', cityId: fixture.tehranId, birthYear: 1994 },
+      },
+    },
+    select: { id: true },
+  });
+  const scanReferred = await prisma.user.create({
+    data: { onboardingState: 'PROFILE_COMPLETE' },
+    select: { id: true },
+  });
+  scannedReferralId = (
+    await prisma.referral.create({
+      data: {
+        referrerUserId: scanReferrer.id,
+        referredUserId: scanReferred.id,
+        code: 'SCANREF1',
+        status: 'PENDING',
+        fraudSignals: { reason: 'velocity', recentReferrals: 12 },
+      },
+      select: { id: true },
+    })
+  ).id;
+
   ENDPOINTS.push(
     { method: 'GET', url: `/api/v1/events/${eventPublicId}` },
     { method: 'GET', url: `/api/v1/events/${eventPublicId}/explain-rank` },
@@ -854,6 +898,26 @@ beforeAll(async () => {
      * and most damaging. The moderation queue, the audit trail and the unsealed
      * conversation are all scanned.
      */
+    /**
+     * M19's referral review. The queue is a screen full of *other people's*
+     * relationships, which makes it exactly the kind of admin surface a Telegram
+     * identifier would be least surprising and most damaging on.
+     */
+    { method: 'GET', url: '/admin/v1/referrals', admin: true },
+    { method: 'GET', url: '/admin/v1/referrals?status=PENDING&flagged=true', admin: true },
+    { method: 'GET', url: `/admin/v1/referrals/${scannedReferralId}`, admin: true },
+    {
+      method: 'POST',
+      url: `/admin/v1/referrals/${scannedReferralId}/reject`,
+      admin: true,
+      body: { reason: 'FRAUD', note: 'scan coverage for the rejection path' },
+    },
+    {
+      method: 'POST',
+      url: `/admin/v1/referrals/${scannedReferralId}/reinstate`,
+      admin: true,
+      body: { note: 'scan coverage for the reinstatement path' },
+    },
     { method: 'GET', url: '/admin/v1/me', admin: true },
     { method: 'GET', url: '/admin/v1/moderation/cases', admin: true },
     { method: 'GET', url: '/admin/v1/audit', admin: true },

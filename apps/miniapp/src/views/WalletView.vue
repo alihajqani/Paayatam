@@ -390,9 +390,23 @@ onMounted(load);
           class="flex flex-col gap-1 rounded-2xl bg-tg-secondary-bg p-4"
         >
           <h2 class="text-sm text-tg-subtitle">کد دعوت شما ثبت شده است</h2>
+          <!--
+            Three states, because `REJECTED` became reachable in M19. Before it
+            did, «در انتظار» was true of everything that was not qualified; a
+            refused referral now renders as refused instead of as waiting for an
+            event that will never pay.
+
+            No reason is shown, and that is deliberate: why a referral was refused
+            lives on the admin surface, because naming the signal that fired to
+            the person it fired on tells a farmer what to change (T6).
+          -->
           <p class="text-sm text-tg-hint">
-            <template v-if="economy.referral.referredBy.qualified">
+            <template v-if="economy.referral.referredBy.status === 'QUALIFIED'">
               پاداش دعوت شما واریز شده است.
+            </template>
+            <template v-else-if="economy.referral.referredBy.status === 'REJECTED'">
+              این دعوت تأیید نشد و پاداشی برای آن ثبت نمی‌شود. اگر فکر می‌کنید اشتباهی رخ داده، با
+              پشتیبانی تماس بگیرید.
             </template>
             <template v-else>
               پس از نخستین حضور شما در یک رویداد، پاداش دعوت واریز می‌شود.

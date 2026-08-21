@@ -515,3 +515,96 @@ export const pageQuery = z.object({
   offset: z.coerce.number().int().min(0).optional(),
 });
 export type PageQuery = z.infer<typeof pageQuery>;
+
+// ── Referral review (M19) ────────────────────────────────────────────────────
+
+/**
+ * Why a referral was refused.
+ *
+ * A code rather than free text, so it can be counted ("how many do we reject for
+ * velocity?") and rendered in Persian to the person it happened to. The free-text
+ * half is `reviewNote`, which stays on the admin surface — telling a suspected
+ * farmer which signal fired is telling them what to change.
+ */
+export const referralRejectionReason = z.enum([
+  'SELF_REFERRAL',
+  'DUPLICATE',
+  'INVALID_CODE',
+  'FRAUD',
+  'INELIGIBLE',
+  'ADMIN_DECISION',
+]);
+export type ReferralRejectionReasonView = z.infer<typeof referralRejectionReason>;
+
+export const referralStatus = z.enum(['PENDING', 'QUALIFIED', 'REJECTED']);
+export type ReferralStatusView = z.infer<typeof referralStatus>;
+
+/**
+ * A referral as the review queue shows it.
+ *
+ * Two people by `publicId` and nothing else. Reviewing a referral for fraud is a
+ * question about *behaviour* — how many, how fast, from where — and a display
+ * name answers none of it while putting two profiles on a screen with no reason
+ * to show them.
+ */
+export const referralReviewView = z.object({
+  id: z.uuid(),
+  referrerPublicId: z.uuid(),
+  referredPublicId: z.uuid(),
+  status: referralStatus,
+  /** Whether a velocity or pattern signal fired (T6). The queue sorts on this. */
+  flagged: z.boolean(),
+  /** The signals themselves. Admin-only, and never projected to either user. */
+  fraudSignals: z.unknown().nullable(),
+  qualifiedAt: z.iso.datetime().nullable(),
+  rejectedAt: z.iso.datetime().nullable(),
+  rejectionReason: referralRejectionReason.nullable(),
+  /** Internal free text, for the next moderator. Same rule as `fraudSignals`. */
+  reviewNote: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type ReferralReviewView = z.infer<typeof referralReviewView>;
+
+export const referralListQuery = z.object({
+  status: referralStatus.optional(),
+  /** The queue a moderator actually works: only the ones a signal fired on. */
+  flagged: z.enum(['true', 'false']).optional(),
+  referrerPublicId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type ReferralListQuery = z.infer<typeof referralListQuery>;
+
+export const referralListResponse = z.object({
+  referrals: z.array(referralReviewView),
+  total: z.number().int().nonnegative(),
+});
+export type ReferralListResponse = z.infer<typeof referralListResponse>;
+
+/**
+ * Refusing a referral, in writing.
+ *
+ * Both fields mandatory. §7's rule for a moderation case is that a terminal state
+ * needs a signature and an explanation, and this is the other terminal decision
+ * in the product that withholds money — a rejection nobody signed and nobody
+ * explained is not reviewable six weeks later.
+ */
+export const rejectReferralRequest = z.object({
+  reason: referralRejectionReason,
+  note: z.string().trim().min(5).max(1000),
+});
+export type RejectReferralRequest = z.infer<typeof rejectReferralRequest>;
+
+/**
+ * Putting a rejected referral back.
+ *
+ * **This pays nobody.** It restores `PENDING`, and the referral then earns its
+ * reward the ordinary way — the attendance condition is still checked by
+ * `ReferralService` and the payout is still guarded by an idempotency key. There
+ * is deliberately no route from `REJECTED` to `QUALIFIED`: an admin may restore a
+ * chance and may not grant a reward.
+ */
+export const reinstateReferralRequest = z.object({
+  note: z.string().trim().min(5).max(1000),
+});
+export type ReinstateReferralRequest = z.infer<typeof reinstateReferralRequest>;
