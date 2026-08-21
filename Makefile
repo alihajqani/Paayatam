@@ -62,7 +62,7 @@ reset: ## DESTRUCTIVE: delete all local database and Redis data
 	@read -p "Type 'reset' to confirm: " ans; [ "$$ans" = "reset" ] || (echo "Aborted."; exit 1)
 	docker compose down -v
 
-dev: ## Start the whole local stack: postgres, redis, migrations, tsc watch, api, worker, mini app
+dev: ## Start the whole local stack: postgres, redis, migrations, tsc watch, api, worker, mini app, admin
 	@$(DEV) dev
 
 stop: ## Stop every process `make dev` started (containers stay up — see `make down`)
@@ -110,7 +110,7 @@ format: ## Format with Prettier
 format-check: ## Check formatting without writing (what CI does)
 	pnpm format:check
 
-test: ## Every Vitest project: unit, miniapp (jsdom) and integration
+test: ## Every Vitest project: unit, miniapp (jsdom), admin (jsdom) and integration
 	pnpm test
 
 test-int: ## Integration tests (real Postgres — see db-test first)
