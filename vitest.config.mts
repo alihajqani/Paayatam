@@ -1,5 +1,6 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
 
 /**
  * Three projects, deliberately separated:
@@ -33,7 +34,13 @@ export default defineConfig({
           include: ['{apps,packages}/*/src/**/*.test.ts', 'tools/**/*.test.ts'],
           // The Mini App has its own project below; without this exclusion its
           // files would run twice, once in an environment with no `window`.
-          exclude: ['**/node_modules/**', '**/dist/**', '**/*.int.test.ts', 'apps/miniapp/src/**'],
+          exclude: [
+            '**/node_modules/**',
+            '**/dist/**',
+            '**/*.int.test.ts',
+            'apps/miniapp/src/**',
+            'apps/admin/src/**',
+          ],
         },
       },
       {
@@ -51,6 +58,37 @@ export default defineConfig({
           name: 'miniapp',
           environment: 'jsdom',
           include: ['apps/miniapp/src/**/*.test.ts'],
+          exclude: ['**/node_modules/**', '**/dist/**'],
+        },
+      },
+      {
+        /**
+         * The Vue plugin, for one reason: `router.ts` lazy-imports every view, so
+         * a guard test that navigates has to be able to parse a `.vue` file.
+         * The Mini App project needs none of this because its tests never touch
+         * its router.
+         */
+        plugins: [vue()],
+        resolve: {
+          alias: {
+            '@': fileURLToPath(new URL('./apps/admin/src', import.meta.url)),
+            '@payetam/shared': fileURLToPath(
+              new URL('./packages/shared/src/index.ts', import.meta.url),
+            ),
+          },
+        },
+        test: {
+          /**
+           * The admin panel (M19). Its own project rather than a second glob on
+           * `miniapp`, because the two resolve `@` to different directories — and
+           * one alias map cannot serve both.
+           *
+           * jsdom for the same reason the Mini App needs it: the router builds on
+           * `history`, and the API client reads `fetch`.
+           */
+          name: 'admin',
+          environment: 'jsdom',
+          include: ['apps/admin/src/**/*.test.ts'],
           exclude: ['**/node_modules/**', '**/dist/**'],
         },
       },

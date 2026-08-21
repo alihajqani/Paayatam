@@ -127,6 +127,26 @@ export default tseslint.config(
     },
   },
 
+  /**
+   * The Vitest config, which imports a plugin this project cannot type.
+   *
+   * `tsconfig.base.json` uses `moduleResolution: "Node"` — correct for the
+   * CommonJS backend — and `@vitejs/plugin-vue` ships only `index.d.mts` behind
+   * an `exports` map, which node10 resolution cannot read. The plugin is
+   * therefore `any` here and every call on it is "unsafe".
+   *
+   * The alternative was moving the whole repo to bundler resolution to satisfy
+   * one line in a test config. Narrowed to the one file rather than the one rule
+   * globally: an unresolved type anywhere else is still an error.
+   */
+  {
+    files: ['vitest.config.mts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+    },
+  },
+
   // Developer CLI scripts and the test harness. `console` is their user
   // interface, not a stray debug statement, and neither is ever part of a
   // deployed image — so the T15 concern behind the rule does not apply.

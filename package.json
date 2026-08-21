@@ -38,6 +38,7 @@
     "@payetam/domain": "workspace:*",
     "@prisma/adapter-pg": "^7.9.1",
     "@types/node": "^22.10.0",
+    "@vitejs/plugin-vue": "^6.0.4",
     "eslint": "^10.8.1",
     "eslint-config-prettier": "^10.0.0",
     "jsdom": "^30.0.1",

@@ -86,9 +86,20 @@ export const useSessionStore = defineStore('session', () => {
     setCsrfToken(null);
   }
 
+  /**
+   * End the session, and forget it locally whatever the server says.
+   *
+   * The failure is swallowed on purpose. A panel that stayed "signed in" because
+   * the network blinked would be showing stale data behind a session the operator
+   * believes they closed — and the cookie expires on its own twelve-hour idle
+   * timer regardless, so the worst case of swallowing is a session that outlives
+   * the tab rather than one that outlives the intention.
+   */
   async function logout(): Promise<void> {
     try {
       if (canMutate.value) await request<void>('/auth/logout', { method: 'POST' });
+    } catch {
+      // See above.
     } finally {
       clear();
     }
