@@ -16,6 +16,7 @@ import { AdminAccessService, permissionsFor, type AdminSession } from './admin-a
 import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
+import { GiftCodeAdminService } from './gift-code-admin.service';
 import {
   PERMISSIONS,
   ROLE_KEYS,
@@ -64,6 +65,7 @@ const redis = { client: {} } as unknown as RedisService;
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
 const operations = new AdminOperationsService(service, clock, access, coins, trust, audit);
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);
+const giftCodes = new GiftCodeAdminService(service, clock, access, audit);
 
 /**
  * One admin operation, and the permission it demands.
@@ -154,6 +156,26 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.CHAT_READ,
     run: (session) => unseal.read(session, 'no-such-grant'),
   },
+  /**
+   * M18. `giftcode.manage` is `SUPER_ADMIN`-only, so these three rows are what
+   * assert that `MODERATOR` — which holds `user.ban` and `chat.read` — still
+   * cannot mint coins.
+   */
+  {
+    name: 'POST /admin/v1/gift-codes',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.create(session, { code: 'MATRIXTEST', coins: 0 }),
+  },
+  {
+    name: 'GET /admin/v1/gift-codes',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.list(session),
+  },
+  {
+    name: 'POST /admin/v1/gift-codes/:code/active',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.setActive(session, 'NOSUCHCODE', false),
+  },
 ];
 
 function sessionFor(role: RoleKey): AdminSession {
@@ -188,7 +210,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(10);
+    expect(OPERATIONS).toHaveLength(13);
   });
 
   for (const role of ROLES) {

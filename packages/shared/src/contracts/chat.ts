@@ -4,11 +4,17 @@ import { z } from 'zod';
  * Anonymous chat contracts (M8).
  *
  * Read the *absences* here first, because they are the design. There is no
- * sender id, no user public id, no display name and no avatar anywhere in this
- * file — a message is attributed to an alias and nothing else, and a chat names
- * its event but not the person on the other side of it. The wire shape is where
+ * sender id, no user public id and no avatar anywhere in this file, and a
+ * **message** is attributed to an alias and nothing else. The wire shape is where
  * layer 2 of §3.6 becomes checkable: a field that does not exist in the schema
  * cannot be filled in by a mapper somebody writes in a hurry.
+ *
+ * `counterpartName` on the chat summary is the one deliberate exception, added in
+ * M18 and reasoned about in ADR-0014. It names the person a conversation is
+ * *with* — which both sides already learn from the participant list and the event
+ * page — so that a conversation can be titled by who and what it is about. It
+ * does not appear on `chatMessageView`, and nothing here can reach
+ * `telegram_account`.
  *
  * `seq` is the message identifier. It is chat-scoped and ordinal, so it tells a
  * caller nothing they do not already have by being in the chat — which is exactly
@@ -76,6 +82,22 @@ export const chatSummaryView = z.object({
   alias: z.string(),
   /** What you see them called. */
   counterpartAlias: z.string(),
+  /**
+   * The other person's profile display name, falling back to their alias (M18,
+   * ADR-0014).
+   *
+   * Rendered with `eventTitle` by every surface that titles a conversation —
+   * «علی رضایی — سفر شمال» — so a host with four running events can tell which
+   * conversation is which, which «میهمان ۱» alone never told them.
+   *
+   * It is an addition to the absences this file opens with rather than a
+   * contradiction of them: there is still no sender id, no user public id and no
+   * avatar here, and nothing that can reach `telegram_account`. ADR-0014 records
+   * why a display name is not the thing ADR-0009 was protecting — the host
+   * already reads it in the participant list, and the guest already reads the
+   * host's on the event page.
+   */
+  counterpartName: z.string(),
   contactShared: z.boolean(),
   counterpartContactShared: z.boolean(),
   lastMessageAt: z.iso.datetime().nullable(),

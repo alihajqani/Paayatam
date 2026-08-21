@@ -34,6 +34,10 @@ an enum value, a log line or an API field name.
 | Boost | ارتقای نمایش | |
 | VIP placement | نمایش ویژه | |
 | Referral | معرفی دوستان | |
+| Referral / invite code | کد دعوت | The code a user shares |
+| Gift code / discount code | کد هدیه | M18. Deliberately **not** «کد تخفیف»: nothing in the product has a price to discount — a code grants coins |
+| Redeem (a code) | ثبت / دریافت سکه | «کد را ثبت کنید» for the action, «دریافت سکه» on the button |
+| Campaign | کمپین | Internal/admin term; never appears in user-facing copy |
 | Interest | علاقه‌مندی | |
 | Category | دسته‌بندی | |
 | City | شهر | |
@@ -101,6 +105,14 @@ do next, never expose internals, never blame the user.
 | `CONFLICT_STALE_VERSION` | این فعالیت توسط شما در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید. |
 | `RATE_LIMITED` | تعداد درخواست‌های شما زیاد است. لطفاً کمی بعد دوباره تلاش کنید. |
 | `EVENT_QUOTA_EXCEEDED` | به سقف ساخت فعالیت در روز رسیده‌اید. |
+| `INVALID_REFERRAL_CODE` | این کد دعوت معتبر نیست. |
+| `SELF_REFERRAL` | نمی‌توانید کد دعوت خودتان را استفاده کنید. |
+| `ALREADY_REFERRED` | شما قبلاً با کد دعوت دیگری ثبت شده‌اید. |
+| `GIFT_CODE_INVALID` | این کد هدیه معتبر نیست. |
+| `GIFT_CODE_EXPIRED` | مهلت استفاده از این کد هدیه به پایان رسیده است. |
+| `GIFT_CODE_ALREADY_REDEEMED` | شما پیش‌تر از این کد هدیه استفاده کرده‌اید. |
+| `GIFT_CODE_EXHAUSTED` | ظرفیت استفاده از این کد هدیه تکمیل شده است. |
+| `GIFT_CODE_DUPLICATE` | کدی با این عنوان از قبل وجود دارد. |
 | `BOT_BLOCKED` | ربات پایه‌تَم را در تلگرام از حالت مسدود خارج کنید تا اعلان‌ها را دریافت کنید. |
 | `INTERNAL_ERROR` | خطایی رخ داد. لطفاً دوباره تلاش کنید. |
 
@@ -111,6 +123,7 @@ do next, never expose internals, never blame the user.
 | `chat.anonymous_intro` | این گفتگو ناشناس است. نام، شماره تماس و شناسهٔ تلگرام شما نمایش داده نمی‌شود. |
 | `chat.media_rejected` | در این نسخه فقط ارسال متن امکان‌پذیر است. |
 | `chat.message_deleted` | «پیام حذف شد» |
+| `chat.message` header | «{نام یا نام مستعار} — {عنوان رویداد}» — M18; see §5 |
 | `chat.opened` | درخواست شما پذیرفته شد. اکنون می‌توانید اطلاعات تماس را در صورت تمایل به اشتراک بگذارید. |
 | `chat.closed` | این گفتگو بسته شد و امکان ارسال پیام تازه وجود ندارد. |
 | `chat.contact_shared` | {نام مستعار} پذیرفت که اطلاعات تماس خود را در این گفتگو به اشتراک بگذارد. |
@@ -135,4 +148,11 @@ do next, never expose internals, never blame the user.
 - **Dates:** Jalali for display, converted in the Vue layer. **The API speaks ISO-8601 UTC exclusively** —
   no Jalali date is ever stored or transmitted (ADR-0008).
 - **Currency:** Toman, thousands-separated with Persian digits: «۱۲۰٬۰۰۰ تومان».
+- **Coins:** «۵۰ سکه» — Persian digits, the word after the number, never a symbol.
+- **Naming a conversation (M18, ADR-0014):** «نام — عنوان رویداد», joined by an **em dash (—) with a space
+  either side**, e.g. «علی رضایی — سفر شمال». Not a hyphen and not «در», because the two halves are a
+  person and a thing rather than a phrase. When there is no profile name the per-chat alias takes its place
+  — «میهمان ۱ — سفر شمال» — and **never** an invented name.
+- **A Trust Score somebody else can see:** «امتیاز اعتماد ۷۲ از ۱۰۰», and «تازه‌وارد» when the account has
+  never been judged. Never «۰», which says something false about a new user, and never «نمره» (§1).
 - **Tone:** polite plural (شما), warm and direct. Avoid bureaucratic phrasing and avoid exclamation marks.

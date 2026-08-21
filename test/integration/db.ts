@@ -67,6 +67,7 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
       "admin_user_role", "role_permission", "permission", "role", "admin_user",
       "event_participant", "event", "blacklist_term",
       "blacklist_version", "user_interest", "user_profile", "referral",
+      "gift_code_redemption", "gift_code",
       "trust_score_ledger", "trust_score", "coin_ledger",
       "coin_account", "consent", "telegram_account", "audit_log", "user",
       "policy_version", "interest", "category", "district", "city",

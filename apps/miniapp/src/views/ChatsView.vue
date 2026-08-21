@@ -126,11 +126,22 @@ onMounted(load);
           :key="chat.publicId"
           class="flex flex-col gap-2 rounded-2xl bg-tg-secondary-bg p-4"
         >
+          <!--
+            «who — which event», which is the title of the conversation (ADR-0014).
+
+            The event title alone was ambiguous in the direction that mattered: a
+            host with two events had two conversations headed by two different
+            titles and two counterparts both called «میهمان ۱», and nothing on the
+            row said which person was which. `counterpartName` falls back to the
+            alias in the domain, so this is never empty and never invents a name.
+          -->
           <div class="flex items-start justify-between gap-2">
-            <h2 class="flex-1 font-medium leading-snug">{{ chat.eventTitle }}</h2>
+            <h2 class="flex-1 font-medium leading-snug">
+              {{ chat.counterpartName }} — {{ chat.eventTitle }}
+            </h2>
             <span
               v-if="chat.unreadCount > 0"
-              class="rounded-full bg-tg-button px-2 py-0.5 text-xs text-tg-button-text"
+              class="shrink-0 rounded-full bg-tg-button px-2 py-0.5 text-xs text-tg-button-text"
             >
               {{ toPersianDigits(chat.unreadCount) }} تازه
             </span>

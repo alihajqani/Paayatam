@@ -39,6 +39,17 @@ export const PERMISSIONS = {
   POLICY_MANAGE: 'policy.manage',
   /** Change a policy number in `app_setting`. */
   SETTINGS_MANAGE: 'settings.manage',
+  /**
+   * Mint, disable and monitor gift codes (M18).
+   *
+   * Its own permission rather than a reuse of `settings.manage`, because it is
+   * not the same kind of act: a settings change retunes a policy that already
+   * exists, and this one creates coins out of nothing. It is granted to
+   * `SUPER_ADMIN` alone, for the reason ADR-0010 keeps `coin.adjust` away from
+   * `SUPPORT` — the role most exposed to "please just give them the coins" is
+   * the one that must not be able to.
+   */
+  GIFT_CODE_MANAGE: 'giftcode.manage',
   /** Read the audit trail. */
   AUDIT_READ: 'audit.read',
   /** Request or approve a role change. Four-eyes applies on top (rule 4). */

@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { Prisma } from '@payetam/db';
-import { CLOCK, type Clock } from '@payetam/platform';
+import { CLOCK, METRICS, MetricsRegistry, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
@@ -84,6 +84,16 @@ export class ReferralService {
     private readonly settings: SettingsService,
     private readonly coins: CoinService,
     private readonly audit: AuditService,
+    /**
+     * Counted by outcome (M18).
+     *
+     * The audit trail already records every claim that *succeeded* — that is what
+     * `referral.claimed` and `referral.qualified` are for. What it cannot show is
+     * the refusals: a burst of `invalid` against codes that do not exist leaves no
+     * row anywhere, and is the only externally visible sign of somebody guessing
+     * at other people's invite codes.
+     */
+    private readonly metrics: MetricsRegistry,
   ) {}
 
   /** The caller's code and what it has earned them. */
@@ -133,9 +143,13 @@ export class ReferralService {
     // something the caller can act on differently, and distinguishing them turns
     // this endpoint into an oracle for which codes exist.
     if (!referrer || referrer.status === 'BANNED') {
+      this.claimed('invalid');
       throw new AppError(ErrorCode.INVALID_REFERRAL_CODE);
     }
-    if (referrer.id === userId) throw new AppError(ErrorCode.SELF_REFERRAL);
+    if (referrer.id === userId) {
+      this.claimed('self');
+      throw new AppError(ErrorCode.SELF_REFERRAL);
+    }
 
     const fraudSignals = await this.velocitySignals(referrer.id, now);
 
@@ -157,9 +171,14 @@ export class ReferralService {
       // The UNIQUE on `referred_user_id` answering, which is the whole guard:
       // one referrer per person, decided by the database rather than by a read
       // this code performed a moment earlier.
-      if (isUniqueViolation(error)) throw new AppError(ErrorCode.ALREADY_REFERRED);
+      if (isUniqueViolation(error)) {
+        this.claimed('already_referred');
+        throw new AppError(ErrorCode.ALREADY_REFERRED);
+      }
       throw error;
     }
+
+    this.claimed('accepted');
 
     await this.audit.record({
       actorType: 'USER',
@@ -316,6 +335,11 @@ export class ReferralService {
     }
 
     throw new AppError(ErrorCode.INTERNAL_ERROR);
+  }
+
+  /** One label per outcome. Never a user id — a counter is scraped by anything. */
+  private claimed(result: string): void {
+    this.metrics.counter(METRICS.REFERRAL_CLAIMS, 'Referral claim attempts by outcome', { result });
   }
 
   /**

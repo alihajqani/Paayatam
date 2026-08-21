@@ -482,6 +482,61 @@ describe('the host decides', () => {
       code: 'EVENT_NOT_FOUND',
     });
   });
+
+  /**
+   * The host sees each requester's Trust Score (M18).
+   *
+   * The property that actually matters is the **pairing**: with several requests
+   * in the queue, each score has to belong to the person it is rendered beside.
+   * A batched lookup keyed by `user_id` is easy to get subtly wrong — off by one
+   * against the row order, or silently reusing the first row for everybody — and
+   * neither mistake is visible from a single-requester test.
+   */
+  it('attaches each requester’s Trust Score to the right requester', async () => {
+    const eventPublicId = await createEvent({ capacity: 5 });
+    const [a, b, c] = await Promise.all([createJoiner(), createJoiner(), createJoiner()]);
+
+    await trust.apply({
+      userId: a,
+      delta: 12,
+      type: 'ADMIN_ADJUSTMENT',
+      reasonCode: 'test.a',
+      idempotencyKey: 'trust-test-a',
+      actorType: 'SYSTEM',
+    });
+    await trust.apply({
+      userId: c,
+      delta: -7,
+      type: 'ADMIN_ADJUSTMENT',
+      reasonCode: 'test.c',
+      idempotencyKey: 'trust-test-c',
+      actorType: 'SYSTEM',
+    });
+
+    await participation.join(a, eventPublicId);
+    clock.set(new Date(NOW.getTime() + 1000));
+    await participation.join(b, eventPublicId);
+    clock.set(new Date(NOW.getTime() + 2000));
+    await participation.join(c, eventPublicId);
+
+    const list = await participation.listForEvent(hostId, eventPublicId);
+
+    const scores = new Map(list.map((row) => [row.userPublicId, row.trustScore]));
+    const [publicA, publicB, publicC] = await Promise.all(
+      [a, b, c].map(
+        async (id) =>
+          (await prisma.user.findUniqueOrThrow({ where: { id }, select: { publicId: true } }))
+            .publicId,
+      ),
+    );
+
+    // The starting score is 50 (plan §11), so +12 and −7 land here.
+    expect(scores.get(publicA!)).toBe(62);
+    expect(scores.get(publicC!)).toBe(43);
+    // `b` has never moved, so there is no `trust_score` row — and a missing row is
+    // "never judged", not zero. The client renders «تازه‌وارد» for this.
+    expect(scores.get(publicB!)).toBeNull();
+  });
 });
 
 describe('the participant withdraws', () => {

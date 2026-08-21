@@ -6,6 +6,7 @@ import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
+import { GiftCodeAdminService } from './gift-code-admin.service';
 // AuditModule and OutboxModule are @Global, so they need no import here.
 
 /**
@@ -20,7 +21,19 @@ import { ChatUnsealService } from './chat-unseal.service';
  */
 @Module({
   imports: [CatalogModule, ChatModule, EconomyModule],
-  providers: [AdminCredentials, AdminAccessService, ChatUnsealService, AdminOperationsService],
-  exports: [AdminCredentials, AdminAccessService, ChatUnsealService, AdminOperationsService],
+  providers: [
+    AdminCredentials,
+    AdminAccessService,
+    ChatUnsealService,
+    AdminOperationsService,
+    GiftCodeAdminService,
+  ],
+  exports: [
+    AdminCredentials,
+    AdminAccessService,
+    ChatUnsealService,
+    AdminOperationsService,
+    GiftCodeAdminService,
+  ],
 })
 export class AdminAccessModule {}

@@ -42,6 +42,13 @@ Dropped payetam_restore_rehearsal
 REHEARSAL_SECONDS=2
 ```
 
+> The transcript above is a **recorded run from 2026-08-17** and is left exactly as it
+> happened. Its `42 tables` predates M18, which added `gift_code` and
+> `gift_code_redemption`; the schema is now 45 tables and the same 6 triggers. That is
+> the point of the check below being written against **the live database** rather than
+> against a number in this file — a count that has to be edited every migration is a
+> count that will eventually be wrong and trusted anyway.
+
 **The measured number is 2 seconds, and it is honest about almost nothing.** The
 development database holds a seeded catalog and a handful of rows; the dump is 144 kB.
 What the rehearsal *does* establish — and what it was written to establish — is that
@@ -52,7 +59,7 @@ every step works at all:
   catches the failures that actually happen: an extension the dump did not create
   before the schema that needs it, a `GRANT` to a role that does not exist on the
   target, an owner mismatch.
-- **42 tables, 6 triggers and 4 extensions arrive — the same counts the live database
+- **Every table, trigger and extension arrives — the same counts the live database
   reports.** The trigger count is the one worth naming and worth checking against the
   source rather than against a number in a document: the append-only guards on
   `coin_ledger`, `trust_score_ledger`, `consent`, `audit_log` and `chat_action` are

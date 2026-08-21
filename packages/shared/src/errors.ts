@@ -59,6 +59,22 @@ export const ErrorCode = {
   SELF_REFERRAL: 'SELF_REFERRAL',
   ALREADY_REFERRED: 'ALREADY_REFERRED',
   EVENT_NOT_BOOSTABLE: 'EVENT_NOT_BOOSTABLE',
+  /**
+   * Gift codes (M18). Four codes rather than one, because the four are things a
+   * user can act on differently: retype it, ask for a new one, stop trying, or
+   * find out they already have the coins. A single «کد معتبر نیست» would be an
+   * oracle for none of them and an explanation for none of them either.
+   *
+   * `GIFT_CODE_INVALID` deliberately covers both "no such code" and "disabled",
+   * for the reason `INVALID_REFERRAL_CODE` covers both "unknown" and "banned
+   * referrer": distinguishing them turns the endpoint into a way to enumerate
+   * which codes exist.
+   */
+  GIFT_CODE_INVALID: 'GIFT_CODE_INVALID',
+  GIFT_CODE_EXPIRED: 'GIFT_CODE_EXPIRED',
+  GIFT_CODE_ALREADY_REDEEMED: 'GIFT_CODE_ALREADY_REDEEMED',
+  GIFT_CODE_EXHAUSTED: 'GIFT_CODE_EXHAUSTED',
+  GIFT_CODE_DUPLICATE: 'GIFT_CODE_DUPLICATE',
 
   // Reviews (ADR-0011)
   ALREADY_REVIEWED: 'ALREADY_REVIEWED',
@@ -135,6 +151,11 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   SELF_REFERRAL: 'نمی‌توانید کد دعوت خودتان را استفاده کنید.',
   ALREADY_REFERRED: 'شما قبلاً با کد دعوت دیگری ثبت شده‌اید.',
   EVENT_NOT_BOOSTABLE: 'این فعالیت قابل نردبان کردن نیست.',
+  GIFT_CODE_INVALID: 'این کد هدیه معتبر نیست.',
+  GIFT_CODE_EXPIRED: 'مهلت استفاده از این کد هدیه به پایان رسیده است.',
+  GIFT_CODE_ALREADY_REDEEMED: 'شما پیش‌تر از این کد هدیه استفاده کرده‌اید.',
+  GIFT_CODE_EXHAUSTED: 'ظرفیت استفاده از این کد هدیه تکمیل شده است.',
+  GIFT_CODE_DUPLICATE: 'کدی با این عنوان از قبل وجود دارد.',
 
   ALREADY_REVIEWED: 'شما قبلاً بازخورد خود را ثبت کرده‌اید.',
   REVIEW_WINDOW_CLOSED: 'مهلت ثبت بازخورد به پایان رسیده است.',
@@ -173,6 +194,9 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   EVENT_NOT_FOUND: 404,
   DUPLICATE_REQUEST: 409,
   ALREADY_REFERRED: 409,
+  GIFT_CODE_ALREADY_REDEEMED: 409,
+  GIFT_CODE_EXHAUSTED: 409,
+  GIFT_CODE_DUPLICATE: 409,
   ALREADY_REVIEWED: 409,
   ALREADY_REPORTED: 409,
   CANNOT_REPORT_OWN_CONTENT: 403,

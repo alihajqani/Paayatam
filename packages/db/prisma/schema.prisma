@@ -90,6 +90,7 @@ model User {
   idempotency     RequestIdempotency[]
   reviewsReceived Review[]           @relation("ReviewsReceived")
   referralReceived Referral?         @relation("ReferralReceived")
+  giftCodeRedemptions GiftCodeRedemption[]
 
   @@index([status])
   @@index([createdAt])
@@ -356,6 +357,11 @@ enum CoinLedgerType {
   ONBOARDING_REWARD
   REFERRAL_REWARD
   REVIEW_REWARD
+  /// A gift or discount code the user redeemed (M18). Appended rather than folded
+  /// into `ADMIN_ADJUSTMENT`, because "somebody typed a campaign code" and "a
+  /// human moved a balance by hand" answer different questions in an audit and
+  /// have different people to ask about them.
+  GIFT_CODE_REDEEM
   BOOST_SPEND
   VIP_SPEND
   CANCELLATION_PENALTY
@@ -420,6 +426,7 @@ model CoinLedger {
   reversal CoinLedger? @relation("CoinLedgerReversal")
 
   penalisedParticipants EventParticipant[]
+  giftCodeRedemption    GiftCodeRedemption?
 
   @@index([userId, createdAt])
   @@index([type, createdAt])
@@ -547,6 +554,123 @@ model Referral {
   @@index([referrerUserId, createdAt])
   @@index([status])
   @@map("referral")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gift and discount codes (M18)
+//
+// A campaign code somebody types in exchange for coins. It is a *sibling* of
+// `referral` rather than a second economy: the coins move through `CoinService`
+// like every other coin in the product, so the ledger stays the single truth and
+// `balance = SUM(coin_ledger.amount)` keeps holding (ADR-0007, invariant 3).
+//
+// Three properties are the database's rather than the service's, for the reason
+// ADR-0006 gives about capacity: a read-then-write check has a window, and a
+// constraint has none.
+//
+//   - **`code` is UNIQUE and stored already normalized** — upper-cased with
+//     spaces and dashes removed, exactly what `normalizeCode` produces for a
+//     referral code. Case-insensitivity is therefore a property of the column
+//     rather than of every query that touches it, and `citext` is not needed.
+//   - **One redemption row per `(gift_code, user, seq)`**, so a code that allows
+//     three redemptions per person allows exactly three and a single-use code
+//     allows exactly one — whatever the client retries.
+//   - **`redeemed_count <= max_redemptions`** is a CHECK, so the global cap
+//     survives a future code path that forgets to take the row lock.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A redeemable code.
+///
+/// Everything that decides whether a redemption is allowed lives here, in the
+/// database, and nothing lives in the client: the coin amount, the window, the
+/// two limits and the kill switch. Plan §11's rule — "all tunable numbers in the
+/// database" — applies to a campaign the same way it applies to a policy.
+model GiftCode {
+  id   String @id @default(uuid(7))
+  /// Normalized on write: upper-case, no spaces, no dashes. The UNIQUE is what
+  /// makes «abc-123» and «ABC123» the same code rather than two.
+  code String @unique
+
+  /// What redeeming grants. Positive integer Toman-free coins — never a float,
+  /// never client-supplied (plan §4).
+  coins Int
+
+  /// How many redemptions exist in total. Null is unlimited, which is the honest
+  /// representation of "no cap" — a very large number would look like a cap
+  /// somebody chose.
+  maxRedemptions Int? @map("max_redemptions")
+  /// How many one person may make. Defaults to 1, because a gift code that can be
+  /// redeemed twice by the same person is usually a mistake rather than a plan.
+  perUserLimit   Int  @default(1) @map("per_user_limit")
+  /// Maintained under the row lock the redemption takes. A cache of
+  /// `COUNT(gift_code_redemption)`, and the CHECK below is what keeps it honest.
+  redeemedCount  Int  @default(0) @map("redeemed_count")
+
+  /// The window. Both nullable: a code with neither is live from creation until
+  /// somebody disables it.
+  startsAt  DateTime? @map("starts_at") @db.Timestamptz(3)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+
+  /// The kill switch, separate from the window (ADR-0007's argument for
+  /// `channel.enabled`): a campaign that has to stop *now* must not require
+  /// back-dating an expiry.
+  isActive Boolean @default(true) @map("is_active")
+
+  /// What this campaign is, for whoever reads the list in six months.
+  note String?
+
+
+  /// The staff account that created it. Null for a code seeded by a script.
+  createdByAdminId String? @map("created_by_admin_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy   AdminUser?           @relation(fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  redemptions GiftCodeRedemption[]
+
+  /// The admin list, newest first.
+  @@index([createdAt])
+  /// The redemption lookup is by `code`, which the UNIQUE already answers; this
+  /// one is for "which campaigns are live?" on the admin list.
+  @@index([isActive, expiresAt])
+  @@map("gift_code")
+}
+
+/// One redemption, and the row that makes a repeat impossible.
+///
+/// `seq` is the 1-based ordinal of this user's redemptions of this code,
+/// allocated under the `gift_code` row lock. Without it a `UNIQUE (code, user)`
+/// could not express `per_user_limit > 1`; with it, the unique index is the guard
+/// for every limit rather than only for the single-use case.
+///
+/// `coin_ledger_id` is the payment. It is NOT NULL and UNIQUE: a redemption that
+/// granted nothing is not a redemption, and a ledger row cannot be claimed by two
+/// of them.
+model GiftCodeRedemption {
+  id         String @id @default(uuid(7))
+  giftCodeId String @map("gift_code_id")
+  userId     String @map("user_id")
+  /// 1-based, per (code, user).
+  seq        Int
+  /// What was actually granted, snapshotted — `gift_code.coins` may be retuned
+  /// later and this must stay explainable against what was paid.
+  coins      Int
+  /// The coin movement this redemption produced.
+  coinLedgerId String @unique @map("coin_ledger_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  giftCode GiftCode   @relation(fields: [giftCodeId], references: [id], onDelete: Restrict)
+  user     User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  ledger   CoinLedger @relation(fields: [coinLedgerId], references: [id], onDelete: Restrict)
+
+  /// The guard. Two concurrent redemptions of a single-use code race to insert
+  /// `seq = 1` and exactly one wins.
+  @@unique([giftCodeId, userId, seq])
+  /// "How many has this person had?" — read while holding the code's row lock.
+  @@index([userId, createdAt])
+  @@map("gift_code_redemption")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1561,6 +1685,7 @@ model AdminUser {
   unsealGrants    ChatUnsealGrant[]
   roleChangesMade RoleChangeRequest[] @relation("RoleChangeRequestedBy")
   roleChangesSeen RoleChangeRequest[] @relation("RoleChangeApprovedBy")
+  giftCodesCreated GiftCode[]
 
   @@index([status])
   @@map("admin_user")

@@ -597,6 +597,9 @@ describe('the projection (plan §3.6, invariant 7)', () => {
         'genderPreference',
         'hostDisplayName',
         'hostPublicId',
+        // M18: the host's reputation, nullable — never coalesced to the neutral
+        // score the way the ranking term is (ADR-0014).
+        'hostTrustScore',
         'isVip',
         'maxAge',
         'minAge',

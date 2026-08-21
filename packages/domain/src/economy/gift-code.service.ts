@@ -1,0 +1,286 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { PrismaService } from '@payetam/db';
+import { CLOCK, METRICS, MetricsRegistry, type Clock } from '@payetam/platform';
+import { AppError, ErrorCode } from '@payetam/shared';
+import { AuditService } from '../audit/audit.service';
+import { isUniqueViolation } from '../identity/user.service';
+import { CoinService } from './coin.service';
+import { normalizeCode } from './referral.service';
+
+/** The stable, machine-readable reason on the ledger row. The client renders the Persian. */
+export const GIFT_CODE_REASON = 'giftcode.redeemed';
+
+/**
+ * The exactly-once key for one redemption.
+ *
+ * Derived from `(code, user, ordinal)` and never from anything the client sent,
+ * exactly as `referrerRewardKey` is derived from the referral. A retried request
+ * that resolves to the same ordinal collides on `coin_ledger.idempotency_key`; a
+ * request that resolves to a *different* ordinal was a genuinely different
+ * redemption of a multi-use code, and is meant to pay.
+ */
+export function giftCodeRedemptionKey(giftCodeId: string, userId: string, seq: number): string {
+  return `gift-code:${giftCodeId}:${userId}:${String(seq)}`;
+}
+
+export interface RedeemedGiftCode {
+  /** The code as stored, so the client echoes back what the server actually matched. */
+  code: string;
+  /** What this redemption granted. Read from the row, never from the request. */
+  coins: number;
+  /** The balance after the grant, so the screen never has to guess at it. */
+  balance: number;
+  /** How many redemptions of this code the caller has left. Zero for a single-use code. */
+  remainingForUser: number;
+}
+
+/** One row of `gift_code`, as the row lock returns it. */
+interface LockedGiftCode {
+  id: string;
+  code: string;
+  coins: number;
+  max_redemptions: number | null;
+  per_user_limit: number;
+  redeemed_count: number;
+  starts_at: Date | null;
+  expires_at: Date | null;
+  is_active: boolean;
+}
+
+/**
+ * Redeeming a gift or discount code (M18).
+ *
+ * A campaign code somebody types in exchange for coins, and deliberately **not a
+ * second economy**: every coin it grants moves through `CoinService`, so
+ * `coin_ledger` stays the single truth and ADR-0007's
+ * `balance = SUM(coin_ledger.amount)` reconciliation keeps holding without
+ * knowing this file exists.
+ *
+ * The redemption path is one transaction and three guards, in this order:
+ *
+ *  1. **`SELECT … FOR UPDATE` on the `gift_code` row**, as the first statement.
+ *     Every redeemer of one code serialises there, which is what makes the global
+ *     cap a count rather than a race — the same argument ADR-0006 makes for the
+ *     event row and capacity.
+ *  2. **`UNIQUE (gift_code_id, user_id, seq)`.** The per-user limit, decided by
+ *     the database rather than by a read this code performed a moment earlier.
+ *  3. **`coin_ledger.idempotency_key`.** The exactly-once guarantee for the coins
+ *     themselves, which is what makes a request retried over a dropped connection
+ *     credit exactly once.
+ *
+ * Any one of the three stops the ordinary double-tap. All three are here because
+ * they fail in different directions, and the one that turns out to be
+ * load-bearing on the day somebody refactors is never the one you expected.
+ *
+ * **Lock ordering**, which callers must preserve: gift_code → coin_account, never
+ * the reverse. That is the second ordered pair in the product after
+ * event → coin_account, and consistency is what keeps the system deadlock-free
+ * (ADR-0006).
+ *
+ * **Nothing about the grant comes from the client.** The amount, the window, both
+ * limits and the kill switch are columns; the request carries a string.
+ */
+@Injectable()
+export class GiftCodeService {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CLOCK) private readonly clock: Clock,
+    private readonly coins: CoinService,
+    private readonly audit: AuditService,
+    private readonly metrics: MetricsRegistry,
+  ) {}
+
+  /**
+   * Redeem a code.
+   *
+   * Refuses with four distinct codes rather than one, because the four are things
+   * a user can act on differently: retype it, ask for a new one, stop trying, or
+   * discover they already have the coins.
+   *
+   * `GIFT_CODE_INVALID` covers both "no such code" and "disabled", for the reason
+   * `INVALID_REFERRAL_CODE` covers both "unknown" and "banned referrer" — telling
+   * them apart would turn this endpoint into a way to enumerate which codes exist.
+   */
+  async redeem(userId: string, rawCode: string): Promise<RedeemedGiftCode> {
+    const code = normalizeCode(rawCode);
+    const now = this.clock.now();
+
+    /**
+     * Resolved outside the transaction so an unknown code costs no lock at all.
+     * A brute-force sweep against codes that do not exist is the most likely
+     * abusive traffic this endpoint sees, and it must be the cheapest thing it
+     * does.
+     */
+    const found = await this.prisma.giftCode.findUnique({
+      where: { code },
+      select: { id: true },
+    });
+    if (!found) {
+      this.fail('invalid');
+      throw new AppError(ErrorCode.GIFT_CODE_INVALID);
+    }
+
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        // The lock, and the first statement. Everything below is serialised per
+        // code by it: the window check, the global cap, the per-user count, and
+        // the insert that consumes them. Reading `redeemed_count` without it
+        // would let ten simultaneous redemptions of the last slot all see one
+        // remaining.
+        const locked = await tx.$queryRaw<LockedGiftCode[]>`
+          SELECT "id", "code", "coins", "max_redemptions", "per_user_limit",
+                 "redeemed_count", "starts_at", "expires_at", "is_active"
+          FROM "gift_code"
+          WHERE "id" = ${found.id}
+          FOR UPDATE
+        `;
+        const giftCode = locked[0];
+        if (!giftCode || !giftCode.is_active) throw new AppError(ErrorCode.GIFT_CODE_INVALID);
+
+        // The window, measured against the server clock. No endpoint in this
+        // product accepts a client timestamp (invariant 9). `starts_at` in the
+        // future and `expires_at` in the past are the same answer to the user —
+        // "not now" — and deliberately share a code.
+        if (giftCode.starts_at !== null && giftCode.starts_at.getTime() > now.getTime()) {
+          throw new AppError(ErrorCode.GIFT_CODE_EXPIRED);
+        }
+        if (giftCode.expires_at !== null && giftCode.expires_at.getTime() <= now.getTime()) {
+          throw new AppError(ErrorCode.GIFT_CODE_EXPIRED);
+        }
+
+        if (
+          giftCode.max_redemptions !== null &&
+          giftCode.redeemed_count >= giftCode.max_redemptions
+        ) {
+          throw new AppError(ErrorCode.GIFT_CODE_EXHAUSTED);
+        }
+
+        const alreadyHad = await tx.giftCodeRedemption.count({
+          where: { giftCodeId: giftCode.id, userId },
+        });
+        if (alreadyHad >= giftCode.per_user_limit) {
+          throw new AppError(ErrorCode.GIFT_CODE_ALREADY_REDEEMED);
+        }
+
+        const seq = alreadyHad + 1;
+
+        /**
+         * The coins first, so the redemption row can point at the ledger row that
+         * paid it. `apply` joins this transaction, which is what makes "the
+         * balance moved" and "the redemption exists" one fact rather than two —
+         * a crash between them would otherwise leave a grant nobody can account
+         * for, or a redemption that was never paid.
+         */
+        const movement = await this.coins.apply(
+          {
+            userId,
+            amount: giftCode.coins,
+            type: 'GIFT_CODE_REDEEM',
+            reasonCode: GIFT_CODE_REASON,
+            idempotencyKey: giftCodeRedemptionKey(giftCode.id, userId, seq),
+            actorType: 'USER',
+            actorId: userId,
+            refType: 'gift_code',
+            refId: giftCode.id,
+            metadata: { code: giftCode.code, seq },
+          },
+          tx,
+        );
+
+        if (!movement.applied) {
+          /**
+           * The key was already spent. Under the row lock above this is only
+           * reachable if the lock is ever removed by a refactor, and refusing is
+           * the honest answer either way: the coins are already in the account,
+           * and paying again would be the one outcome this whole file exists to
+           * prevent.
+           */
+          throw new AppError(ErrorCode.GIFT_CODE_ALREADY_REDEEMED);
+        }
+
+        try {
+          await tx.giftCodeRedemption.create({
+            data: {
+              giftCodeId: giftCode.id,
+              userId,
+              seq,
+              coins: giftCode.coins,
+              coinLedgerId: movement.ledgerId,
+              createdAt: now,
+            },
+          });
+        } catch (error) {
+          // `UNIQUE (gift_code_id, user_id, seq)` answering — guard 2, which is
+          // only reachable without the lock, and is why it is still checked.
+          if (isUniqueViolation(error)) throw new AppError(ErrorCode.GIFT_CODE_ALREADY_REDEEMED);
+          throw error;
+        }
+
+        await tx.giftCode.update({
+          where: { id: giftCode.id },
+          data: { redeemedCount: { increment: 1 } },
+        });
+
+        // Invariant 10's discipline applied to an economic grant: the coins and
+        // the trail that explains them commit together.
+        await this.audit.record(
+          {
+            actorType: 'USER',
+            actorId: userId,
+            action: 'giftcode.redeemed',
+            targetType: 'gift_code',
+            targetId: giftCode.id,
+            after: { code: giftCode.code, coins: giftCode.coins, seq },
+          },
+          tx,
+        );
+
+        return {
+          code: giftCode.code,
+          coins: giftCode.coins,
+          balance: movement.balance,
+          remainingForUser: giftCode.per_user_limit - seq,
+        };
+      });
+
+      this.metrics.counter(
+        METRICS.GIFT_CODE_REDEMPTIONS,
+        'Gift code redemption attempts by outcome',
+        { result: 'granted' },
+      );
+      return result;
+    } catch (error) {
+      // Counted by refusal reason, never by user. The ledger already records what
+      // succeeded; what it cannot show is the attempts that left no row, and a
+      // burst of them is the only externally visible sign of a brute-force sweep.
+      if (error instanceof AppError) this.fail(reasonLabel(error.code));
+      throw error;
+    }
+  }
+
+  private fail(result: string): void {
+    this.metrics.counter(
+      METRICS.GIFT_CODE_REDEMPTIONS,
+      'Gift code redemption attempts by outcome',
+      {
+        result,
+      },
+    );
+  }
+}
+
+/** A Prometheus label per refusal, from the error catalogue rather than a second list. */
+function reasonLabel(code: ErrorCode): string {
+  switch (code) {
+    case ErrorCode.GIFT_CODE_INVALID:
+      return 'invalid';
+    case ErrorCode.GIFT_CODE_EXPIRED:
+      return 'expired';
+    case ErrorCode.GIFT_CODE_ALREADY_REDEEMED:
+      return 'already_redeemed';
+    case ErrorCode.GIFT_CODE_EXHAUSTED:
+      return 'exhausted';
+    default:
+      return 'error';
+  }
+}

@@ -126,14 +126,23 @@ export type MyParticipationsResponse = z.infer<typeof myParticipationsResponse>;
 /**
  * What the host sees about somebody who asked to join.
  *
- * A public id and a display name, and nothing else about the person. The host of
- * an event is not entitled to a stranger's profile just because that stranger
- * asked to come (§3.6 layer 2).
+ * A public id, a display name and a Trust Score, and nothing else about the
+ * person. The host of an event is not entitled to a stranger's profile just
+ * because that stranger asked to come (§3.6 layer 2) — no birth year, no gender,
+ * no city, and above all nothing from `telegram_account`.
+ *
+ * The score is the one exception, and it is one the plan already implies: the
+ * host is being asked to let a stranger into a real-world meeting, and §11 puts
+ * reputation exactly there. `trustScore` is **the number only** — the ledger that
+ * explains it is a record of specific incidents and stays with the person they
+ * happened to (`GET /me/trust`).
  */
 export const participantSummaryView = z.object({
   publicId: z.string(),
   userPublicId: z.string(),
   displayName: z.string(),
+  /** 0–100, or null when this account has never been judged. Never 0-as-unknown. */
+  trustScore: z.number().int().min(0).max(100).nullable(),
   status: participantStatus,
   requestedAt: z.iso.datetime(),
   hostDeadlineAt: z.iso.datetime().nullable(),

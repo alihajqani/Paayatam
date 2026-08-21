@@ -1,6 +1,6 @@
 # ADR-0009: The anonymity boundary, chat encryption, retention and data minimisation
 
-- **Status:** Accepted (2026-08-15)
+- **Status:** Accepted (2026-08-15) — **layer 3 amended by [ADR-0014](0014-conversation-titles-and-reputation-display.md)** (2026-08-20)
 - **Decides:** D4 (age model), D5 (chat storage/retention), D10 (edit/delete propagation)
 - **Invariant owned:** `telegram_user_id` never appears in an API response, a log line, or a frontend bundle
 
@@ -32,6 +32,13 @@ under audit, and subject to a retention policy — requirements that pull agains
 3. **Per-chat aliases.** `chat_participant.alias` is assigned per chat («میهمان ۱»), not per user. **The same
    person in two different chats gets two different aliases**, so a host who runs many events cannot correlate
    a guest across them.
+
+   > **Amended by ADR-0014 (2026-08-20).** The alias is still assigned per chat and is still what a *message*
+   > is attributed to. A conversation is now **titled** by the counterpart's profile display name beside the
+   > event — «علی رضایی — سفر شمال» — falling back to the alias when there is no profile. The correlation this
+   > clause describes was already available to a host through `GET /events/:publicId/participants`, which has
+   > returned every requester's display name since M6; ADR-0014 records the reasoning and the cost.
+   > **Stable per-user aliases remain rejected**, and nothing here reaches `telegram_account`.
 4. **Relay hardening.** Every relayed message: `sendMessage` **never** `forwardMessage`; **all** message
    entities stripped; link previews disabled; body scanned for phone numbers, `@usernames`, `t.me/` links and
    emails, which are masked («حذف شد») during the anonymous stage and logged for moderation.
@@ -92,7 +99,9 @@ the evidentiary record for abuse investigation survives.
 - The 90-day window means abuse reported later has no evidence. An accepted trade against indefinite
   retention of private conversation.
 - Per-chat aliases mean a returning guest is not recognisable to a host, which slightly weakens repeat-guest
-  UX. That is the intended cost of preventing correlation.
+  UX. That was the intended cost of preventing correlation — **and ADR-0014 accepts that cost back**, having
+  found the correlation was never actually prevented: the participant list gave a host the same names in an
+  easier form, while the alias made their conversation list unreadable.
 - Key rotation needs a background re-encrypt job. `key_version` exists from day one so this is possible
   without a migration.
 

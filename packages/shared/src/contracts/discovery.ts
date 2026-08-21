@@ -87,6 +87,18 @@ export const discoveredEventView = z.object({
   host: z.object({
     publicId: z.uuid(),
     displayName: z.string(),
+    /**
+     * The host's Trust Score, 0–100, or **null when they have never been judged**
+     * (M18).
+     *
+     * Nullable rather than defaulted, and the difference matters: `trust_score` is
+     * written lazily by the first movement, so a brand-new host genuinely has no
+     * row, and 0 would be the worst possible reputation shown to somebody who has
+     * done nothing wrong. Ranking resolves the same absence to
+     * `trust.initial_score` because it has to produce a number; a screen does not,
+     * and says «تازه‌وارد» instead.
+     */
+    trustScore: z.number().int().min(0).max(100).nullable(),
   }),
 });
 export type DiscoveredEventView = z.infer<typeof discoveredEventView>;

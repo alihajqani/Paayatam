@@ -916,6 +916,74 @@ describe('the chat list', () => {
     const chats = await chat.listForUser(hostId);
     expect(chats.map((c) => c.publicId)).toEqual([first.chatPublicId, second.chatPublicId]);
   });
+
+  /**
+   * «who — which event» (M18, ADR-0014).
+   *
+   * The problem this solves is specific: a host running two events had two rows
+   * whose counterparts were both «میهمان ۱», and nothing on either row said which
+   * person was which. The chat has always carried its event — `anonymous_chat`
+   * has had `event_id` since M8 — so this needed no migration; what it needed was
+   * for the name to travel beside the title.
+   */
+  it('names the other side by their profile name, beside the event', async () => {
+    const { guestId } = await conversation();
+    await prisma.userProfile.update({
+      where: { userId: guestId },
+      data: { displayName: 'علی رضایی' },
+    });
+
+    const [asHost] = await chat.listForUser(hostId);
+    const [asGuest] = await chat.listForUser(guestId);
+
+    expect(asHost?.counterpartName).toBe('علی رضایی');
+    expect(asHost?.eventTitle).toBeTruthy();
+    // Symmetrical: the guest sees the host's name, which they already read on the
+    // event page before they ever asked to join. Read from the row rather than
+    // written out, because the host fixture's name is not this test's subject.
+    const hostProfile = await prisma.userProfile.findUniqueOrThrow({
+      where: { userId: hostId },
+      select: { displayName: true },
+    });
+    expect(asGuest?.counterpartName).toBe(hostProfile.displayName);
+    expect(asGuest?.counterpartName).not.toBe(asGuest?.counterpartAlias);
+  });
+
+  it('falls back to the alias when there is no profile name, never to an invented one', async () => {
+    // M15's anonymisation clears profiles, and an account can be mid-onboarding.
+    // «میهمان ۱ — دورهمی» is still a usable title; a made-up name is not.
+    const { guestId } = await conversation();
+    await prisma.userProfile.delete({ where: { userId: guestId } });
+
+    const [asHost] = await chat.listForUser(hostId);
+
+    expect(asHost?.counterpartName).toBe('میهمان ۱');
+    expect(asHost?.counterpartAlias).toBe('میهمان ۱');
+  });
+
+  it('keeps one guest’s two conversations distinguishable by their events', async () => {
+    // The same person asking about two of a host's events produces two chats.
+    // Each is «همان نام — رویداد دیگر», and each links to its own event.
+    const guestId = await createJoiner();
+    await prisma.userProfile.update({
+      where: { userId: guestId },
+      data: { displayName: 'علی رضایی' },
+    });
+
+    const firstEvent = await createEvent();
+    const secondEvent = await createEvent();
+    await participation.join(guestId, firstEvent);
+    clock.set(new Date(NOW.getTime() + 1000));
+    await participation.join(guestId, secondEvent);
+
+    const chats = await chat.listForUser(hostId);
+
+    expect(chats).toHaveLength(2);
+    expect(new Set(chats.map((c) => c.counterpartName))).toEqual(new Set(['علی رضایی']));
+    // Two different events, two different titles, two different links.
+    expect(new Set(chats.map((c) => c.eventPublicId))).toEqual(new Set([firstEvent, secondEvent]));
+    expect(new Set(chats.map((c) => c.eventTitle)).size).toBe(2);
+  });
 });
 
 /**

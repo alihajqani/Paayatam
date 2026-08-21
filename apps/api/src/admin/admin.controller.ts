@@ -16,15 +16,19 @@ import {
   AdminAccessService,
   AdminOperationsService,
   ChatUnsealService,
+  GiftCodeAdminService,
   type AdminSession,
+  type GiftCodeSummary,
 } from '@payetam/domain';
 import { PiiHasher } from '@payetam/platform';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
   adminLoginRequest,
+  createGiftCodeRequest,
   decideCaseRequest,
   requestRoleChangeRequest,
+  setGiftCodeActiveRequest,
   setUserStatusRequest,
   unsealChatRequest,
   type AdjustCoinsRequest,
@@ -32,10 +36,14 @@ import {
   type AdminLoginRequest,
   type AdminLoginResponse,
   type AuditLogResponse,
+  type CreateGiftCodeRequest,
   type DecideCaseRequest,
+  type GiftCodeListResponse,
+  type GiftCodeView,
   type ModerationCaseStatus,
   type ModerationQueueResponse,
   type RequestRoleChangeRequest,
+  type SetGiftCodeActiveRequest,
   type SetUserStatusRequest,
   type UnsealChatRequest,
   type UnsealGrantResponse,
@@ -71,6 +79,7 @@ export class AdminController {
     private readonly access: AdminAccessService,
     private readonly operations: AdminOperationsService,
     private readonly unseal: ChatUnsealService,
+    private readonly giftCodes: GiftCodeAdminService,
     private readonly pii: PiiHasher,
   ) {}
 
@@ -199,6 +208,53 @@ export class AdminController {
     return this.operations.adjustTrust(admin, body);
   }
 
+  /**
+   * Gift codes (M18): mint, disable, and watch being drained.
+   *
+   * Guarded by `giftcode.manage`, which only `SUPER_ADMIN` holds — minting coins
+   * out of nothing is the same class of capability as `coin.adjust`, and ADR-0010's
+   * reasoning about `SUPPORT` applies without change. As everywhere else in this
+   * controller the check is not here: it is in the service, so it holds for the
+   * seeds and scripts that never pass through a controller at all.
+   */
+  @Post('gift-codes')
+  async createGiftCode(
+    @Body(new ZodValidationPipe(createGiftCodeRequest)) body: CreateGiftCodeRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<GiftCodeView> {
+    const created = await this.giftCodes.create(admin, {
+      code: body.code,
+      coins: body.coins,
+      maxRedemptions: body.maxRedemptions ?? null,
+      perUserLimit: body.perUserLimit,
+      startsAt: body.startsAt != null ? new Date(body.startsAt) : null,
+      expiresAt: body.expiresAt != null ? new Date(body.expiresAt) : null,
+      note: body.note ?? null,
+    });
+    return toGiftCodeView(created);
+  }
+
+  @Get('gift-codes')
+  async listGiftCodes(@CurrentAdmin() admin: AdminSession): Promise<GiftCodeListResponse> {
+    const codes = await this.giftCodes.list(admin);
+    return { codes: codes.map(toGiftCodeView) };
+  }
+
+  /**
+   * The kill switch, separate from the expiry window.
+   *
+   * A campaign that has to stop *now* must not require back-dating a timestamp,
+   * which is fiddly under pressure and leaves a lie in the record.
+   */
+  @Post('gift-codes/:code/active')
+  async setGiftCodeActive(
+    @Param('code') code: string,
+    @Body(new ZodValidationPipe(setGiftCodeActiveRequest)) body: SetGiftCodeActiveRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<GiftCodeView> {
+    return toGiftCodeView(await this.giftCodes.setActive(admin, code, body.isActive));
+  }
+
   @Post('users/:publicId/status')
   @HttpCode(HttpStatus.NO_CONTENT)
   async setUserStatus(
@@ -307,4 +363,27 @@ export class AdminController {
  */
 function hashed(value: string | null): { ipHash: string } | undefined {
   return value === null ? undefined : { ipHash: value };
+}
+
+/**
+ * Field by field, never a spread (§3.6 layer 2).
+ *
+ * A `gift_code` row carries the internal id and the staff account that minted it;
+ * neither belongs on the wire. The domain summary has already dropped both — this
+ * only turns its `Date`s into ISO-8601 UTC, which is what every other mapper in
+ * the product does (ADR-0008).
+ */
+function toGiftCodeView(summary: GiftCodeSummary): GiftCodeView {
+  return {
+    code: summary.code,
+    coins: summary.coins,
+    maxRedemptions: summary.maxRedemptions,
+    perUserLimit: summary.perUserLimit,
+    redeemedCount: summary.redeemedCount,
+    startsAt: summary.startsAt?.toISOString() ?? null,
+    expiresAt: summary.expiresAt?.toISOString() ?? null,
+    isActive: summary.isActive,
+    note: summary.note,
+    createdAt: summary.createdAt.toISOString(),
+  };
 }

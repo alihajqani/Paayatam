@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '@payetam/config';
 import type { PrismaClient, PrismaService } from '@payetam/db';
-import { FakeClock } from '@payetam/platform';
+import { FakeClock, MetricsRegistry } from '@payetam/platform';
 import {
   createTestPrisma,
   createUser,
@@ -53,7 +53,14 @@ const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
-const referrals = new ReferralService(service, clock, settings, coins, audit);
+const referrals = new ReferralService(
+  service,
+  clock,
+  settings,
+  coins,
+  audit,
+  new MetricsRegistry(),
+);
 const reviews = new ReviewService(
   service,
   clock,

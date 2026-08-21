@@ -27,7 +27,15 @@ const error = ref<string | null>(null);
 const code = ref('');
 const claimError = ref<string | null>(null);
 const claimed = ref<string | null>(null);
+const claiming = ref(false);
+const copied = ref(false);
 const tab = ref<'coins' | 'trust' | 'invite'>('coins');
+
+/** The gift-code form, kept separate from the invite one: two codes, two outcomes. */
+const giftCode = ref('');
+const giftError = ref<string | null>(null);
+const giftSuccess = ref<string | null>(null);
+const redeeming = ref(false);
 
 const state = computed(() => {
   if (error.value !== null) return 'error' as const;
@@ -39,6 +47,7 @@ const COIN_REASON_FA: Record<string, string> = {
   ONBOARDING_REWARD: 'هدیهٔ خوش‌آمد',
   REFERRAL_REWARD: 'پاداش دعوت',
   REVIEW_REWARD: 'پاداش نظر',
+  GIFT_CODE_REDEEM: 'کد هدیه',
   BOOST_SPEND: 'برجسته‌کردن رویداد',
   VIP_SPEND: 'رویداد ویژه',
   CANCELLATION_PENALTY: 'جریمهٔ لغو',
@@ -78,14 +87,86 @@ async function claim(): Promise<void> {
     return;
   }
 
+  claiming.value = true;
   try {
     const result = await economy.claimReferral(code.value.trim());
     haptic('success');
-    claimed.value = `کد پذیرفته شد. ${formatCoins(result.pendingCoins)} پس از نخستین حضور شما آزاد می‌شود.`;
+    // What the server said is pending, not a number this screen decided. Once the
+    // claim settles immediately — the caller had already attended something —
+    // `pendingCoins` is zero and the sentence says so instead of promising coins.
+    claimed.value =
+      result.status === 'QUALIFIED'
+        ? 'کد پذیرفته شد و پاداش شما همین حالا واریز شد.'
+        : `کد پذیرفته شد. ${formatCoins(result.pendingCoins)} پس از نخستین حضور شما آزاد می‌شود.`;
     code.value = '';
   } catch (cause) {
     haptic('error');
     claimError.value = cause instanceof ApiError ? cause.messageFa : 'ثبت کد دعوت انجام نشد.';
+  } finally {
+    claiming.value = false;
+  }
+}
+
+/**
+ * Redeems a gift code.
+ *
+ * Every refusal the server can give — unknown, expired, already used, exhausted —
+ * arrives as its own `code` with its own Persian sentence from the shared error
+ * catalogue, so this handler renders `messageFa` rather than deciding what went
+ * wrong. The generic fallback exists for the network failure, which is the one
+ * case the server never got to answer.
+ */
+async function redeem(): Promise<void> {
+  giftError.value = null;
+  giftSuccess.value = null;
+  if (giftCode.value.trim() === '') {
+    giftError.value = 'کد هدیه را وارد کنید.';
+    return;
+  }
+
+  redeeming.value = true;
+  try {
+    const result = await economy.redeemGiftCode(giftCode.value.trim());
+    haptic('success');
+    // Both numbers are the server's: what was granted, and the balance it left.
+    giftSuccess.value = `${formatCoins(result.coins)} به حساب شما اضافه شد. موجودی: ${formatCoins(result.balance)}`;
+    giftCode.value = '';
+  } catch (cause) {
+    haptic('error');
+    giftError.value = cause instanceof ApiError ? cause.messageFa : 'ثبت کد هدیه انجام نشد.';
+  } finally {
+    redeeming.value = false;
+  }
+}
+
+/**
+ * Hands the invite code to whatever the platform offers.
+ *
+ * `navigator.share` inside Telegram's WebView where it exists, the clipboard
+ * otherwise, and a `<p class="select-all">` underneath either way — a code the
+ * user can always select by hand is the fallback that needs no permission and
+ * cannot fail.
+ */
+async function shareCode(): Promise<void> {
+  const value = economy.referral?.code;
+  if (!value) return;
+
+  const text = `با این کد در پایه‌تَم عضو شو و هر دو سکه بگیریم: ${value}`;
+  try {
+    if (typeof navigator.share === 'function') {
+      await navigator.share({ text });
+      return;
+    }
+    await navigator.clipboard.writeText(value);
+    copied.value = true;
+    haptic('success');
+    setTimeout(() => {
+      copied.value = false;
+    }, 2000);
+  } catch {
+    // A dismissed share sheet and a denied clipboard are both "the user did not
+    // get the code this way", and neither is an error worth a red sentence: the
+    // code is on screen and selectable.
   }
 }
 
@@ -125,8 +206,49 @@ onMounted(load);
       <section v-if="tab === 'coins'" class="flex flex-col gap-3">
         <div class="rounded-2xl bg-tg-secondary-bg p-4">
           <h2 class="text-sm text-tg-subtitle">موجودی</h2>
-          <p class="text-lg font-medium">{{ formatCoins(economy.coins?.balance ?? 0) }}</p>
+          <p class="text-lg font-medium" aria-live="polite">
+            {{ formatCoins(economy.coins?.balance ?? 0) }}
+          </p>
         </div>
+
+        <!--
+          Redeeming a gift code (M18).
+
+          Nothing here knows what a code is worth: the amount comes back in the
+          response and is rendered from it, so a campaign retuned in the database
+          needs no deploy. Four distinct refusals reach this form — unknown,
+          expired, already used, exhausted — each with its own Persian sentence
+          from the shared catalogue.
+        -->
+        <form
+          class="flex flex-col gap-2 rounded-2xl bg-tg-secondary-bg p-4"
+          @submit.prevent="redeem"
+        >
+          <h2 class="text-sm text-tg-subtitle">کد هدیه دارید؟</h2>
+          <input
+            v-model="giftCode"
+            type="text"
+            maxlength="32"
+            autocapitalize="characters"
+            autocomplete="off"
+            placeholder="کد را وارد کنید"
+            class="min-h-11 rounded-xl bg-tg-bg px-3 text-tg-text"
+            :disabled="redeeming"
+          />
+          <p v-if="giftError" class="text-sm text-tg-destructive" aria-live="assertive">
+            {{ giftError }}
+          </p>
+          <p v-if="giftSuccess" class="text-sm text-tg-accent" aria-live="polite">
+            {{ giftSuccess }}
+          </p>
+          <button
+            type="submit"
+            class="min-h-11 rounded-xl bg-tg-button text-sm text-tg-button-text disabled:opacity-50"
+            :disabled="redeeming || giftCode.trim() === ''"
+          >
+            {{ redeeming ? 'در حال بررسی…' : 'دریافت سکه' }}
+          </button>
+        </form>
 
         <p v-if="(economy.coins?.entries.length ?? 0) === 0" class="text-tg-hint">
           هنوز تراکنشی ندارید.
@@ -203,33 +325,109 @@ onMounted(load);
       <section v-else class="flex flex-col gap-3">
         <div class="flex flex-col gap-2 rounded-2xl bg-tg-secondary-bg p-4">
           <h2 class="text-sm text-tg-subtitle">کد دعوت شما</h2>
+          <!--
+            `select-all` so the code can always be taken by hand, whatever the
+            share sheet and the clipboard permission do. It is the fallback that
+            cannot fail.
+          -->
           <p class="select-all text-lg font-medium tracking-wider">
             {{ economy.referral?.code ?? '—' }}
           </p>
+          <button
+            type="button"
+            class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm text-tg-link disabled:opacity-50"
+            :disabled="!economy.referral?.code"
+            @click="shareCode"
+          >
+            {{ copied ? 'کپی شد ✓' : 'هم‌رسانی یا کپی کد' }}
+          </button>
           <p class="text-sm text-tg-hint">
-            {{ toPersianDigits(economy.referral?.invited ?? 0) }} نفر از کد شما استفاده کرده‌اند.
+            وقتی کسی با کد شما عضو شود و در نخستین رویدادش شرکت کند، هر دوی شما سکه می‌گیرید.
           </p>
         </div>
 
+        <!--
+          Where the referral actually stands (M18).
+
+          Three numbers rather than one, because "two people used my code and
+          nothing arrived" is the question this screen exists to answer: how many
+          claimed it, how many of those have attended, and what has been paid.
+          `coinsEarned` counts both halves — the coins earned as a referrer and the
+          ones earned for having been referred.
+        -->
         <div class="flex flex-col gap-2 rounded-2xl bg-tg-secondary-bg p-4">
+          <h2 class="text-sm text-tg-subtitle">وضعیت دعوت‌ها</h2>
+          <dl class="flex flex-col gap-1 text-sm">
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-tg-hint">استفاده‌کننده از کد شما</dt>
+              <dd>{{ toPersianDigits(economy.referral?.invited ?? 0) }} نفر</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-tg-hint">پاداش‌گرفته (پس از حضور)</dt>
+              <dd>{{ toPersianDigits(economy.referral?.qualified ?? 0) }} نفر</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-tg-hint">سکهٔ دریافتی از دعوت</dt>
+              <dd>{{ formatCoins(economy.referral?.coinsEarned ?? 0) }}</dd>
+            </div>
+          </dl>
+          <p v-if="(economy.referral?.invited ?? 0) === 0" class="text-xs text-tg-hint">
+            هنوز کسی از کد شما استفاده نکرده است.
+          </p>
+          <p v-else-if="(economy.referral?.qualified ?? 0) === 0" class="text-xs text-tg-hint">
+            پاداش پس از نخستین حضور دعوت‌شده در یک رویداد آزاد می‌شود.
+          </p>
+        </div>
+
+        <!--
+          Claiming somebody else's code. Hidden once the caller already has a
+          referrer: `referred_user_id` is UNIQUE, so a second claim can only ever
+          be refused, and offering a form that cannot succeed is worse than
+          explaining why.
+        -->
+        <div
+          v-if="economy.referral && economy.referral.referredBy"
+          class="flex flex-col gap-1 rounded-2xl bg-tg-secondary-bg p-4"
+        >
+          <h2 class="text-sm text-tg-subtitle">کد دعوت شما ثبت شده است</h2>
+          <p class="text-sm text-tg-hint">
+            <template v-if="economy.referral.referredBy.qualified">
+              پاداش دعوت شما واریز شده است.
+            </template>
+            <template v-else>
+              پس از نخستین حضور شما در یک رویداد، پاداش دعوت واریز می‌شود.
+            </template>
+          </p>
+        </div>
+
+        <form
+          v-else
+          class="flex flex-col gap-2 rounded-2xl bg-tg-secondary-bg p-4"
+          @submit.prevent="claim"
+        >
           <h2 class="text-sm text-tg-subtitle">کد دعوت دارید؟</h2>
           <input
             v-model="code"
             type="text"
-            maxlength="40"
+            maxlength="32"
+            autocapitalize="characters"
+            autocomplete="off"
             placeholder="کد را وارد کنید"
             class="min-h-11 rounded-xl bg-tg-bg px-3 text-tg-text"
+            :disabled="claiming"
           />
-          <p v-if="claimError" class="text-sm text-tg-destructive">{{ claimError }}</p>
-          <p v-if="claimed" class="text-sm">{{ claimed }}</p>
+          <p v-if="claimError" class="text-sm text-tg-destructive" aria-live="assertive">
+            {{ claimError }}
+          </p>
+          <p v-if="claimed" class="text-sm text-tg-accent" aria-live="polite">{{ claimed }}</p>
           <button
-            type="button"
-            class="min-h-11 rounded-xl bg-tg-button text-sm text-tg-button-text"
-            @click="claim"
+            type="submit"
+            class="min-h-11 rounded-xl bg-tg-button text-sm text-tg-button-text disabled:opacity-50"
+            :disabled="claiming || code.trim() === ''"
           >
-            ثبت کد
+            {{ claiming ? 'در حال بررسی…' : 'ثبت کد' }}
           </button>
-        </div>
+        </form>
       </section>
     </StateBlock>
   </main>

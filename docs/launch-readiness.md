@@ -2,7 +2,7 @@
 
 *Prepared at the end of M17, 2026-08-17. **Revised 2026-08-17** after the bot's inbound
 half was built — see §7 for what changed and what the first version of this document
-got wrong.*
+got wrong. **Revised again 2026-08-20** after M18; see §9.*
 
 The plan asks M17 to produce this document. Its job is to answer one question — **can
 this launch?** — and the answer is worth stating before the evidence:
@@ -32,14 +32,21 @@ missing.
 
 | Component | State | Evidence |
 | --- | --- | --- |
-| `packages/domain` | Complete for MVP | part of 1459 tests, integration against real Postgres + Redis |
-| `packages/db` | Complete | 42 tables, 6 triggers, 14 migrations |
-| `apps/api` | Complete for §6 **minus `Idempotency-Key`** | 65 endpoint probes in the response-leak scan |
+| `packages/domain` | Complete for MVP | part of **1626** tests (1459 at M17), integration against real Postgres + Redis |
+| `packages/db` | Complete | 45 tables, 6 triggers, 16 migrations (see the note below) |
+| `apps/api` | Complete for §6 (`Idempotency-Key` landed with B3) | **71** endpoint probes in the response-leak scan, and the coverage assertion is derived from the routes Fastify actually registered rather than from a number |
 | `apps/worker` | Complete | outbox relay, 8 repeatable sweeps, DLQ |
 | Telegram bot — outbound | Complete, and **delivering for the first time** | notifications, keyboards, channel posts, block detection — see §7 |
 | Telegram bot — inbound | Complete | `/start`, accept/reject/close buttons, text relay, edit propagation; 32 end-to-end tests |
 | `apps/miniapp` | **13 screens** — B1 closed | splash, terms, profile, home, discover, event detail, create, edit, my events (with the participant queue), my requests, chats (with contact-share consent), reviews, wallet |
 | `apps/admin` | **Does not exist** | — |
+
+*Updated after M18:* `packages/db` is now **45 tables, 6 triggers and 16 migrations**
+(numbered to `0017` — the sequence skips `0010`, see `project-review.md` §4). The two
+new tables are `gift_code` and `gift_code_redemption`; `apps/api` gained four endpoints — one user-facing
+(`POST /gift-codes/redeem`) and three admin — all four covered by the response-leak
+scan. No new screen: M18's work landed inside the wallet, the event detail, the host's
+queue and the chat list.
 
 **Revised again, 2026-08-17.** The Mini App now covers the core loop: create → discover
 → detail → join → the host's decision → the conversation. B1 below is reduced rather
@@ -391,6 +398,8 @@ afternoon, years before any user did.
 
 ## 8. Recommendation
 
+0. **Rewrite the `ChatsView` anonymity sentence** (added after M18, §9). It is a false
+   statement to users and it is five minutes' work.
 1. **Run the manual privacy gate now** (B4). It is possible for the first time, it is
    cheap, and §7 is the argument for doing it before anything else.
 2. Build the Mini App (B1), starting with discovery → event detail → **join**: that one
@@ -412,3 +421,41 @@ built next, the first check should be somebody receiving something.
 
 **The next milestone is the frontend, and §9 does not have one. That is still the
 finding.**
+
+---
+
+## 9. What M18 changed (2026-08-20)
+
+Three user-visible gaps and one absent capability. None of them moves the
+recommendation above: **the answer is still no, and for the same two reasons** — B2 (no
+admin panel) and B4 (the manual privacy gate has never been run).
+
+| Change | Effect on readiness |
+|---|---|
+| Trust Score on the event page and in the host's request queue | Closes a real hole in the product's own logic: §11 has priced reputation since M9 and it reached no screen where anybody decides. Nothing about launch readiness turns on it |
+| Conversations titled «name — event», in the Mini App **and** the bot's relay | Fixes the one place where the anonymous-chat surface was genuinely unusable: a single Telegram thread carrying several conversations all headed «میهمان ۱» |
+| Gift codes, end to end | A new capability. **Inherits B2**: with no panel, minting and disabling a campaign is a `curl` session, documented in `project-review.md` §13 |
+| Referral sharing and status in the wallet | UI only; the backend has been complete since M9 |
+
+**Two findings worth recording, because both are the kind this document exists for.**
+
+1. **A stated control was not doing what it claimed.** ADR-0009 layer 3 said per-chat
+   aliases stop a host correlating a guest across events. They do not, and have not
+   since M6: the participant list returns every requester's display name in the same
+   order alias indices are assigned. The control was costing real usability — an
+   unreadable conversation list — and buying nothing. ADR-0014 accepts the risk
+   explicitly and the threat model now carries it as **R8** with T2.5 downgraded from ✅
+   to ⚠️. Nothing about `telegram_account` changed; invariant 7 is untouched.
+2. **A user-facing privacy promise is now wrong, and was left wrong on purpose.**
+   `ChatsView` tells the user their identity is hidden «تا زمانی که خودشان نخواهند».
+   True of contact details, never true of display names. Changing that sentence is a
+   product-voice decision, and the commit that made it inaccurate is the wrong place to
+   make it. **It should be rewritten before launch** — added to the recommendation list
+   as item 0, because it is a five-minute change that is currently a false statement to
+   users.
+
+**Tests:** 1626 across 70 files, of which 21 are new in M18 — a gift-code integration
+suite (concurrency at 50 and 25 iterations, both caps, both windows, the CHECK
+constraints asserted directly), an admin gift-code suite, the Trust-Score pairing
+assertion in the participant queue, the conversation-title cases in chat, the relay
+header unit tests, and the wallet store's redemption path.

@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client';
 import MainButton from '@/components/MainButton.vue';
 import ReportDialog from '@/components/ReportDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
+import TrustBadge from '@/components/TrustBadge.vue';
 import { formatEventWhen, formatRelative } from '@/format/datetime';
 import { formatToman, toPersianDigits } from '@/format/fa';
 import { haptic, webApp } from '@/telegram/webapp';
@@ -153,7 +154,18 @@ onMounted(load);
           <p class="whitespace-pre-line leading-relaxed">{{ event.description }}</p>
         </section>
 
-        <p class="text-sm text-tg-hint">میزبان: {{ event.host.displayName }}</p>
+        <!--
+          The host, and their reputation (M18).
+
+          `flex-wrap` rather than a fixed row: the badge and a long display name
+          together overflow a narrow phone, and RTL text does not truncate
+          gracefully. On a wide viewport the two sit on one line; on a narrow one
+          the badge drops beneath the name instead of pushing it off-screen.
+        -->
+        <section class="flex flex-wrap items-center gap-2 text-sm">
+          <span class="text-tg-hint">میزبان: {{ event.host.displayName }}</span>
+          <TrustBadge :score="event.host.trustScore" label="امتیاز اعتماد میزبان" />
+        </section>
 
         <a
           v-if="event.externalLink"

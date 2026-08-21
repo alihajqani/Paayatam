@@ -779,6 +779,28 @@ beforeAll(async () => {
     { method: 'POST', url: `/api/v1/reviews/${reviewPublicId}/report`, body: { reason: 'OTHER' } },
     { method: 'POST', url: `/api/v1/chats/${chatPublicId}/report`, body: { reason: 'SAFETY' } },
     /**
+     * M18's gift codes, both sides.
+     *
+     * The user's redeem endpoint answers a refusal here — no such code — which is
+     * the response shape that most needs scanning: an error body is a projection
+     * like any other, and one that named the account it refused would be exactly
+     * the leak §3.6 exists to catch.
+     */
+    { method: 'POST', url: '/api/v1/gift-codes/redeem', body: { code: 'NOSUCHCODE' } },
+    {
+      method: 'POST',
+      url: '/admin/v1/gift-codes',
+      admin: true,
+      body: { code: 'LEAKSCAN1', coins: 5, note: 'scan coverage' },
+    },
+    { method: 'GET', url: '/admin/v1/gift-codes', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/gift-codes/LEAKSCAN1/active',
+      admin: true,
+      body: { isActive: false },
+    },
+    /**
      * M12's admin API, reached with the staff session.
      *
      * This is the surface that exists to show one person another person's records,
@@ -1042,7 +1064,7 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
    * key set for the reason M5 gave: `not.toHaveProperty(…)` keeps passing when a
    * new column arrives, and the next leak is always a field nobody thought about.
    */
-  it('describes a chat by alias, and gives the reader no other handle on anyone', async () => {
+  it('describes a chat by alias and name, and gives the reader no other handle on anyone', async () => {
     const body = await fetchBody({
       method: 'GET',
       url: `/api/v1/chats/${chatPublicId}/messages`,
@@ -1057,6 +1079,19 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
       'contactShared',
       'counterpartAlias',
       'counterpartContactShared',
+      /**
+       * M18, ADR-0014. The counterpart's **profile display name**, which titles the
+       * conversation beside `eventTitle` and falls back to their alias when there is
+       * no profile.
+       *
+       * Added here deliberately rather than by relaxing this assertion, because this
+       * is the check that would otherwise have caught it: an exact key set is what
+       * makes a new field on this projection a decision somebody had to make, and
+       * this one is recorded in an ADR. What it is **not** is a Telegram identifier —
+       * the pattern scan above still runs over this same body, and nothing here can
+       * reach `telegram_account`.
+       */
+      'counterpartName',
       'createdAt',
       'eventPublicId',
       'eventTitle',
@@ -1084,10 +1119,43 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
     expect(first?.senderAlias).toBe('میزبان');
   });
 
-  it('identifies the host by public id and display name only', async () => {
+  it('identifies the host by public id, display name and Trust Score, and nothing else', async () => {
     const body = await fetchBody({ method: 'GET', url: `/api/v1/events/${eventPublicId}` });
     const parsed = JSON.parse(body) as { host: Record<string, unknown> };
 
-    expect(Object.keys(parsed.host).sort()).toEqual(['displayName', 'publicId']);
+    // `trustScore` is M18's addition (ADR-0014): a number a guest is entitled to
+    // before deciding whether to meet a stranger, and **only** the number — nothing
+    // from `trust_score_ledger`, which is a record of specific incidents.
+    expect(Object.keys(parsed.host).sort()).toEqual(['displayName', 'publicId', 'trustScore']);
+  });
+
+  /**
+   * The host's queue, which is the other place a Trust Score now appears.
+   *
+   * Stated as an exact key set for the same reason as the two above: this endpoint
+   * returns rows describing *other people* to somebody who is not them, and it is the
+   * projection most likely to grow a field nobody thought about.
+   */
+  it('describes a requester by public id, display name and Trust Score, and nothing else', async () => {
+    const body = await fetchBody({
+      method: 'GET',
+      url: `/api/v1/events/${viewerEventPublicId}/participants`,
+    });
+    const parsed = JSON.parse(body) as { participants: Record<string, unknown>[] };
+
+    const [first] = parsed.participants;
+    expect(first).toBeDefined();
+    expect(Object.keys(first ?? {}).sort()).toEqual([
+      'displayName',
+      'hostDeadlineAt',
+      'publicId',
+      'requestedAt',
+      'status',
+      'trustScore',
+      'userPublicId',
+      'waitlistRank',
+    ]);
+    // No birth year, no gender, no city. Hosting an event does not entitle somebody
+    // to a stranger's profile because that stranger asked to come.
   });
 });

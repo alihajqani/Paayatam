@@ -23,6 +23,10 @@ export function toChatSummaryView(chat: ChatSummary): ChatSummaryView {
     role: chat.role,
     alias: chat.alias,
     counterpartAlias: chat.counterpartAlias,
+    // The name of the person this conversation is with, rendered beside
+    // `eventTitle` (ADR-0014). Falls back to the alias in the domain, so this is
+    // never empty and never an invented name.
+    counterpartName: chat.counterpartName,
     contactShared: chat.contactShared,
     counterpartContactShared: chat.counterpartContactShared,
     lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,

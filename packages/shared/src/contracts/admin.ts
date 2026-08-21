@@ -219,3 +219,68 @@ export const auditLogResponse = z.object({
   entries: z.array(auditEntryView),
 });
 export type AuditLogResponse = z.infer<typeof auditLogResponse>;
+
+// ── Gift codes (M18) ─────────────────────────────────────────────────────────
+
+/**
+ * Minting a campaign code.
+ *
+ * Every number that decides what a redemption is worth is here and nowhere else:
+ * the coins, the two limits and the window. The Mini App's redeem request carries
+ * a string and nothing more, so there is no path by which a user's client can
+ * influence any of them (invariant 9).
+ *
+ * `maxRedemptions` is nullable rather than defaulted to a large number, because
+ * "no cap" and "a cap somebody chose" are different facts and an operator reading
+ * the list six months from now should be able to tell them apart.
+ */
+export const createGiftCodeRequest = z.object({
+  /**
+   * Normalized server-side — upper-cased, spaces and dashes removed — so the
+   * operator who types «summer-24» and the user who types «SUMMER24» mean one
+   * code. Bounded rather than pattern-matched for the same reason the referral
+   * claim is.
+   */
+  code: z.string().trim().min(4).max(32),
+  coins: z.number().int().positive().max(100_000),
+  /** Null or absent is unlimited. */
+  maxRedemptions: z.number().int().positive().max(1_000_000).nullish(),
+  /** How many one person may take. One unless a campaign says otherwise. */
+  perUserLimit: z.number().int().positive().max(100).default(1),
+  startsAt: z.iso.datetime().nullish(),
+  expiresAt: z.iso.datetime().nullish(),
+  /** What this campaign is, for whoever reads the list later. */
+  note: z.string().trim().max(280).nullish(),
+});
+export type CreateGiftCodeRequest = z.infer<typeof createGiftCodeRequest>;
+
+export const setGiftCodeActiveRequest = z.object({
+  isActive: z.boolean(),
+});
+export type SetGiftCodeActiveRequest = z.infer<typeof setGiftCodeActiveRequest>;
+
+/**
+ * A campaign as the panel sees it.
+ *
+ * `redeemedCount` against `maxRedemptions` is the monitoring surface: it is how an
+ * operator sees a campaign being drained, and it is a column maintained under the
+ * same row lock the redemption takes rather than a count computed on read.
+ */
+export const giftCodeView = z.object({
+  code: z.string(),
+  coins: z.number().int().positive(),
+  maxRedemptions: z.number().int().positive().nullable(),
+  perUserLimit: z.number().int().positive(),
+  redeemedCount: z.number().int().nonnegative(),
+  startsAt: z.iso.datetime().nullable(),
+  expiresAt: z.iso.datetime().nullable(),
+  isActive: z.boolean(),
+  note: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type GiftCodeView = z.infer<typeof giftCodeView>;
+
+export const giftCodeListResponse = z.object({
+  codes: z.array(giftCodeView),
+});
+export type GiftCodeListResponse = z.infer<typeof giftCodeListResponse>;

@@ -173,6 +173,17 @@ export const RATE_LIMITS = {
   AUTH: { limit: 30, windowSeconds: 60 },
   /** Admin login, by IP. The lockout is per account; this is per source. */
   ADMIN_LOGIN: { limit: 10, windowSeconds: 300 },
+  /**
+   * Gift code redemption: 10 an hour (M18).
+   *
+   * Tighter than anything else a signed-in user does, because this is the only
+   * endpoint in the product where **guessing pays**. A campaign code is short
+   * enough to be typed by a human, which makes it short enough to be enumerated
+   * by a script — and unlike a referral code, hitting one credits coins rather
+   * than recording a relationship. Ten an hour makes a sweep of even a small
+   * keyspace take longer than a campaign lasts.
+   */
+  GIFT_CODE_REDEEM: { limit: 10, windowSeconds: 3_600 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export type RateLimitClass = keyof typeof RATE_LIMITS;

@@ -368,6 +368,17 @@ status='WAITLISTED'`.
   renders the ledger, not a number.**
 - **`referral`** — `referrer_user_id` · **`referred_user_id` UNIQUE** · `code` · `status` · `qualified_at?` ·
   `reward_ledger_id?` · `fraud_signals` jsonb. CHECK `referrer ≠ referred`.
+- **`gift_code`** *(M18, ADR-0015 — an addition to this section)* — **`code` UNIQUE**, stored already
+  normalized (upper-cased, spaces and dashes stripped) so case-insensitivity is a property of the column ·
+  `coins` CHECK > 0 · `max_redemptions?` (null = unlimited) · `per_user_limit` default 1 · `redeemed_count`
+  · `starts_at?` · `expires_at?` · `is_active` · `note?` · `created_by_admin_id?`.
+  CHECK `redeemed_count <= max_redemptions` and CHECK `starts_at < expires_at`.
+- **`gift_code_redemption`** — `gift_code_id` · `user_id` · `seq` · `coins` (snapshotted) ·
+  **`coin_ledger_id` UNIQUE**. **UNIQUE `(gift_code_id, user_id, seq)`** — the per-user limit, in the
+  database. `seq` is the 1-based ordinal of this person's redemptions of this code, allocated under
+  `SELECT … FOR UPDATE` on the `gift_code` row; a plain `UNIQUE (code, user)` could only express
+  `per_user_limit = 1`.
+  **Lock ordering is `gift_code → coin_account`, never the reverse** (ADR-0006's rule, second ordered pair).
 
 ### 4.6 Reviews, moderation, ops
 
@@ -393,7 +404,13 @@ status='WAITLISTED'`.
 - **`outbox_event`** — `aggregate_type` · `aggregate_id` · `event_type` · `payload` · `processed_at?` ·
   `attempts`. Partial index `(created_at) WHERE processed_at IS NULL`.
 - **`job_failure`** — DLQ mirror. **`media`** — sha256, mime, moderation_status.
-  **`idempotency_key`** — `key` PK · `request_hash` · `response_status` · `response_body` · `expires_at` (24 h).
+  **`request_idempotency`** — `id` PK · **UNIQUE `(user_id, key)`** · `method` · `path` ·
+  `request_fingerprint` · `status_code` · `response_body` TEXT · `expires_at` (24 h).
+  *Built in migration 0016 and deliberately not the shape this line originally specified.* A key is chosen
+  by a client and is **not globally unique**, so `key` as a primary key would let one caller's UUID collide
+  with another's — and the failure mode of that is handing somebody else's stored response to the wrong
+  user. `response_body` is TEXT rather than JSONB because JSONB does not preserve key order, and a replay
+  served from it would be semantically equal and byte-different; criterion 21 asks for identical.
 
 ### 4.7 Admin & audit
 
@@ -458,12 +475,15 @@ confirmation dialog) · `GET /me/participations`
 `POST /chats/:publicId/close` · `POST /chats/:publicId/share-contact`
 **Reviews/economy** — `GET /me/reviews/pending` · `POST /participants/:id/review` ·
 `GET /users/:publicId/reviews` · `GET /me/coins` · `GET /me/trust` · `GET /me/referral` ·
-`POST /referrals/claim`
+`POST /referrals/claim` · **`POST /gift-codes/redeem`** (M18 — the body carries a code and nothing
+else; what it grants is a column)
 **Bot** — `/start [payload]` · `callback_query: chat:accept|reject|close:<id>` · `message:text` relay ·
 `edited_message` propagation · `my_chat_member` block detection
 **Admin** — login (email+password+TOTP) · dashboard · users · events + moderation queue · reports ·
 blacklist · catalog · policies · settings · coin ledger + `POST /admin/v1/coins/adjust` · trust ledger ·
-audit log · roles · **`POST /admin/v1/chats/:id/unseal`** (break-glass, see §8)
+audit log · roles · **`POST /admin/v1/chats/:id/unseal`** (break-glass, see §8) ·
+**gift codes (M18): `POST|GET /admin/v1/gift-codes`, `POST /admin/v1/gift-codes/:code/active`** —
+permission `giftcode.manage`, `SUPER_ADMIN` only, for the reason `coin.adjust` is kept from `SUPPORT`
 
 ---
 
@@ -607,6 +627,7 @@ Every milestone ends with: tests green, `pnpm typecheck` clean, docs updated, re
 | 15 | Security hardening | L | all |
 | 16 | Observability, deployment, backups | L | 15 |
 | 17 | Seed data & launch checklist | M | 16 |
+| 18 | Reputation display, conversation titles & gift codes | M | 9, 12 |
 
 **Critical path:** M1→M2→M3→M4→M6→M8→M9→M10. **M6 (capacity) and M8 (anonymous chat) must not be rushed.**
 Rough total ≈ 55–70 working days for one engineer.
@@ -1916,6 +1937,55 @@ note says of all five: **"None of that exists."** It has been outstanding since 
   UNIQUE cannot be expressed in `schema.prisma` (`@@unique` takes no `where`), which would mean a second
   permanently-invisible index for a case that does not occur.
 
+**M18 — Reputation display, conversation titles & gift codes** · *M* — built after M13-inbound. Three things
+users could not do and one the product could not do: see who they were about to trust, tell their
+conversations apart, and hand somebody coins.
+
+- **A Trust Score is now visible to the counterparty** — the host on the event page, each requester in the
+  host's queue ([ADR-0014](adr/0014-conversation-titles-and-reputation-display.md)). §11 has priced
+  reputation since M9 and §12 resolved it against non-discrimination by capping it at a tenth of the ranking
+  signal; what was missing was that the number never reached the two screens where somebody is deciding
+  whether to trust a stranger. **Null is not zero**: `trust_score` is written lazily by the first movement,
+  so a brand-new account has no row, and rendering that as 0 shows the worst possible reputation to somebody
+  who has done nothing wrong. The ranking formula coalesces the same absence to `trust.initial_score` because
+  a sort must produce a number; a screen must not, and says «تازه‌وارد». **No migration** — the table has
+  existed since M9.
+- **A conversation is titled «name — event»**, in the Mini App and in the relayed message header. This amends
+  ADR-0009 layer 3, and the reasoning is worth stating plainly: the per-chat alias was supposed to stop a host
+  correlating a guest across events, and **it never did** — `GET /events/:publicId/participants` has returned
+  every requester's display name since M6, in `requested_at` order, which is the same order alias indices are
+  assigned in. What layer 3 achieved in practice was a conversation list in which a host with four events saw
+  four rows several of which said «میهمان ۱», inside a single Telegram thread. ADR-0014 accepts the risk
+  explicitly (threat model R8) rather than continuing to claim a protection that was not there. The alias is
+  **kept** as the fallback and as what the evidentiary record attributes a message to. **No migration** —
+  `anonymous_chat.event_id` has existed since M8; nothing carried it to the surface.
+- **Gift codes** ([ADR-0015](adr/0015-gift-codes.md)), migration `0017`, and the first genuinely new tables
+  since M16. Deliberately a *sibling* of `referral` rather than a second economy: every coin goes through
+  `CoinService`, so ADR-0007's `balance = SUM(coin_ledger.amount)` reconciliation keeps holding without
+  knowing gift codes exist. Three guards in order — the `gift_code` row lock for the global cap,
+  `UNIQUE (gift_code_id, user_id, seq)` for the per-user limit, `coin_ledger.idempotency_key` for the coins.
+  Management is `/admin/v1/gift-codes` under a new `giftcode.manage` permission held by `SUPER_ADMIN` alone.
+- **The referral feature got the UI it was missing.** The backend has been complete since M9 — code
+  generation, claim, self-referral and duplicate refusals, velocity signals, both payouts in one transaction
+  keyed on attendance — and `WalletView` showed a code and an input box. It now shares or copies the code and
+  reports invited / qualified / earned, and hides the claim form once the caller already has a referrer,
+  because `referred_user_id` is UNIQUE and a second claim can only ever be refused.
+
+**Deviations and things left undone, decided during M18:**
+
+- **`ChatsView` still tells the user their identity stays hidden «تا زمانی که خودشان نخواهند».** That is true
+  of contact details and was never true of display names. It is now actively misleading and is **not** fixed
+  here: it is a user-facing promise about privacy and deserves a considered sentence written by somebody who
+  owns the product's voice, not a line changed in passing by the commit that made it wrong. Recorded in
+  ADR-0014's consequences and in the project review's follow-ups.
+- **No admin panel means gift codes are managed with `curl`.** B2 was already open; this adds a fourth thing
+  waiting on it. `docs/project-review.md` §13 documents the exact requests, because "there is an API" is not
+  an answer an operator can act on at 2 a.m.
+- **No bulk minting and no per-code analytics** beyond `redeemed_count`. Both are additive and neither is
+  needed to run one campaign.
+- **`referral.status = 'REJECTED'` is still written by nothing.** M18 did not wire it and did not remove it;
+  flagged in the project review as a decision somebody has to make.
+
 ---
 
 ## 10. MVP Acceptance Criteria
@@ -1975,6 +2045,8 @@ working system, timed and documented; (32) every job produces the same end state
 | Host response deadline | `min(24h, event−3h)` → `EXPIRED` |
 | Waitlist promotion deadline | `min(12h, event−3h)` |
 | Review window | opens T+24 h, deadline T+7 d, edit window 1 h |
+| **Gift codes (M18)** | **Not in `app_setting`.** Every number that decides a redemption — the coins, the global cap, the per-user limit, the window, the kill switch — is a **column on `gift_code`**, because they are per-campaign rather than per-platform. A single shared default would make two simultaneous campaigns impossible. Minted through `/admin/v1/gift-codes` (ADR-0015) |
+| Gift-code redemption rate limit | **10/hour per user** — the tightest bucket in the product, because this is the only endpoint where guessing pays (T6.7) |
 
 ---
 
@@ -2009,7 +2081,13 @@ blocker.
 ## 14. Verification Strategy
 
 - **Per milestone:** `pnpm typecheck && pnpm lint && pnpm test` (Vitest unit) and `pnpm test:integration`
-  (Testcontainers Postgres + Redis — **real DB, real locks; nothing transactional is ever mocked**).
+  (**real DB, real locks; nothing transactional is ever mocked**).
+  *Correction:* this originally said **Testcontainers**, and that is not what was built. The integration
+  harness connects to the Postgres and Redis that `docker compose` already runs — `TEST_DATABASE_URL` in
+  development, service containers in CI — and truncates every table before each test. Testcontainers would
+  start a container per run; the harness deliberately does not, which is why `make db-test` exists and why
+  `test/integration/setup.ts` warns loudly when `TEST_DATABASE_URL` is unset and it is about to truncate a
+  developer's development database instead.
 - **Concurrency (M6/M7/M9):** the 20-concurrent-joins and concurrent-promotion/spend tests run 50 iterations
   in CI. **These must never be quarantined or retried-until-green.**
 - **Privacy (M5/M8/M15):** the automated response-leak scan runs on every endpoint in CI from M5 onward,
@@ -2018,4 +2096,7 @@ blocker.
 - **E2E (M17):** Playwright drives the Vue Mini App against a seeded stack through
   onboarding → create → discover → join → chat → accept → cancel → review.
 - **Pre-launch manual gate:** full happy path with two real dev Telegram accounts on staging, then the
-  backup restore drill with its real duration recorded in `docs/disaster-recovery.md`.
+  backup restore drill with its real duration recorded in
+  [`docs/runbook-backup-restore.md`](runbook-backup-restore.md).
+  *Correction:* this named `docs/disaster-recovery.md`, which was never written. The runbook above is the
+  file that exists and carries the measured duration.

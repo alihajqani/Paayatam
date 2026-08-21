@@ -59,7 +59,7 @@ Status legend: **✅ designed** (control specified, milestone assigned) · **⏳
 | T2.2 | `text_mention` entity carries a raw numeric user id | **All** message entities stripped before relay | M8 | ✅ |
 | T2.3 | User types their own `@username` / phone in the anonymous stage | Pattern scan; masked («حذف شد») + logged for moderation | M8 | ✅ |
 | T2.4 | Telegram id leaks through an API response | Storage separation + DTO allowlist + **automated CI leak scan across every endpoint** | M5, M15 | ✅ |
-| T2.5 | Curious host correlates the same guest across events | **Per-chat aliases** — the same person gets a different alias in each chat | M8 | ✅ |
+| T2.5 | Curious host correlates the same guest across events | Per-chat aliases were the stated control. **They never actually prevented this**: `GET /events/:publicId/participants` has returned every requester's display name since M6, so a host could always correlate by reading their own queue. ADR-0014 stops pretending otherwise and titles conversations «name — event». No control, and **M19 tells the user so**: `ChatsView`'s disclosure now names what is visible and says a host with several activities can tell two requests came from one person. See R8 | M8, M18, M19 | ⚠️ accepted, disclosed |
 | T2.6 | Link preview exposes a profile | `link_preview_options.is_disabled = true` on every relayed message | M8 | ✅ |
 | T2.7 | Telegram id appears in logs | pino redaction allowlist + a test asserting each sensitive field is redacted | M15 | ✅ |
 | T2.8 | Contact revealed without the user's intent | Requires `OPEN` chat + explicit button + native confirmation + `consent` row | M8 | ✅ |
@@ -112,6 +112,8 @@ Status legend: **✅ designed** (control specified, milestone assigned) · **⏳
 | T6.4 | Exhausting the global Telegram rate budget | Single `telegram-send` queue with a 25/s global limiter; `403` stops retrying immediately | M13 | ✅ |
 | T6.5 | **Telegram bans the bot for a ToS violation** | No technical control. Requires a human review of current Bot API terms before launch. **Would be a total outage** | pre-launch | ⚠️ open |
 | T6.6 | Application-level DoS | nginx connection limits, request size caps, rate limits. No CDN/WAF in MVP | M16 | ⏳ partial |
+| T6.7 | **Enumerating gift codes** — a campaign code is short enough to be typed, therefore short enough to be guessed, and a hit credits coins | `GIFT_CODE_REDEEM` bucket at **10/hour per user**, the tightest in the product; refusals counted as `payetam_gift_code_redemptions_total{result="invalid"}` because a failed attempt leaves no row anywhere; global and per-user caps bound the damage of a hit. Codes should be minted long — the alphabet is the operator's choice (ADR-0015) | M18 | ✅ |
+| T6.8 | Referral code guessing, to attribute somebody else's invites | Codes are 8 characters from a 31-character alphabet drawn with `randomInt` (≈8.5 × 10¹¹). Claim attempts counted by outcome; the reward requires an **attended event**, so a hit is worth nothing without a real person in a real café (T6, ADR-0007) | M9, M18 | ✅ |
 
 ### Infrastructure and data at rest
 
@@ -138,6 +140,7 @@ These have no control and are accepted deliberately. Each needs a named owner be
 | R5 | **Telegram ToS dependency** | The entire product depends on one platform's terms; a violation is a total outage (T6.5) |
 | R6 | **Sybil resistance is partial** | Telegram account creation is outside our control (T4.10) |
 | R7 | **Timing correlation in anonymous chat** | Out of scope for MVP (T2.9) |
+| R8 | **A host can tell that the same person asked to join two of their events** | The participant list has given a host every requester's display name since M6, so this was never prevented — the per-chat alias only made the host's *conversation list* unreadable while the correlation stayed available one screen away. ADR-0014 (M18) accepts the risk explicitly and titles conversations «name — event». What remains protected, and is unaffected, is everything in `telegram_account` (T2.4, invariant 7) |
 
 ---
 

@@ -47,6 +47,23 @@ export function toDiscoveredEventView(event: DiscoveredEvent): DiscoveredEventVi
     // clock is a client that disagrees with the server about what is boosted.
     isBoosted: event.boostedUntil !== null && event.boostedUntil.getTime() > Date.now(),
     publishedAt: event.publishedAt?.toISOString() ?? null,
-    host: { publicId: event.hostPublicId, displayName: event.hostDisplayName },
+    host: {
+      publicId: event.hostPublicId,
+      displayName: event.hostDisplayName,
+      /**
+       * The host's reputation, and **null when they have never been judged**
+       * (M18). Not folded into a neutral 50 here: the ranking formula does that
+       * because it must produce a number, and a screen must not, or somebody who
+       * has done nothing at all is shown a score they never earned. The Mini App
+       * renders «تازه‌وارد» for null.
+       *
+       * Visible to any authenticated viewer, which is the same audience that
+       * already sees `displayName` — and the score is *already* a public fact
+       * about a host in the sense that it moves their position in discovery.
+       * Nothing from `trust_score_ledger` is here: how the score got where it is
+       * remains the host's own business (`GET /me/trust`).
+       */
+      trustScore: event.hostTrustScore,
+    },
   };
 }

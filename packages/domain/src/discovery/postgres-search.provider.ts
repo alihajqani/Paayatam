@@ -381,7 +381,13 @@ const SELECT_COLUMNS = Prisma.sql`
   e."boosted_until"                AS "boostedUntil",
   e."published_at"                 AS "publishedAt",
   hu."public_id"                   AS "hostPublicId",
-  COALESCE(hp."display_name", 'کاربر پایه‌تَم') AS "hostDisplayName"
+  COALESCE(hp."display_name", 'کاربر پایه‌تَم') AS "hostDisplayName",
+  -- Deliberately NOT coalesced to the neutral score, unlike the trustSql helper
+  -- below. Ranking has to resolve a missing row to something numeric or a new
+  -- host sorts last; display must not, or a host who has never been judged is
+  -- shown a number they never earned. Same LEFT JOIN, two different readings of
+  -- the same NULL, and both are correct for what they do.
+  ts."score"                       AS "hostTrustScore"
 `;
 
 /**
@@ -466,6 +472,7 @@ interface SearchRow {
   publishedAt: Date | null;
   hostPublicId: string;
   hostDisplayName: string;
+  hostTrustScore: number | null;
   score: number;
 }
 

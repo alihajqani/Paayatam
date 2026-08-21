@@ -97,6 +97,18 @@ export interface DiscoveredEvent {
   publishedAt: Date | null;
   hostPublicId: string;
   hostDisplayName: string;
+  /**
+   * The host's Trust Score, 0–100, or null when they have never been judged (M18).
+   *
+   * **Null is not zero and the distinction is the whole point.** `trust_score` is
+   * written lazily by the first movement, so a host who has just completed a
+   * profile may legitimately have no row — and rendering that as 0 would show the
+   * worst possible reputation to somebody who has done nothing wrong. The ranking
+   * formula resolves the same absence to `trust.initial_score` for exactly this
+   * reason (see `trustSql`); the *display* declines to invent a number at all and
+   * lets the client say «تازه‌وارد» instead.
+   */
+  hostTrustScore: number | null;
   /** The value the cursor keys on for this sort. */
   sortKey: number | string;
 }

@@ -38,6 +38,24 @@ export interface ChatSummary {
   alias: string;
   /** What you see them called. */
   counterpartAlias: string;
+  /**
+   * The other person's profile display name, falling back to their alias (M18,
+   * ADR-0014).
+   *
+   * Paired with `eventTitle` by every surface that renders a conversation, so a
+   * chat reads «علی رضایی — سفر شمال» rather than «میهمان ۱» with no indication
+   * of which of four events it belongs to. `counterpartAlias` is kept beside it
+   * rather than replaced: it is still what the *relay* attributes a message to,
+   * and it is the fallback when a profile has been anonymised (M15) or was never
+   * completed.
+   *
+   * **This is not new disclosure.** A host already sees every requester's display
+   * name in `GET /events/:id/participants`, and a guest already sees the host's on
+   * the event page. ADR-0014 records the reasoning and what it costs; the
+   * anonymity that ADR-0009 actually protects — everything in `telegram_account` —
+   * is untouched and unreachable from here.
+   */
+  counterpartName: string;
   /** Whether you have consented to share contact details here. */
   contactShared: boolean;
   counterpartContactShared: boolean;
@@ -365,6 +383,16 @@ export class ChatService {
             chatPublicId,
             seq,
             senderAlias: context.me.alias,
+            /**
+             * Who the message is from and what it is about (ADR-0014).
+             *
+             * The relay used to render «میهمان ۱:» and nothing else, which is
+             * unreadable in a bot DM that carries every conversation a person is
+             * in. `senderAlias` is kept beside these two because it is still the
+             * fallback and still what the *record* attributes the message to.
+             */
+            senderName: senderDisplayName(context.me),
+            eventTitle: context.chat.event.title,
             recipientUserPublicId: context.counterpartUserPublicId,
           },
         },
@@ -444,6 +472,16 @@ export class ChatService {
             chatPublicId: context.chat.publicId,
             seq: existing.seq,
             senderAlias: context.me.alias,
+            /**
+             * Who the message is from and what it is about (ADR-0014).
+             *
+             * The relay used to render «میهمان ۱:» and nothing else, which is
+             * unreadable in a bot DM that carries every conversation a person is
+             * in. `senderAlias` is kept beside these two because it is still the
+             * fallback and still what the *record* attributes the message to.
+             */
+            senderName: senderDisplayName(context.me),
+            eventTitle: context.chat.event.title,
             recipientUserPublicId: context.counterpartUserPublicId,
           },
         },
@@ -494,6 +532,8 @@ export class ChatService {
           payload: {
             chatPublicId: context.chat.publicId,
             seq: existing.seq,
+            senderName: senderDisplayName(context.me),
+            eventTitle: context.chat.event.title,
             recipientUserPublicId: context.counterpartUserPublicId,
             // What the recipient's copy becomes. Carried so the relay renders the
             // same sentence the Mini App does.
@@ -515,7 +555,15 @@ export class ChatService {
         chat: {
           include: {
             event: { select: { publicId: true, title: true } },
-            chatParticipants: true,
+            // The profile comes along for `counterpartName` (ADR-0014). A
+            // `select` rather than the bare `true` this used to be, so the shape
+            // stays an allowlist: `chat_participant` carries a `user_id`, and the
+            // one caller of this list is the other person in the conversation.
+            chatParticipants: {
+              include: {
+                user: { select: { publicId: true, profile: { select: { displayName: true } } } },
+              },
+            },
           },
         },
       },
@@ -955,7 +1003,11 @@ export class ChatService {
       where: { publicId: chatPublicId },
       include: {
         event: { select: { publicId: true, title: true } },
-        chatParticipants: { include: { user: { select: { publicId: true } } } },
+        chatParticipants: {
+          include: {
+            user: { select: { publicId: true, profile: { select: { displayName: true } } } },
+          },
+        },
       },
     });
     if (!chat) throw new AppError(ErrorCode.NOT_FOUND);
@@ -971,7 +1023,11 @@ export class ChatService {
       where: { id: chatId },
       include: {
         event: { select: { publicId: true, title: true } },
-        chatParticipants: { include: { user: { select: { publicId: true } } } },
+        chatParticipants: {
+          include: {
+            user: { select: { publicId: true, profile: { select: { displayName: true } } } },
+          },
+        },
       },
     });
     if (!chat) throw new AppError(ErrorCode.NOT_FOUND);
@@ -1078,7 +1134,11 @@ function toSummary(
     role: ChatParticipantRole;
     contactSharedAt: Date | null;
   },
-  counterpart: { alias: string; contactSharedAt: Date | null },
+  counterpart: {
+    alias: string;
+    contactSharedAt: Date | null;
+    user: { profile: { displayName: string } | null };
+  },
   chat: {
     publicId: string;
     status: ChatStatus;
@@ -1096,12 +1156,43 @@ function toSummary(
     role: me.role,
     alias: me.alias,
     counterpartAlias: counterpart.alias,
+    counterpartName: counterpartName(counterpart),
     contactShared: me.contactSharedAt !== null,
     counterpartContactShared: counterpart.contactSharedAt !== null,
     lastMessageAt,
     unreadCount,
     createdAt: chat.createdAt,
   };
+}
+
+/**
+ * The other person's name, or their alias when there is no name to use.
+ *
+ * The fallback is the **chat's own alias** and never an invented string: a
+ * profile can be absent because it was anonymised by M15's job, or because the
+ * account never finished onboarding. «میهمان ۱ — سفر شمال» is still a usable
+ * conversation title; «کاربر» would be a name the product made up.
+ */
+/**
+ * The sender's name for a relayed message, or their alias when there is none.
+ *
+ * The same rule as `counterpartName` and deliberately a separate function: this
+ * one names the *writer* of a message and that one names the *other party* to a
+ * conversation, and collapsing them would make the next change to either apply to
+ * both by accident.
+ */
+function senderDisplayName(member: {
+  alias: string;
+  user: { profile: { displayName: string } | null };
+}): string {
+  return member.user.profile?.displayName ?? member.alias;
+}
+
+function counterpartName(counterpart: {
+  alias: string;
+  user: { profile: { displayName: string } | null };
+}): string {
+  return counterpart.user.profile?.displayName ?? counterpart.alias;
 }
 
 function toMessage(
@@ -1142,7 +1233,7 @@ interface ChatMember {
   role: ChatParticipantRole;
   contactSharedAt: Date | null;
   lastReadAt: Date | null;
-  user: { publicId: string };
+  user: { publicId: string; profile: { displayName: string } | null };
 }
 
 interface ChatWithMembers {

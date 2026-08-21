@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { Prisma, type PrismaClient, type PrismaService } from '@payetam/db';
-import { FakeClock } from '@payetam/platform';
+import { FakeClock, MetricsRegistry } from '@payetam/platform';
 import {
   createTestPrisma,
   createUser,
@@ -33,7 +33,14 @@ const clock = new FakeClock(NOW);
 const settings = new SettingsService(service);
 const coins = new CoinService(service, clock);
 const audit = new AuditService(service, clock);
-const referrals = new ReferralService(service, clock, settings, coins, audit);
+const referrals = new ReferralService(
+  service,
+  clock,
+  settings,
+  coins,
+  audit,
+  new MetricsRegistry(),
+);
 
 let fixture: CatalogFixture;
 let referrer: string;

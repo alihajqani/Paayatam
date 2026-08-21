@@ -9,6 +9,7 @@ import type {
 import { ApiError } from '@/api/client';
 import PromotionDialog from '@/components/PromotionDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
+import TrustBadge from '@/components/TrustBadge.vue';
 import {
   formatEventDate,
   formatEventTime,
@@ -327,6 +328,15 @@ onMounted(load);
                   </template>
                 </span>
               </div>
+              <!--
+                This requester's reputation, keyed to this requester (M18).
+
+                Inside the `v-for` and bound to `person`, so a queue of six shows
+                six scores each attached to the name above it. `person.publicId` is
+                already the loop key, which is what keeps the pairing stable when
+                the list reorders after a decision.
+              -->
+              <TrustBadge :score="person.trustScore" class="self-start" />
               <p v-if="person.hostDeadlineAt" class="text-xs text-tg-hint">
                 مهلت پاسخ: {{ formatRelative(person.hostDeadlineAt) }}
               </p>

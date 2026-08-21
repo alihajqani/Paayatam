@@ -19,6 +19,8 @@ one.** Superseding is done by writing a new record that says so.
 | [0011](0011-review-waitlist-and-cancellation-policy.md) | Blind reviews, waitlist promotion, host cancellation | D7, D8, D9 | No review readable before reveal |
 | [0012](0012-persian-normalization-and-search.md) | One Persian normalization pipeline for moderation + search | — | Moderation and search normalise identically |
 | [0013](0013-typescript-build-and-dev-loop.md) | TypeScript 5.9.3, `tsc -b` project references, no `tsx` for Nest apps | — | Dev and prod run identical compiler output |
+| [0014](0014-conversation-titles-and-reputation-display.md) | Conversations titled «who — which event»; Trust Score shown to the counterparty | — | — (amends ADR-0009 layer 3) |
+| [0015](0015-gift-codes.md) | Gift codes as a sibling of the referral, over the one coin ledger | — | — (bound by 2, 3, 12) |
 
 ## The twelve invariants
 

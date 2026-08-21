@@ -180,6 +180,17 @@ export const METRICS = {
   JOB_FAILURES: 'payetam_job_failures_total',
   JOB_DURATION: 'payetam_job_duration_seconds',
   OUTBOX_BACKLOG: 'payetam_outbox_unprocessed',
+  /**
+   * Economy grants that a user initiated, by outcome (M18).
+   *
+   * The ledger already records every grant that *succeeded* — that is what
+   * ADR-0007 is for, and a counter would be a worse copy of it. What the ledger
+   * cannot show is the refusals: a burst of `invalid` against codes that do not
+   * exist is what a brute-force attempt looks like, and it leaves no row
+   * anywhere. Hence a counter labelled by result rather than a gauge of totals.
+   */
+  GIFT_CODE_REDEMPTIONS: 'payetam_gift_code_redemptions_total',
+  REFERRAL_CLAIMS: 'payetam_referral_claims_total',
 } as const;
 
 @Global()

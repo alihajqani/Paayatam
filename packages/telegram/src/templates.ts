@@ -83,6 +83,25 @@ function num(payload: Payload, key: string): string {
 }
 
 /**
+ * «who — which event», for the header of a relayed message (ADR-0014).
+ *
+ * The name when the payload carries one and the alias when it does not, so an
+ * anonymised profile degrades to «میهمان ۱ — سفر شمال» rather than to an empty
+ * bold tag. The em dash is the glossary's separator for this pairing.
+ *
+ * A payload from an older deploy carries neither `senderName` nor `eventTitle`;
+ * this renders whichever halves are present rather than emitting a stray dash,
+ * because the relay must keep working across a rollout in both directions.
+ */
+function chatHeading(payload: Payload): string {
+  const who = str(payload, 'senderName') || str(payload, 'senderAlias');
+  const what = str(payload, 'eventTitle');
+  if (who === '') return what;
+  if (what === '') return who;
+  return `${who} — ${what}`;
+}
+
+/**
  * A public id, unescaped, for a callback payload or a URL.
  *
  * Separate from `str` on purpose: escaping is for text on its way into HTML, and a
@@ -194,12 +213,21 @@ export function render(
     /**
      * The relayed chat message.
      *
-     * The alias, never a name — this is the notification that would break the
-     * product's central promise if it carried an identity (ADR-0009).
+     * **Who wrote it and what it is about**, since M18 (ADR-0014). The bot's DM
+     * carries every conversation a person is in, so a message headed «میهمان ۱:»
+     * and nothing else was unreadable the moment somebody had two events running:
+     * two different people were «میهمان ۱» and neither header said which event
+     * either of them was asking about.
+     *
+     * `senderAlias` is still the fallback — `chatHeading` uses the name when the
+     * payload has one and the alias when it does not, so an anonymised or
+     * never-completed profile degrades to «میهمان ۱ — سفر شمال» rather than to a
+     * blank. Nothing here is or can become a Telegram identifier; that is what
+     * ADR-0009's invariant 7 protects and it is untouched.
      */
     case TEMPLATES.CHAT_MESSAGE:
       return relayed(
-        `<b>${str(payload, 'senderAlias')}:</b>\n${str(payload, 'text')}`,
+        `<b>${chatHeading(payload)}:</b>\n${str(payload, 'text')}`,
         payload,
         botUsername,
       );
@@ -216,14 +244,18 @@ export function render(
      */
     case TEMPLATES.CHAT_MESSAGE_EDITED:
       return relayed(
-        `<b>${str(payload, 'senderAlias')}</b> <i>(ویرایش شد)</i>:\n${str(payload, 'text')}`,
+        `<b>${chatHeading(payload)}</b> <i>(ویرایش شد)</i>:\n${str(payload, 'text')}`,
         payload,
         botUsername,
       );
 
     /** The sender deleted it. The replacement sentence comes from the domain (D10). */
     case TEMPLATES.CHAT_MESSAGE_DELETED:
-      return relayed(`<i>${str(payload, 'replacementText')}</i>`, payload, botUsername);
+      return relayed(
+        `<b>${chatHeading(payload)}</b>\n<i>${str(payload, 'replacementText')}</i>`,
+        payload,
+        botUsername,
+      );
 
     case TEMPLATES.REVIEW_WINDOW_OPEN:
       return opened(

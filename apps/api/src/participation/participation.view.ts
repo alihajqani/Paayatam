@@ -28,16 +28,22 @@ export function toParticipationView(participation: ParticipationDetail): Partici
 /**
  * The host's view of a request.
  *
- * A public id and a display name. Hosting an event does not entitle someone to a
- * stranger's profile because that stranger asked to come — and it certainly does
- * not entitle them to anything from `telegram_account`, which this row cannot
- * reach.
+ * A public id, a display name and a Trust Score. Hosting an event does not
+ * entitle someone to a stranger's profile because that stranger asked to come —
+ * and it certainly does not entitle them to anything from `telegram_account`,
+ * which this row cannot reach.
+ *
+ * The score is here because the host has a **decision** to make, and "has this
+ * person behaved" is the legitimate question at exactly that moment (M18). What
+ * does not come with it is the ledger behind it: the number, never the specific
+ * incidents that produced it.
  */
 export function toParticipantSummaryView(summary: ParticipantSummary): ParticipantSummaryView {
   return {
     publicId: summary.publicId,
     userPublicId: summary.userPublicId,
     displayName: summary.displayName,
+    trustScore: summary.trustScore,
     status: summary.status,
     requestedAt: summary.requestedAt.toISOString(),
     hostDeadlineAt: summary.hostDeadlineAt?.toISOString() ?? null,

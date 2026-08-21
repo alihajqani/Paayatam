@@ -36,7 +36,7 @@ function discovered(overrides: Partial<DiscoveredEventView> = {}): DiscoveredEve
     isVip: false,
     isBoosted: false,
     publishedAt: '2026-08-17T10:00:00.000Z',
-    host: { publicId: 'h-1', displayName: 'میزبان' },
+    host: { publicId: 'h-1', displayName: 'میزبان', trustScore: 72 },
     ...overrides,
   };
 }

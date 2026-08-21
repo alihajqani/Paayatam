@@ -115,6 +115,8 @@ export {
   claimReferralRequest,
   claimReferralResponse,
   boostEventRequest,
+  redeemGiftCodeRequest,
+  redeemGiftCodeResponse,
 } from './contracts/economy';
 export type {
   CoinLedgerType,
@@ -127,6 +129,8 @@ export type {
   ClaimReferralRequest,
   ClaimReferralResponse,
   BoostEventRequest,
+  RedeemGiftCodeRequest,
+  RedeemGiftCodeResponse,
 } from './contracts/economy';
 
 export {
@@ -217,6 +221,10 @@ export {
   requestRoleChangeRequest,
   auditEntryView,
   auditLogResponse,
+  createGiftCodeRequest,
+  setGiftCodeActiveRequest,
+  giftCodeView,
+  giftCodeListResponse,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -241,6 +249,10 @@ export type {
   RequestRoleChangeRequest,
   AuditEntryView,
   AuditLogResponse,
+  CreateGiftCodeRequest,
+  SetGiftCodeActiveRequest,
+  GiftCodeView,
+  GiftCodeListResponse,
 } from './contracts/admin';
 
 export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';

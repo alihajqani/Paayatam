@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import type {
   ClaimReferralResponse,
   CoinsResponse,
+  RedeemGiftCodeResponse,
   ReferralResponse,
   TrustResponse,
 } from '@payetam/shared';
@@ -59,5 +60,29 @@ export const useEconomyStore = defineStore('economy', () => {
     return result;
   }
 
-  return { coins, trust, referral, loading, load, claimReferral };
+  /**
+   * Redeems a gift or discount code (M18).
+   *
+   * Carries an `Idempotency-Key` for the same reason the referral claim does: the
+   * server cannot tell a retry from a second attempt by looking at the request,
+   * and the difference is coins. The key makes the double-tap on a stalled
+   * connection replay a stored response rather than reach the service twice —
+   * which the `gift_code` row lock and the redemption unique index would both
+   * survive anyway, and which should still never get that far.
+   *
+   * **No coin amount is sent and none is trusted.** What the code is worth is a
+   * column, and `balance` in the response is the server's number rather than one
+   * this store added up. `load()` follows so the ledger shows the new row.
+   */
+  async function redeemGiftCode(code: string): Promise<RedeemGiftCodeResponse> {
+    const result = await request<RedeemGiftCodeResponse>('/gift-codes/redeem', {
+      method: 'POST',
+      body: { code },
+      idempotencyKey: newIdempotencyKey(),
+    });
+    await load();
+    return result;
+  }
+
+  return { coins, trust, referral, loading, load, claimReferral, redeemGiftCode };
 });

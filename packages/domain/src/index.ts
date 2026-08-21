@@ -60,6 +60,12 @@ export {
   referrerRewardKey,
 } from './economy/referral.service';
 export type { ReferralClaim, ReferralSummary } from './economy/referral.service';
+export {
+  GiftCodeService,
+  GIFT_CODE_REASON,
+  giftCodeRedemptionKey,
+} from './economy/gift-code.service';
+export type { RedeemedGiftCode } from './economy/gift-code.service';
 export { EconomyModule } from './economy/economy.module';
 
 export { ageFromBirthYear, gregorianYearIn, isOldEnough } from './profile/age';
@@ -225,6 +231,8 @@ export {
 export type { AdminSession, LoginResult } from './adminaccess/admin-access.service';
 export { AdminOperationsService, adminAdjustmentKey } from './adminaccess/admin-operations.service';
 export type { CaseSummary } from './adminaccess/admin-operations.service';
+export { GiftCodeAdminService } from './adminaccess/gift-code-admin.service';
+export type { CreateGiftCodeInput, GiftCodeSummary } from './adminaccess/gift-code-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';

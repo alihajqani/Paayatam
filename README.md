@@ -16,7 +16,7 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
-**Milestone 8 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
+**Milestone 18 complete** — the repo boots (M1), a Telegram user can sign in and accept the terms (M2),
 complete a profile from the Mini App and receive the onboarding coins exactly once (M3), create events
 that pass through Persian auto-moderation before publishing (M4), browse, filter and search what
 everyone else has published (M5), ask to join one — with seats allocated under a row lock that makes
@@ -49,7 +49,23 @@ reviews are written blind and revealed together at T+24h; coins, Trust Score and
 ledger rather than only a number; and anything can be reported from where it is being looked at.
 `Idempotency-Key` is built, so boosting an event cannot double-charge a host whose connection dropped.
 
-Still not built: the **admin panel**, which is what makes a report actionable by a human.
+**Reputation now reaches the screens where somebody decides** (M18). A guest sees the host's Trust Score
+before asking to join; a host sees each requester's before answering. Both are `null` — «تازه‌وارد» — for an
+account nobody has judged yet, because rendering that as zero would be a claim about a person that is not
+true. A conversation is titled «نام — عنوان رویداد» rather than «میهمان ۱», in the Mini App and in the bot,
+which is what makes a Telegram thread carrying four conversations readable;
+[ADR-0014](docs/adr/0014-conversation-titles-and-reputation-display.md) records why that amends the
+anonymity boundary and what it costs. **Gift codes** grant coins through the same ledger everything else
+moves through, with the global cap, the per-user limit and the exactly-once guarantee each enforced by a
+different database constraint
+([ADR-0015](docs/adr/0015-gift-codes.md)) — and the referral programme, complete on the backend since M9,
+finally has the screen to share a code and see what it has earned.
+
+Still not built: the **admin panel**, which is what makes a report actionable by a human — and, since M18,
+what makes minting a gift code something other than a `curl` session.
+
+New here? [`docs/project-review.md`](docs/project-review.md) is a complete survey of what exists: every
+module, route, table and flow, and an honest list of what is unfinished.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the full plan and milestone
 sequence, and [`docs/launch-readiness.md`](docs/launch-readiness.md) for what is and is not ready —
@@ -61,6 +77,7 @@ including two delivery bugs that sat behind a green test suite for four mileston
 
 | Document | What it is |
 |---|---|
+| [`docs/project-review.md`](docs/project-review.md) | **What exists today.** Architecture, folders, every route and table, the flows end to end, and what is incomplete |
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | **The master plan.** Frozen decisions, data model, state machines, milestones, acceptance criteria. Read this first |
 | [`docs/adr/`](docs/adr/README.md) | Architecture Decision Records — one decision each, with what was rejected and why |
 | [`docs/threat-model.md`](docs/threat-model.md) | Assets, adversaries, controls, and **explicitly accepted risks** |
@@ -198,6 +215,10 @@ A database with no reference data will render an empty Mini App. Once, after the
 make seed      # policies, catalog (cities, districts, categories, interests), blacklist,
                # RBAC, settings, and a few demo events
 ```
+
+There is **no seed for gift codes**, deliberately: a code that grants coins is a campaign somebody decided
+to run, not reference data. They are minted through `/admin/v1/gift-codes` — see
+[`docs/project-review.md`](docs/project-review.md) §13 for the exact requests until the admin panel exists.
 
 ### 4. Day-to-day
 

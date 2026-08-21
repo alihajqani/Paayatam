@@ -1,13 +1,23 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
-import { CoinService, ReferralService, TrustService, UserService } from '@payetam/domain';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  CoinService,
+  GiftCodeService,
+  ReferralService,
+  TrustService,
+  UserService,
+} from '@payetam/domain';
 import {
   claimReferralRequest,
+  redeemGiftCodeRequest,
   type ClaimReferralRequest,
   type ClaimReferralResponse,
   type CoinsResponse,
+  type RedeemGiftCodeRequest,
+  type RedeemGiftCodeResponse,
   type ReferralResponse,
   type TrustResponse,
 } from '@payetam/shared';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
 import { toCoinEntryView, toTrustEntryView } from './economy.view';
@@ -30,6 +40,7 @@ export class EconomyController {
     private readonly coins: CoinService,
     private readonly trust: TrustService,
     private readonly referrals: ReferralService,
+    private readonly giftCodes: GiftCodeService,
     private readonly users: UserService,
   ) {}
 
@@ -82,5 +93,31 @@ export class EconomyController {
   ): Promise<ClaimReferralResponse> {
     const userId = await this.users.resolveInternalId(current.publicId);
     return this.referrals.claim(userId, body.code);
+  }
+
+  /**
+   * Redeem a gift or discount code (M18).
+   *
+   * The request carries a string and nothing else. What the code is worth, when it
+   * is valid and how many times it may be used are columns on `gift_code`, read
+   * under the row lock that spends them — so there is no field here for a client
+   * to be dishonest about (invariant 9), exactly as there is none on join or
+   * accept.
+   *
+   * The response carries the **new balance**, so the screen shows what the server
+   * says rather than adding the grant to a number it was holding. Rate-limited on
+   * the same bucket family as the rest: guessing at codes is the abusive traffic
+   * this endpoint attracts, and `RATE_LIMITS.GIFT_CODE_REDEEM` is what makes
+   * guessing slow.
+   */
+  @Post('gift-codes/redeem')
+  @RateLimit('GIFT_CODE_REDEEM')
+  @HttpCode(HttpStatus.OK)
+  async redeemGiftCode(
+    @Body(new ZodValidationPipe(redeemGiftCodeRequest)) body: RedeemGiftCodeRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<RedeemGiftCodeResponse> {
+    const userId = await this.users.resolveInternalId(current.publicId);
+    return this.giftCodes.redeem(userId, body.code);
   }
 }

@@ -44,6 +44,21 @@ export interface ParticipantSummary {
   publicId: string;
   userPublicId: string;
   displayName: string;
+  /**
+   * The requester's Trust Score, 0–100, or null when they have never been judged
+   * (M18).
+   *
+   * The one piece of *reputation* a host is given about a stranger, and it is
+   * given for the reason the host has a decision to make at all: accepting
+   * somebody into a real-world meeting is exactly the moment where "has this
+   * person behaved" is a legitimate question. Nothing from `trust_score_ledger`
+   * comes with it — the number, never its history, because the history is a
+   * record of specific incidents and belongs to the person they happened to.
+   *
+   * Null is not zero, for the same reason it is not on `DiscoveredEvent`: a
+   * brand-new account has no row and has done nothing wrong.
+   */
+  trustScore: number | null;
   status: ParticipantStatus;
   requestedAt: Date;
   hostDeadlineAt: Date | null;
@@ -526,9 +541,22 @@ export class ParticipationService {
         status: true,
         requestedAt: true,
         hostDeadlineAt: true,
+        userId: true,
         user: { select: { publicId: true, profile: { select: { displayName: true } } } },
       },
     });
+
+    /**
+     * One query for every requester's score, not one per row (M18).
+     *
+     * `include: { user: { trustScore: … } }` would read the same rows and be
+     * shorter, and it is deliberately not used: the score has to be keyed back to
+     * the right person by `user_id` explicitly, because "each score is attached to
+     * the correct guest" is the property that actually matters here and a map
+     * makes it checkable rather than assumed. Rows are absent for anyone who has
+     * never moved, so the lookup misses and the score reads null.
+     */
+    const scores = await this.trustScoresFor(rows.map((row) => row.userId));
 
     let rank = 0;
     return rows.map((row) => {
@@ -539,12 +567,25 @@ export class ParticipationService {
         publicId: row.publicId,
         userPublicId: row.user.publicId,
         displayName: row.user.profile?.displayName ?? 'کاربر پایه‌تَم',
+        trustScore: scores.get(row.userId) ?? null,
         status: row.status,
         requestedAt: row.requestedAt,
         hostDeadlineAt: row.hostDeadlineAt,
         waitlistRank: waitlisted ? rank : null,
       };
     });
+  }
+
+  /** `user_id → score` for the users that have one. Absent means never judged. */
+  private async trustScoresFor(userIds: string[]): Promise<Map<string, number>> {
+    if (userIds.length === 0) return new Map();
+
+    const rows = await this.prisma.trustScore.findMany({
+      where: { userId: { in: [...new Set(userIds)] } },
+      select: { userId: true, score: true },
+    });
+
+    return new Map(rows.map((row) => [row.userId, row.score]));
   }
 
   /** Everything this user has asked to join. */

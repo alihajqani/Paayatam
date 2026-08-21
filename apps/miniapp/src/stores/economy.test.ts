@@ -17,7 +17,13 @@ const COINS = {
   entries: [{ amount: 50, balanceAfter: 50, type: 'ONBOARDING_REWARD' }],
 };
 const TRUST = { score: 60, entries: [] };
-const REFERRAL = { code: 'ABC123', invited: 2, converted: 1 };
+const REFERRAL = {
+  code: 'ABC123',
+  invited: 2,
+  qualified: 1,
+  coinsEarned: 30,
+  referredBy: null,
+};
 
 function routeResponses(): void {
   request.mockImplementation((path: string) => {
@@ -72,6 +78,60 @@ describe('economy store', () => {
       method: 'POST',
       body: { code: 'ABC123' },
       idempotencyKey: 'fixed-key',
+    });
+  });
+
+  it('redeems a gift code with an idempotency key and no coin amount', async () => {
+    // The client names an intention; the server decides what it is worth. A body
+    // carrying an amount would be a field for a client to be dishonest about.
+    request.mockImplementation((path: string) => {
+      if (path === '/gift-codes/redeem') {
+        return Promise.resolve({ code: 'SUMMER24', coins: 25, balance: 75, remainingForUser: 0 });
+      }
+      if (path === '/me/coins') return Promise.resolve(COINS);
+      if (path === '/me/trust') return Promise.resolve(TRUST);
+      return Promise.resolve(REFERRAL);
+    });
+    const store = useEconomyStore();
+
+    const result = await store.redeemGiftCode('summer-24');
+
+    expect(result).toMatchObject({ coins: 25, balance: 75 });
+    expect(request).toHaveBeenCalledWith('/gift-codes/redeem', {
+      method: 'POST',
+      body: { code: 'summer-24' },
+      idempotencyKey: 'fixed-key',
+    });
+  });
+
+  it('reloads the ledger after a redemption, so the new row is on screen', async () => {
+    routeResponses();
+    request.mockImplementation((path: string) => {
+      if (path === '/gift-codes/redeem') {
+        return Promise.resolve({ code: 'SUMMER24', coins: 25, balance: 75, remainingForUser: 0 });
+      }
+      if (path === '/me/coins') return Promise.resolve(COINS);
+      if (path === '/me/trust') return Promise.resolve(TRUST);
+      return Promise.resolve(REFERRAL);
+    });
+    const store = useEconomyStore();
+
+    await store.redeemGiftCode('SUMMER24');
+
+    const paths = request.mock.calls.map((call) => String(call[0]));
+    expect(paths).toContain('/me/coins');
+  });
+
+  it('propagates a refused code rather than swallowing it', async () => {
+    // Four distinct refusals reach this call — unknown, expired, already used,
+    // exhausted — and each has its own Persian sentence the view renders.
+    request.mockRejectedValue(
+      Object.assign(new Error('GIFT_CODE_EXPIRED'), { code: 'GIFT_CODE_EXPIRED' }),
+    );
+    const store = useEconomyStore();
+
+    await expect(store.redeemGiftCode('OLDCODE')).rejects.toMatchObject({
+      code: 'GIFT_CODE_EXPIRED',
     });
   });
 

@@ -18,6 +18,7 @@ export const coinLedgerType = z.enum([
   'ONBOARDING_REWARD',
   'REFERRAL_REWARD',
   'REVIEW_REWARD',
+  'GIFT_CODE_REDEEM',
   'BOOST_SPEND',
   'VIP_SPEND',
   'CANCELLATION_PENALTY',
@@ -120,3 +121,33 @@ export const boostEventRequest = z.object({
   kind: z.enum(['BOOST', 'VIP']).default('BOOST'),
 });
 export type BoostEventRequest = z.infer<typeof boostEventRequest>;
+
+/**
+ * Gift and discount codes (M18).
+ *
+ * Length-bounded rather than pattern-matched, exactly as `claimReferralRequest`
+ * is: the server upper-cases and strips spaces and dashes before looking the code
+ * up, so somebody who types «summer-24» is not told they were wrong about
+ * something they copied correctly.
+ *
+ * **Notice what the request does not carry.** There is no coin amount here, and
+ * there is nowhere for one. What a code grants is a column on `gift_code`, read
+ * under the row lock that redeems it — the client names an intention and the
+ * server decides what it is worth (invariant 9).
+ */
+export const redeemGiftCodeRequest = z.object({
+  code: z.string().trim().min(4).max(32),
+});
+export type RedeemGiftCodeRequest = z.infer<typeof redeemGiftCodeRequest>;
+
+export const redeemGiftCodeResponse = z.object({
+  /** The code as the server matched it — normalized, so the UI echoes truth. */
+  code: z.string(),
+  /** What this redemption granted. */
+  coins: z.number().int().positive(),
+  /** The balance after the grant, so the screen never has to add it up itself. */
+  balance: z.number().int().nonnegative(),
+  /** Redemptions of this code the caller has left. Zero for a single-use code. */
+  remainingForUser: z.number().int().nonnegative(),
+});
+export type RedeemGiftCodeResponse = z.infer<typeof redeemGiftCodeResponse>;
