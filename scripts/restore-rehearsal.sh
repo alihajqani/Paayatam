@@ -86,7 +86,7 @@ chmod 600 "$DUMP"
 # The connection string the rehearsal tool uses. It rewrites the database part
 # itself — and refuses outright unless the target name contains 'rehearsal' or
 # 'scratch', which is the guard that stops this ever restoring over production.
-DATABASE_URL="$(env_value DATABASE_URL)"
+DATABASE_URL="$(libpq_url "$(env_value DATABASE_URL)")"
 [[ -n "$DATABASE_URL" ]] || die "DATABASE_URL is not set in .env"
 
 log "Restoring into a scratch database"

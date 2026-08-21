@@ -89,6 +89,45 @@ require_env_file() {
     fi
 }
 
+# ── Connection strings ───────────────────────────────────────────────────────
+#
+# `DATABASE_URL` is written for **Prisma**, and Prisma accepts query parameters
+# libpq does not. `?schema=public` is the one that matters, because it is in the
+# template and therefore in every deployment: hand that URL to `pg_dump` and it
+# refuses outright with
+#
+#     pg_dump: error: invalid URI query parameter: "schema"
+#
+# which is a backup that does not happen, reported by a message that reads like a
+# malformed URL rather than like a dialect difference. Found by the smoke tests
+# on the first full run of the stack.
+#
+# A denylist rather than an allowlist, deliberately: `sslmode`, `connect_timeout`
+# and friends are meaningful to libpq and must survive. Only the parameters that
+# belong to Prisma's own pooling and schema handling are dropped.
+libpq_url() {
+    local url="$1"
+    [[ "$url" == *\?* ]] || { printf '%s' "$url"; return; }
+
+    local base="${url%%\?*}" query="${url#*\?}" kept='' param
+    # Split explicitly into an array rather than leaning on unquoted expansion
+    # with IFS set. The implicit form works and is one shell option away from
+    # silently keeping the whole query as a single field — at which point the
+    # first parameter's name decides the fate of all of them.
+    local -a params=()
+    IFS='&' read -r -a params <<< "$query"
+
+    for param in "${params[@]}"; do
+        case "${param%%=*}" in
+            schema | connection_limit | pool_timeout | pgbouncer | socket_timeout | statement_cache_size)
+                continue
+                ;;
+        esac
+        kept="${kept:+${kept}&}${param}"
+    done
+    printf '%s%s' "$base" "${kept:+?${kept}}"
+}
+
 require_docker() {
     command -v docker > /dev/null 2>&1 || die "docker is not installed"
     docker compose version > /dev/null 2>&1 \

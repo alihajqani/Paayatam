@@ -71,7 +71,7 @@ done
 require_docker
 require_env_file
 
-DATABASE_URL="$(env_value DATABASE_URL)"
+DATABASE_URL="$(libpq_url "$(env_value DATABASE_URL)")"
 [[ -n "$DATABASE_URL" ]] || die "DATABASE_URL is not set in .env"
 
 # 700, so a dump is not readable by other accounts on the host even in the
