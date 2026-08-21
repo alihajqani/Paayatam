@@ -918,6 +918,49 @@ beforeAll(async () => {
       admin: true,
       body: { note: 'scan coverage for the reinstatement path' },
     },
+    /**
+     * M19's panel surface — every screen the admin SPA reads.
+     *
+     * This is the largest block of admin reads in the product and the one where a
+     * Telegram identifier would be least surprising: a user detail page exists to
+     * answer "who is this and what have they done", and the temptation to reach
+     * one relation further is exactly what the scan is here to catch.
+     */
+    { method: 'GET', url: '/admin/v1/dashboard', admin: true },
+    { method: 'GET', url: '/admin/v1/users', admin: true },
+    { method: 'GET', url: '/admin/v1/users?query=میزبان&limit=5', admin: true },
+    { method: 'GET', url: `/admin/v1/users/${hostPublicId}`, admin: true },
+    { method: 'GET', url: '/admin/v1/events', admin: true },
+    { method: 'GET', url: '/admin/v1/events?status=PUBLISHED&limit=5', admin: true },
+    { method: 'GET', url: `/admin/v1/events/${eventPublicId}`, admin: true },
+    {
+      method: 'POST',
+      url: `/admin/v1/events/${eventPublicId}/moderate`,
+      admin: true,
+      // Refuses after the first pass — a PUBLISHED event has nowhere to go from
+      // PUBLISH — and a refusal body is a response worth scanning too.
+      body: { action: 'PUBLISH', reason: 'scan coverage for the moderation path' },
+    },
+    { method: 'GET', url: '/admin/v1/reports', admin: true },
+    { method: 'GET', url: '/admin/v1/reports?status=OPEN&targetType=EVENT', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/reports/00000000-0000-4000-8000-000000000000/decide',
+      admin: true,
+      body: { status: 'DISMISSED', note: 'scan coverage' },
+    },
+    { method: 'GET', url: '/admin/v1/ledger', admin: true },
+    { method: 'GET', url: `/admin/v1/ledger?userPublicId=${hostPublicId}`, admin: true },
+    { method: 'GET', url: '/admin/v1/ledger/reconcile', admin: true },
+    { method: 'GET', url: '/admin/v1/audit/search', admin: true },
+    { method: 'GET', url: '/admin/v1/audit/search?action=giftcode.&limit=20', admin: true },
+    { method: 'GET', url: '/admin/v1/settings', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/settings/economy.boost_coins',
+      admin: true,
+      body: { value: 40, reason: 'scan coverage, restoring the documented default' },
+    },
     { method: 'GET', url: '/admin/v1/me', admin: true },
     { method: 'GET', url: '/admin/v1/moderation/cases', admin: true },
     { method: 'GET', url: '/admin/v1/audit', admin: true },

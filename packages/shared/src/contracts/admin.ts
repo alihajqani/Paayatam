@@ -608,3 +608,399 @@ export const reinstateReferralRequest = z.object({
   note: z.string().trim().min(5).max(1000),
 });
 export type ReinstateReferralRequest = z.infer<typeof reinstateReferralRequest>;
+
+// ── The panel's read surface (M19) ───────────────────────────────────────────
+
+/**
+ * The ledger types, restated here rather than imported from `economy.ts`.
+ *
+ * The two files are separate contracts for separate audiences — the Mini App
+ * reads one and only the panel reads the other — and `errors.test.ts`'s
+ * discipline applies: a value added to one and not the other is a mismatch a
+ * reviewer can see, where a shared import would silently widen the admin filter
+ * the moment somebody added a type for a different reason.
+ */
+const coinLedgerTypeForAdmin = z.enum([
+  'ONBOARDING_REWARD',
+  'REFERRAL_REWARD',
+  'REVIEW_REWARD',
+  'GIFT_CODE_REDEEM',
+  'BOOST_SPEND',
+  'VIP_SPEND',
+  'CANCELLATION_PENALTY',
+  'NO_SHOW_PENALTY',
+  'HOST_CANCELLATION_REFUND',
+  'ADMIN_ADJUSTMENT',
+  'REVERSAL',
+]);
+
+/**
+ * A `{ status: count }` roll-up.
+ *
+ * Sparse on purpose: a status with no rows is **absent** rather than zero,
+ * because inventing zeros would mean the panel could not tell "nobody is
+ * waitlisted" from "this deployment has no waitlist". The screen fills the gaps
+ * it wants to show.
+ */
+export const tally = z.record(z.string(), z.number().int().nonnegative());
+export type Tally = z.infer<typeof tally>;
+
+export const adminDashboardResponse = z.object({
+  users: z.object({
+    total: z.number().int().nonnegative(),
+    byStatus: tally,
+    newLast7Days: z.number().int().nonnegative(),
+    /** Somebody who *did* something, not somebody who exists. */
+    activeLast7Days: z.number().int().nonnegative(),
+  }),
+  events: z.object({ total: z.number().int().nonnegative(), byStatus: tally }),
+  participations: z.object({ byStatus: tally }),
+  chats: z.object({ byStatus: tally }),
+  reports: z.object({ byStatus: tally }),
+  cases: z.object({ byStatus: tally }),
+  economy: z.object({
+    /** What users hold right now: `SUM(coin_account.balance)`. */
+    coinsHeld: z.number().int(),
+    coinsGranted: z.number().int(),
+    /** A magnitude, because «۴۰۰ سکه خرج شد» reads and «−۴۰۰» does not. */
+    coinsSpent: z.number().int().nonnegative(),
+    ledgerLast24h: z.number().int().nonnegative(),
+  }),
+  referrals: z.object({ byStatus: tally, flagged: z.number().int().nonnegative() }),
+  giftCodes: z.object({
+    total: z.number().int().nonnegative(),
+    active: z.number().int().nonnegative(),
+    redemptions: z.number().int().nonnegative(),
+    coinsGranted: z.number().int().nonnegative(),
+    /** From `audit_log`, not from the counter — see ADR-0016 §5. */
+    failedAttemptsLast24h: z.number().int().nonnegative(),
+  }),
+  moderationBacklog: z.object({
+    openCases: z.number().int().nonnegative(),
+    openReports: z.number().int().nonnegative(),
+    /** How long the queue's oldest item has been waiting. Null when it is empty. */
+    oldestOpenCaseAt: z.iso.datetime().nullable(),
+  }),
+  /** Live dependency state, so the panel is also the "is it up?" screen. */
+  health: z.object({
+    database: z.enum(['up', 'down']),
+    redis: z.enum(['up', 'down']),
+  }),
+});
+export type AdminDashboardResponse = z.infer<typeof adminDashboardResponse>;
+
+export const userStatus = z.enum(['ACTIVE', 'SUSPENDED', 'BANNED', 'DELETED']);
+export type UserStatusView = z.infer<typeof userStatus>;
+
+/**
+ * A user as the panel lists them.
+ *
+ * `trustScore` is nullable and **null is not zero** (ADR-0014): the row is
+ * written lazily by the first movement, so an account that has done nothing has
+ * none, and 0 is the worst possible reputation shown to somebody who earned no
+ * reputation at all. `coinBalance` is genuinely 0 in the same situation, because
+ * an account with no movements holds no coins.
+ *
+ * There is no Telegram anything here, and no path to one: answering "who is this
+ * really?" is break-glass with an open case and a written reason (T14).
+ */
+export const adminUserView = z.object({
+  publicId: z.uuid(),
+  displayName: z.string().nullable(),
+  status: userStatus,
+  onboardingState: z.string(),
+  trustScore: z.number().int().min(0).max(100).nullable(),
+  coinBalance: z.number().int().nonnegative(),
+  createdAt: z.iso.datetime(),
+});
+export type AdminUserView = z.infer<typeof adminUserView>;
+
+export const adminUserDetailView = adminUserView.extend({
+  cityNameFa: z.string().nullable(),
+  districtNameFa: z.string().nullable(),
+  birthYear: z.number().int().nullable(),
+  /**
+   * The bio with contact details **masked** — «حذف شد» in place of a phone
+   * number, an `@handle`, a `t.me/` link or an email.
+   *
+   * A user who typed their number into their bio has not consented to hand it to
+   * staff, and the bio reaches no other user anywhere in the product — so an
+   * unmasked one here would be the only place those digits are ever projected.
+   * The leak scan found this the day the screen was added.
+   */
+  bio: z.string().nullable(),
+  /** How many fragments the masking removed, so a moderator knows it happened. */
+  bioRedactions: z.number().int().nonnegative(),
+  coins: z.object({
+    granted: z.number().int().nonnegative(),
+    spent: z.number().int().nonnegative(),
+    entries: z.number().int().nonnegative(),
+  }),
+  referrals: z.object({
+    made: z.number().int().nonnegative(),
+    qualified: z.number().int().nonnegative(),
+    rejected: z.number().int().nonnegative(),
+    receivedStatus: z.string().nullable(),
+  }),
+  events: z.object({
+    hosted: z.number().int().nonnegative(),
+    published: z.number().int().nonnegative(),
+  }),
+  participations: tally,
+  reportsAgainst: z.number().int().nonnegative(),
+  reportsFiled: z.number().int().nonnegative(),
+  giftCodeRedemptions: z.object({
+    count: z.number().int().nonnegative(),
+    coins: z.number().int().nonnegative(),
+  }),
+});
+export type AdminUserDetailView = z.infer<typeof adminUserDetailView>;
+
+export const adminUserListQuery = z.object({
+  /** A display name, or a `publicId` pasted from a report. */
+  query: z.string().trim().min(1).max(120).optional(),
+  status: userStatus.optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminUserListQuery = z.infer<typeof adminUserListQuery>;
+
+export const adminUserListResponse = z.object({
+  users: z.array(adminUserView),
+  total: z.number().int().nonnegative(),
+});
+export type AdminUserListResponse = z.infer<typeof adminUserListResponse>;
+
+export const adminEventStatus = z.enum([
+  'DRAFT',
+  'PENDING_MODERATION',
+  'PUBLISHED',
+  'HIDDEN',
+  'REJECTED',
+  'CANCELLED_BY_HOST',
+  'ONGOING',
+  'COMPLETED',
+  'EXPIRED',
+  'DELETED',
+]);
+export type AdminEventStatus = z.infer<typeof adminEventStatus>;
+
+export const adminEventView = z.object({
+  publicId: z.uuid(),
+  title: z.string(),
+  status: adminEventStatus,
+  moderationStatus: z.string(),
+  hostPublicId: z.uuid(),
+  hostDisplayName: z.string().nullable(),
+  cityNameFa: z.string(),
+  startsAt: z.iso.datetime(),
+  capacity: z.number().int().positive(),
+  acceptedCount: z.number().int().nonnegative(),
+  requestCount: z.number().int().nonnegative(),
+  /** Open reports against this event, counted in one grouped query per page. */
+  reportCount: z.number().int().nonnegative(),
+  createdAt: z.iso.datetime(),
+});
+export type AdminEventView = z.infer<typeof adminEventView>;
+
+export const adminEventListQuery = z.object({
+  query: z.string().trim().min(1).max(120).optional(),
+  status: adminEventStatus.optional(),
+  hostPublicId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminEventListQuery = z.infer<typeof adminEventListQuery>;
+
+export const adminEventListResponse = z.object({
+  events: z.array(adminEventView),
+  total: z.number().int().nonnegative(),
+});
+export type AdminEventListResponse = z.infer<typeof adminEventListResponse>;
+
+/**
+ * Hiding or restoring an event directly, without a case.
+ *
+ * Both directions go through `assertEventTransition`, so this is not a back door
+ * around the lifecycle: an event the host already cancelled is not resurrected by
+ * a moderator agreeing with a complaint about it.
+ */
+export const moderateEventRequest = z.object({
+  action: z.enum(['HIDE', 'PUBLISH', 'REJECT']),
+  reason: z.string().trim().min(5).max(500),
+});
+export type ModerateEventRequest = z.infer<typeof moderateEventRequest>;
+
+export const reportStatus = z.enum(['OPEN', 'ACTIONED', 'DISMISSED']);
+export type ReportStatusView = z.infer<typeof reportStatus>;
+
+export const adminReportView = z.object({
+  publicId: z.uuid(),
+  targetType: reportTargetType,
+  targetId: z.string(),
+  reason: reportReason,
+  description: z.string().nullable(),
+  status: reportStatus,
+  moderationCaseId: z.string().nullable(),
+  /** The reporter, as a public id. Never shown to the reported party. */
+  reporterPublicId: z.uuid(),
+  createdAt: z.iso.datetime(),
+});
+export type AdminReportView = z.infer<typeof adminReportView>;
+
+export const adminReportListQuery = z.object({
+  status: reportStatus.optional(),
+  targetType: reportTargetType.optional(),
+  targetId: z.string().max(64).optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminReportListQuery = z.infer<typeof adminReportListQuery>;
+
+export const adminReportListResponse = z.object({
+  reports: z.array(adminReportView),
+  total: z.number().int().nonnegative(),
+});
+export type AdminReportListResponse = z.infer<typeof adminReportListResponse>;
+
+export const decideReportRequest = z.object({
+  status: z.enum(['ACTIONED', 'DISMISSED']),
+  note: z.string().trim().min(3).max(1000),
+});
+export type DecideReportRequest = z.infer<typeof decideReportRequest>;
+
+/**
+ * One coin ledger row, as the panel reads it.
+ *
+ * Immutable by construction rather than by permission: `coin_ledger` carries a
+ * `BEFORE UPDATE OR DELETE` trigger, so there is no writing path to withhold.
+ * `metadata` is deliberately **not** projected — it is a per-type bag, and
+ * showing it would make every future writer's choice of contents a disclosure
+ * decision made by somebody who was thinking about something else.
+ */
+export const adminLedgerEntryView = z.object({
+  userPublicId: z.uuid(),
+  amount: z.number().int(),
+  balanceAfter: z.number().int().nonnegative(),
+  type: coinLedgerTypeForAdmin,
+  reasonCode: z.string(),
+  actorType: z.string(),
+  refType: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type AdminLedgerEntryView = z.infer<typeof adminLedgerEntryView>;
+
+export const adminLedgerQuery = z.object({
+  userPublicId: z.uuid().optional(),
+  type: coinLedgerTypeForAdmin.optional(),
+  reasonCode: z.string().trim().max(64).optional(),
+  refType: z.string().trim().max(32).optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminLedgerQuery = z.infer<typeof adminLedgerQuery>;
+
+export const adminLedgerResponse = z.object({
+  entries: z.array(adminLedgerEntryView),
+  total: z.number().int().nonnegative(),
+  /** Summed over the whole filter, not the page. "What did this cost us?" */
+  net: z.number().int(),
+});
+export type AdminLedgerResponse = z.infer<typeof adminLedgerResponse>;
+
+/**
+ * ADR-0007's invariant, asked of the live database.
+ *
+ * `drifted` rather than a boolean, because "reconciliation failed" is not
+ * something anybody can act on. An empty array is the healthy answer.
+ */
+export const reconciliationResponse = z.object({
+  accounts: z.number().int().nonnegative(),
+  drifted: z.array(
+    z.object({
+      userPublicId: z.uuid(),
+      balance: z.number().int(),
+      ledger: z.number().int(),
+    }),
+  ),
+});
+export type ReconciliationResponse = z.infer<typeof reconciliationResponse>;
+
+/**
+ * One audit row, with its payloads.
+ *
+ * `before` and `after` are shown as stored. They are an allowlist at every call
+ * site by `AuditService`'s contract — never a spread of an entity — which is what
+ * makes showing them safe, and is why nothing in this product ever put a gift
+ * code or a Telegram id into one.
+ */
+export const adminAuditEntryView = z.object({
+  id: z.string(),
+  actorType: z.string(),
+  actorId: z.string().nullable(),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string().nullable(),
+  before: z.unknown().nullable(),
+  after: z.unknown().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type AdminAuditEntryView = z.infer<typeof adminAuditEntryView>;
+
+export const adminAuditQuery = z.object({
+  actorId: z.string().trim().max(64).optional(),
+  actorType: z.enum(['USER', 'ADMIN', 'SYSTEM']).optional(),
+  /** A prefix, so `giftcode.` finds all six actions without naming them. */
+  action: z.string().trim().max(64).optional(),
+  targetType: z.string().trim().max(64).optional(),
+  targetId: z.string().trim().max(64).optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminAuditQuery = z.infer<typeof adminAuditQuery>;
+
+export const adminAuditResponse = z.object({
+  entries: z.array(adminAuditEntryView),
+  total: z.number().int().nonnegative(),
+});
+export type AdminAuditResponse = z.infer<typeof adminAuditResponse>;
+
+/**
+ * One policy number, with the default behind it.
+ *
+ * `defaultValue` travels with the current value so the panel can say
+ * «تغییر داده‌شده» rather than making an operator remember what §11 says. The list
+ * is driven by the code catalogue, not by the table: a key in the database and
+ * not in the code is a leftover nothing reads, and showing it would invite
+ * somebody to tune it.
+ */
+export const appSettingView = z.object({
+  key: z.string(),
+  value: z.number(),
+  defaultValue: z.number(),
+  overridden: z.boolean(),
+});
+export type AppSettingView = z.infer<typeof appSettingView>;
+
+export const appSettingsResponse = z.object({ settings: z.array(appSettingView) });
+export type AppSettingsResponse = z.infer<typeof appSettingsResponse>;
+
+/**
+ * Changing one.
+ *
+ * The key is checked against the code catalogue in the service, so there is no
+ * arbitrary-key write and no "edit any environment variable" screen. The reason
+ * is mandatory: a policy number changed in production with nothing recording why
+ * is exactly what invariant 12 exists to prevent.
+ */
+export const updateSettingRequest = z.object({
+  value: z.number().nonnegative(),
+  reason: z.string().trim().min(5).max(500),
+});
+export type UpdateSettingRequest = z.infer<typeof updateSettingRequest>;

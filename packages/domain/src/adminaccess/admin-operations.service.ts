@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
 import { assertEventTransition } from '../events/state-machine';
+import { SETTING_DEFAULTS, type SettingKey } from '../catalog/settings.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
 import { PERMISSIONS, ROLE_PERMISSIONS, type RoleKey } from './permissions';
 
@@ -446,6 +447,226 @@ export class AdminOperationsService {
         tx,
       );
     });
+  }
+
+  /**
+   * Moderate an event directly, without waiting for a case (M19).
+   *
+   * `decideCase` exists for the report-driven path and is the ordinary one. This
+   * is the other half a panel needs: a moderator looking at an event *itself*
+   * — because somebody phoned, or because they were reading the queue — has to be
+   * able to hide it or restore it without first inventing a case to decide.
+   *
+   * Both directions go through `assertEventTransition`, which is what keeps this
+   * from being a back door around the lifecycle: an event the host has since
+   * cancelled is not resurrected by a moderator, and one that has already
+   * happened is not hidden retroactively.
+   *
+   * The reason is mandatory for the reason §7 makes it mandatory on a case: a
+   * moderation decision nobody explained is one nobody can review.
+   */
+  async moderateEvent(
+    session: AdminSession,
+    eventPublicId: string,
+    input: { action: 'HIDE' | 'PUBLISH' | 'REJECT'; reason: string },
+  ): Promise<{ status: string }> {
+    this.access.assertPermission(session, PERMISSIONS.EVENT_MODERATE);
+    if (input.reason.trim().length < 5) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'reason' });
+    }
+
+    const next = { HIDE: 'HIDDEN', PUBLISH: 'PUBLISHED', REJECT: 'REJECTED' } as const;
+
+    return this.prisma.$transaction(async (tx) => {
+      const event = await tx.event.findUnique({
+        where: { publicId: eventPublicId },
+        select: { id: true, status: true, deletedAt: true },
+      });
+      if (!event || event.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+
+      const target = next[input.action];
+      assertEventTransition(event.status, target, event.id);
+
+      await tx.event.update({
+        where: { id: event.id },
+        data: {
+          status: target,
+          moderationStatus: input.action === 'PUBLISH' ? 'APPROVED' : 'REJECTED',
+          // Optimistic concurrency for the host's own edit form: a moderator
+          // hiding an event while its host is editing must make the host's save
+          // fail rather than silently un-hide it.
+          version: { increment: 1 },
+        },
+      });
+
+      await this.audit.record(
+        {
+          actorType: 'ADMIN',
+          actorId: session.adminUserId,
+          action: 'event.moderated',
+          targetType: 'event',
+          targetId: event.id,
+          before: { status: event.status },
+          after: { status: target, reason: input.reason.trim() },
+        },
+        tx,
+      );
+
+      return { status: target };
+    });
+  }
+
+  /**
+   * Close one report without deciding a whole case (M19).
+   *
+   * A report is a *request for a decision*, and most of them are answered by
+   * `decideCase` closing every report attached to a case. This handles the rest:
+   * the single report that never crossed the threshold, and the one a moderator
+   * reads and resolves on its own.
+   *
+   * `report.review`, which `SUPPORT` holds — reading and closing complaints is
+   * the job. Acting on the *subject* of one is `event.moderate` or `user.ban`,
+   * and neither is reachable from here.
+   */
+  async decideReport(
+    session: AdminSession,
+    reportPublicId: string,
+    input: { status: 'ACTIONED' | 'DISMISSED'; note: string },
+  ): Promise<void> {
+    this.access.assertPermission(session, PERMISSIONS.REPORT_REVIEW);
+    if (input.note.trim().length < 3) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'note' });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const report = await tx.report.findUnique({
+        where: { publicId: reportPublicId },
+        select: { id: true, status: true, targetType: true, targetId: true },
+      });
+      if (!report) throw new AppError(ErrorCode.NOT_FOUND);
+      // A report is answered once. Re-deciding one is a conflict, not a bug —
+      // two moderators reading the same queue is the normal case.
+      if (report.status !== 'OPEN') throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
+
+      await tx.report.update({ where: { id: report.id }, data: { status: input.status } });
+
+      await this.audit.record(
+        {
+          actorType: 'ADMIN',
+          actorId: session.adminUserId,
+          action: 'report.decided',
+          targetType: 'report',
+          targetId: report.id,
+          before: { status: report.status },
+          after: {
+            status: input.status,
+            note: input.note.trim(),
+            // The subject, so an incident review can follow the decision to the
+            // thing it was about without a second query.
+            subjectType: report.targetType,
+          },
+        },
+        tx,
+      );
+    });
+  }
+
+  /**
+   * Every tunable number, with its current value and its code default (M19).
+   *
+   * §11's heading is *"all in `app_setting`, runtime-changeable"*, and M17 seeded
+   * the rows so an operator could *find* them. This is the screen that makes them
+   * changeable without `psql`.
+   *
+   * The list is driven by `SETTING_DEFAULTS` rather than by the table, and the
+   * direction matters: a key present in the database and absent from the code is
+   * a leftover nothing reads, and showing it would invite somebody to tune it.
+   * A key in the code with no row is shown with its default, which is exactly
+   * what the service would return.
+   */
+  async listSettings(
+    session: AdminSession,
+  ): Promise<Array<{ key: string; value: number; defaultValue: number; overridden: boolean }>> {
+    this.access.assertPermission(session, PERMISSIONS.SETTINGS_MANAGE);
+
+    const stored = new Map(
+      (await this.prisma.appSetting.findMany({ select: { key: true, value: true } })).map((row) => [
+        row.key,
+        row.value,
+      ]),
+    );
+
+    return Object.entries(SETTING_DEFAULTS).map(([key, defaultValue]) => {
+      const value = stored.get(key);
+      const usable = typeof value === 'number' && Number.isFinite(value);
+      return {
+        key,
+        value: usable ? value : defaultValue,
+        defaultValue,
+        overridden: usable && value !== defaultValue,
+      };
+    });
+  }
+
+  /**
+   * Change one policy number.
+   *
+   * **The key must be one the code knows about.** An arbitrary key would let the
+   * panel write rows nothing reads, which is a settings table that stops
+   * describing the product — and it is the shape of the "edit any environment
+   * variable" screen that must never exist.
+   *
+   * The value is validated against the *kind* of number the default is: an
+   * integer default takes an integer, because a coin amount that arrives as 12.5
+   * is a corrupted ledger rather than a rounding question. Both bounds are
+   * refused rather than clamped, so an operator who typed the wrong thing is told.
+   */
+  async updateSetting(
+    session: AdminSession,
+    key: string,
+    value: number,
+    reason: string,
+  ): Promise<{ key: string; value: number }> {
+    this.access.assertPermission(session, PERMISSIONS.SETTINGS_MANAGE);
+
+    if (!(key in SETTING_DEFAULTS)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'key' });
+    }
+    if (reason.trim().length < 5) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'reason' });
+    }
+
+    const defaultValue = SETTING_DEFAULTS[key as SettingKey];
+    if (!Number.isFinite(value) || value < 0) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'value' });
+    }
+    if (Number.isInteger(defaultValue) && !Number.isInteger(value)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'value' });
+    }
+
+    const before = await this.prisma.appSetting.findUnique({ where: { key } });
+
+    const updated = await this.prisma.appSetting.upsert({
+      where: { key },
+      create: { key, value, updatedBy: session.adminUserId },
+      update: { value, version: { increment: 1 }, updatedBy: session.adminUserId },
+    });
+
+    await this.audit.record({
+      actorType: 'ADMIN',
+      actorId: session.adminUserId,
+      action: 'setting.changed',
+      targetType: 'app_setting',
+      targetId: key,
+      // `app_setting.value` is `Json`, so it is whatever an earlier writer put
+      // there. A non-number is a garbled row — the case `SettingsService.read`
+      // already falls back on — and recording the default is what that fallback
+      // actually meant.
+      before: { value: typeof before?.value === 'number' ? before.value : defaultValue },
+      after: { value, reason: reason.trim() },
+    });
+
+    return { key, value: updated.value as number };
   }
 
   /** The audit trail itself, newest first. */

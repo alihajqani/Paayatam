@@ -257,6 +257,18 @@ export type {
   GiftCodeState,
   GiftCodeSummary,
 } from './adminaccess/gift-code-admin.service';
+export { AdminInsightService } from './adminaccess/admin-insight.service';
+export type {
+  AdminDashboard,
+  AuditEntrySummary,
+  EventSummary,
+  LedgerEntrySummary,
+  Page,
+  ReportSummary,
+  Tally,
+  UserDetail,
+  UserSummary,
+} from './adminaccess/admin-insight.service';
 export { ReferralAdminService } from './adminaccess/referral-admin.service';
 export type {
   ReferralListFilters,

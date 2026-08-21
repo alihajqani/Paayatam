@@ -15,24 +15,35 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   AdminAccessService,
+  AdminInsightService,
   AdminOperationsService,
   ChatUnsealService,
   GiftCodeAdminService,
   ReferralAdminService,
   type AdminSession,
+  type EventSummary,
   type GiftCodeSummary,
   type ReferralReview,
+  type UserSummary,
 } from '@payetam/domain';
 import { PiiHasher } from '@payetam/platform';
+import { AppError, ErrorCode } from '@payetam/shared';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
+  adminAuditQuery,
+  adminEventListQuery,
+  adminLedgerQuery,
   adminLoginRequest,
+  adminReportListQuery,
+  adminUserListQuery,
   analyticsWindowQuery,
   bulkCreateGiftCodesRequest,
   createGiftCodeRequest,
   decideCaseRequest,
+  decideReportRequest,
   giftCodeListQuery,
+  moderateEventRequest,
   pageQuery,
   referralListQuery,
   reinstateReferralRequest,
@@ -42,11 +53,29 @@ import {
   setUserStatusRequest,
   unsealChatRequest,
   updateGiftCodeRequest,
+  updateSettingRequest,
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
   type AdminLoginRequest,
+  type AdminAuditQuery,
+  type AdminAuditResponse,
+  type AdminDashboardResponse,
+  type AdminEventListQuery,
+  type AdminEventListResponse,
+  type AdminEventView,
+  type AdminLedgerQuery,
+  type AdminLedgerResponse,
   type AdminLoginResponse,
+  type AdminReportListQuery,
+  type AdminReportListResponse,
+  type AdminReportView,
+  type AdminUserDetailView,
+  type AdminUserListQuery,
+  type AdminUserListResponse,
+  type AdminUserView,
   type AnalyticsWindowQuery,
+  type AppSettingView,
+  type AppSettingsResponse,
   type AuditLogResponse,
   type BulkCreateGiftCodesRequest,
   type BulkCreateGiftCodesResponse,
@@ -54,14 +83,17 @@ import {
   type CreateGiftCodeRequest,
   type CreateGiftCodeResponse,
   type DecideCaseRequest,
+  type DecideReportRequest,
   type GiftCodeAnalyticsResponse,
   type GiftCodeListQuery,
   type GiftCodeListResponse,
   type GiftCodeRedemptionsResponse,
   type GiftCodeView,
   type ModerationCaseStatus,
+  type ModerateEventRequest,
   type ModerationQueueResponse,
   type PageQuery,
+  type ReconciliationResponse,
   type ReferralListQuery,
   type ReferralListResponse,
   type ReferralReviewView,
@@ -74,7 +106,9 @@ import {
   type UnsealGrantResponse,
   type UnsealedChatResponse,
   type UpdateGiftCodeRequest,
+  type UpdateSettingRequest,
 } from '@payetam/shared';
+import { HealthService } from '../health/health.service';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import {
@@ -107,6 +141,15 @@ export class AdminController {
     private readonly unseal: ChatUnsealService,
     private readonly giftCodes: GiftCodeAdminService,
     private readonly referrals: ReferralAdminService,
+    private readonly insight: AdminInsightService,
+    /**
+     * The same readiness check `/ready` uses, folded into the dashboard.
+     *
+     * A panel that showed every number and could not say whether Redis was up
+     * would be a panel somebody has to leave to answer the first question they
+     * ask in an incident.
+     */
+    private readonly health: HealthService,
     private readonly pii: PiiHasher,
   ) {}
 
@@ -526,6 +569,317 @@ export class AdminController {
     await this.operations.setUserStatus(admin, { userPublicId: publicId, ...body });
   }
 
+  // ── The panel's read surface (M19) ─────────────────────────────────────────
+
+  /**
+   * The dashboard.
+   *
+   * `dashboard.read` is the least a staff account can hold, which makes this the
+   * one read in the panel that `ANALYST` can reach — ADR-0010's "read-only
+   * aggregates means aggregates, not a licence to read every user record",
+   * enforced by the service rather than described here.
+   *
+   * The health block is folded in rather than left to `/ready`, because the
+   * screen somebody opens at the start of a shift should answer "is anything
+   * wrong?" including "is anything down?", and a second fetch to a public
+   * endpoint would be a second thing to remember.
+   */
+  @Get('dashboard')
+  async dashboard(@CurrentAdmin() admin: AdminSession): Promise<AdminDashboardResponse> {
+    const [summary, health] = await Promise.all([
+      this.insight.dashboard(admin),
+      this.health.checkDependencies(),
+    ]);
+
+    return {
+      users: summary.users,
+      events: summary.events,
+      participations: summary.participations,
+      chats: summary.chats,
+      reports: summary.reports,
+      cases: summary.cases,
+      economy: summary.economy,
+      referrals: summary.referrals,
+      giftCodes: summary.giftCodes,
+      moderationBacklog: {
+        openCases: summary.moderationBacklog.openCases,
+        openReports: summary.moderationBacklog.openReports,
+        oldestOpenCaseAt: summary.moderationBacklog.oldestOpenCaseAt?.toISOString() ?? null,
+      },
+      health: health.checks,
+    };
+  }
+
+  // ── Users ──────────────────────────────────────────────────────────────────
+
+  @Get('users')
+  async listUsers(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminUserListQuery)) query: AdminUserListQuery,
+  ): Promise<AdminUserListResponse> {
+    const page = await this.insight.listUsers(admin, {
+      ...(query.query !== undefined ? { query: query.query } : {}),
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { users: page.rows.map(toAdminUserView), total: page.total };
+  }
+
+  @Get('users/:publicId')
+  async getUser(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminUserDetailView> {
+    const detail = await this.insight.getUser(admin, publicId);
+    return {
+      ...toAdminUserView(detail),
+      cityNameFa: detail.cityNameFa,
+      districtNameFa: detail.districtNameFa,
+      birthYear: detail.birthYear,
+      bio: detail.bio,
+      bioRedactions: detail.bioRedactions,
+      coins: detail.coins,
+      referrals: detail.referrals,
+      events: detail.events,
+      participations: detail.participations,
+      reportsAgainst: detail.reportsAgainst,
+      reportsFiled: detail.reportsFiled,
+      giftCodeRedemptions: detail.giftCodeRedemptions,
+    };
+  }
+
+  // ── Events ─────────────────────────────────────────────────────────────────
+
+  @Get('events')
+  async listEvents(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminEventListQuery)) query: AdminEventListQuery,
+  ): Promise<AdminEventListResponse> {
+    const page = await this.insight.listEvents(admin, {
+      ...(query.query !== undefined ? { query: query.query } : {}),
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.hostPublicId !== undefined ? { hostPublicId: query.hostPublicId } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { events: page.rows.map(toAdminEventView), total: page.total };
+  }
+
+  @Get('events/:publicId')
+  async getEvent(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminEventView> {
+    return toAdminEventView(await this.insight.getEvent(admin, publicId));
+  }
+
+  /**
+   * Hide or restore an event without first inventing a case to decide.
+   *
+   * `decideCase` is the report-driven path and remains the ordinary one. This is
+   * the other half a panel needs — a moderator looking at the *event* — and it
+   * goes through `assertEventTransition` in the service, so it is not a back door
+   * around the lifecycle.
+   */
+  @Post('events/:publicId/moderate')
+  async moderateEvent(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(moderateEventRequest)) body: ModerateEventRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<{ status: string }> {
+    return this.operations.moderateEvent(admin, publicId, {
+      action: body.action,
+      reason: body.reason,
+    });
+  }
+
+  // ── Reports ────────────────────────────────────────────────────────────────
+
+  @Get('reports')
+  async listReports(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminReportListQuery)) query: AdminReportListQuery,
+  ): Promise<AdminReportListResponse> {
+    const page = await this.insight.listReports(admin, {
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.targetType !== undefined ? { targetType: query.targetType } : {}),
+      ...(query.targetId !== undefined ? { targetId: query.targetId } : {}),
+      ...(query.from !== undefined ? { from: new Date(query.from) } : {}),
+      ...(query.to !== undefined ? { to: new Date(query.to) } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+
+    return {
+      reports: page.rows.map((row) => ({
+        publicId: row.publicId,
+        targetType: row.targetType as AdminReportView['targetType'],
+        targetId: row.targetId,
+        reason: row.reason as AdminReportView['reason'],
+        description: row.description,
+        status: row.status,
+        moderationCaseId: row.moderationCaseId,
+        reporterPublicId: row.reporterPublicId,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      total: page.total,
+    };
+  }
+
+  /**
+   * Close one report.
+   *
+   * Most reports are closed by `decideCase` when the case they are attached to is
+   * decided. This is the rest: the single report that never crossed the threshold
+   * and the one a moderator reads and answers on its own.
+   */
+  @Post('reports/:publicId/decide')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async decideReport(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(decideReportRequest)) body: DecideReportRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<void> {
+    await this.operations.decideReport(admin, publicId, {
+      status: body.status,
+      note: body.note,
+    });
+  }
+
+  // ── Economy ────────────────────────────────────────────────────────────────
+
+  /**
+   * The coin ledger, searchable (ADR-0007).
+   *
+   * `ledger.read`, held by `SUPPORT` — which deliberately does **not** hold
+   * `coin.adjust`. Reading the ledger is how a support conversation is resolved;
+   * moving a balance is not a support action.
+   */
+  @Get('ledger')
+  async ledger(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminLedgerQuery)) query: AdminLedgerQuery,
+  ): Promise<AdminLedgerResponse> {
+    const page = await this.insight.searchLedger(admin, {
+      ...(query.userPublicId !== undefined ? { userPublicId: query.userPublicId } : {}),
+      ...(query.type !== undefined ? { type: query.type } : {}),
+      ...(query.reasonCode !== undefined ? { reasonCode: query.reasonCode } : {}),
+      ...(query.refType !== undefined ? { refType: query.refType } : {}),
+      ...(query.from !== undefined ? { from: new Date(query.from) } : {}),
+      ...(query.to !== undefined ? { to: new Date(query.to) } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+
+    return {
+      entries: page.rows.map((row) => ({
+        userPublicId: row.userPublicId,
+        amount: row.amount,
+        balanceAfter: row.balanceAfter,
+        type: row.type,
+        reasonCode: row.reasonCode,
+        actorType: row.actorType,
+        refType: row.refType,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      total: page.total,
+      net: page.net,
+    };
+  }
+
+  /**
+   * ADR-0007's invariant, asked of the live database rather than of a fixture.
+   *
+   * `reconciliation.int.test.ts` asserts `balance = SUM(coin_ledger.amount)` on
+   * every commit against a database a test built. This asks it of production,
+   * which is the version that matters at three in the morning, and returns the
+   * accounts that disagree rather than a boolean nobody can act on.
+   */
+  @Get('ledger/reconcile')
+  async reconcile(@CurrentAdmin() admin: AdminSession): Promise<ReconciliationResponse> {
+    return this.insight.reconcile(admin);
+  }
+
+  // ── Audit ──────────────────────────────────────────────────────────────────
+
+  /**
+   * The audit viewer.
+   *
+   * `GET /admin/v1/audit` is kept exactly as M12 shipped it — four fields, no
+   * paging — because the RBAC matrix and the leak scan both address it and
+   * changing a tested contract for no reason is how a regression gets in. This is
+   * the panel's viewer beside it: the same rows and the same permission, with the
+   * filters and the payloads somebody reading an incident actually needs.
+   */
+  @Get('audit/search')
+  async searchAudit(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminAuditQuery)) query: AdminAuditQuery,
+  ): Promise<AdminAuditResponse> {
+    const page = await this.insight.listAudit(admin, {
+      ...(query.actorId !== undefined ? { actorId: query.actorId } : {}),
+      ...(query.actorType !== undefined ? { actorType: query.actorType } : {}),
+      ...(query.action !== undefined ? { action: query.action } : {}),
+      ...(query.targetType !== undefined ? { targetType: query.targetType } : {}),
+      ...(query.targetId !== undefined ? { targetId: query.targetId } : {}),
+      ...(query.from !== undefined ? { from: new Date(query.from) } : {}),
+      ...(query.to !== undefined ? { to: new Date(query.to) } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+
+    return {
+      entries: page.rows.map((row) => ({
+        id: row.id,
+        actorType: row.actorType,
+        actorId: row.actorId,
+        action: row.action,
+        targetType: row.targetType,
+        targetId: row.targetId,
+        before: row.before,
+        after: row.after,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      total: page.total,
+    };
+  }
+
+  // ── Settings ───────────────────────────────────────────────────────────────
+
+  /**
+   * Every tunable number, with the default behind it (§11).
+   *
+   * The list comes from the **code** catalogue rather than from the table. A key
+   * in the database and not in `SETTING_DEFAULTS` is a leftover nothing reads,
+   * and putting it on a screen would invite somebody to tune it.
+   */
+  @Get('settings')
+  async listSettings(@CurrentAdmin() admin: AdminSession): Promise<AppSettingsResponse> {
+    return { settings: await this.operations.listSettings(admin) };
+  }
+
+  /**
+   * Change one, with a reason.
+   *
+   * The key is validated against the code catalogue in the service, so there is
+   * no arbitrary-key write and no path to editing an environment variable. Some
+   * of these take effect on the next read and some are cached for the process's
+   * lifetime; `docs/admin-panel.md` says which.
+   */
+  @Post('settings/:key')
+  async updateSetting(
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(updateSettingRequest)) body: UpdateSettingRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AppSettingView> {
+    const updated = await this.operations.updateSetting(admin, key, body.value, body.reason);
+    const settings = await this.operations.listSettings(admin);
+    const row = settings.find((setting) => setting.key === updated.key);
+    if (!row) throw new AppError(ErrorCode.INTERNAL_ERROR);
+    return row;
+  }
+
   // ── Break-glass (T14) ──────────────────────────────────────────────────────
 
   /**
@@ -704,5 +1058,39 @@ function toReferralReviewView(review: ReferralReview): ReferralReviewView {
     rejectionReason: review.rejectionReason,
     reviewNote: review.reviewNote,
     createdAt: review.createdAt.toISOString(),
+  };
+}
+
+/** Field by field, never a spread (§3.6 layer 2). No path reaches an identity. */
+function toAdminUserView(user: UserSummary): AdminUserView {
+  return {
+    publicId: user.publicId,
+    displayName: user.displayName,
+    status: user.status,
+    onboardingState: user.onboardingState,
+    // Null, never zero (ADR-0014): an account that has never been judged has no
+    // row, and 0 is the worst possible reputation shown to somebody who has done
+    // nothing at all.
+    trustScore: user.trustScore,
+    coinBalance: user.coinBalance,
+    createdAt: user.createdAt.toISOString(),
+  };
+}
+
+function toAdminEventView(event: EventSummary): AdminEventView {
+  return {
+    publicId: event.publicId,
+    title: event.title,
+    status: event.status,
+    moderationStatus: event.moderationStatus,
+    hostPublicId: event.hostPublicId,
+    hostDisplayName: event.hostDisplayName,
+    cityNameFa: event.cityNameFa,
+    startsAt: event.startsAt.toISOString(),
+    capacity: event.capacity,
+    acceptedCount: event.acceptedCount,
+    requestCount: event.requestCount,
+    reportCount: event.reportCount,
+    createdAt: event.createdAt.toISOString(),
   };
 }

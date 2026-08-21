@@ -16,6 +16,7 @@ import { AdminAccessService, permissionsFor, type AdminSession } from './admin-a
 import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
+import { AdminInsightService } from './admin-insight.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import {
@@ -68,6 +69,7 @@ const operations = new AdminOperationsService(service, clock, access, coins, tru
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);
 const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);
 const referrals = new ReferralAdminService(service, clock, access, audit);
+const insight = new AdminInsightService(service, clock, access);
 
 /**
  * One admin operation, and the permission it demands.
@@ -235,6 +237,80 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.REFERRAL_MANAGE,
     run: (session) => referrals.reinstate(session, NO_SUCH_ID, 'x'),
   },
+  /**
+   * M19's panel surface, and the reason every read is enumerated here rather
+   * than trusted: `ANALYST` holds `dashboard.read` and nothing else, so exactly
+   * one of the fourteen rows below is allowed for that role. A read method that
+   * forgot `assertPermission` would be reachable by an account whose whole
+   * purpose is aggregates, and nothing outside this matrix would notice.
+   */
+  {
+    name: 'GET /admin/v1/dashboard',
+    permission: PERMISSIONS.DASHBOARD_READ,
+    run: (session) => insight.dashboard(session),
+  },
+  {
+    name: 'GET /admin/v1/users',
+    permission: PERMISSIONS.USER_READ,
+    run: (session) => insight.listUsers(session),
+  },
+  {
+    name: 'GET /admin/v1/users/:publicId',
+    permission: PERMISSIONS.USER_READ,
+    run: (session) => insight.getUser(session, NO_SUCH_ID),
+  },
+  {
+    name: 'GET /admin/v1/events',
+    permission: PERMISSIONS.EVENT_MODERATE,
+    run: (session) => insight.listEvents(session),
+  },
+  {
+    name: 'GET /admin/v1/events/:publicId',
+    permission: PERMISSIONS.EVENT_MODERATE,
+    run: (session) => insight.getEvent(session, NO_SUCH_ID),
+  },
+  {
+    name: 'POST /admin/v1/events/:publicId/moderate',
+    permission: PERMISSIONS.EVENT_MODERATE,
+    run: (session) =>
+      operations.moderateEvent(session, NO_SUCH_ID, { action: 'HIDE', reason: 'x' }),
+  },
+  {
+    name: 'GET /admin/v1/reports',
+    permission: PERMISSIONS.REPORT_REVIEW,
+    run: (session) => insight.listReports(session),
+  },
+  {
+    name: 'POST /admin/v1/reports/:publicId/decide',
+    permission: PERMISSIONS.REPORT_REVIEW,
+    run: (session) =>
+      operations.decideReport(session, NO_SUCH_ID, { status: 'DISMISSED', note: '' }),
+  },
+  {
+    name: 'GET /admin/v1/ledger',
+    permission: PERMISSIONS.LEDGER_READ,
+    run: (session) => insight.searchLedger(session),
+  },
+  {
+    name: 'GET /admin/v1/ledger/reconcile',
+    permission: PERMISSIONS.LEDGER_READ,
+    run: (session) => insight.reconcile(session),
+  },
+  {
+    name: 'GET /admin/v1/audit/search',
+    permission: PERMISSIONS.AUDIT_READ,
+    run: (session) => insight.listAudit(session),
+  },
+  {
+    name: 'GET /admin/v1/settings',
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    run: (session) => operations.listSettings(session),
+  },
+  {
+    name: 'POST /admin/v1/settings/:key',
+    permission: PERMISSIONS.SETTINGS_MANAGE,
+    run: (session) => operations.updateSetting(session, 'no.such.key', 1, 'x'),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -272,7 +348,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(22);
+    expect(OPERATIONS).toHaveLength(35);
   });
 
   for (const role of ROLES) {
