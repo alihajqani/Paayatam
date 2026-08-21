@@ -86,6 +86,18 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/gift-codes',
+    name: 'gift-codes',
+    component: () => import('@/views/GiftCodesView.vue'),
+    meta: { title: 'کدهای هدیه', permission: PERMISSIONS.GIFT_CODE_MANAGE, group: 'economy' },
+  },
+  {
+    path: '/gift-codes/:publicId',
+    name: 'gift-code-detail',
+    component: () => import('@/views/GiftCodeDetailView.vue'),
+    meta: { title: 'گزارش کد هدیه', permission: PERMISSIONS.GIFT_CODE_MANAGE, group: null },
+  },
+  {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/ForbiddenView.vue'),
