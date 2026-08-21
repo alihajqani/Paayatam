@@ -61,6 +61,11 @@ window, and returns every code **once**.
   browser (an entropy source nobody controls, and the codes cross the network twice), not from a
   sequence (enumerable by construction), and not from `Math.random` (seeded per process, so two API
   replicas minting at once produce the same batch).
+- **The optional prefix is allowed to be a word.** It takes `[A-Z2-9]`, which is wider than the code
+  alphabet on the letters and exactly as narrow on the digits. The asymmetry is the point: «NOWRUZ»
+  misread as «N0WRUZ» is corrected by anybody who has seen the word, and refusing it would make
+  prefixes useless for the campaigns they exist for — but `NOWRUZ1405` reads as `NOWRUZI4O5` off a
+  poster, and a bare digit has no word to disambiguate it.
 - **Default length 12**, ≈ 7.7 × 10¹⁷ codes. Eight is fine for a referral code that records a
   relationship and is not fine for one that pays.
 - **Collisions are re-drawn, not failed.** Each attempt inserts with `skipDuplicates`, counts what

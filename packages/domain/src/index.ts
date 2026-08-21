@@ -55,6 +55,8 @@ export {
   ReferralService,
   REFERRAL_REFERRER_REASON,
   REFERRAL_REFERRED_REASON,
+  CODE_ALPHABET,
+  generateCode,
   normalizeCode,
   referredRewardKey,
   referrerRewardKey,
@@ -63,6 +65,8 @@ export type { ReferralClaim, ReferralSummary } from './economy/referral.service'
 export {
   GiftCodeService,
   GIFT_CODE_REASON,
+  GIFT_CODE_SUCCESS_ACTION,
+  GIFT_CODE_FAILURE_ACTION,
   giftCodeRedemptionKey,
 } from './economy/gift-code.service';
 export type { RedeemedGiftCode } from './economy/gift-code.service';
@@ -231,8 +235,24 @@ export {
 export type { AdminSession, LoginResult } from './adminaccess/admin-access.service';
 export { AdminOperationsService, adminAdjustmentKey } from './adminaccess/admin-operations.service';
 export type { CaseSummary } from './adminaccess/admin-operations.service';
-export { GiftCodeAdminService } from './adminaccess/gift-code-admin.service';
-export type { CreateGiftCodeInput, GiftCodeSummary } from './adminaccess/gift-code-admin.service';
+export {
+  GiftCodeAdminService,
+  GIFT_CODE_DEFAULT_LENGTH,
+  GIFT_CODE_MIN_LENGTH,
+  GIFT_CODE_MAX_LENGTH,
+  giftCodeState,
+  maskCode,
+} from './adminaccess/gift-code-admin.service';
+export type {
+  BulkCreateGiftCodesInput,
+  CreateGiftCodeInput,
+  CreatedGiftCode,
+  GiftCodeBatch,
+  GiftCodeListFilters,
+  GiftCodePage,
+  GiftCodeState,
+  GiftCodeSummary,
+} from './adminaccess/gift-code-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';

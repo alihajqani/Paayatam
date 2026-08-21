@@ -218,6 +218,30 @@ export const SETTING_DEFAULTS = {
   'ranking.weight_boost': 0.15,
   'ranking.weight_trust': 0.1,
   'ranking.weight_interest_match': 0.05,
+
+  /**
+   * Gift-code campaign limits (M19, ADR-0016).
+   *
+   * ADR-0015 kept *every per-campaign* number on the `gift_code` row, and that is
+   * unchanged: the coins, the window, the caps and the kill switch are columns,
+   * because two simultaneous campaigns cannot share one setting. These two are
+   * different in kind — they are **platform** limits on what a campaign may be,
+   * which is exactly what §11 says belongs here.
+   *
+   * `max_batch_size` bounds one bulk mint. A thousand codes is a large campaign
+   * and a synchronous request that still returns in well under a second; past it
+   * the honest answer is a second batch, not a longer transaction holding a
+   * unique index.
+   *
+   * `max_per_user_limit` is **1**, and it is a setting rather than a constant so
+   * that raising it is a decision somebody makes, records and can undo — not a
+   * deploy. ADR-0016 explains why 1 is the right default: a code redeemable twice
+   * by one person is almost always a mistake, and the two protections that make a
+   * campaign bounded (the global cap and the per-user limit) collapse into one
+   * when the second is loosened.
+   */
+  'giftcode.max_batch_size': 1000,
+  'giftcode.max_per_user_limit': 1,
 } as const satisfies Record<string, number>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

@@ -220,10 +220,22 @@ export const auditLogResponse = z.object({
 });
 export type AuditLogResponse = z.infer<typeof auditLogResponse>;
 
-// ── Gift codes (M18) ─────────────────────────────────────────────────────────
+// ── Gift codes (M18, campaigns in M19) ───────────────────────────────────────
 
 /**
- * Minting a campaign code.
+ * How a code is addressed and how it is shown (ADR-0016).
+ *
+ * A gift code is a **bearer secret**: whoever holds the string gets the coins.
+ * ADR-0015 treated it as an identifier — it routed on it and returned it in every
+ * list — and this file is where that is corrected. Everything below addresses a
+ * code by `publicId` and shows it as `codeMasked`; the plaintext appears in
+ * exactly two responses, both of which are the act of creating it.
+ */
+export const giftCodeState = z.enum(['SCHEDULED', 'ACTIVE', 'DISABLED', 'EXPIRED', 'EXHAUSTED']);
+export type GiftCodeState = z.infer<typeof giftCodeState>;
+
+/**
+ * Minting a campaign code the operator chose themselves.
  *
  * Every number that decides what a redemption is worth is here and nowhere else:
  * the coins, the two limits and the window. The Mini App's redeem request carries
@@ -233,6 +245,14 @@ export type AuditLogResponse = z.infer<typeof auditLogResponse>;
  * `maxRedemptions` is nullable rather than defaulted to a large number, because
  * "no cap" and "a cap somebody chose" are different facts and an operator reading
  * the list six months from now should be able to tell them apart.
+ *
+ * `perUserLimit` is capped at **1** (ADR-0016). A campaign is bounded by two
+ * numbers and loosening the second collapses them into one: with three per
+ * person, one account with a script takes three slots of the global cap, and
+ * "500 people get 50 coins" becomes "167 people get 150" at best. The cap is
+ * `giftcode.max_per_user_limit` in `app_setting`, so raising it is a recorded
+ * decision rather than a deploy — and the *column* is deliberately not
+ * constrained, so historical codes above 1 keep working.
  */
 export const createGiftCodeRequest = z.object({
   /**
@@ -245,36 +265,121 @@ export const createGiftCodeRequest = z.object({
   coins: z.number().int().positive().max(100_000),
   /** Null or absent is unlimited. */
   maxRedemptions: z.number().int().positive().max(1_000_000).nullish(),
-  /** How many one person may take. One unless a campaign says otherwise. */
-  perUserLimit: z.number().int().positive().max(100).default(1),
+  /** One, and the service refuses more (ADR-0016). */
+  perUserLimit: z.literal(1).default(1),
   startsAt: z.iso.datetime().nullish(),
   expiresAt: z.iso.datetime().nullish(),
+  /** Groups codes for the analytics roll-up. Never shown to a user. */
+  campaign: z.string().trim().max(80).nullish(),
   /** What this campaign is, for whoever reads the list later. */
   note: z.string().trim().max(280).nullish(),
 });
 export type CreateGiftCodeRequest = z.infer<typeof createGiftCodeRequest>;
+
+/**
+ * Minting N single-use codes at once (M19).
+ *
+ * There is no `codes` field and there never will be: the codes are drawn on the
+ * server with `randomInt`, because a browser's entropy is a page nobody controls,
+ * a sequence is enumerable by construction, and `Math.random` is seeded per
+ * process — two API replicas minting together would produce the same batch.
+ *
+ * `count` is bounded here at the same number `giftcode.max_batch_size` defaults
+ * to. The setting is what actually decides; this bound exists so an obviously
+ * absurd request is refused before it reaches a transaction.
+ */
+export const bulkCreateGiftCodesRequest = z.object({
+  count: z.number().int().positive().max(1000),
+  coins: z.number().int().positive().max(100_000),
+  /**
+   * Prepended to every code — «NOWRUZ» → `NOWRUZ7K2M9QXB`.
+   *
+   * Normalized and then checked against the code alphabet, because a prefix with
+   * an `O` in it reintroduces exactly the ambiguity the alphabet exists to
+   * remove: these are read off one screen and typed into another.
+   */
+  prefix: z.string().trim().max(12).nullish(),
+  /** Random characters after the prefix. Twelve unless a campaign says otherwise. */
+  length: z.number().int().min(6).max(24).default(12),
+  maxRedemptions: z.number().int().positive().max(1_000_000).nullish(),
+  perUserLimit: z.literal(1).default(1),
+  startsAt: z.iso.datetime().nullish(),
+  expiresAt: z.iso.datetime().nullish(),
+  /** Mint disabled, for a campaign that is not meant to start yet. */
+  isActive: z.boolean().default(true),
+  campaign: z.string().trim().max(80).nullish(),
+  note: z.string().trim().max(280).nullish(),
+});
+export type BulkCreateGiftCodesRequest = z.infer<typeof bulkCreateGiftCodesRequest>;
+
+/** Retuning a campaign. Every field optional; every field affects only the future. */
+export const updateGiftCodeRequest = z.object({
+  coins: z.number().int().positive().max(100_000).optional(),
+  maxRedemptions: z.number().int().positive().max(1_000_000).nullish(),
+  perUserLimit: z.literal(1).optional(),
+  startsAt: z.iso.datetime().nullish(),
+  expiresAt: z.iso.datetime().nullish(),
+  isActive: z.boolean().optional(),
+  campaign: z.string().trim().max(80).nullish(),
+  note: z.string().trim().max(280).nullish(),
+});
+export type UpdateGiftCodeRequest = z.infer<typeof updateGiftCodeRequest>;
 
 export const setGiftCodeActiveRequest = z.object({
   isActive: z.boolean(),
 });
 export type SetGiftCodeActiveRequest = z.infer<typeof setGiftCodeActiveRequest>;
 
+export const giftCodeListQuery = z.object({
+  campaign: z.string().trim().max(80).optional(),
+  batchId: z.uuid().optional(),
+  isActive: z.enum(['true', 'false']).optional(),
+  /**
+   * An **exact** code, normalized before lookup — never a prefix.
+   *
+   * The distinction is the whole design: an operator holding a code a user quoted
+   * at them can find its row, and an operator holding nothing cannot enumerate a
+   * campaign. `LIKE 'NOW%'` would have handed the campaign over.
+   */
+  code: z.string().trim().min(4).max(32).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type GiftCodeListQuery = z.infer<typeof giftCodeListQuery>;
+
 /**
  * A campaign as the panel sees it.
  *
- * `redeemedCount` against `maxRedemptions` is the monitoring surface: it is how an
- * operator sees a campaign being drained, and it is a column maintained under the
- * same row lock the redemption takes rather than a count computed on read.
+ * **No `code`.** `redeemedCount` against `maxRedemptions` is the monitoring
+ * surface and it needs no secret to be useful; `codeMasked` is there so an
+ * operator can recognise a code somebody quoted at them, and `publicId` is what
+ * every action addresses. A stolen admin session can therefore watch every
+ * campaign and spend none of them (ADR-0016).
  */
 export const giftCodeView = z.object({
-  code: z.string(),
+  publicId: z.uuid(),
+  /** `NOWR••••4F2Z`. Recognisable, never redeemable. */
+  codeMasked: z.string(),
+  campaign: z.string().nullable(),
+  batchId: z.uuid().nullable(),
   coins: z.number().int().positive(),
   maxRedemptions: z.number().int().positive().nullable(),
   perUserLimit: z.number().int().positive(),
   redeemedCount: z.number().int().nonnegative(),
+  /** Null when uncapped. Precomputed so no client subtracts and gets it wrong. */
+  remainingRedemptions: z.number().int().nonnegative().nullable(),
   startsAt: z.iso.datetime().nullable(),
   expiresAt: z.iso.datetime().nullable(),
   isActive: z.boolean(),
+  /**
+   * What the three columns and the clock add up to, decided **server-side**.
+   *
+   * A panel that computed "expired" itself would compare an ISO string against
+   * the browser's clock, and invariant 9 says no surface in this product does
+   * that. The order matches the order a redemption checks them in, so the badge
+   * on the screen and the refusal a user would get are the same fact.
+   */
+  state: giftCodeState,
   note: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });
@@ -282,5 +387,35 @@ export type GiftCodeView = z.infer<typeof giftCodeView>;
 
 export const giftCodeListResponse = z.object({
   codes: z.array(giftCodeView),
+  /** How many match the filter, so "is that all of them?" has an answer. */
+  total: z.number().int().nonnegative(),
 });
 export type GiftCodeListResponse = z.infer<typeof giftCodeListResponse>;
+
+/**
+ * The one response that carries a plaintext code, and only because the operator
+ * typed it themselves — they already have it.
+ */
+export const createGiftCodeResponse = z.object({
+  code: z.string(),
+  giftCode: giftCodeView,
+});
+export type CreateGiftCodeResponse = z.infer<typeof createGiftCodeResponse>;
+
+/**
+ * A batch, returned **once**.
+ *
+ * `codes` is not recoverable afterwards by any endpoint, which is the property
+ * that makes bulk minting safe to expose at all: what the panel does not keep, a
+ * stolen session cannot read. `warningFa` is carried in the response rather than
+ * hardcoded in the panel so that the bot, a script or a future surface cannot
+ * show the list without the sentence that explains it.
+ */
+export const bulkCreateGiftCodesResponse = z.object({
+  batchId: z.uuid(),
+  campaign: z.string().nullable(),
+  codes: z.array(z.string()),
+  giftCodes: z.array(giftCodeView),
+  warningFa: z.string(),
+});
+export type BulkCreateGiftCodesResponse = z.infer<typeof bulkCreateGiftCodesResponse>;

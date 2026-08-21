@@ -66,6 +66,8 @@ let hostPublicId: string;
 let adminCookie: string;
 let adminCsrf: string;
 let reviewPublicId: string;
+/** M19 addresses a gift code by `public_id`; the code itself is a secret. */
+let scannedGiftCodePublicId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
@@ -638,6 +640,21 @@ beforeAll(async () => {
     select: { id: true },
   });
 
+  /**
+   * A campaign the scan can address by `public_id` (M19, ADR-0016).
+   *
+   * Minted here rather than by the scanned `POST` because the routes below have
+   * to name it in a URL, and the scan runs its list several times — the create
+   * would be a duplicate on the second pass and the `PATCH` would then be
+   * addressing something that never existed.
+   */
+  scannedGiftCodePublicId = (
+    await prisma.giftCode.create({
+      data: { code: 'LEAKSCANTARGET', coins: 5, campaign: 'leak-scan' },
+      select: { publicId: true },
+    })
+  ).publicId;
+
   ENDPOINTS.push(
     { method: 'GET', url: `/api/v1/events/${eventPublicId}` },
     { method: 'GET', url: `/api/v1/events/${eventPublicId}/explain-rank` },
@@ -791,12 +808,30 @@ beforeAll(async () => {
       method: 'POST',
       url: '/admin/v1/gift-codes',
       admin: true,
-      body: { code: 'LEAKSCAN1', coins: 5, note: 'scan coverage' },
+      body: { code: 'LEAKSCAN1', coins: 5, note: 'scan coverage', campaign: 'leak-scan' },
     },
-    { method: 'GET', url: '/admin/v1/gift-codes', admin: true },
+    /**
+     * M19's bulk mint, which is the one admin response in the product that
+     * deliberately returns secrets — and therefore the one where the scan's job
+     * is to prove that what it returns is *only* those secrets.
+     */
     {
       method: 'POST',
-      url: '/admin/v1/gift-codes/LEAKSCAN1/active',
+      url: '/admin/v1/gift-codes/batch',
+      admin: true,
+      body: { count: 3, coins: 5, campaign: 'leak-scan', prefix: 'SCAN' },
+    },
+    { method: 'GET', url: '/admin/v1/gift-codes', admin: true },
+    { method: 'GET', url: '/admin/v1/gift-codes?campaign=leak-scan&limit=5', admin: true },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/gift-codes/${scannedGiftCodePublicId}`,
+      admin: true,
+      body: { note: 'retuned by the scan' },
+    },
+    {
+      method: 'POST',
+      url: `/admin/v1/gift-codes/${scannedGiftCodePublicId}/active`,
       admin: true,
       body: { isActive: false },
     },

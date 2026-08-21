@@ -586,7 +586,16 @@ model Referral {
 /// two limits and the kill switch. Plan §11's rule — "all tunable numbers in the
 /// database" — applies to a campaign the same way it applies to a policy.
 model GiftCode {
-  id   String @id @default(uuid(7))
+  id       String @id @default(uuid(7))
+  /// The handle every admin URL and every response uses (M19, ADR-0016).
+  ///
+  /// A random UUIDv4, exactly as `user.public_id` and `event.public_id` are, and
+  /// added for a reason narrower than convention: **the code itself is a bearer
+  /// secret**, and `POST /admin/v1/gift-codes/NOWRUZ1405/active` writes it into
+  /// every access log, proxy log and browser history between the operator and the
+  /// database. ADR-0015 said "never log raw gift codes" and then put one in a URL
+  /// path. This is what a code is addressed by instead.
+  publicId String @unique @default(uuid(4)) @map("public_id")
   /// Normalized on write: upper-case, no spaces, no dashes. The UNIQUE is what
   /// makes «abc-123» and «ABC123» the same code rather than two.
   code String @unique
@@ -619,6 +628,22 @@ model GiftCode {
   /// What this campaign is, for whoever reads the list in six months.
   note String?
 
+  /// The campaign this code belongs to (M19).
+  ///
+  /// A **label**, not a foreign key to a `campaign` table, and the choice is
+  /// deliberate: a campaign has no attribute of its own that is not already on
+  /// its codes, so a table would be a join whose only column is the name — and a
+  /// foreign key would make "rename the campaign" a migration instead of an
+  /// UPDATE. Nullable because a one-off support gesture is not a campaign, and
+  /// bucketing it under one would make the roll-up describe nothing.
+  campaign String?
+
+  /// The bulk mint this code came out of (M19). One `randomUUID` per request, so
+  /// "show me what I just generated" is a `WHERE` — and the operator who closed
+  /// the tab can still find *which* codes they made, count them and disable the
+  /// lot, even though the codes themselves are gone by design (ADR-0016).
+  batchId String? @map("batch_id")
+
 
   /// The staff account that created it. Null for a code seeded by a script.
   createdByAdminId String? @map("created_by_admin_id")
@@ -634,6 +659,9 @@ model GiftCode {
   /// The redemption lookup is by `code`, which the UNIQUE already answers; this
   /// one is for "which campaigns are live?" on the admin list.
   @@index([isActive, expiresAt])
+  /// Campaign roll-ups, and "everything I minted a moment ago" (M19).
+  @@index([campaign, createdAt])
+  @@index([batchId])
   @@map("gift_code")
 }
 
@@ -670,6 +698,10 @@ model GiftCodeRedemption {
   @@unique([giftCodeId, userId, seq])
   /// "How many has this person had?" — read while holding the code's row lock.
   @@index([userId, createdAt])
+  /// Per-code analytics (M19): first and last redemption, the trend over a window
+  /// and the distinct-user count. Without it every one of those is a scan of the
+  /// whole table for a campaign that may be a hundredth of it.
+  @@index([giftCodeId, createdAt])
   @@map("gift_code_redemption")
 }
 

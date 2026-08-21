@@ -222,9 +222,15 @@ export {
   auditEntryView,
   auditLogResponse,
   createGiftCodeRequest,
+  bulkCreateGiftCodesRequest,
+  updateGiftCodeRequest,
   setGiftCodeActiveRequest,
+  giftCodeListQuery,
+  giftCodeState,
   giftCodeView,
   giftCodeListResponse,
+  createGiftCodeResponse,
+  bulkCreateGiftCodesResponse,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -250,9 +256,15 @@ export type {
   AuditEntryView,
   AuditLogResponse,
   CreateGiftCodeRequest,
+  BulkCreateGiftCodesRequest,
+  UpdateGiftCodeRequest,
   SetGiftCodeActiveRequest,
+  GiftCodeListQuery,
+  GiftCodeState,
   GiftCodeView,
   GiftCodeListResponse,
+  CreateGiftCodeResponse,
+  BulkCreateGiftCodesResponse,
 } from './contracts/admin';
 
 export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';

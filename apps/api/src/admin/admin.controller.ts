@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -25,19 +26,26 @@ import {
   adjustCoinsRequest,
   adjustTrustRequest,
   adminLoginRequest,
+  bulkCreateGiftCodesRequest,
   createGiftCodeRequest,
   decideCaseRequest,
+  giftCodeListQuery,
   requestRoleChangeRequest,
   setGiftCodeActiveRequest,
   setUserStatusRequest,
   unsealChatRequest,
+  updateGiftCodeRequest,
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
   type AdminLoginRequest,
   type AdminLoginResponse,
   type AuditLogResponse,
+  type BulkCreateGiftCodesRequest,
+  type BulkCreateGiftCodesResponse,
   type CreateGiftCodeRequest,
+  type CreateGiftCodeResponse,
   type DecideCaseRequest,
+  type GiftCodeListQuery,
   type GiftCodeListResponse,
   type GiftCodeView,
   type ModerationCaseStatus,
@@ -48,6 +56,7 @@ import {
   type UnsealChatRequest,
   type UnsealGrantResponse,
   type UnsealedChatResponse,
+  type UpdateGiftCodeRequest,
 } from '@payetam/shared';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -209,19 +218,24 @@ export class AdminController {
   }
 
   /**
-   * Gift codes (M18): mint, disable, and watch being drained.
+   * Gift codes (M18, campaigns in M19): mint one, mint a thousand, retune,
+   * disable, and watch a campaign being drained.
    *
    * Guarded by `giftcode.manage`, which only `SUPER_ADMIN` holds — minting coins
-   * out of nothing is the same class of capability as `coin.adjust`, and ADR-0010's
-   * reasoning about `SUPPORT` applies without change. As everywhere else in this
-   * controller the check is not here: it is in the service, so it holds for the
-   * seeds and scripts that never pass through a controller at all.
+   * out of nothing is the same class of capability as `coin.adjust`, and
+   * ADR-0010's reasoning about `SUPPORT` applies without change. As everywhere
+   * else in this controller the check is not here: it is in the service, so it
+   * holds for the seeds and scripts that never pass through a controller at all.
+   *
+   * **Every route below addresses a code by `publicId`.** ADR-0016 explains why
+   * at length; the short version is that a code is a bearer secret, and
+   * `POST /gift-codes/NOWRUZ1405/active` writes it into the access log.
    */
   @Post('gift-codes')
   async createGiftCode(
     @Body(new ZodValidationPipe(createGiftCodeRequest)) body: CreateGiftCodeRequest,
     @CurrentAdmin() admin: AdminSession,
-  ): Promise<GiftCodeView> {
+  ): Promise<CreateGiftCodeResponse> {
     const created = await this.giftCodes.create(admin, {
       code: body.code,
       coins: body.coins,
@@ -229,30 +243,115 @@ export class AdminController {
       perUserLimit: body.perUserLimit,
       startsAt: body.startsAt != null ? new Date(body.startsAt) : null,
       expiresAt: body.expiresAt != null ? new Date(body.expiresAt) : null,
+      campaign: body.campaign ?? null,
       note: body.note ?? null,
     });
-    return toGiftCodeView(created);
+    // The plaintext, and it is safe here for one reason only: the operator typed
+    // it, so they already have it. `createBatch` is the case that is different.
+    return { code: created.code, giftCode: toGiftCodeView(created.summary) };
+  }
+
+  /**
+   * Mint a campaign of single-use codes, and hand them over **once**.
+   *
+   * This response is the only time these strings exist outside the database, and
+   * nothing in the product returns them again — which is what makes bulk minting
+   * safe to expose at all: what the panel does not keep, a stolen session cannot
+   * read. The warning travels in the response rather than living in the panel, so
+   * no surface can show the list without the sentence that explains it.
+   */
+  @Post('gift-codes/batch')
+  async createGiftCodeBatch(
+    @Body(new ZodValidationPipe(bulkCreateGiftCodesRequest)) body: BulkCreateGiftCodesRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<BulkCreateGiftCodesResponse> {
+    const batch = await this.giftCodes.createBatch(admin, {
+      count: body.count,
+      coins: body.coins,
+      prefix: body.prefix ?? null,
+      length: body.length,
+      maxRedemptions: body.maxRedemptions ?? null,
+      perUserLimit: body.perUserLimit,
+      startsAt: body.startsAt != null ? new Date(body.startsAt) : null,
+      expiresAt: body.expiresAt != null ? new Date(body.expiresAt) : null,
+      isActive: body.isActive,
+      campaign: body.campaign ?? null,
+      note: body.note ?? null,
+    });
+
+    return {
+      batchId: batch.batchId,
+      campaign: batch.campaign,
+      codes: batch.codes,
+      giftCodes: batch.summaries.map(toGiftCodeView),
+      warningFa: GIFT_CODE_BATCH_WARNING_FA,
+    };
   }
 
   @Get('gift-codes')
-  async listGiftCodes(@CurrentAdmin() admin: AdminSession): Promise<GiftCodeListResponse> {
-    const codes = await this.giftCodes.list(admin);
-    return { codes: codes.map(toGiftCodeView) };
+  async listGiftCodes(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(giftCodeListQuery)) query: GiftCodeListQuery,
+  ): Promise<GiftCodeListResponse> {
+    const page = await this.giftCodes.list(admin, {
+      ...(query.campaign !== undefined ? { campaign: query.campaign } : {}),
+      ...(query.batchId !== undefined ? { batchId: query.batchId } : {}),
+      ...(query.isActive !== undefined ? { isActive: query.isActive === 'true' } : {}),
+      ...(query.code !== undefined ? { code: query.code } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { codes: page.codes.map(toGiftCodeView), total: page.total };
+  }
+
+  /**
+   * Retune a campaign's **future**.
+   *
+   * Nothing here can reach a redemption or a ledger row: `gift_code_redemption`
+   * snapshots what was granted, and `coin_ledger` is append-only under a trigger.
+   * Raising `coins` from 50 to 80 therefore leaves every past redemption reading
+   * 50, which is correct and is what the panel says out loud (ADR-0016).
+   */
+  @Patch('gift-codes/:publicId')
+  async updateGiftCode(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(updateGiftCodeRequest)) body: UpdateGiftCodeRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<GiftCodeView> {
+    return toGiftCodeView(
+      await this.giftCodes.update(admin, publicId, {
+        ...(body.coins !== undefined ? { coins: body.coins } : {}),
+        ...(body.maxRedemptions !== undefined
+          ? { maxRedemptions: body.maxRedemptions ?? null }
+          : {}),
+        ...(body.perUserLimit !== undefined ? { perUserLimit: body.perUserLimit } : {}),
+        ...(body.startsAt !== undefined
+          ? { startsAt: body.startsAt == null ? null : new Date(body.startsAt) }
+          : {}),
+        ...(body.expiresAt !== undefined
+          ? { expiresAt: body.expiresAt == null ? null : new Date(body.expiresAt) }
+          : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.campaign !== undefined ? { campaign: body.campaign ?? null } : {}),
+        ...(body.note !== undefined ? { note: body.note ?? null } : {}),
+      }),
+    );
   }
 
   /**
    * The kill switch, separate from the expiry window.
    *
    * A campaign that has to stop *now* must not require back-dating a timestamp,
-   * which is fiddly under pressure and leaves a lie in the record.
+   * which is fiddly under pressure and leaves a lie in the record. Kept as its own
+   * route beside `PATCH` for exactly that reason: under pressure, one button.
    */
-  @Post('gift-codes/:code/active')
+  @Post('gift-codes/:publicId/active')
   async setGiftCodeActive(
-    @Param('code') code: string,
+    @Param('publicId') publicId: string,
     @Body(new ZodValidationPipe(setGiftCodeActiveRequest)) body: SetGiftCodeActiveRequest,
     @CurrentAdmin() admin: AdminSession,
   ): Promise<GiftCodeView> {
-    return toGiftCodeView(await this.giftCodes.setActive(admin, code, body.isActive));
+    return toGiftCodeView(await this.giftCodes.setActive(admin, publicId, body.isActive));
   }
 
   @Post('users/:publicId/status')
@@ -368,22 +467,41 @@ function hashed(value: string | null): { ipHash: string } | undefined {
 /**
  * Field by field, never a spread (§3.6 layer 2).
  *
- * A `gift_code` row carries the internal id and the staff account that minted it;
- * neither belongs on the wire. The domain summary has already dropped both — this
- * only turns its `Date`s into ISO-8601 UTC, which is what every other mapper in
- * the product does (ADR-0008).
+ * A `gift_code` row carries the internal id, the staff account that minted it —
+ * and **the code**, which from M19 is the field this mapper exists to keep off
+ * the wire (ADR-0016). The domain summary has already dropped all three and
+ * replaced the code with a mask; this only turns its `Date`s into ISO-8601 UTC,
+ * which is what every other mapper in the product does (ADR-0008).
  */
 function toGiftCodeView(summary: GiftCodeSummary): GiftCodeView {
   return {
-    code: summary.code,
+    publicId: summary.publicId,
+    codeMasked: summary.codeMasked,
+    campaign: summary.campaign,
+    batchId: summary.batchId,
     coins: summary.coins,
     maxRedemptions: summary.maxRedemptions,
     perUserLimit: summary.perUserLimit,
     redeemedCount: summary.redeemedCount,
+    remainingRedemptions: summary.remainingRedemptions,
     startsAt: summary.startsAt?.toISOString() ?? null,
     expiresAt: summary.expiresAt?.toISOString() ?? null,
     isActive: summary.isActive,
+    state: summary.state,
     note: summary.note,
     createdAt: summary.createdAt.toISOString(),
   };
 }
+
+/**
+ * The sentence beside a freshly minted batch.
+ *
+ * In the response rather than in the panel, because the panel is not the only
+ * thing that could ever call this, and a list of live codes shown without the
+ * warning is precisely the failure being guarded against: an operator who assumes
+ * they can come back for them later.
+ */
+const GIFT_CODE_BATCH_WARNING_FA =
+  'این کدها فقط همین یک بار نمایش داده می‌شوند و پس از بستن این صفحه به‌هیچ‌وجه قابل بازیابی ' +
+  'نیستند. همین حالا ذخیره‌شان کنید. اگر از دستشان دادید، این دسته را غیرفعال کنید و دستهٔ ' +
+  'تازه‌ای بسازید.';

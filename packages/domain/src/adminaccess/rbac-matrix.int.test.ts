@@ -65,7 +65,7 @@ const redis = { client: {} } as unknown as RedisService;
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
 const operations = new AdminOperationsService(service, clock, access, coins, trust, audit);
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);
-const giftCodes = new GiftCodeAdminService(service, clock, access, audit);
+const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);
 
 /**
  * One admin operation, and the permission it demands.

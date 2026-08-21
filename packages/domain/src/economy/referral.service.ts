@@ -17,7 +17,7 @@ import { CoinService } from './coin.service';
  * eight positions is about 8.5 × 10¹¹ codes, so collisions are rare enough that
  * the retry loop below almost never runs and common enough that it must exist.
  */
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 8;
 const CODE_ATTEMPTS = 5;
 
@@ -374,11 +374,20 @@ export function normalizeCode(raw: string): string {
   return raw.trim().toUpperCase().replaceAll(/[\s-]/g, '');
 }
 
-function generateCode(): string {
+/**
+ * `length` characters drawn uniformly from `CODE_ALPHABET`.
+ *
+ * Exported because gift codes need exactly this, for exactly the same reasons
+ * (M19): a code is read off one screen and typed into another, and a guessable
+ * one is worth money. A second generator would be a second alphabet to keep
+ * `0/O` and `1/I/L` out of, and the two copies would drift.
+ *
+ * `randomInt` rather than `Math.random`, which is not a CSPRNG and is seeded per
+ * process — two workers starting together would produce the same codes.
+ */
+export function generateCode(length: number = CODE_LENGTH): string {
   let code = '';
-  for (let index = 0; index < CODE_LENGTH; index += 1) {
-    // `randomInt` rather than `Math.random`: a guessable referral code is a way
-    // to attribute somebody else's invites to yourself.
+  for (let index = 0; index < length; index += 1) {
     code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
   }
   return code;
