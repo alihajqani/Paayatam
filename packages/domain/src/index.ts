@@ -245,11 +245,14 @@ export {
 } from './adminaccess/gift-code-admin.service';
 export type {
   BulkCreateGiftCodesInput,
+  CampaignSummary,
   CreateGiftCodeInput,
   CreatedGiftCode,
+  GiftCodeAnalytics,
   GiftCodeBatch,
   GiftCodeListFilters,
   GiftCodePage,
+  GiftCodeRedemptionRow,
   GiftCodeState,
   GiftCodeSummary,
 } from './adminaccess/gift-code-admin.service';

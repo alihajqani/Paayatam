@@ -431,6 +431,194 @@ describe('retuning a campaign (M19)', () => {
   });
 });
 
+describe('per-code analytics (M19)', () => {
+  /**
+   * The durable rows are the source of truth, and the metric is not: a Prometheus
+   * counter resets on deploy, is per-replica and carries no time. Successful
+   * redemptions come from `gift_code_redemption`, coins from its immutable
+   * snapshot, and refusals from `audit_log` — where the redemption path writes one
+   * row per refused attempt precisely so this question has a durable answer.
+   */
+  it('counts redemptions, distinct people and coins from the rows themselves', async () => {
+    const created = await admin.create(SUPER, { code: 'MEASURED', coins: 30, maxRedemptions: 10 });
+    const [one, two] = await Promise.all([
+      createUser(prisma, 'PROFILE_COMPLETE'),
+      createUser(prisma, 'PROFILE_COMPLETE'),
+    ]);
+    await giftCodes.redeem(one, 'MEASURED');
+    await giftCodes.redeem(two, 'MEASURED');
+
+    const report = await admin.analytics(SUPER, created.summary.publicId);
+
+    expect(report.successfulRedemptions).toBe(2);
+    expect(report.uniqueUsers).toBe(2);
+    expect(report.coinsGranted).toBe(60);
+    expect(report.summary.remainingRedemptions).toBe(8);
+    expect(report.firstRedeemedAt).toEqual(NOW);
+    expect(report.lastRedeemedAt).toEqual(NOW);
+  });
+
+  it('counts refusals by reason, from the durable rows rather than a counter', async () => {
+    const created = await admin.create(SUPER, { code: 'REFUSER1', coins: 5 });
+    const user = await createUser(prisma, 'PROFILE_COMPLETE');
+    await giftCodes.redeem(user, 'REFUSER1');
+    await expect(giftCodes.redeem(user, 'REFUSER1')).rejects.toThrow();
+    await expect(giftCodes.redeem(user, 'REFUSER1')).rejects.toThrow();
+
+    const report = await admin.analytics(SUPER, created.summary.publicId);
+
+    expect(report.failedAttempts).toBe(2);
+    expect(report.failuresByReason).toEqual({ already_redeemed: 2 });
+  });
+
+  it('buckets redemptions by day, oldest first', async () => {
+    const created = await admin.create(SUPER, { code: 'TRENDING', coins: 10, maxRedemptions: 5 });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'TRENDING');
+    clock.advance(48 * 3_600_000);
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'TRENDING');
+
+    const report = await admin.analytics(SUPER, created.summary.publicId);
+
+    expect(report.trend).toEqual([
+      { day: '2026-08-20', redemptions: 1, coins: 10 },
+      { day: '2026-08-22', redemptions: 1, coins: 10 },
+    ]);
+  });
+
+  it('honours a date window on every number it reports', async () => {
+    const created = await admin.create(SUPER, { code: 'WINDOWED', coins: 10, maxRedemptions: 5 });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'WINDOWED');
+    clock.advance(72 * 3_600_000);
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'WINDOWED');
+
+    const recent = await admin.analytics(SUPER, created.summary.publicId, {
+      from: new Date('2026-08-22T00:00:00.000Z'),
+    });
+
+    expect(recent.successfulRedemptions).toBe(1);
+    expect(recent.coinsGranted).toBe(10);
+    // `redeemedCount` is the code's own column and is not windowed: it is what
+    // the cap is measured against, and a window would make it lie.
+    expect(recent.summary.redeemedCount).toBe(2);
+  });
+
+  it('reports zero rather than nothing for a campaign nobody has redeemed', async () => {
+    const created = await admin.create(SUPER, { code: 'UNTOUCHD', coins: 10 });
+
+    const report = await admin.analytics(SUPER, created.summary.publicId);
+
+    expect(report).toMatchObject({
+      successfulRedemptions: 0,
+      uniqueUsers: 0,
+      coinsGranted: 0,
+      failedAttempts: 0,
+      firstRedeemedAt: null,
+      lastRedeemedAt: null,
+      trend: [],
+    });
+  });
+
+  /**
+   * The whole point of the snapshot, stated as a report: a campaign retuned from
+   * 50 to 80 shows 80 on its configuration and 130 granted, not 160 (ADR-0016).
+   */
+  it('sums what was actually granted, not what the code grants now', async () => {
+    const created = await admin.create(SUPER, { code: 'RETUNED1', coins: 50, maxRedemptions: 5 });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'RETUNED1');
+    await admin.update(SUPER, created.summary.publicId, { coins: 80 });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'RETUNED1');
+
+    const report = await admin.analytics(SUPER, created.summary.publicId);
+
+    expect(report.summary.coins).toBe(80);
+    expect(report.coinsGranted).toBe(130);
+  });
+
+  it('never puts the code into the report', async () => {
+    const created = await admin.create(SUPER, { code: 'SECRETIV', coins: 5 });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'SECRETIV');
+
+    const report = await admin.analytics(SUPER, created.summary.publicId);
+
+    expect(JSON.stringify(report)).not.toContain('SECRETIV');
+  });
+
+  it('refuses a campaign that does not exist', async () => {
+    await expect(
+      admin.analytics(SUPER, '00000000-0000-4000-8000-000000000000'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
+describe('campaign roll-ups (M19)', () => {
+  it('groups every code under its campaign, in one query', async () => {
+    await admin.createBatch(SUPER, { count: 3, coins: 10, campaign: 'nowruz' });
+    const solo = await admin.create(SUPER, { code: 'NOWRUZX1', coins: 10, campaign: 'nowruz' });
+    await admin.createBatch(SUPER, { count: 2, coins: 5, campaign: 'yalda' });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'NOWRUZX1');
+    await admin.setActive(SUPER, solo.summary.publicId, false);
+
+    const campaigns = await admin.campaigns(SUPER);
+    const nowruz = campaigns.find((row) => row.campaign === 'nowruz');
+    const yalda = campaigns.find((row) => row.campaign === 'yalda');
+
+    expect(nowruz).toMatchObject({
+      codes: 4,
+      activeCodes: 3,
+      redemptions: 1,
+      coinsGranted: 10,
+      uniqueUsers: 1,
+    });
+    expect(yalda).toMatchObject({ codes: 2, redemptions: 0, coinsGranted: 0 });
+  });
+
+  /**
+   * A one-off support gesture is not a campaign, and bucketing it under
+   * «بدون کمپین» would make the roll-up describe nothing.
+   */
+  it('leaves unlabelled codes out entirely', async () => {
+    await admin.create(SUPER, { code: 'ONEOFF24', coins: 10 });
+
+    await expect(admin.campaigns(SUPER)).resolves.toEqual([]);
+  });
+});
+
+describe('the redemption list (M19)', () => {
+  it('names a user by public id and nothing else, newest first', async () => {
+    const created = await admin.create(SUPER, { code: 'WHOTOOK1', coins: 20, maxRedemptions: 5 });
+    const first = await createUser(prisma, 'PROFILE_COMPLETE');
+    await giftCodes.redeem(first, 'WHOTOOK1');
+    const { publicId } = await prisma.user.findUniqueOrThrow({
+      where: { id: first },
+      select: { publicId: true },
+    });
+
+    const { redemptions, total } = await admin.redemptions(SUPER, created.summary.publicId);
+
+    expect(total).toBe(1);
+    expect(redemptions[0]).toMatchObject({ userPublicId: publicId, seq: 1, coins: 20 });
+    // A public id, a sequence, an amount and a time. A list of who took a
+    // promotion is not a reason to project a profile.
+    expect(Object.keys(redemptions[0] ?? {}).sort()).toEqual([
+      'coins',
+      'createdAt',
+      'seq',
+      'userPublicId',
+    ]);
+  });
+
+  it('shows what each redemption was granted, even after the code was retuned', async () => {
+    const created = await admin.create(SUPER, { code: 'HISTORY1', coins: 50, maxRedemptions: 5 });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'HISTORY1');
+    await admin.update(SUPER, created.summary.publicId, { coins: 80 });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'HISTORY1');
+
+    const { redemptions } = await admin.redemptions(SUPER, created.summary.publicId);
+
+    expect(redemptions.map((row) => row.coins).sort((a, b) => a - b)).toEqual([50, 80]);
+  });
+});
+
 describe('finding a code without being able to enumerate one', () => {
   it('matches an exact code, however it was retyped', async () => {
     await admin.create(SUPER, { code: 'FINDME24', coins: 5 });

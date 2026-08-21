@@ -829,6 +829,17 @@ beforeAll(async () => {
       admin: true,
       body: { note: 'retuned by the scan' },
     },
+    { method: 'GET', url: '/admin/v1/gift-codes/campaigns', admin: true },
+    {
+      method: 'GET',
+      url: `/admin/v1/gift-codes/${scannedGiftCodePublicId}/analytics`,
+      admin: true,
+    },
+    {
+      method: 'GET',
+      url: `/admin/v1/gift-codes/${scannedGiftCodePublicId}/redemptions`,
+      admin: true,
+    },
     {
       method: 'POST',
       url: `/admin/v1/gift-codes/${scannedGiftCodePublicId}/active`,

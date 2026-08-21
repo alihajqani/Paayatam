@@ -231,6 +231,13 @@ export {
   giftCodeListResponse,
   createGiftCodeResponse,
   bulkCreateGiftCodesResponse,
+  analyticsWindowQuery,
+  giftCodeAnalyticsResponse,
+  campaignSummaryView,
+  campaignListResponse,
+  giftCodeRedemptionView,
+  giftCodeRedemptionsResponse,
+  pageQuery,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -265,6 +272,13 @@ export type {
   GiftCodeListResponse,
   CreateGiftCodeResponse,
   BulkCreateGiftCodesResponse,
+  AnalyticsWindowQuery,
+  GiftCodeAnalyticsResponse,
+  CampaignSummaryView,
+  CampaignListResponse,
+  GiftCodeRedemptionView,
+  GiftCodeRedemptionsResponse,
+  PageQuery,
 } from './contracts/admin';
 
 export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';

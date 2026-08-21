@@ -419,3 +419,99 @@ export const bulkCreateGiftCodesResponse = z.object({
   warningFa: z.string(),
 });
 export type BulkCreateGiftCodesResponse = z.infer<typeof bulkCreateGiftCodesResponse>;
+
+// ── Gift-code analytics (M19) ────────────────────────────────────────────────
+
+/**
+ * A date window for any of the three analytics reads.
+ *
+ * Both bounds optional, both ISO-8601 UTC, and neither ever compared against a
+ * client's clock — the server resolves them and the server decides (invariant 9,
+ * ADR-0008).
+ */
+export const analyticsWindowQuery = z.object({
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+});
+export type AnalyticsWindowQuery = z.infer<typeof analyticsWindowQuery>;
+
+/**
+ * Everything a person can ask about one campaign.
+ *
+ * The numbers come from **durable rows**, not from the Prometheus counter:
+ * `payetam_gift_code_redemptions_total` resets on deploy, is per-replica, and
+ * carries no time, which makes it right for an alert and wrong for a report.
+ * Successful redemptions are counted from `gift_code_redemption`, coins are
+ * summed from its immutable snapshot, and refusals come from `audit_log`.
+ */
+export const giftCodeAnalyticsResponse = z.object({
+  giftCode: giftCodeView,
+  /** Redemptions that produced a ledger row. The financial number. */
+  successfulRedemptions: z.number().int().nonnegative(),
+  /** Distinct people. Equal to `successfulRedemptions` while the cap is 1. */
+  uniqueUsers: z.number().int().nonnegative(),
+  /** Summed from the snapshot on each redemption, never from the current config. */
+  coinsGranted: z.number().int().nonnegative(),
+  failedAttempts: z.number().int().nonnegative(),
+  /** `invalid` · `expired` · `already_redeemed` · `exhausted` · `error`. */
+  failuresByReason: z.record(z.string(), z.number().int().nonnegative()),
+  firstRedeemedAt: z.iso.datetime().nullable(),
+  lastRedeemedAt: z.iso.datetime().nullable(),
+  /** One row per UTC day that saw a redemption, oldest first. */
+  trend: z.array(
+    z.object({
+      day: z.string(),
+      redemptions: z.number().int().nonnegative(),
+      coins: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export type GiftCodeAnalyticsResponse = z.infer<typeof giftCodeAnalyticsResponse>;
+
+export const campaignSummaryView = z.object({
+  campaign: z.string(),
+  codes: z.number().int().nonnegative(),
+  activeCodes: z.number().int().nonnegative(),
+  redemptions: z.number().int().nonnegative(),
+  coinsGranted: z.number().int().nonnegative(),
+  uniqueUsers: z.number().int().nonnegative(),
+  firstRedeemedAt: z.iso.datetime().nullable(),
+  lastRedeemedAt: z.iso.datetime().nullable(),
+});
+export type CampaignSummaryView = z.infer<typeof campaignSummaryView>;
+
+export const campaignListResponse = z.object({
+  campaigns: z.array(campaignSummaryView),
+});
+export type CampaignListResponse = z.infer<typeof campaignListResponse>;
+
+/**
+ * One redemption, as the panel lists it.
+ *
+ * `coins` is read from the redemption row and not from the code, which is the
+ * whole point of the snapshot: a campaign retuned from 50 to 80 shows 50 against
+ * the redemptions that happened at 50, and the panel can *prove* that changing
+ * configuration did not rewrite history (ADR-0016).
+ *
+ * A user is a `publicId` and nothing else. Not a display name, not a Telegram
+ * anything: a list of who took a promotion is not a reason to project profiles.
+ */
+export const giftCodeRedemptionView = z.object({
+  userPublicId: z.uuid(),
+  seq: z.number().int().positive(),
+  coins: z.number().int().positive(),
+  createdAt: z.iso.datetime(),
+});
+export type GiftCodeRedemptionView = z.infer<typeof giftCodeRedemptionView>;
+
+export const giftCodeRedemptionsResponse = z.object({
+  redemptions: z.array(giftCodeRedemptionView),
+  total: z.number().int().nonnegative(),
+});
+export type GiftCodeRedemptionsResponse = z.infer<typeof giftCodeRedemptionsResponse>;
+
+export const pageQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type PageQuery = z.infer<typeof pageQuery>;

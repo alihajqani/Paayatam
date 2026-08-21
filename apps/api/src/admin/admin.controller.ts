@@ -26,10 +26,12 @@ import {
   adjustCoinsRequest,
   adjustTrustRequest,
   adminLoginRequest,
+  analyticsWindowQuery,
   bulkCreateGiftCodesRequest,
   createGiftCodeRequest,
   decideCaseRequest,
   giftCodeListQuery,
+  pageQuery,
   requestRoleChangeRequest,
   setGiftCodeActiveRequest,
   setUserStatusRequest,
@@ -39,17 +41,22 @@ import {
   type AdjustTrustRequest,
   type AdminLoginRequest,
   type AdminLoginResponse,
+  type AnalyticsWindowQuery,
   type AuditLogResponse,
   type BulkCreateGiftCodesRequest,
   type BulkCreateGiftCodesResponse,
+  type CampaignListResponse,
   type CreateGiftCodeRequest,
   type CreateGiftCodeResponse,
   type DecideCaseRequest,
+  type GiftCodeAnalyticsResponse,
   type GiftCodeListQuery,
   type GiftCodeListResponse,
+  type GiftCodeRedemptionsResponse,
   type GiftCodeView,
   type ModerationCaseStatus,
   type ModerationQueueResponse,
+  type PageQuery,
   type RequestRoleChangeRequest,
   type SetGiftCodeActiveRequest,
   type SetUserStatusRequest,
@@ -339,6 +346,82 @@ export class AdminController {
   }
 
   /**
+   * Everything a person can ask about one campaign (M19).
+   *
+   * Declared **before** `:publicId` would be, or a literal path segment gets
+   * swallowed as an id — the same ordering rule the Mini App's router follows for
+   * `/events/new`. Nest matches in declaration order, so `campaigns` has to come
+   * first.
+   */
+  @Get('gift-codes/campaigns')
+  async giftCodeCampaigns(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(analyticsWindowQuery)) query: AnalyticsWindowQuery,
+  ): Promise<CampaignListResponse> {
+    const rows = await this.giftCodes.campaigns(admin, toWindow(query));
+    return {
+      campaigns: rows.map((row) => ({
+        campaign: row.campaign,
+        codes: row.codes,
+        activeCodes: row.activeCodes,
+        redemptions: row.redemptions,
+        coinsGranted: row.coinsGranted,
+        uniqueUsers: row.uniqueUsers,
+        firstRedeemedAt: row.firstRedeemedAt?.toISOString() ?? null,
+        lastRedeemedAt: row.lastRedeemedAt?.toISOString() ?? null,
+      })),
+    };
+  }
+
+  @Get('gift-codes/:publicId/analytics')
+  async giftCodeAnalytics(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(analyticsWindowQuery)) query: AnalyticsWindowQuery,
+  ): Promise<GiftCodeAnalyticsResponse> {
+    const report = await this.giftCodes.analytics(admin, publicId, toWindow(query));
+    return {
+      giftCode: toGiftCodeView(report.summary),
+      successfulRedemptions: report.successfulRedemptions,
+      uniqueUsers: report.uniqueUsers,
+      coinsGranted: report.coinsGranted,
+      failedAttempts: report.failedAttempts,
+      failuresByReason: report.failuresByReason,
+      firstRedeemedAt: report.firstRedeemedAt?.toISOString() ?? null,
+      lastRedeemedAt: report.lastRedeemedAt?.toISOString() ?? null,
+      trend: report.trend,
+    };
+  }
+
+  /**
+   * Who redeemed a code, and what they were actually granted.
+   *
+   * `coins` comes from the redemption row rather than from the campaign, which is
+   * what lets the panel show that retuning a code did not rewrite what an older
+   * redemption paid (ADR-0016).
+   */
+  @Get('gift-codes/:publicId/redemptions')
+  async giftCodeRedemptions(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(pageQuery)) query: PageQuery,
+  ): Promise<GiftCodeRedemptionsResponse> {
+    const page = await this.giftCodes.redemptions(admin, publicId, {
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return {
+      redemptions: page.redemptions.map((row) => ({
+        userPublicId: row.userPublicId,
+        seq: row.seq,
+        coins: row.coins,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      total: page.total,
+    };
+  }
+
+  /**
    * The kill switch, separate from the expiry window.
    *
    * A campaign that has to stop *now* must not require back-dating a timestamp,
@@ -505,3 +588,17 @@ const GIFT_CODE_BATCH_WARNING_FA =
   'این کدها فقط همین یک بار نمایش داده می‌شوند و پس از بستن این صفحه به‌هیچ‌وجه قابل بازیابی ' +
   'نیستند. همین حالا ذخیره‌شان کنید. اگر از دستشان دادید، این دسته را غیرفعال کنید و دستهٔ ' +
   'تازه‌ای بسازید.';
+
+/**
+ * An optional ISO window, as `Date`s, and never `{ from: undefined }`.
+ *
+ * `exactOptionalPropertyTypes` distinguishes absent from present-and-undefined,
+ * and a bound the caller did not send has to be genuinely absent so the service
+ * can tell "everything" from "everything after `Invalid Date`".
+ */
+function toWindow(query: AnalyticsWindowQuery): { from?: Date; to?: Date } {
+  return {
+    ...(query.from !== undefined ? { from: new Date(query.from) } : {}),
+    ...(query.to !== undefined ? { to: new Date(query.to) } : {}),
+  };
+}

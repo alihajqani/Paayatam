@@ -172,11 +172,45 @@ const OPERATIONS: Operation[] = [
     run: (session) => giftCodes.list(session),
   },
   {
-    name: 'POST /admin/v1/gift-codes/:code/active',
+    name: 'POST /admin/v1/gift-codes/:publicId/active',
     permission: PERMISSIONS.GIFT_CODE_MANAGE,
-    run: (session) => giftCodes.setActive(session, 'NOSUCHCODE', false),
+    run: (session) => giftCodes.setActive(session, NO_SUCH_ID, false),
+  },
+  /**
+   * M19. Six more rows under the same key, and the reason they are enumerated
+   * rather than assumed is rule 3's completeness half: a service method that
+   * forgot `assertPermission` would be reachable by `ANALYST`, and nothing else
+   * in the product would notice.
+   */
+  {
+    name: 'POST /admin/v1/gift-codes/batch',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.createBatch(session, { count: 0, coins: 0 }),
+  },
+  {
+    name: 'PATCH /admin/v1/gift-codes/:publicId',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.update(session, NO_SUCH_ID, { coins: 0 }),
+  },
+  {
+    name: 'GET /admin/v1/gift-codes/:publicId/analytics',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.analytics(session, NO_SUCH_ID),
+  },
+  {
+    name: 'GET /admin/v1/gift-codes/campaigns',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.campaigns(session),
+  },
+  {
+    name: 'GET /admin/v1/gift-codes/:publicId/redemptions',
+    permission: PERMISSIONS.GIFT_CODE_MANAGE,
+    run: (session) => giftCodes.redemptions(session, NO_SUCH_ID),
   },
 ];
+
+/** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
+const NO_SUCH_ID = '00000000-0000-4000-8000-000000000000';
 
 function sessionFor(role: RoleKey): AdminSession {
   return {
@@ -210,7 +244,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(13);
+    expect(OPERATIONS).toHaveLength(18);
   });
 
   for (const role of ROLES) {
