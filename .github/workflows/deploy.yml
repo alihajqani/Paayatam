@@ -1,0 +1,287 @@
+name: Deploy
+
+# Tags only, and `v*` only. A deploy is a deliberate act with a name you can say
+# out loud in an incident — "we are on v0.3.1" — and a branch push is neither.
+# Rolling back is `scripts/rollback.sh` on the server, or re-running this
+# workflow against the previous tag.
+on:
+  push:
+    tags: ['v*']
+  # For a rollback, or for re-running a deploy whose tag has not moved.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to deploy (e.g. v0.3.0)'
+        required: true
+        type: string
+
+# One deploy at a time, and never cancelled halfway. `cancel-in-progress: true`
+# here would be able to kill a job between `migrate` and `up`, which is the one
+# window where stopping leaves the database ahead of the code that is running.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  # ── 1. Would this even build? ──────────────────────────────────────────────
+  #
+  # The full suite runs on every push through ci.yml. This repeats the parts that
+  # are cheap and would be catastrophic to skip, because a tag can be pushed from
+  # a commit CI never saw — and the whole point of a tag-triggered deploy is that
+  # nobody is watching it happen.
+  verify:
+    name: verify the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Required by packages/config at import time. Not a credential; nothing in
+      # this job connects to anything.
+      DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The Prisma client is generated, not committed. Everything importing
+      # @payetam/db fails to type-check without it.
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test --project unit
+
+      # A malformed compose file is a deploy that stops after the images are
+      # built and the old ones are gone. Ten seconds here, on a runner, rather
+      # than in the middle of a maintenance window.
+      - name: Validate the compose file
+        run: docker compose -f docker/docker-compose.prod.yml config > /dev/null
+
+      # Shell scripts are the part of this deployment with no type checker.
+      # `bash -n` catches the unclosed quote that would otherwise be found by
+      # running it as root on the production host.
+      - name: Parse the deployment scripts
+        run: |
+          for script in scripts/*.sh; do
+            bash -n "$script" || exit 1
+          done
+          echo "All ${#} scripts parse."
+
+      # `.env` is gitignored, but a forced add or a stray filename should fail
+      # loudly here rather than merge quietly.
+      - name: Reject committed secrets
+        run: |
+          if git ls-files | grep -E '^\.env$|^\.env\.(local|production|development)$'; then
+            echo "::error::An .env file is tracked by git."
+            exit 1
+          fi
+          if git ls-files -z | xargs -0 grep -lE 'BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY' 2>/dev/null; then
+            echo "::error::A private key is tracked by git."
+            exit 1
+          fi
+          echo "No tracked secrets."
+
+  # ── 2. Deploy ──────────────────────────────────────────────────────────────
+  #
+  # Over SSH, to a server that builds its own images. There is no registry in
+  # this deployment (a decision, not an omission: one VPS, one build, no
+  # credentials to keep anywhere), so what is shipped is the tag — and the server
+  # is what turns it into containers.
+  #
+  # `environment: production` is what gives this a required-reviewer gate in the
+  # repository settings, and it is worth turning on: a tag push is otherwise
+  # enough on its own to replace what real users are talking to.
+  deploy:
+    name: deploy to the server
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+      url: https://app.paayatam.ir
+
+    steps:
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::DEPLOY_SSH_KEY and DEPLOY_SSH_KNOWN_HOSTS must both be set."
+            echo "Generate the second one on your own machine, not on the runner:"
+            echo "  ssh-keyscan -p <port> <host>"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          # A written-down host key, not ssh-keyscan on the runner. Scanning from
+          # inside the job trusts whatever answers on the day, which is
+          # trust-on-first-use performed fresh on every run — the one situation
+          # where TOFU gives no protection at all.
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      - name: Deploy ${{ env.RELEASE_TAG }}
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/srv/payetam' }}
+        run: |
+          set -euo pipefail
+
+          # `PAYETAM_YES=1` skips the confirmation prompts — there is no terminal
+          # here. It does *not* skip the destructive ones: restore.sh asks for a
+          # typed phrase and is not reachable from this workflow at all.
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+              -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "${SSH_USER}@${SSH_HOST}" \
+              "set -euo pipefail;
+               cd '${DEPLOY_PATH}';
+               export PAYETAM_YES=1;
+               ./scripts/deploy.sh '${RELEASE_TAG}'"
+
+      - name: Clean up the key
+        if: always()
+        run: shred -u ~/.ssh/deploy_key 2> /dev/null || rm -f ~/.ssh/deploy_key
+
+  # ── 3. Is it actually up, from outside? ────────────────────────────────────
+  #
+  # `deploy.sh` already ran the smoke tests, and they ran *inside* the compose
+  # network. This is the different question: can the internet reach it? DNS, the
+  # firewall and the certificate are all things that are fine from the server's
+  # own point of view right up until they are not.
+  verify-live:
+    name: verify from the internet
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Health check
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 10); do
+            code="$(curl -s -o /tmp/body -w '%{http_code}' --max-time 15 \
+                     https://app.paayatam.ir/health || echo 000)"
+            if [ "$code" = "200" ]; then
+              echo "healthy: $(cat /tmp/body)"
+              exit 0
+            fi
+            echo "attempt ${attempt}: ${code}"
+            sleep 10
+          done
+          echo "::error::https://app.paayatam.ir/health never returned 200."
+          exit 1
+
+      - name: The admin panel serves its login page
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://admin.paayatam.ir/)"
+          [ "$code" = "200" ] || { echo "::error::admin origin returned ${code}"; exit 1; }
+
+      # The check most worth having in a place nobody can quietly delete.
+      # `/metrics` publishes traffic volumes and queue depths, and the
+      # application's own guard allows *private* addresses — which behind a proxy
+      # is every request. Only the nginx rule stands between that and the
+      # internet, and this is what notices when the rule stops being there.
+      - name: /metrics is not reachable from outside
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://app.paayatam.ir/metrics)"
+          if [ "$code" != "404" ]; then
+            echo "::error::/metrics returned ${code} from the public internet. Expected 404."
+            exit 1
+          fi
+
+      - name: TLS is valid and not about to expire
+        run: |
+          set -euo pipefail
+          expiry="$(echo | openssl s_client -servername app.paayatam.ir \
+                     -connect app.paayatam.ir:443 2>/dev/null \
+                   | openssl x509 -noout -enddate | cut -d= -f2)"
+          echo "certificate expires: ${expiry}"
+          seconds_left=$(( $(date -d "$expiry" +%s) - $(date +%s) ))
+          days_left=$(( seconds_left / 86400 ))
+          echo "${days_left} days left"
+          # certbot renews inside 30 days. Below 20 means renewal has been
+          # failing for over a week and nobody noticed.
+          [ "$days_left" -gt 20 ] || { echo "::error::only ${days_left} days of certificate left — renewal is failing"; exit 1; }
+
+  # ── 4. Say what happened ───────────────────────────────────────────────────
+  #
+  # `always()`, and it reports failure as well as success. A notification that
+  # only fires on success is one whose silence means either "it worked and you
+  # missed it" or "nothing ran", and those need different responses.
+  notify:
+    name: announce the result
+    needs: [verify, deploy, verify-live]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to the monitoring group
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.MONITORING_CHAT_ID }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          LIVE_RESULT: ${{ needs.verify-live.result }}
+        run: |
+          set -uo pipefail
+          if [ -z "${TOKEN:-}" ] || [ -z "${CHAT:-}" ]; then
+            echo "No TELEGRAM_BOT_TOKEN / MONITORING_CHAT_ID configured — skipping."
+            exit 0
+          fi
+
+          if [ "$DEPLOY_RESULT" = "success" ] && [ "$LIVE_RESULT" = "success" ]; then
+            marker="🟢 Deployed"
+          elif [ "$VERIFY_RESULT" != "success" ]; then
+            marker="🔴 Deploy blocked — the tag did not pass verification"
+          elif [ "$DEPLOY_RESULT" != "success" ]; then
+            marker="🔴 Deploy FAILED"
+          else
+            marker="🔴 Deployed, but it is not answering from the internet"
+          fi
+
+          {
+            printf '%s\n' "$marker"
+            printf 'release: %s\n' "${RELEASE_TAG}"
+            printf 'commit: %s\n' "${GITHUB_SHA:0:8}"
+            printf 'by: %s\n' "${GITHUB_ACTOR}"
+            printf 'run: %s/%s/actions/runs/%s\n' "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            if [ "$DEPLOY_RESULT" != "success" ] || [ "$LIVE_RESULT" != "success" ]; then
+              printf '\nOn the server: ./scripts/rollback.sh\n'
+            fi
+          } > /tmp/message
+
+          # The token goes in a config file rather than on the command line: a
+          # URL in `ps` on a shared runner is a leaked bot.
+          umask 077
+          printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TOKEN" > /tmp/curlrc
+          curl --silent --show-error --max-time 20 --config /tmp/curlrc \
+            --data-urlencode "chat_id=${CHAT}" \
+            --data-urlencode "text@/tmp/message" \
+            --data-urlencode 'disable_web_page_preview=true' > /dev/null || true
+          shred -u /tmp/curlrc 2> /dev/null || rm -f /tmp/curlrc
+
+      - name: Fail the run when any stage failed
+        if: needs.verify.result != 'success' || needs.deploy.result != 'success' || needs.verify-live.result != 'success'
+        run: exit 1
