@@ -58,6 +58,13 @@ password, displayName, roles })` and provision the returned secret into an authe
 encrypted at rest and is never readable again; a lost authenticator is an out-of-band recovery
 procedure, not an endpoint.
 
+### Sample data for the gift-code screens
+
+`make seed-gift-codes-dev` writes six named fixtures — one per redemption outcome — plus a fresh
+batch of 25, so every state on those screens has something in it. It refuses under any `NODE_ENV`
+other than `development` or `test`, with no `ALLOW_PROD_SEED` escape hatch, because there is no
+correct way to run it against production.
+
 ---
 
 ## 2. Signing in
