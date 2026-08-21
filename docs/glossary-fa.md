@@ -155,4 +155,8 @@ do next, never expose internals, never blame the user.
   — «میهمان ۱ — سفر شمال» — and **never** an invented name.
 - **A Trust Score somebody else can see:** «امتیاز اعتماد ۷۲ از ۱۰۰», and «تازه‌وارد» when the account has
   never been judged. Never «۰», which says something false about a new user, and never «نمره» (§1).
+- **Saying what is and is not hidden (M19):** the chat disclosure names the three identifiers that are
+  never shown — «شمارهٔ تلگرام، نام کاربری و شمارهٔ تماس» — then what *is* shown («نام نمایشی» و «عنوان
+  فعالیت»), then the consequence. Never «هویت شما پنهان می‌ماند» unqualified: the product does not keep
+  that promise and has not since M6. The strings live in `apps/miniapp/src/copy/privacy.ts`.
 - **Tone:** polite plural (شما), warm and direct. Avoid bureaucratic phrasing and avoid exclamation marks.

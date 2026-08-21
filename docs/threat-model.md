@@ -140,7 +140,7 @@ These have no control and are accepted deliberately. Each needs a named owner be
 | R5 | **Telegram ToS dependency** | The entire product depends on one platform's terms; a violation is a total outage (T6.5) |
 | R6 | **Sybil resistance is partial** | Telegram account creation is outside our control (T4.10) |
 | R7 | **Timing correlation in anonymous chat** | Out of scope for MVP (T2.9) |
-| R8 | **A host can tell that the same person asked to join two of their events** | The participant list has given a host every requester's display name since M6, so this was never prevented — the per-chat alias only made the host's *conversation list* unreadable while the correlation stayed available one screen away. ADR-0014 (M18) accepts the risk explicitly and titles conversations «name — event». What remains protected, and is unaffected, is everything in `telegram_account` (T2.4, invariant 7) |
+| R8 | **A host can tell that the same person asked to join two of their events** | The participant list has given a host every requester's display name since M6, so this was never prevented — the per-chat alias only made the host's *conversation list* unreadable while the correlation stayed available one screen away. ADR-0014 (M18) accepts the risk explicitly and titles conversations «name — event»; **M19 discloses it to the user** in `ChatsView` rather than accepting it silently on their behalf, and `privacy-gate.int.test.ts` pins what each side can actually read. What remains protected, and is unaffected, is everything in `telegram_account` (T2.4, invariant 7) |
 
 ---
 

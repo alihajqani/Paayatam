@@ -111,9 +111,13 @@ which both parties to a participation already read elsewhere.
   has asked to join two of their events can now see it at a glance instead of by counting. Recorded
   here rather than left implicit, and it belongs in the threat model's accepted risks.
 - Anyone who assumed "anonymous chat" meant the host never learns their name was already wrong from M6
-  onward. The Mini App copy on `ChatsView` says identities are hidden «تا زمانی که خودشان نخواهند»,
-  which is true of contact details and was never true of display names. **The copy should be corrected**
-  — tracked as a follow-up, because it is a user-facing promise and not a code change.
+  onward. The Mini App copy on `ChatsView` said identities are hidden «تا زمانی که خودشان نخواهند»,
+  which is true of contact details and was never true of display names. **Corrected in M19**: the
+  disclosure now names the three identifiers that are never shown, admits the display name and the
+  activity title are, and states the consequence — a host with several activities can tell that two
+  requests came from one person. It lives in `apps/miniapp/src/copy/privacy.ts` with assertions over it,
+  so the next change to what is disclosed has to walk past a failing test rather than past a paragraph
+  nobody re-read.
 - Two more fields on two more responses for the leak scan to walk. Both are covered.
 
 ## Alternatives considered

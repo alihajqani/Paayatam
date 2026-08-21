@@ -4,6 +4,11 @@ import { useRouter } from 'vue-router';
 import { ApiError } from '@/api/client';
 import ReportDialog from '@/components/ReportDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
+import {
+  CHAT_NAME_DISCLOSURE_FA,
+  CHAT_PRIVACY_SUMMARY_FA,
+  CONTACT_SHARE_CONFIRM_FA,
+} from '@/copy/privacy';
 import { formatRelative } from '@/format/datetime';
 import { toPersianDigits } from '@/format/fa';
 import { haptic, webApp } from '@/telegram/webapp';
@@ -97,10 +102,15 @@ onMounted(load);
       </button>
     </header>
 
-    <p class="text-sm text-tg-hint">
-      پیام‌ها در گفت‌وگو با ربات رد و بدل می‌شوند و هویت دو طرف تا زمانی که خودشان نخواهند پنهان
-      می‌ماند.
-    </p>
+    <!--
+      The standing disclosure, and it is deliberately longer than the sentence it
+      replaced. The old one promised that identities stay hidden «تا زمانی که
+      خودشان نخواهند» — true of contact details, and false about display names
+      since M6, actively misleading since ADR-0014 titled a conversation with the
+      counterpart's name. The text lives in `@/copy/privacy` so a test can hold it
+      to what the product actually does.
+    -->
+    <p class="text-sm leading-relaxed text-tg-hint">{{ CHAT_PRIVACY_SUMMARY_FA }}</p>
 
     <StateBlock
       :state="state"
@@ -151,6 +161,8 @@ onMounted(load);
             {{ chat.counterpartAlias }} ·
             {{ chat.role === 'HOST' ? 'شما میزبانید' : 'شما میهمانید' }}
           </p>
+          <!-- Said once per row, next to the name it is about (ADR-0014). -->
+          <p class="text-xs text-tg-hint">{{ CHAT_NAME_DISCLOSURE_FA }}</p>
           <p class="text-xs text-tg-hint">
             {{ STATUS_FA[chat.status] ?? chat.status }}
             <template v-if="chat.lastMessageAt">
@@ -214,11 +226,7 @@ onMounted(load);
             class="flex flex-col gap-2 rounded-xl bg-tg-bg p-3"
           >
             <p class="text-sm font-medium">اطلاعات تماس خود را به اشتراک می‌گذارید؟</p>
-            <p class="text-sm text-tg-hint">
-              پایه‌تَم شمارهٔ شما را ندارد و نام کاربری تلگرام شما را به کسی نمی‌دهد. با این تأیید،
-              فقط پیام‌های خودتان دیگر پنهان‌سازی نمی‌شوند تا بتوانید اطلاعات تماستان را — اگر
-              خواستید — خودتان بفرستید. این کار برگشت‌پذیر نیست.
-            </p>
+            <p class="text-sm leading-relaxed text-tg-hint">{{ CONTACT_SHARE_CONFIRM_FA }}</p>
             <div class="flex gap-2">
               <button
                 type="button"
