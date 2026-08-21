@@ -10,6 +10,29 @@ import { normalizeCode } from './referral.service';
 /** The stable, machine-readable reason on the ledger row. The client renders the Persian. */
 export const GIFT_CODE_REASON = 'giftcode.redeemed';
 
+/** The audit action a successful redemption writes. */
+export const GIFT_CODE_SUCCESS_ACTION = 'giftcode.redeemed';
+
+/**
+ * The audit action a **refused** redemption writes (M19).
+ *
+ * Refusals were counted in Prometheus and recorded nowhere else, which was
+ * defensible while the only question was "is somebody sweeping right now?" — a
+ * counter answers that and a table would be a worse copy of the ledger.
+ *
+ * It stopped being defensible once the panel had to answer "how did this campaign
+ * actually go?". A process counter resets on deploy, is per-replica, and carries
+ * no time. So a refusal now writes a durable row as well: the counter stays the
+ * alerting surface and `audit_log` becomes the reporting one, which is the same
+ * division ADR-0007 makes between a metric and the ledger.
+ *
+ * **The row never contains the code.** `target_id` is the `gift_code.id` when the
+ * code resolved, and null when it did not — a sweep against codes that do not
+ * exist is exactly the case where writing what was tried would fill the audit
+ * trail with an attacker's guesses.
+ */
+export const GIFT_CODE_FAILURE_ACTION = 'giftcode.redeem_failed';
+
 /**
  * The exactly-once key for one redemption.
  *
@@ -116,7 +139,10 @@ export class GiftCodeService {
       select: { id: true },
     });
     if (!found) {
-      this.fail('invalid');
+      // No `target_id`, because there is no target: the code does not exist.
+      // Recording *what was tried* here would fill the audit trail with an
+      // attacker's guesses and make the trail itself a list of near-miss codes.
+      await this.refused(userId, null, 'invalid');
       throw new AppError(ErrorCode.GIFT_CODE_INVALID);
     }
 
@@ -182,7 +208,11 @@ export class GiftCodeService {
             actorId: userId,
             refType: 'gift_code',
             refId: giftCode.id,
-            metadata: { code: giftCode.code, seq },
+            // `ref_id` already says which code this was, and it says it with an
+            // identifier rather than with a bearer secret. `metadata` is read by
+            // the panel, exported with the ledger and copied into support
+            // threads; a live code in it is a live code in all three (M19).
+            metadata: { giftCodeId: giftCode.id, seq },
           },
           tx,
         );
@@ -227,10 +257,10 @@ export class GiftCodeService {
           {
             actorType: 'USER',
             actorId: userId,
-            action: 'giftcode.redeemed',
+            action: GIFT_CODE_SUCCESS_ACTION,
             targetType: 'gift_code',
             targetId: giftCode.id,
-            after: { code: giftCode.code, coins: giftCode.coins, seq },
+            after: { coins: giftCode.coins, seq },
           },
           tx,
         );
@@ -250,11 +280,42 @@ export class GiftCodeService {
       );
       return result;
     } catch (error) {
-      // Counted by refusal reason, never by user. The ledger already records what
-      // succeeded; what it cannot show is the attempts that left no row, and a
-      // burst of them is the only externally visible sign of a brute-force sweep.
-      if (error instanceof AppError) this.fail(reasonLabel(error.code));
+      // Counted by refusal reason, never by user, **and** recorded durably. The
+      // counter is what an alert watches; the row is what the campaign report
+      // reads six weeks later, after three deploys have reset the counter.
+      if (error instanceof AppError) {
+        await this.refused(userId, found.id, reasonLabel(error.code));
+      }
       throw error;
+    }
+  }
+
+  /**
+   * One refused attempt: a Prometheus increment and an `audit_log` row.
+   *
+   * Written **outside** the transaction that failed, and necessarily so — the
+   * transaction rolled back, and a row written inside it would have rolled back
+   * with the refusal it was recording. That is the one case where an audit row
+   * must not commit with the thing it describes, because the thing it describes
+   * is the absence of a commit.
+   *
+   * A failure to record must not turn a refusal into a 500: the user is being
+   * told "that code is not valid" either way, and swallowing the write error
+   * keeps the answer they get honest. The counter still moved.
+   */
+  private async refused(userId: string, giftCodeId: string | null, result: string): Promise<void> {
+    this.fail(result);
+    try {
+      await this.audit.record({
+        actorType: 'USER',
+        actorId: userId,
+        action: GIFT_CODE_FAILURE_ACTION,
+        targetType: 'gift_code',
+        ...(giftCodeId !== null ? { targetId: giftCodeId } : {}),
+        after: { reason: result },
+      });
+    } catch {
+      // See above. The refusal is the answer; the record is best-effort.
     }
   }
 

@@ -4,7 +4,12 @@ import { FakeClock, MetricsRegistry } from '@payetam/platform';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
 import { CoinService } from './coin.service';
-import { GiftCodeService, giftCodeRedemptionKey } from './gift-code.service';
+import {
+  GIFT_CODE_FAILURE_ACTION,
+  GIFT_CODE_SUCCESS_ACTION,
+  GiftCodeService,
+  giftCodeRedemptionKey,
+} from './gift-code.service';
 
 /**
  * Gift codes against a real database.
@@ -226,6 +231,140 @@ describe('refusals', () => {
 
     expect(await prisma.coinLedger.count()).toBe(0);
     expect(await prisma.giftCodeRedemption.count()).toBe(0);
+  });
+});
+
+describe('what a refusal leaves behind (M19)', () => {
+  /**
+   * The counter answers "is somebody sweeping right now?" and answers nothing
+   * else: it resets on deploy, it is per-replica, and it carries no time. A
+   * campaign report six weeks later needs a row.
+   */
+  it('records a refused attempt in the audit trail, with its reason', async () => {
+    const codeId = await createCode({ isActive: false });
+
+    await expect(giftCodes.redeem(user, 'WELCOME24')).rejects.toThrow();
+
+    const entries = await prisma.auditLog.findMany({
+      where: { action: GIFT_CODE_FAILURE_ACTION },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ targetId: codeId, targetType: 'gift_code' });
+    expect(entries[0]?.after).toEqual({ reason: 'invalid' });
+  });
+
+  it('distinguishes the four refusals by reason code', async () => {
+    const expired = await createCode({
+      code: 'EXPIRED1',
+      expiresAt: new Date(NOW.getTime() - 1),
+    });
+    const exhausted = await createCode({
+      code: 'FULLUP1',
+      maxRedemptions: 1,
+    });
+    await giftCodes.redeem(await createUser(prisma, 'PROFILE_COMPLETE'), 'FULLUP1');
+    const used = await createCode({ code: 'ONCEONLY' });
+    await giftCodes.redeem(user, 'ONCEONLY');
+
+    await expect(giftCodes.redeem(user, 'EXPIRED1')).rejects.toThrow();
+    await expect(giftCodes.redeem(user, 'FULLUP1')).rejects.toThrow();
+    await expect(giftCodes.redeem(user, 'ONCEONLY')).rejects.toThrow();
+
+    const byTarget = new Map(
+      (await prisma.auditLog.findMany({ where: { action: GIFT_CODE_FAILURE_ACTION } })).map(
+        (entry) => [entry.targetId, (entry.after as { reason: string }).reason],
+      ),
+    );
+    expect(byTarget.get(expired)).toBe('expired');
+    expect(byTarget.get(exhausted)).toBe('exhausted');
+    expect(byTarget.get(used)).toBe('already_redeemed');
+  });
+
+  /**
+   * A sweep against codes that do not exist is the traffic this endpoint
+   * actually attracts. Writing *what was tried* would turn the audit trail into
+   * a list of near-miss codes — a file that is worth more to an attacker than to
+   * a defender.
+   */
+  it('records an unknown code with no target and without echoing the guess', async () => {
+    await expect(giftCodes.redeem(user, 'NOSUCHCODE')).rejects.toThrow();
+
+    const entries = await prisma.auditLog.findMany({
+      where: { action: GIFT_CODE_FAILURE_ACTION },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.targetId).toBeNull();
+    expect(JSON.stringify(entries[0]?.after)).not.toContain('NOSUCHCODE');
+  });
+
+  it('never writes the code itself into the audit trail or the ledger', async () => {
+    await createCode({ code: 'SECRET24' });
+
+    await giftCodes.redeem(user, 'SECRET24');
+    await expect(giftCodes.redeem(user, 'SECRET24')).rejects.toThrow();
+
+    const trail = JSON.stringify(await prisma.auditLog.findMany());
+    const ledger = JSON.stringify(await prisma.coinLedger.findMany());
+    expect(trail).not.toContain('SECRET24');
+    expect(ledger).not.toContain('SECRET24');
+    // And the trail still says which code it was — by identifier, not by secret.
+    expect(trail).toContain(GIFT_CODE_SUCCESS_ACTION);
+  });
+});
+
+describe('the database is authoritative at redemption time (M19)', () => {
+  /**
+   * There is no cached verdict anywhere in the redemption path: `is_active`, the
+   * window and both caps are read under the row lock that spends the code and
+   * nowhere else. A client holding a page rendered five minutes ago therefore
+   * cannot redeem something disabled since — which is the property, and it is
+   * worth a test precisely because it holds by construction and a refactor could
+   * quietly introduce a read-then-write.
+   */
+  it('refuses a code disabled after the client last saw it live', async () => {
+    const codeId = await createCode();
+    // What a stale client is holding: a code it observed as live.
+    const asClientSawIt = await prisma.giftCode.findUniqueOrThrow({ where: { id: codeId } });
+    expect(asClientSawIt.isActive).toBe(true);
+
+    await prisma.giftCode.update({ where: { id: codeId }, data: { isActive: false } });
+
+    await expect(giftCodes.redeem(user, 'WELCOME24')).rejects.toMatchObject({
+      code: 'GIFT_CODE_INVALID',
+    });
+    expect(await coins.balanceOf(user)).toBe(0);
+  });
+
+  it('refuses every one of ten concurrent attempts once the code is disabled', async () => {
+    const codeId = await createCode();
+    await prisma.giftCode.update({ where: { id: codeId }, data: { isActive: false } });
+
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 10 }, () => giftCodes.redeem(user, 'WELCOME24')),
+    );
+
+    expect(outcomes.every((outcome) => outcome.status === 'rejected')).toBe(true);
+    expect(await prisma.coinLedger.count()).toBe(0);
+  });
+
+  /**
+   * Disabling mid-flight is the case an operator actually meets: a campaign is
+   * being drained faster than expected and has to stop *now*. Whatever is in
+   * flight may land; nothing after the switch may.
+   */
+  it('lets a redemption that already committed stand, and refuses the next', async () => {
+    const codeId = await createCode({ maxRedemptions: 10 });
+
+    await giftCodes.redeem(user, 'WELCOME24');
+    await prisma.giftCode.update({ where: { id: codeId }, data: { isActive: false } });
+
+    const second = await createUser(prisma, 'PROFILE_COMPLETE');
+    await expect(giftCodes.redeem(second, 'WELCOME24')).rejects.toThrow();
+
+    // The first grant is untouched: the ledger is append-only and disabling a
+    // campaign is not a reversal (ADR-0016).
+    expect(await coins.balanceOf(user)).toBe(25);
+    expect(await prisma.giftCodeRedemption.count()).toBe(1);
   });
 });
 

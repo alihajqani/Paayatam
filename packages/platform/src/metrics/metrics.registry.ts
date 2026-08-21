@@ -191,6 +191,15 @@ export const METRICS = {
    */
   GIFT_CODE_REDEMPTIONS: 'payetam_gift_code_redemptions_total',
   REFERRAL_CLAIMS: 'payetam_referral_claims_total',
+  /**
+   * Requests a bucket refused, by endpoint class (M19).
+   *
+   * Labelled by class and by nothing else — never by subject, which would be a
+   * series per user and is the metrics mistake that cannot be walked back. Who
+   * was refused is a question for `audit_log`, which records the first crossing
+   * of each window; how much refusing is happening is this.
+   */
+  RATE_LIMITED: 'payetam_rate_limited_total',
 } as const;
 
 @Global()

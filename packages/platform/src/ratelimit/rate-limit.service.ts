@@ -14,6 +14,17 @@ export interface RateLimitVerdict {
   remaining: number;
   /** Seconds until the window rolls over, for a `Retry-After` header. */
   resetSeconds: number;
+  /**
+   * True on the **first** refusal in this window, and on no later one.
+   *
+   * It exists so that crossing a limit can be *recorded* without the recording
+   * becoming the amplification the limiter exists to prevent: a caller refused
+   * three thousand times in an hour must produce one row, not three thousand.
+   * `INCR` already returns the running count, so this is a comparison rather
+   * than a second round trip — the counter passing `limit + 1` happens exactly
+   * once per window by construction.
+   */
+  firstRefusal: boolean;
 }
 
 /**
@@ -83,10 +94,11 @@ export class RateLimitService {
         allowed: used <= policy.limit,
         remaining: Math.max(policy.limit - used, 0),
         resetSeconds,
+        firstRefusal: used === policy.limit + 1,
       };
     } catch {
       // See the note on the class: an unreachable or slow Redis allows the request.
-      return { allowed: true, remaining: policy.limit, resetSeconds };
+      return { allowed: true, remaining: policy.limit, resetSeconds, firstRefusal: false };
     }
   }
 
@@ -109,9 +121,11 @@ export class RateLimitService {
         allowed: used < policy.limit,
         remaining: Math.max(policy.limit - used, 0),
         resetSeconds,
+        // A dry run never crosses anything, so it can never be the crossing.
+        firstRefusal: false,
       };
     } catch {
-      return { allowed: true, remaining: policy.limit, resetSeconds };
+      return { allowed: true, remaining: policy.limit, resetSeconds, firstRefusal: false };
     }
   }
 }
