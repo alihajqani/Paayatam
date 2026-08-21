@@ -2,7 +2,8 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 .PHONY: help setup up down logs docker-logs ps reset dev stop restart status tunnel tunnel-stop \
         webhook webhook-info webhook-delete dev-single-shell build typecheck lint format \
-        format-check test test-int db-test seed check clean backup restore-rehearsal
+        format-check test test-int db-test seed seed-gift-codes-dev check clean backup \
+        restore-rehearsal
 
 # Everything about running the local stack lives in tools/devstack.sh: PID files,
 # process groups, port checks, readiness. The same logic as Make recipes would be one
@@ -133,6 +134,13 @@ seed: ## Seed everything a working development database needs, in dependency ord
 	pnpm seed:rbac
 	pnpm seed:settings
 	pnpm seed:events
+
+# Deliberately NOT part of `make seed`. Everything above writes content the
+# product needs to work; this writes coins. It refuses outright unless NODE_ENV
+# is development or test — there is no ALLOW_PROD_SEED escape hatch, because
+# there is no correct way to run it against production (ADR-0016, M19).
+seed-gift-codes-dev: ## DEV ONLY: sample gift codes, one per redemption outcome, plus a batch
+	pnpm seed:gift-codes-dev
 
 backup: ## Dump the development database, through the production backup script
 	docker cp tools/backup.sh payetam-postgres:/tmp/backup.sh

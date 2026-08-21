@@ -23,7 +23,14 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
-          include: ['{apps,packages}/*/src/**/*.test.ts'],
+          /**
+           * `tools/` is included from M19, for one file: the gate on the gift-code
+           * development seed. Every other script there is a procedure whose only
+           * meaningful test is running it — this one has a *rule* in it, an
+           * allowlist of environments that may write codes worth coins, and a rule
+           * that is only a comment is a rule somebody relaxes.
+           */
+          include: ['{apps,packages}/*/src/**/*.test.ts', 'tools/**/*.test.ts'],
           // The Mini App has its own project below; without this exclusion its
           // files would run twice, once in an environment with no `window`.
           exclude: ['**/node_modules/**', '**/dist/**', '**/*.int.test.ts', 'apps/miniapp/src/**'],

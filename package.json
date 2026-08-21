@@ -29,6 +29,7 @@
     "seed:rbac": "tsx --env-file=.env tools/seed-rbac.ts",
     "seed:settings": "tsx --env-file=.env tools/seed-settings.ts",
     "seed:events": "tsx --env-file=.env tools/seed-events.ts",
+    "seed:gift-codes-dev": "tsx --env-file=.env tools/seed-gift-codes-dev.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
