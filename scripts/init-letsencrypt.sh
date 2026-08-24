@@ -75,24 +75,42 @@ compose --profile certbot pull certbot
 # name. `chain.pem` is included because `ssl_trusted_certificate` points at it
 # and nginx will not start without the file existing either — OCSP stapling is
 # simply inert until a real chain replaces it.
+#
+# A function rather than a loop body, because step 3 has to put a placeholder
+# back when issuance fails — see the comment there.
+write_placeholder() {
+    compose --profile certbot run --rm --entrypoint sh certbot -c "
+        set -e
+        mkdir -p /etc/letsencrypt/live/${1}
+        openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /etc/letsencrypt/live/${1}/privkey.pem \
+            -out    /etc/letsencrypt/live/${1}/fullchain.pem \
+            -subj '/CN=${1}' 2>/dev/null
+        cp /etc/letsencrypt/live/${1}/fullchain.pem \
+           /etc/letsencrypt/live/${1}/chain.pem
+    "
+}
+
+# True when live/<domain> holds a real certbot lineage rather than a placeholder.
+#
+# The test is the symlink, not the directory: certbot links
+# `live/<domain>/fullchain.pem` into `../../archive/<domain>`, while
+# `write_placeholder` leaves a regular file there. Everything below turns on
+# telling those two apart, and getting it backwards deletes a working
+# certificate — so it asks for the symlink and treats anything else as disposable.
+is_real_lineage() {
+    compose --profile certbot run --rm --entrypoint sh certbot -c \
+        "[ -L /etc/letsencrypt/live/${1}/fullchain.pem ]" 2> /dev/null
+}
+
 log "Writing self-signed placeholders so nginx can start"
 for domain in "${DOMAINS[@]}"; do
-    if compose --profile certbot run --rm --entrypoint sh certbot -c \
-        "[ -s /etc/letsencrypt/live/${domain}/fullchain.pem ]" 2> /dev/null; then
+    if is_real_lineage "$domain"; then
         ok "${domain}: a certificate is already in place"
         continue
     fi
 
-    compose --profile certbot run --rm --entrypoint sh certbot -c "
-        set -e
-        mkdir -p /etc/letsencrypt/live/${domain}
-        openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
-            -keyout /etc/letsencrypt/live/${domain}/privkey.pem \
-            -out    /etc/letsencrypt/live/${domain}/fullchain.pem \
-            -subj '/CN=${domain}' 2>/dev/null
-        cp /etc/letsencrypt/live/${domain}/fullchain.pem \
-           /etc/letsencrypt/live/${domain}/chain.pem
-    "
+    write_placeholder "$domain"
     ok "${domain}: placeholder written"
 done
 
@@ -125,6 +143,24 @@ failed=()
 for domain in "${DOMAINS[@]}"; do
     log "Requesting a certificate for ${domain}"
 
+    # certbot refuses outright — "live directory exists for <domain>" — when
+    # `live/<domain>` is present but is not one of its own lineages, and the
+    # placeholder from step 1 is exactly that: three regular files with nothing in
+    # `archive/` behind them. So the placeholder has to be cleared *before* the
+    # request; certbot will not overwrite it and does not offer a flag that says
+    # otherwise.
+    #
+    # nginx read the placeholder into memory when it started and does not look at
+    # the files again until the reload in step 4, so it keeps serving TLS across
+    # the gap where these paths do not exist.
+    if ! is_real_lineage "$domain"; then
+        compose --profile certbot run --rm --entrypoint sh certbot -c "
+            rm -rf /etc/letsencrypt/live/${domain} \
+                   /etc/letsencrypt/archive/${domain} \
+                   /etc/letsencrypt/renewal/${domain}.conf
+        " > /dev/null
+    fi
+
     # `--cert-name` pins the directory to the bare hostname. Without it certbot
     # appends `-0001` when a certificate already exists under that name — and the
     # nginx config points at the un-suffixed path, so the renewal would succeed
@@ -142,6 +178,14 @@ for domain in "${DOMAINS[@]}"; do
     else
         err "${domain}: certbot failed"
         failed+=("$domain")
+
+        # The placeholder was cleared moments ago, so without this the files the
+        # site config names would not exist at all. nginx survives on what it holds
+        # in memory, but would refuse to start on the next reboot — turning one
+        # failed certificate into a failed boot, discovered much later. Putting the
+        # placeholder back keeps "nginx can always start" true no matter how this
+        # script exits.
+        is_real_lineage "$domain" || write_placeholder "$domain"
     fi
 done
 
