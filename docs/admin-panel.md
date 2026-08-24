@@ -253,7 +253,7 @@ No setting needs a restart.
 ## 8. Deploying it
 
 The bundle is static, and in production it is **baked into the nginx image** and served from a host of
-its own. The working configuration is `docker/sites-available/admin.paayatam.ir.conf`; the whole
+its own. The working configuration is `docker/sites-available/admin.paayatam.online.conf`; the whole
 procedure is in [`DEPLOYMENT.md`](../DEPLOYMENT.md).
 
 `pnpm --filter @payetam/admin build` writes `apps/admin/dist`. `pnpm build` builds it alongside the
@@ -267,14 +267,14 @@ is worth saying why rather than just deleting it: neither `vite.config.ts` sets 
 references its assets at `/assets/…`. Mounted under `/admin`, every one of them 404s — the page loads
 and stays blank, which reads like a JavaScript error rather than like a path problem.
 
-So the panel gets `admin.paayatam.ir` and is served at `/`, which is what the build already assumes.
+So the panel gets `admin.paayatam.online` and is served at `/`, which is what the build already assumes.
 The alternative — adding `base: '/admin/'` to `apps/admin/vite.config.ts` — is a real option, but it is
 a code change, and it would put the panel on the same origin as the Mini App, where the two CSPs have
 to differ (the Mini App must allow framing by Telegram; the panel must not be framed at all).
 
 ### Same origin as the admin API, which is not optional
 
-`admin.paayatam.ir` serves the bundle *and* proxies `/admin/v1/` to the API. Both halves are forced:
+`admin.paayatam.online` serves the bundle *and* proxies `/admin/v1/` to the API. Both halves are forced:
 
 - The API sends **no CORS headers** (`apps/api/src/common/security-headers.ts`).
 - The session cookie is `Secure`, `SameSite=Lax`, `path=/admin`, and sets no `Domain` — so it is

@@ -5,10 +5,10 @@ Step by step, for one Ubuntu 24.04 VPS running everything in Docker Compose.
 Written for somebody who has not done this before. Every command is meant to be
 pasted as written, and every one that could lose data says so before you run it.
 
-> **On the domain.** Everything below uses `paayatam.ir`. If yours is different,
+> **On the domain.** Everything below uses `paayatam.online`. If yours is different,
 > change it in three places and nowhere else: the two filenames under
 > `docker/sites-available/`, the `server_name` and `ssl_certificate` lines inside
-> them, and `PUBLIC_API_URL` in `.env`. Then `grep -rn paayatam.ir docker/` to
+> them, and `PUBLIC_API_URL` in `.env`. Then `grep -rn paayatam.online docker/` to
 > confirm nothing is left.
 
 ---
@@ -41,7 +41,7 @@ pasted as written, and every one that could lose data says so before you run it.
 | | What | Notes |
 |---|---|---|
 | ☐ | A VPS | Ubuntu 24.04 LTS, amd64, **2 GB RAM minimum**, 20 GB disk. 1 GB will not build the images. |
-| ☐ | A domain | `paayatam.ir`, with access to its DNS records. |
+| ☐ | A domain | `paayatam.online`, with access to its DNS records. |
 | ☐ | A Telegram bot | From [@BotFather](https://t.me/BotFather). Keep the token somewhere safe. |
 | ☐ | A password manager | You are about to generate eight secrets. One of them can never be rotated without destroying data. |
 | ☐ | An email address | Let's Encrypt sends certificate expiry warnings there. |
@@ -180,8 +180,8 @@ Wait for propagation, then check from your own machine — not from the server,
 where the answer may come from a local cache:
 
 ```bash
-dig +short app.paayatam.ir
-dig +short admin.paayatam.ir
+dig +short app.paayatam.online
+dig +short admin.paayatam.online
 ```
 
 Both must print the server's address. Do not go on until they do: the next step
@@ -303,8 +303,8 @@ running whenever it can. Check it:
 
 ```bash
 ./scripts/compose.sh ps        # every service Up, api and postgres healthy
-curl -f https://app.paayatam.ir/health
-curl -sI https://admin.paayatam.ir/ | head -1
+curl -f https://app.paayatam.online/health
+curl -sI https://admin.paayatam.online/ | head -1
 ```
 
 ---
@@ -359,7 +359,7 @@ an argument, because `ps` is world-readable and a command line ends up in shell
 history. The roles are `SUPER_ADMIN`, `MODERATOR`, `SUPPORT` and `ANALYST` —
 `docs/admin-panel.md` §3 has what each can reach.
 
-Then, at `https://admin.paayatam.ir`:
+Then, at `https://admin.paayatam.online`:
 
 1. Sign in with the username, the password, and the six-digit code.
 2. Confirm the session survives a page reload (it is an `HttpOnly` cookie scoped
@@ -519,7 +519,7 @@ cd /srv/payetam
 ./scripts/set-webhook.sh
 ```
 
-It proves `https://app.paayatam.ir/health` answers from the public internet
+It proves `https://app.paayatam.online/health` answers from the public internet
 *before* it calls Telegram. That order matters: **a failed `setWebhook` deletes
 the webhook the bot already had**, so a broken deploy would otherwise also make
 the bot deaf.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# First certificates for app.paayatam.ir and admin.paayatam.ir (M20).
+# First certificates for app.paayatam.online and admin.paayatam.online (M20).
 #
 #   scripts/init-letsencrypt.sh --email you@example.com [--staging] [--force]
 #
@@ -29,7 +29,7 @@
 # browsers, which is the point — it proves the plumbing without spending quota.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-DOMAINS=(app.paayatam.ir admin.paayatam.ir)
+DOMAINS=(app.paayatam.online admin.paayatam.online)
 EMAIL=''
 STAGING=0
 FORCE=0
@@ -156,7 +156,7 @@ if (( ${#failed[@]} > 0 )); then
 
   The three things that cause this, in the order they actually happen:
 
-    1. DNS does not point here yet. Check with:  dig +short app.paayatam.ir
+    1. DNS does not point here yet. Check with:  dig +short app.paayatam.online
        It must be this server's public address, with no Cloudflare proxy in
        front (the deployment is DNS-only by decision).
     2. Port 80 is closed. Check with:  sudo ufw status

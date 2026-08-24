@@ -334,7 +334,7 @@ services:
   # `scripts/init-letsencrypt.sh` drives it. Run by hand it looks like:
   #
   #   docker compose --profile certbot run --rm certbot certonly \
-  #     --webroot -w /var/www/html -d app.paayatam.ir
+  #     --webroot -w /var/www/html -d app.paayatam.online
   #
   # The user's original sketch had this service running the renewal *loop* while
   # nginx waited for it to complete and it waited for nginx — a cycle Compose

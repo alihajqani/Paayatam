@@ -117,7 +117,7 @@ jobs:
     timeout-minutes: 45
     environment:
       name: production
-      url: https://app.paayatam.ir
+      url: https://app.paayatam.online
 
     steps:
       - name: Set up SSH
@@ -183,7 +183,7 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 10); do
             code="$(curl -s -o /tmp/body -w '%{http_code}' --max-time 15 \
-                     https://app.paayatam.ir/health || echo 000)"
+                     https://app.paayatam.online/health || echo 000)"
             if [ "$code" = "200" ]; then
               echo "healthy: $(cat /tmp/body)"
               exit 0
@@ -191,12 +191,12 @@ jobs:
             echo "attempt ${attempt}: ${code}"
             sleep 10
           done
-          echo "::error::https://app.paayatam.ir/health never returned 200."
+          echo "::error::https://app.paayatam.online/health never returned 200."
           exit 1
 
       - name: The admin panel serves its login page
         run: |
-          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://admin.paayatam.ir/)"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://admin.paayatam.online/)"
           [ "$code" = "200" ] || { echo "::error::admin origin returned ${code}"; exit 1; }
 
       # The check most worth having in a place nobody can quietly delete.
@@ -206,7 +206,7 @@ jobs:
       # internet, and this is what notices when the rule stops being there.
       - name: /metrics is not reachable from outside
         run: |
-          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://app.paayatam.ir/metrics)"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://app.paayatam.online/metrics)"
           if [ "$code" != "404" ]; then
             echo "::error::/metrics returned ${code} from the public internet. Expected 404."
             exit 1
@@ -215,8 +215,8 @@ jobs:
       - name: TLS is valid and not about to expire
         run: |
           set -euo pipefail
-          expiry="$(echo | openssl s_client -servername app.paayatam.ir \
-                     -connect app.paayatam.ir:443 2>/dev/null \
+          expiry="$(echo | openssl s_client -servername app.paayatam.online \
+                     -connect app.paayatam.online:443 2>/dev/null \
                    | openssl x509 -noout -enddate | cut -d= -f2)"
           echo "certificate expires: ${expiry}"
           seconds_left=$(( $(date -d "$expiry" +%s) - $(date +%s) ))

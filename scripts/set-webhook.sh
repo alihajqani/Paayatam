@@ -23,7 +23,7 @@
 # which does not exist on a server.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-APP_HOST="${PAYETAM_APP_HOST:-app.paayatam.ir}"
+APP_HOST="${PAYETAM_APP_HOST:-app.paayatam.online}"
 MODE='set'
 
 while [[ $# -gt 0 ]]; do

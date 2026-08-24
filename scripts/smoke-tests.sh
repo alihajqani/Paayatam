@@ -16,8 +16,8 @@
 # fails — a deploy that broke two things should say so once rather than twice.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-APP_HOST="${PAYETAM_APP_HOST:-app.paayatam.ir}"
-ADMIN_HOST="${PAYETAM_ADMIN_HOST:-admin.paayatam.ir}"
+APP_HOST="${PAYETAM_APP_HOST:-app.paayatam.online}"
+ADMIN_HOST="${PAYETAM_ADMIN_HOST:-admin.paayatam.online}"
 LOCAL=0
 SKIP_BACKUP=0
 

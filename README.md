@@ -452,7 +452,7 @@ the step-by-step guide; this is the shape of it.
                     ┌───────────────┐        the only published ports
                     │     nginx     │        TLS, static bundles, proxy
                     └───────┬───────┘
-        app.paayatam.ir     │     admin.paayatam.ir
+        app.paayatam.online     │     admin.paayatam.online
         /            /api/  │  /admin/v1/         /
     miniapp bundle ─────────┼───────────── admin bundle
                             │  frontend network
@@ -473,9 +473,9 @@ the only process that talks to Telegram (invariant 11).
 **Both SPAs must share an origin with the API, and this is forced by the code
 rather than chosen.** The API sends no CORS headers, both clients build relative
 paths, and the admin session cookie is `Secure`, `SameSite=Lax`, host-only and
-scoped to `/admin`. A separate `api.paayatam.ir` would fail every request in the
-browser. So `app.paayatam.ir` serves the Mini App *and* proxies `/api/` and
-`/telegram/webhook/`; `admin.paayatam.ir` serves the panel *and* proxies
+scoped to `/admin`. A separate `api.paayatam.online` would fail every request in the
+browser. So `app.paayatam.online` serves the Mini App *and* proxies `/api/` and
+`/telegram/webhook/`; `admin.paayatam.online` serves the panel *and* proxies
 `/admin/v1/`.
 
 ### The files
