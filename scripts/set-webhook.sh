@@ -62,10 +62,20 @@ show_info() {
 
     # The URL contains the secret path, so it is reported by shape rather than
     # printed. Everything else is safe to show and is what you actually need.
+    #
+    # `|| true` on all three, and the third is the one that matters: `grep` exits
+    # 1 when it matches nothing, `lib.sh` sets `-e`, and Telegram omits
+    # `last_error_message` entirely when delivery is healthy. Without the guard
+    # this function died on that assignment — before printing a single line — so
+    # it failed exactly when the webhook was working, and `set-webhook.sh`
+    # returned 1 on a successful registration. The `url` guard also matters: it
+    # is what makes the "no webhook registered" branch below reachable at all,
+    # since an unregistered bot is precisely the case where that grep finds
+    # nothing.
     local url pending last_error
-    url="$(grep -o '"url":"[^"]*"' <<< "$response" | head -1 | cut -d'"' -f4)"
-    pending="$(grep -o '"pending_update_count":[0-9]*' <<< "$response" | head -1 | cut -d: -f2)"
-    last_error="$(grep -o '"last_error_message":"[^"]*"' <<< "$response" | head -1 | cut -d'"' -f4)"
+    url="$(grep -o '"url":"[^"]*"' <<< "$response" | head -1 | cut -d'"' -f4 || true)"
+    pending="$(grep -o '"pending_update_count":[0-9]*' <<< "$response" | head -1 | cut -d: -f2 || true)"
+    last_error="$(grep -o '"last_error_message":"[^"]*"' <<< "$response" | head -1 | cut -d'"' -f4 || true)"
 
     if [[ -z "$url" ]]; then
         warn "Telegram has no webhook registered for this bot."
