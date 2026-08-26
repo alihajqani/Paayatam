@@ -138,6 +138,13 @@ rule, and the three slugs it asserts must not change. Hand-editing the JSON work
 up until somebody regenerates it, which is why the corrections live in the generator as
 `SLUG_OVERRIDES` and `CAPITAL_OF`.
 
+> **On a server, set `PAYETAM_VERSION` and run from a terminal.** The `tools`
+> service is tagged `payetam/tools:${PAYETAM_VERSION:-local}`, so a bare
+> `compose.sh` call reaches whatever was last built on the host by hand rather
+> than the release you just deployed. And every seed stops to make you type the
+> database name — it refuses when stdin is not a terminal, so this cannot be
+> scripted, deliberately. `DEPLOYMENT.md` §8 has the exact form.
+
 `pnpm seed:geography` takes an activation mode:
 
 | Command | Effect |

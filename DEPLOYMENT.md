@@ -318,17 +318,35 @@ and it is idempotent by construction.
 **Every other seed is a decision, and each overwrites something.** Run them once
 on a brand-new database, never on one with data you care about:
 
+> **Set `PAYETAM_VERSION` on every one of these.** The `tools` service is tagged
+> `payetam/tools:${PAYETAM_VERSION:-local}`, and `deploy.sh` exports the release
+> when it calls `migrate.sh`. A bare `compose.sh` call does not — it falls back
+> to `:local`, which is whatever was last built on the host by hand. The symptom
+> is a seed that fails with `Command "seed:xyz" not found` because the image
+> predates the script, and the worse symptom is an old seed running silently
+> because the script *did* exist back then.
+
 ```bash
 cd /srv/payetam
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:policies    # cancellation windows, thresholds
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:geography  # 31 provinces, 1,252 cities
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:catalog     # activity tags, interests, districts
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:blacklist   # the moderation word list
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:settings    # default runtime settings
+export PAYETAM_VERSION="$(cat .deploy/current-release)"
+
+seed() { ./scripts/compose.sh --profile tools run --rm -e ALLOW_PROD_SEED=1 tools pnpm "$@"; }
+
+seed seed:policies                        # cancellation windows, thresholds
+seed seed:geography --activate=capitals   # 31 provinces, 1,252 cities
+seed seed:catalog                         # activity tags, interests, districts
+seed seed:blacklist                       # the moderation word list
+seed seed:settings                        # default runtime settings
 ```
 
-`seed:geography` before `seed:catalog`: districts are attached to a city by slug, and the
-catalog seed skips them with a warning if the city is not there yet.
+Each of these stops and asks you to **type the database name** (`payetam`) before
+it writes anything. That is the M17 rail and it is not a formality: the mistake it
+catches is not "did you mean to seed" but "are you pointed at the database you
+think you are". It refuses outright when stdin is not a terminal, so run these
+from an interactive shell — piping an answer is not an answer.
+
+Run `seed:geography` **before** `seed:catalog`: districts attach to a city looked
+up by slug, and the other way round they are skipped with a warning.
 
 **`seed:geography` is the one seed on this list that is safe to re-run on a live
 database.** It can only ever *widen* availability — a city that is active stays
