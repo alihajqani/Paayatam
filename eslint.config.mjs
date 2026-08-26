@@ -16,6 +16,12 @@ export default tseslint.config(
       '**/coverage/**',
       'packages/db/src/generated/**',
       'packages/db/prisma/migrations/**',
+      // A standalone ESM generator run by hand (`node tools/data/…`), not part of
+      // any build. It is real ESM — `import.meta`, top-level await — and the
+      // typed lint project is this repo's CommonJS one, which would report both
+      // as errors that are not errors. The same reasoning `tsconfig.typecheck.json`
+      // already gives for keeping `.mjs` out of the typecheck pass.
+      'tools/data/*.mjs',
     ],
   },
 

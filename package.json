@@ -25,6 +25,7 @@
     "db:studio": "pnpm --filter @payetam/db db:studio",
     "seed:policies": "tsx --env-file=.env tools/seed-policies.ts",
     "seed:catalog": "tsx --env-file=.env tools/seed-catalog.ts",
+    "seed:geography": "tsx --env-file=.env tools/seed-geography.ts",
     "seed:blacklist": "tsx --env-file=.env tools/seed-blacklist.ts",
     "seed:rbac": "tsx --env-file=.env tools/seed-rbac.ts",
     "seed:settings": "tsx --env-file=.env tools/seed-settings.ts",

@@ -1,0 +1,6490 @@
+{
+  "source": {
+    "package": "@code-plate/iran-cities",
+    "version": "1.0.2",
+    "license": "MIT",
+    "repository": "https://github.com/MJavadSF/Iran-Cities",
+    "generatedBy": "tools/data/build-iran-geography.mjs",
+    "provinceCount": 31,
+    "cityCount": 1252
+  },
+  "provinces": [
+    {
+      "slug": "tehran",
+      "nameFa": "تهران",
+      "cities": [
+        {
+          "slug": "tehran",
+          "nameFa": "تهران",
+          "sortOrder": 0
+        },
+        {
+          "slug": "absard",
+          "nameFa": "آبسرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abali",
+          "nameFa": "آبعلی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ahmadabad-e-mostowfi",
+          "nameFa": "احمدآباد مستوفی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "arjomand",
+          "nameFa": "ارجمند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eslamshahr",
+          "nameFa": "اسلامشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "andisheh",
+          "nameFa": "اندیشه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baghestan",
+          "nameFa": "باغستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baqershahr",
+          "nameFa": "باقرشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bumahen",
+          "nameFa": "بومهن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pakdasht",
+          "nameFa": "پاکدشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pardis",
+          "nameFa": "پردیس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "parand",
+          "nameFa": "پرند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pishva",
+          "nameFa": "پیشوا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "javadabad",
+          "nameFa": "جواد آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chahardangeh",
+          "nameFa": "چهاردانگه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tehran-hasanabad",
+          "nameFa": "حسن آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "damavand",
+          "nameFa": "دماوند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "robat-karim",
+          "nameFa": "رباط کریم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rudehen",
+          "nameFa": "رودهن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahedshahr",
+          "nameFa": "شاهدشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sharifabad",
+          "nameFa": "شریف آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shemshak",
+          "nameFa": "شمشک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tehran-shahriar",
+          "nameFa": "شهریار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "salehieh",
+          "nameFa": "صالحیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sabashahr",
+          "nameFa": "صباشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "safadasht",
+          "nameFa": "صفادشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ferdowsieh",
+          "nameFa": "فردوسیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ferunabad",
+          "nameFa": "فرون آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fasham",
+          "nameFa": "فشم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "firuzkuh",
+          "nameFa": "فیروزکوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qods",
+          "nameFa": "قدس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qarchak",
+          "nameFa": "قرچک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kahrizak",
+          "nameFa": "کهریزک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kilan",
+          "nameFa": "کیلان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golestan",
+          "nameFa": "گلستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lavasan",
+          "nameFa": "لواسان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "malard",
+          "nameFa": "ملارد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nasimshahr",
+          "nameFa": "نسیم شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nasirshahr",
+          "nameFa": "نصیرشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "vahidieh",
+          "nameFa": "وحیدیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "varamin",
+          "nameFa": "ورامین",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 0
+    },
+    {
+      "slug": "east-azerbaijan",
+      "nameFa": "آذربایجان شرقی",
+      "cities": [
+        {
+          "slug": "tabriz",
+          "nameFa": "تبریز",
+          "sortOrder": 0
+        },
+        {
+          "slug": "achachi",
+          "nameFa": "آچاچی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "azarshahr",
+          "nameFa": "آذرشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aqkand",
+          "nameFa": "آقکند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abish-ahmad",
+          "nameFa": "ابیش احمد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "osku",
+          "nameFa": "اسکو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ahar",
+          "nameFa": "اهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ilkhchi",
+          "nameFa": "ایلخچی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "basmenj",
+          "nameFa": "باسمنج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bakhshayesh",
+          "nameFa": "بخشایش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bostanabad",
+          "nameFa": "بستان آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bonab",
+          "nameFa": "بناب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "benab-e-marand",
+          "nameFa": "بناب مرند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tark",
+          "nameFa": "تارک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "torkamanchay",
+          "nameFa": "ترکمانچای",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tasuj",
+          "nameFa": "تسوج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tekmeh-dash",
+          "nameFa": "تکمه داش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "teymurlu",
+          "nameFa": "تیمورلو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jolfa",
+          "nameFa": "جلفا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jowan-qaleh",
+          "nameFa": "جوان قلعه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kharvana",
+          "nameFa": "خاروانا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khamaneh",
+          "nameFa": "خامنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kharaju",
+          "nameFa": "خراجو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khosrowshah",
+          "nameFa": "خسروشاه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khomarlu",
+          "nameFa": "خمارلو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khajeh",
+          "nameFa": "خواجه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "duzduzan",
+          "nameFa": "دوزدوزان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarnaq",
+          "nameFa": "زرنق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zonuz",
+          "nameFa": "زونوز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarab",
+          "nameFa": "سراب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sardrud",
+          "nameFa": "سردرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sahand",
+          "nameFa": "سهند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "siah-rud",
+          "nameFa": "سیاه رود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sis",
+          "nameFa": "سیس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shabestar",
+          "nameFa": "شبستر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sharabian",
+          "nameFa": "شرابیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sharafkhaneh",
+          "nameFa": "شرفخانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shendabad",
+          "nameFa": "شندآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "east-azerbaijan-shahriar",
+          "nameFa": "شهریار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sufian",
+          "nameFa": "صوفیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ajab-shir",
+          "nameFa": "عجب شیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qarah-aghaj",
+          "nameFa": "قره آغاج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kolvanaq",
+          "nameFa": "کلوانق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kaleybar",
+          "nameFa": "کلیبر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuzeh-kanan",
+          "nameFa": "کوزه کنان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "koshksaray",
+          "nameFa": "کوشک سرای",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gugan",
+          "nameFa": "گوگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "leylan",
+          "nameFa": "لیلان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mobarak-shahr",
+          "nameFa": "مبارک شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "maragheh",
+          "nameFa": "مراغه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marand",
+          "nameFa": "مرند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "malek-kian",
+          "nameFa": "ملک کیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "malekan",
+          "nameFa": "ملکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mamqan",
+          "nameFa": "ممقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mehraban",
+          "nameFa": "مهربان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mianeh",
+          "nameFa": "میانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nazarkahrizi",
+          "nameFa": "نظرکهریزی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "vayqan",
+          "nameFa": "وایقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "varzaqan",
+          "nameFa": "ورزقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hadishahr",
+          "nameFa": "هادیشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "heris",
+          "nameFa": "هریس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hashtrud",
+          "nameFa": "هشترود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hurand",
+          "nameFa": "هوراند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "yamchi",
+          "nameFa": "یامچی",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 10
+    },
+    {
+      "slug": "west-azerbaijan",
+      "nameFa": "آذربایجان غربی",
+      "cities": [
+        {
+          "slug": "urmia",
+          "nameFa": "ارومیه",
+          "sortOrder": 0
+        },
+        {
+          "slug": "avajiq",
+          "nameFa": "آواجیق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "oshnavieh",
+          "nameFa": "اشنویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ivughli",
+          "nameFa": "ایواوغلی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baruq",
+          "nameFa": "باروق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bazargan",
+          "nameFa": "بازرگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bukan",
+          "nameFa": "بوکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "poldasht",
+          "nameFa": "پلدشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "piranshahr",
+          "nameFa": "پیرانشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tazeh-shahr",
+          "nameFa": "تازه شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "takab",
+          "nameFa": "تکاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chahar-borj",
+          "nameFa": "چهار برج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khalifan",
+          "nameFa": "خلیفان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khoy",
+          "nameFa": "خوی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dizaj-diz",
+          "nameFa": "دیزج دیز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rabat",
+          "nameFa": "ربط",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zurabad",
+          "nameFa": "زورآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "west-azerbaijan-sardasht",
+          "nameFa": "سردشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "serow",
+          "nameFa": "سرو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "salmas",
+          "nameFa": "سلماس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "siah-cheshmeh",
+          "nameFa": "سیاه چشمه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "silvaneh",
+          "nameFa": "سیلوانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "simmineh",
+          "nameFa": "سیمینه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahin-dezh",
+          "nameFa": "شاهین دژ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "showt",
+          "nameFa": "شوط",
+          "sortOrder": 100
+        },
+        {
+          "slug": "firuraq",
+          "nameFa": "فیرورق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qarah-zia-od-din",
+          "nameFa": "قره ضیاء الدین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qatur",
+          "nameFa": "قطور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qushchi",
+          "nameFa": "قوشچی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "keshavarz",
+          "nameFa": "کشاورز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gerd-kashaneh",
+          "nameFa": "گرد کاشانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "maku",
+          "nameFa": "ماکو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohammadyar",
+          "nameFa": "محمدیار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "west-azerbaijan-mahmudabad",
+          "nameFa": "محمودآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marganlar",
+          "nameFa": "مرگنلر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "west-azerbaijan-mahabad",
+          "nameFa": "مهاباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "miandoab",
+          "nameFa": "میاندوآب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mirabad",
+          "nameFa": "میرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nazok-e-olya",
+          "nameFa": "نازک علیا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nalus",
+          "nameFa": "نالوس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "naqadeh",
+          "nameFa": "نقده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nushin",
+          "nameFa": "نوشین",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 20
+    },
+    {
+      "slug": "ardabil",
+      "nameFa": "اردبیل",
+      "cities": [
+        {
+          "slug": "ardabil",
+          "nameFa": "اردبیل",
+          "sortOrder": 0
+        },
+        {
+          "slug": "abi-beyglu",
+          "nameFa": "ابی بیگلو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eslamabad-e-qadim",
+          "nameFa": "اسلام آباد قدیم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aslan-duz",
+          "nameFa": "اصلان دوز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bileh-savar",
+          "nameFa": "بیله سوار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "parsabad",
+          "nameFa": "پارس آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tazeh-kand-e-angut",
+          "nameFa": "تازه کند انگوت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tazeh-kand-e-qadim",
+          "nameFa": "تازه کند قدیم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jafarabad",
+          "nameFa": "جعفرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khalkhal",
+          "nameFa": "خلخال",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razey",
+          "nameFa": "رازی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sareyn",
+          "nameFa": "سرعین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anbaran",
+          "nameFa": "عنبران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fakhrabad",
+          "nameFa": "فخرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qasabeh",
+          "nameFa": "قصابه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuraim",
+          "nameFa": "کوریم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kolowr",
+          "nameFa": "کولوور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kivi",
+          "nameFa": "کیوی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "germi",
+          "nameFa": "گرمی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lahrud",
+          "nameFa": "لاهرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "moradlu",
+          "nameFa": "مرادلو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meshginshahr",
+          "nameFa": "مشگین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "namin",
+          "nameFa": "نمین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ardabil-nir",
+          "nameFa": "نیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hashatjin",
+          "nameFa": "هشاتجین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hir",
+          "nameFa": "هیر",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 30
+    },
+    {
+      "slug": "isfahan",
+      "nameFa": "اصفهان",
+      "cities": [
+        {
+          "slug": "isfahan",
+          "nameFa": "اصفهان",
+          "sortOrder": 0
+        },
+        {
+          "slug": "aran-va-bidgol",
+          "nameFa": "آران و بیدگل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abrisham",
+          "nameFa": "ابریشم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abuzeydabad",
+          "nameFa": "ابوزیدآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ardestan",
+          "nameFa": "اردستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ezhiyeh",
+          "nameFa": "اژیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asgharabad",
+          "nameFa": "اصغر آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "afus",
+          "nameFa": "افوس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anarak",
+          "nameFa": "انارک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "imanshahr",
+          "nameFa": "ایمان شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "badrud",
+          "nameFa": "بادرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "barzok",
+          "nameFa": "بارزوک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bagh-e-bahadoran",
+          "nameFa": "باغ بهادران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baghshad",
+          "nameFa": "باغشاد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bafran",
+          "nameFa": "بافران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "barf-anbar",
+          "nameFa": "برف انبار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "buin-va-miandasht",
+          "nameFa": "بوئین و میاندشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baharan-shahr",
+          "nameFa": "بهاران شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baharestan",
+          "nameFa": "بهارستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pir-bakran",
+          "nameFa": "پیر بکران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "talkhuncheh",
+          "nameFa": "تلخونچه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tudeshk",
+          "nameFa": "تودشک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tiran",
+          "nameFa": "تیران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jandaq",
+          "nameFa": "جندق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jowzdan",
+          "nameFa": "جوزدان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jowsheqan-va-kamu",
+          "nameFa": "جوشقان و کامو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chadegan",
+          "nameFa": "چادگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chermahin",
+          "nameFa": "چرمهین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chamgardan",
+          "nameFa": "چمگردان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "habibabad",
+          "nameFa": "حبیب آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-hasanabad",
+          "nameFa": "حسن آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hana",
+          "nameFa": "حنا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khaledabad",
+          "nameFa": "خالدآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khomeyni-shahr",
+          "nameFa": "خمینی شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khansar",
+          "nameFa": "خوانسار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-khur",
+          "nameFa": "خور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khvorzuq",
+          "nameFa": "خورزوق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "daran",
+          "nameFa": "داران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "damaneh",
+          "nameFa": "دامنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dorcheh-piaz",
+          "nameFa": "درچه پیاز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dastgerd",
+          "nameFa": "دستگرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-dowlatabad",
+          "nameFa": "دولت آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehaq",
+          "nameFa": "دهاق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehaqan",
+          "nameFa": "دهاقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dizicheh",
+          "nameFa": "دیزیچه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-rezvanshahr",
+          "nameFa": "رضوانشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rozveh",
+          "nameFa": "روزوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zazeran",
+          "nameFa": "زازران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zayandeh-rud",
+          "nameFa": "زاینده رود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarrin-shahr",
+          "nameFa": "زرین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zavareh",
+          "nameFa": "زواره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ziar",
+          "nameFa": "زیار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zibashahr",
+          "nameFa": "زیباشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sedeh-lenjan",
+          "nameFa": "سده لنجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sefidshahr",
+          "nameFa": "سفیدشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sagzi",
+          "nameFa": "سگزی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "semirom",
+          "nameFa": "سمیرم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sin",
+          "nameFa": "سین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shadpurabad",
+          "nameFa": "شادپورآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahin-shahr",
+          "nameFa": "شاهین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahreza",
+          "nameFa": "شهرضا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tarq",
+          "nameFa": "طرق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asgaran",
+          "nameFa": "عسگران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "alavicheh",
+          "nameFa": "علویچه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farrokhi",
+          "nameFa": "فرخی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fereydunshahr",
+          "nameFa": "فریدونشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "falavarjan",
+          "nameFa": "فلاورجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fuladshahr",
+          "nameFa": "فولادشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qamsar",
+          "nameFa": "قمصر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qahjaverestan",
+          "nameFa": "قهجاورستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qahderijan",
+          "nameFa": "قهدریجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kashan",
+          "nameFa": "کاشان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kamu-va-chugan",
+          "nameFa": "کامو و چوگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "karkevand",
+          "nameFa": "کرکوند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kelishad-va-sudarjan",
+          "nameFa": "کلیشاد و سودرجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kushk",
+          "nameFa": "کوشک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "komeshcheh",
+          "nameFa": "کومشچه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "komeh",
+          "nameFa": "کومه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhpayeh",
+          "nameFa": "کوهپایه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kahriz-sang",
+          "nameFa": "کهریز سنگ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gorgab",
+          "nameFa": "گرگاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gaz",
+          "nameFa": "گز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golpayegan",
+          "nameFa": "گلپایگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "goldasht",
+          "nameFa": "گلدشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golshan",
+          "nameFa": "گلشن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golshahr",
+          "nameFa": "گلشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "guged",
+          "nameFa": "گوگد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lay-bid",
+          "nameFa": "لای بید",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mobarakeh",
+          "nameFa": "مبارکه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "majlesi",
+          "nameFa": "مجلسی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-mohammadabad",
+          "nameFa": "محمد آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meshkat",
+          "nameFa": "مشکات",
+          "sortOrder": 100
+        },
+        {
+          "slug": "manzariyeh",
+          "nameFa": "منظریه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-mahabad",
+          "nameFa": "مهاباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-meymeh",
+          "nameFa": "میمه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nain",
+          "nameFa": "نایین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "najafabad",
+          "nameFa": "نجف آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "isfahan-nasrabad",
+          "nameFa": "نصرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "natanz",
+          "nameFa": "نطنز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nushabad",
+          "nameFa": "نوش آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "neyasar",
+          "nameFa": "نیاسر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nikabad",
+          "nameFa": "نیک آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "varzaneh",
+          "nameFa": "ورزنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "varnamkhast",
+          "nameFa": "ورنامخواست",
+          "sortOrder": 100
+        },
+        {
+          "slug": "vazvan",
+          "nameFa": "وزوان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "vanak",
+          "nameFa": "ونک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "harand",
+          "nameFa": "هرند",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 40
+    },
+    {
+      "slug": "alborz",
+      "nameFa": "البرز",
+      "cities": [
+        {
+          "slug": "karaj",
+          "nameFa": "کرج",
+          "sortOrder": 0
+        },
+        {
+          "slug": "asara",
+          "nameFa": "آسارا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eshtehard",
+          "nameFa": "اشتهارد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tankaman",
+          "nameFa": "تانکمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chaharbagh",
+          "nameFa": "چهارباغ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahr-e-jadid-e-hashtgerd",
+          "nameFa": "شهر جدید هشتگرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "taleqan",
+          "nameFa": "طالقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fardis",
+          "nameFa": "فردیس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kamal-shahr",
+          "nameFa": "کمال شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhsar",
+          "nameFa": "کوهسار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "garmdarreh",
+          "nameFa": "گرمدره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golsar",
+          "nameFa": "گلسار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mahdasht",
+          "nameFa": "ماهدشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "alborz-mohammadshahr",
+          "nameFa": "محمدشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meshkin-dasht",
+          "nameFa": "مشکین دشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nazarabad",
+          "nameFa": "نظرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hashtgerd",
+          "nameFa": "هشتگرد",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 50
+    },
+    {
+      "slug": "ilam",
+      "nameFa": "ایلام",
+      "cities": [
+        {
+          "slug": "ilam",
+          "nameFa": "ایلام",
+          "sortOrder": 0
+        },
+        {
+          "slug": "abdanan",
+          "nameFa": "آبدانان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asemanabad",
+          "nameFa": "آسمان آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "arakvaz",
+          "nameFa": "ارکواز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eyvan",
+          "nameFa": "ایوان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "badreh",
+          "nameFa": "بدره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "balavah",
+          "nameFa": "بلاوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pahleh",
+          "nameFa": "پهله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "towhid",
+          "nameFa": "توحید",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chavar",
+          "nameFa": "چوار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darreh-shahr",
+          "nameFa": "دره شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "delgosha",
+          "nameFa": "دلگشا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehloran",
+          "nameFa": "دهلران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarneh",
+          "nameFa": "زرنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarabbagh",
+          "nameFa": "سراباغ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarableh",
+          "nameFa": "سرابله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shabab",
+          "nameFa": "شباب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ilam-salehabad",
+          "nameFa": "صالح آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lumar",
+          "nameFa": "لومار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "murmuri",
+          "nameFa": "مورموری",
+          "sortOrder": 100
+        },
+        {
+          "slug": "musian",
+          "nameFa": "موسیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mehr",
+          "nameFa": "مهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mehran",
+          "nameFa": "مهران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mirza-hoseynabad",
+          "nameFa": "میرزا حسین آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ilam-meymeh",
+          "nameFa": "میمه",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 60
+    },
+    {
+      "slug": "bushehr",
+      "nameFa": "بوشهر",
+      "cities": [
+        {
+          "slug": "bushehr",
+          "nameFa": "بوشهر",
+          "sortOrder": 0
+        },
+        {
+          "slug": "ab-pakhsh",
+          "nameFa": "آب پخش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abad",
+          "nameFa": "آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abdan",
+          "nameFa": "آبدان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "imam-hassan",
+          "nameFa": "امام حسن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anarestan",
+          "nameFa": "انارستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ahram",
+          "nameFa": "اهرم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baduleh",
+          "nameFa": "بادوله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bank",
+          "nameFa": "بانک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "borazjan",
+          "nameFa": "برازجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bardestan",
+          "nameFa": "بردستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-e-deyr",
+          "nameFa": "بندر دیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-deylam",
+          "nameFa": "بندر دیلم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-rig",
+          "nameFa": "بندر ریگ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-siraf",
+          "nameFa": "بندر سیراف",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-kangan",
+          "nameFa": "بندر کنگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-ganaveh",
+          "nameFa": "بندر گناوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bord-khun",
+          "nameFa": "بورد خون",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bushkan",
+          "nameFa": "بوشکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tang-e-eram",
+          "nameFa": "تنگ ارم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jam",
+          "nameFa": "جم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "choghadak",
+          "nameFa": "چغادک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kharg",
+          "nameFa": "خارک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khormoj",
+          "nameFa": "خورموج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dalaki",
+          "nameFa": "دالکی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "delvar",
+          "nameFa": "دلوار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dowrahak",
+          "nameFa": "دوراهک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "riz",
+          "nameFa": "ریز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sadabad",
+          "nameFa": "سعدآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shabankareh",
+          "nameFa": "شبانکاره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shonbeh",
+          "nameFa": "شونبه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asaluyeh",
+          "nameFa": "عسلویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ali-shahr",
+          "nameFa": "علی شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kaki",
+          "nameFa": "کاکی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kalameh",
+          "nameFa": "کلامه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nakhl-taqi",
+          "nameFa": "نخل تقی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "vahdatiyeh",
+          "nameFa": "وحدتیه",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 70
+    },
+    {
+      "slug": "chaharmahal-and-bakhtiari",
+      "nameFa": "چهارمحال و بختیاری",
+      "cities": [
+        {
+          "slug": "shahr-e-kord",
+          "nameFa": "شهرکرد",
+          "sortOrder": 0
+        },
+        {
+          "slug": "aluni",
+          "nameFa": "آلونی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ardal",
+          "nameFa": "اردل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "babaheydar",
+          "nameFa": "باباحیدر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bazoft",
+          "nameFa": "بازفت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "borujen",
+          "nameFa": "بروجن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ben",
+          "nameFa": "بن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "boldaji",
+          "nameFa": "بولداجی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pardanjan",
+          "nameFa": "پردنجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "junqan",
+          "nameFa": "جونقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chelgard",
+          "nameFa": "چلگارد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "cholicheh",
+          "nameFa": "چلیچه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dastana",
+          "nameFa": "دستانا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dashtak",
+          "nameFa": "دشتک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saman",
+          "nameFa": "سامان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sar-khun",
+          "nameFa": "سر خون",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chaharmahal-and-bakhtiari-sardasht",
+          "nameFa": "سردشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sefiddasht",
+          "nameFa": "سفیددشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sudjan",
+          "nameFa": "سودجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sureshjan",
+          "nameFa": "سورشجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shalamzar",
+          "nameFa": "شلمزار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "samsami",
+          "nameFa": "صمصامی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "taqanak",
+          "nameFa": "طاقانک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farsan",
+          "nameFa": "فارسان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "faradonbeh",
+          "nameFa": "فرادنبه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farrokh-shahr",
+          "nameFa": "فرخ شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kaj",
+          "nameFa": "کاج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kian",
+          "nameFa": "کیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gandoman",
+          "nameFa": "گندمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gujan",
+          "nameFa": "گوجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gahru",
+          "nameFa": "گهرو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lordegan",
+          "nameFa": "لردگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mal-e-khalifeh",
+          "nameFa": "مال خلیفه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "manj-e-nesa",
+          "nameFa": "منج نسا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "naghan",
+          "nameFa": "ناغان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nafech",
+          "nameFa": "نافچ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "naqneh",
+          "nameFa": "نقنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "vardanjan",
+          "nameFa": "وردنجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "haruni",
+          "nameFa": "هارونی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hafshejan",
+          "nameFa": "هفشجان",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 80
+    },
+    {
+      "slug": "south-khorasan",
+      "nameFa": "خراسان جنوبی",
+      "cities": [
+        {
+          "slug": "birjand",
+          "nameFa": "بیرجند",
+          "sortOrder": 0
+        },
+        {
+          "slug": "arianshahr",
+          "nameFa": "آرین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ayask",
+          "nameFa": "آیسک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eresk",
+          "nameFa": "ارسک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asadiyeh",
+          "nameFa": "اسدیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "esfeden",
+          "nameFa": "اسفدن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eslamiyeh",
+          "nameFa": "اسلامیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "boshruyeh",
+          "nameFa": "بشرویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "south-khorasan-hajjiabad",
+          "nameFa": "حاجی آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khezri-dasht-beyaz",
+          "nameFa": "خضری دشت بیاض",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khusf",
+          "nameFa": "خوسف",
+          "sortOrder": 100
+        },
+        {
+          "slug": "deyhuk",
+          "nameFa": "دیهوک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zohan",
+          "nameFa": "زهان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarayan",
+          "nameFa": "سرایان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarbisheh",
+          "nameFa": "سربیشه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "seh-qaleh",
+          "nameFa": "سه قلعه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shusef",
+          "nameFa": "شوسف",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tabas",
+          "nameFa": "طبس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tabas-e-masina",
+          "nameFa": "طبس مسینا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "south-khorasan-eshqabad",
+          "nameFa": "عشق آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ferdows",
+          "nameFa": "فردوس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaen",
+          "nameFa": "قاین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qohestan",
+          "nameFa": "قهستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gazik",
+          "nameFa": "گ زیک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "south-khorasan-mohammadshahr",
+          "nameFa": "محمدشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mud",
+          "nameFa": "مود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nehbandan",
+          "nameFa": "نهبندان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nimbeluk",
+          "nameFa": "نیمبلوک",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 90
+    },
+    {
+      "slug": "razavi-khorasan",
+      "nameFa": "خراسان رضوی",
+      "cities": [
+        {
+          "slug": "mashhad",
+          "nameFa": "مشهد",
+          "sortOrder": 0
+        },
+        {
+          "slug": "ahmadabad-e-sowlat",
+          "nameFa": "احمدآباد نظام",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anabad",
+          "nameFa": "اناباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bajgiran",
+          "nameFa": "باجگیران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bakharz",
+          "nameFa": "باخرز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bar",
+          "nameFa": "بار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bayg",
+          "nameFa": "بایگ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bajestan",
+          "nameFa": "بجستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bardaskan",
+          "nameFa": "بردسکن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bidokht",
+          "nameFa": "بیدخت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "taybad",
+          "nameFa": "تایباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "torbat-e-jam",
+          "nameFa": "تربت جام",
+          "sortOrder": 100
+        },
+        {
+          "slug": "torbat-e-heydarieh",
+          "nameFa": "تربت حیدریه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "joghatai",
+          "nameFa": "جغتای",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jangal",
+          "nameFa": "جنگل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chapeshlu",
+          "nameFa": "چاپشلو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chekneh",
+          "nameFa": "چکنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razavi-khorasan-chenaran",
+          "nameFa": "چناران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kharv",
+          "nameFa": "خرو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khalilabad",
+          "nameFa": "خلیل آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khaf",
+          "nameFa": "خواف",
+          "sortOrder": 100
+        },
+        {
+          "slug": "davarzan",
+          "nameFa": "داورزن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dargaz",
+          "nameFa": "درگز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darrud",
+          "nameFa": "درود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razavi-khorasan-dowlatabad",
+          "nameFa": "دولت آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "robat-e-sang",
+          "nameFa": "رباط سنگ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "roshtkhar",
+          "nameFa": "رشتخوار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razaviyeh",
+          "nameFa": "رضویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rud-ab",
+          "nameFa": "رود آب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rivash",
+          "nameFa": "ریواش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sabzevar",
+          "nameFa": "سبزوار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarakhs",
+          "nameFa": "سرخس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sefid-sang",
+          "nameFa": "سفید سنگ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "salami",
+          "nameFa": "سلامی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "soltanabad",
+          "nameFa": "سلطان آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sangan",
+          "nameFa": "سنگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shadmehr",
+          "nameFa": "شادمهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shandiz",
+          "nameFa": "شاندیز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sheshtomad",
+          "nameFa": "ششتمد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahr-jadid-e-golbahar",
+          "nameFa": "شهر جدید گلبهار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahr-e-zow",
+          "nameFa": "شهر زو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahrabad",
+          "nameFa": "شهرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razavi-khorasan-salehabad",
+          "nameFa": "صالح آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "torqabeh",
+          "nameFa": "طرقبه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razavi-khorasan-eshqabad",
+          "nameFa": "عشق آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farhadgerd",
+          "nameFa": "فرهادگرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fariman",
+          "nameFa": "فریمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "firuzeh",
+          "nameFa": "فیروزه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "feyzabad",
+          "nameFa": "فیض آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qasemabad",
+          "nameFa": "قاسم آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qadamgah",
+          "nameFa": "قدمگاه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qalandarabad",
+          "nameFa": "قلندرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "quchan",
+          "nameFa": "قوچان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kakhk",
+          "nameFa": "کاخک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kariz",
+          "nameFa": "کاریز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kashmar",
+          "nameFa": "کاشمر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kadkan",
+          "nameFa": "کدکن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kalat",
+          "nameFa": "کلات",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kondor",
+          "nameFa": "کندور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golmakan",
+          "nameFa": "گلمکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gonabad",
+          "nameFa": "گناباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lotfabad",
+          "nameFa": "لطف آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mazdavand",
+          "nameFa": "مزداوند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mashhad-rizeh",
+          "nameFa": "مشهد ریزه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "malekabad",
+          "nameFa": "ملک آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nashtifan",
+          "nameFa": "نشتیفان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razavi-khorasan-nasrabad",
+          "nameFa": "نصرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "neqab",
+          "nameFa": "نقاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "now-khandan",
+          "nameFa": "نوخندان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nishapur",
+          "nameFa": "نیشابور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nilshahr",
+          "nameFa": "نیلشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hemmatabad",
+          "nameFa": "همت آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "yunesi",
+          "nameFa": "یونسی",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 100
+    },
+    {
+      "slug": "north-khorasan",
+      "nameFa": "خراسان شمالی",
+      "cities": [
+        {
+          "slug": "bojnord",
+          "nameFa": "بجنورد",
+          "sortOrder": 0
+        },
+        {
+          "slug": "ashkhaneh",
+          "nameFa": "آشخانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "esfarayen",
+          "nameFa": "اسفراین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ivar",
+          "nameFa": "ایوار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pish-qaleh",
+          "nameFa": "پیش قلعه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "titkanlu",
+          "nameFa": "تیتکانلو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jajarm",
+          "nameFa": "جاجرم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "north-khorasan-chenaran",
+          "nameFa": "چناران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hesar-e-garmkhan",
+          "nameFa": "حصار گرمخان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "daraq",
+          "nameFa": "دراق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "raz",
+          "nameFa": "راز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ziarat",
+          "nameFa": "زیارت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sankhvast",
+          "nameFa": "سنخواست",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shoqan",
+          "nameFa": "شوقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahrabad-e-khavar",
+          "nameFa": "شهرآباد خاور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shirvan",
+          "nameFa": "شیروان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "north-khorasan-safiabad",
+          "nameFa": "صفی آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "faruj",
+          "nameFa": "فاروج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qazi",
+          "nameFa": "قاضی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qushkhaneh",
+          "nameFa": "قوشخانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "garmeh",
+          "nameFa": "گرمه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lujali",
+          "nameFa": "لوجالی",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 110
+    },
+    {
+      "slug": "khuzestan",
+      "nameFa": "خوزستان",
+      "cities": [
+        {
+          "slug": "ahvaz",
+          "nameFa": "اهواز",
+          "sortOrder": 0
+        },
+        {
+          "slug": "abadan",
+          "nameFa": "آبادان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abezhdan",
+          "nameFa": "آبژدان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aghajari",
+          "nameFa": "آغاجاری",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abu-homeyzeh",
+          "nameFa": "ابو حمیزه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "arvandkenar",
+          "nameFa": "اروندکنار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "alvan",
+          "nameFa": "الوان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "elhayi",
+          "nameFa": "الهایی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "omidiyeh",
+          "nameFa": "امیدیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "andimeshk",
+          "nameFa": "اندیمشک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "izeh",
+          "nameFa": "ایذه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bagh-e-malek",
+          "nameFa": "باغ ملک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bostan",
+          "nameFa": "بستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-e-emam-khomeyni",
+          "nameFa": "بندر امام خمینی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-e-mahshahr",
+          "nameFa": "بندر ماهشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "behbahan",
+          "nameFa": "بهبهان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bidrubeh",
+          "nameFa": "بیدروبه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "torkalaki",
+          "nameFa": "ترکالکی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tashan",
+          "nameFa": "تشان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jayezan",
+          "nameFa": "جایزان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jannat-makan",
+          "nameFa": "جنت مکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "choghamish",
+          "nameFa": "چغامیش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "cham-golak",
+          "nameFa": "چم گلک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chamran",
+          "nameFa": "چمران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chavibdeh",
+          "nameFa": "چویبده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "horr",
+          "nameFa": "حر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hosseinabad",
+          "nameFa": "حسین آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hoseyniyeh",
+          "nameFa": "حسینیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hamzeh",
+          "nameFa": "حمزه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hamidiyeh",
+          "nameFa": "حمیدیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khorramshahr",
+          "nameFa": "خرمشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khanafereh",
+          "nameFa": "خنافره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darkhoveyn",
+          "nameFa": "دارخوین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dezab",
+          "nameFa": "دزاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dezful",
+          "nameFa": "دزفول",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehdez",
+          "nameFa": "دهدز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ramshir",
+          "nameFa": "رامشیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ramhormoz",
+          "nameFa": "رامهرمز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rafi",
+          "nameFa": "رفیع",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zahreh",
+          "nameFa": "زهره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saland",
+          "nameFa": "سالند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sardaran",
+          "nameFa": "سرداران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khuzestan-sardasht",
+          "nameFa": "سردشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "somaleh",
+          "nameFa": "سماله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "susangerd",
+          "nameFa": "سوسنگرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "siah-mansur",
+          "nameFa": "سیاه منصور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shadegan",
+          "nameFa": "شادگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sharaft",
+          "nameFa": "شرافت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shamsabad",
+          "nameFa": "شمس آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shush",
+          "nameFa": "شوش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shushtar",
+          "nameFa": "شوشتر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahrak-e-babak",
+          "nameFa": "شهرک بابک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sheyban",
+          "nameFa": "شیبان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shirin-shahr",
+          "nameFa": "شیرین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saleh-shahr",
+          "nameFa": "صالح شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saleh-moshatat",
+          "nameFa": "صالح مشتت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khuzestan-safiabad",
+          "nameFa": "صفی آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "seydun",
+          "nameFa": "صیدون",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaleh-tall",
+          "nameFa": "قلعه تل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaleh-ye-khvajeh",
+          "nameFa": "قلعه خواجه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kut-e-seyyed-naim",
+          "nameFa": "کوت سید نعیم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kut-e-abdollah",
+          "nameFa": "کوت عبدالله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gotvand",
+          "nameFa": "گتوند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golgir",
+          "nameFa": "گلگیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "guriyeh",
+          "nameFa": "گوریه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lali",
+          "nameFa": "لالی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "masjed-soleyman",
+          "nameFa": "مسجد سلیمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "moshrageh",
+          "nameFa": "مشراگه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "moqavemat",
+          "nameFa": "مقاومت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mollasani",
+          "nameFa": "ملاثانی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mansuriyeh",
+          "nameFa": "منصوریه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mianrud",
+          "nameFa": "میانرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meydavud",
+          "nameFa": "میداود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "minushahr",
+          "nameFa": "مینوشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "veys",
+          "nameFa": "ویس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "haftkel",
+          "nameFa": "هفتکل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hendijan",
+          "nameFa": "هندیجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hoveyzeh",
+          "nameFa": "هویزه",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 120
+    },
+    {
+      "slug": "zanjan",
+      "nameFa": "زنجان",
+      "cities": [
+        {
+          "slug": "zanjan",
+          "nameFa": "زنجان",
+          "sortOrder": 0
+        },
+        {
+          "slug": "ab-bar",
+          "nameFa": "آب بر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abhar",
+          "nameFa": "ابهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "armaghankhaneh",
+          "nameFa": "ارمغان خانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chavarzaq",
+          "nameFa": "چورزق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "halab",
+          "nameFa": "حلب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khorramdarreh",
+          "nameFa": "خرمدره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dandi",
+          "nameFa": "دندی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarrinabad",
+          "nameFa": "زرین آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarrin-rud",
+          "nameFa": "زرین رود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sojas",
+          "nameFa": "سجاس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "soltaniyeh",
+          "nameFa": "سلطانیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sohrevard",
+          "nameFa": "سهرورد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sain-qaleh",
+          "nameFa": "صائین قلعه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qeydar",
+          "nameFa": "قیدار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "karasf",
+          "nameFa": "کرسف",
+          "sortOrder": 100
+        },
+        {
+          "slug": "garmab",
+          "nameFa": "گرماب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mah-neshan",
+          "nameFa": "ماه نشان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zanjan-nurabad",
+          "nameFa": "نورآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nik-pey",
+          "nameFa": "نیک پی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hidaj",
+          "nameFa": "هیدج",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 130
+    },
+    {
+      "slug": "semnan",
+      "nameFa": "سمنان",
+      "cities": [
+        {
+          "slug": "semnan",
+          "nameFa": "سمنان",
+          "sortOrder": 0
+        },
+        {
+          "slug": "aradan",
+          "nameFa": "آرادان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "amiriyeh",
+          "nameFa": "امیریه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eyvanki",
+          "nameFa": "ایوانکی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bastam",
+          "nameFa": "بسطام",
+          "sortOrder": 100
+        },
+        {
+          "slug": "beyarjomand",
+          "nameFa": "بیارجمند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "damghan",
+          "nameFa": "دامغان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darjazin",
+          "nameFa": "درجزین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dibaj",
+          "nameFa": "دیباج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rudian",
+          "nameFa": "رودیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sorkheh",
+          "nameFa": "سرخه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahrud",
+          "nameFa": "شاهرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahmirzad",
+          "nameFa": "شهمیرزاد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kalateh-khij",
+          "nameFa": "کلاته خیج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kalateh-rudbar",
+          "nameFa": "کلاته رودبار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kohanabad",
+          "nameFa": "کهن آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "garmsar",
+          "nameFa": "گرمسار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mojen",
+          "nameFa": "مجن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mehdishahr",
+          "nameFa": "مهدیشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meyami",
+          "nameFa": "میامی",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 140
+    },
+    {
+      "slug": "sistan-and-baluchestan",
+      "nameFa": "سیستان و بلوچستان",
+      "cities": [
+        {
+          "slug": "zahedan",
+          "nameFa": "زاهدان",
+          "sortOrder": 0
+        },
+        {
+          "slug": "adimi",
+          "nameFa": "ادمی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "espakeh",
+          "nameFa": "اسپکه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "iranshahr",
+          "nameFa": "ایرانشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bazman",
+          "nameFa": "بزمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bampur",
+          "nameFa": "بمپور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bent",
+          "nameFa": "بنت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bonjar",
+          "nameFa": "بنجار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pishin",
+          "nameFa": "پیشین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jaleq",
+          "nameFa": "جالق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chabahar",
+          "nameFa": "چابهار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khash",
+          "nameFa": "خاش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dust-mohammad",
+          "nameFa": "دوست محمد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rasak",
+          "nameFa": "راسک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ramshar",
+          "nameFa": "رامشار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zabol",
+          "nameFa": "زابل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zaboli",
+          "nameFa": "زابلی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarabad",
+          "nameFa": "زرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saravan",
+          "nameFa": "سراوان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarbaz",
+          "nameFa": "سرباز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "suran",
+          "nameFa": "سوران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sirkan",
+          "nameFa": "سیرکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zehak",
+          "nameFa": "ضحاک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ali-akbar",
+          "nameFa": "علی اکبر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fanuj",
+          "nameFa": "فنوج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qasr-e-qand",
+          "nameFa": "قصرقند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "konarak",
+          "nameFa": "کنارک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gosht",
+          "nameFa": "گشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "galmurti",
+          "nameFa": "گلمورتی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sistan-and-baluchestan-mohammadabad",
+          "nameFa": "محمد آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohamadan",
+          "nameFa": "محمدان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohamadi",
+          "nameFa": "محمدی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mirjaveh",
+          "nameFa": "میرجاوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nosratabad",
+          "nameFa": "نصرت آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "negur",
+          "nameFa": "نگور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nukabad",
+          "nameFa": "نوک آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nik-shahr",
+          "nameFa": "نیک شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hiduj",
+          "nameFa": "هیدوج",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 150
+    },
+    {
+      "slug": "fars",
+      "nameFa": "فارس",
+      "cities": [
+        {
+          "slug": "shiraz",
+          "nameFa": "شیراز",
+          "sortOrder": 0
+        },
+        {
+          "slug": "abadeh",
+          "nameFa": "آباده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abadeh-tashk",
+          "nameFa": "آباده طشک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "arad",
+          "nameFa": "آراد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-ardakan",
+          "nameFa": "اردکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "arsanjan",
+          "nameFa": "ارسنجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "estahban",
+          "nameFa": "استهبان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asir",
+          "nameFa": "اسیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eshkanan",
+          "nameFa": "اشکانان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "efzar",
+          "nameFa": "افزار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eqlid",
+          "nameFa": "اقلید",
+          "sortOrder": 100
+        },
+        {
+          "slug": "emam-shahr",
+          "nameFa": "امام شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "evaz",
+          "nameFa": "اوز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ahel",
+          "nameFa": "اهل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ij",
+          "nameFa": "ایج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "izadkhast",
+          "nameFa": "ایزدخواست",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bab-anar",
+          "nameFa": "باب انار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baba-monir",
+          "nameFa": "بابا منیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-baladeh",
+          "nameFa": "بلده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "banaruiyeh",
+          "nameFa": "بنارویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bahman",
+          "nameFa": "بهمن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "beyram",
+          "nameFa": "بیرام",
+          "sortOrder": 100
+        },
+        {
+          "slug": "beyza",
+          "nameFa": "بیضا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jannat-shahr",
+          "nameFa": "جنت شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "juyom",
+          "nameFa": "جویوم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jahrom",
+          "nameFa": "جهرم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-hajjiabad",
+          "nameFa": "حاجی آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hesami",
+          "nameFa": "حسامی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-hasanabad",
+          "nameFa": "حسن آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khaneh-zenyan",
+          "nameFa": "خانه زنیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khaniman",
+          "nameFa": "خانیمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khavaran",
+          "nameFa": "خاوران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kharameh",
+          "nameFa": "خرامه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khesht",
+          "nameFa": "خشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khumeh-zar",
+          "nameFa": "خمه زار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khonj",
+          "nameFa": "خنج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-khur",
+          "nameFa": "خور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khuzi",
+          "nameFa": "خوزی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darab",
+          "nameFa": "داراب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darian",
+          "nameFa": "داریان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dezhkord",
+          "nameFa": "دژکرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "do-borji",
+          "nameFa": "دوبرجی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dobiran",
+          "nameFa": "دوبیران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "duzeh",
+          "nameFa": "دوزه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehram",
+          "nameFa": "دهرم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ramjerd",
+          "nameFa": "رامجرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "runiz",
+          "nameFa": "رونیز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zahedshahr",
+          "nameFa": "زاهدشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarqan",
+          "nameFa": "زرقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sedeh",
+          "nameFa": "سده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarvestan",
+          "nameFa": "سروستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saadat-shahr",
+          "nameFa": "سعادت شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "soltan-shahr",
+          "nameFa": "سلطان شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "surmaq",
+          "nameFa": "سورماق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "surian",
+          "nameFa": "سوریان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "seyyedan",
+          "nameFa": "سیدان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sheshdeh",
+          "nameFa": "ششده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahr-e-pir",
+          "nameFa": "شهر پیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sadra",
+          "nameFa": "صدرا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "soghad",
+          "nameFa": "صغاد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "safashahr",
+          "nameFa": "صفاشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "alamarvdasht",
+          "nameFa": "علمارودشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "emad-deh",
+          "nameFa": "عماد ده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fadami",
+          "nameFa": "فدامی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farashband",
+          "nameFa": "فراشبند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fasa",
+          "nameFa": "فسا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-firuzabad",
+          "nameFa": "فیروزآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fishvar",
+          "nameFa": "فیش ور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaemiyeh",
+          "nameFa": "قائمیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaderabad",
+          "nameFa": "قادرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qarah-bolagh",
+          "nameFa": "قره بلاغ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qotbabad",
+          "nameFa": "قطب آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qatruyeh",
+          "nameFa": "قطرویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qir",
+          "nameFa": "قیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "karzin",
+          "nameFa": "کارزین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kazerun",
+          "nameFa": "کازرون",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kamfiruz",
+          "nameFa": "کامفیروز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "konartakhteh",
+          "nameFa": "کنارتخته",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kavar",
+          "nameFa": "کوار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kupon",
+          "nameFa": "کوپن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "korehi",
+          "nameFa": "کورهی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhenjan",
+          "nameFa": "کوهنجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "galleh-dar",
+          "nameFa": "گاله در",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gerash",
+          "nameFa": "گراش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lapui",
+          "nameFa": "لاپویی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lar",
+          "nameFa": "لار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lamerd",
+          "nameFa": "لامرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "latifi",
+          "nameFa": "لطیفی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "madar-e-soleyman",
+          "nameFa": "مادر سلیمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mobarakabad",
+          "nameFa": "مبارک آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marvdasht",
+          "nameFa": "مرودشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mazayjan",
+          "nameFa": "مزایجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meshkan",
+          "nameFa": "مشکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "masiri",
+          "nameFa": "مصیری",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohr",
+          "nameFa": "مهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "miyanshahr",
+          "nameFa": "میانشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meymand",
+          "nameFa": "میمند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "now-bandegan",
+          "nameFa": "نوبندگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nujin",
+          "nameFa": "نوجین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nowdan",
+          "nameFa": "نودان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-nurabad",
+          "nameFa": "نورآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "neyriz",
+          "nameFa": "نی ریز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "varavi",
+          "nameFa": "وراوی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fars-hamashahr",
+          "nameFa": "هماشهر",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 160
+    },
+    {
+      "slug": "qazvin",
+      "nameFa": "قزوین",
+      "cities": [
+        {
+          "slug": "qazvin",
+          "nameFa": "قزوین",
+          "sortOrder": 0
+        },
+        {
+          "slug": "abgarm",
+          "nameFa": "آبگرم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abyek",
+          "nameFa": "آبیک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "avaj",
+          "nameFa": "آوج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ardak",
+          "nameFa": "اردک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "esfarvarin",
+          "nameFa": "اسفرورین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eqbaliyeh",
+          "nameFa": "اقبالیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "alvand",
+          "nameFa": "الوند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "buin-zahra",
+          "nameFa": "بوئین زهرا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bidestan",
+          "nameFa": "بیدستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "takestan",
+          "nameFa": "تاکستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khak-e-ali",
+          "nameFa": "خاک علی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khorramdasht",
+          "nameFa": "خرمدشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "danesfahan",
+          "nameFa": "دانسفهان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razmian",
+          "nameFa": "رازمیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sagzabad",
+          "nameFa": "سگزآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sirdan",
+          "nameFa": "سیردان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shal",
+          "nameFa": "شال",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sharifiyeh",
+          "nameFa": "شریفیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ziaabad",
+          "nameFa": "ضیاء آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhin",
+          "nameFa": "کوهین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohammadiyeh",
+          "nameFa": "محمدیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mahmudabad-nemuneh",
+          "nameFa": "محمودآباد نمونه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "moallem-kalayeh",
+          "nameFa": "معلم کلایه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "narjeh",
+          "nameFa": "نرجه",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 170
+    },
+    {
+      "slug": "qom",
+      "nameFa": "قم",
+      "cities": [
+        {
+          "slug": "qom",
+          "nameFa": "قم",
+          "sortOrder": 0
+        },
+        {
+          "slug": "jafariyeh",
+          "nameFa": "جعفریه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dastjerd",
+          "nameFa": "دستجرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "salafchegan",
+          "nameFa": "سلفچگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qanavat",
+          "nameFa": "قنوات",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kahak",
+          "nameFa": "کهک",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 180
+    },
+    {
+      "slug": "kurdistan",
+      "nameFa": "کردستان",
+      "cities": [
+        {
+          "slug": "sanandaj",
+          "nameFa": "سنندج",
+          "sortOrder": 0
+        },
+        {
+          "slug": "armardeh",
+          "nameFa": "آرمرده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aavraman-takht",
+          "nameFa": "اورامان تخت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "babarashani",
+          "nameFa": "بابرشانی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bardeh-rasheh",
+          "nameFa": "بارده راشه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baneh",
+          "nameFa": "بانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bolbanabad",
+          "nameFa": "بلبان آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "buin-e-sofla",
+          "nameFa": "بویین سفلی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bijar",
+          "nameFa": "بیجار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pir-taj",
+          "nameFa": "پیر تاج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tup-aghaj",
+          "nameFa": "توپ آغاج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chenareh",
+          "nameFa": "چناره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dezej",
+          "nameFa": "دزج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "delbaran",
+          "nameFa": "دلبران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehgolan",
+          "nameFa": "دهگلان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "divandarreh",
+          "nameFa": "دیواندره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarrineh",
+          "nameFa": "زرینه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarvabad",
+          "nameFa": "سروآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "serishabad",
+          "nameFa": "سریش آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saqqez",
+          "nameFa": "سقز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shuyesheh",
+          "nameFa": "شویشه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saheb",
+          "nameFa": "صاحب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qorveh",
+          "nameFa": "قروه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kamyaran",
+          "nameFa": "کامیاران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kani-dinar",
+          "nameFa": "کانی دینار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kani-sur",
+          "nameFa": "کانی سور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marivan",
+          "nameFa": "مریوان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "muchesh",
+          "nameFa": "موچش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "yasukand",
+          "nameFa": "یاسوکند",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 190
+    },
+    {
+      "slug": "kerman",
+      "nameFa": "کرمان",
+      "cities": [
+        {
+          "slug": "kerman",
+          "nameFa": "کرمان",
+          "sortOrder": 0
+        },
+        {
+          "slug": "arzuiyeh",
+          "nameFa": "آرزویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ekhtiarabad",
+          "nameFa": "اختیار آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aminshahr",
+          "nameFa": "امین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anar",
+          "nameFa": "انار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anduhjerd",
+          "nameFa": "اندوهجرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baghin",
+          "nameFa": "باغین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baft",
+          "nameFa": "بافت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bardsir",
+          "nameFa": "بردسیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "baravat",
+          "nameFa": "بروات",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bezenjan",
+          "nameFa": "بزنجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "balvard",
+          "nameFa": "بلورد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bam",
+          "nameFa": "بم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "boluk",
+          "nameFa": "بولوک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bahreman",
+          "nameFa": "بهرمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pariz",
+          "nameFa": "پاریز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jebalbarez",
+          "nameFa": "جبالبارز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jupar",
+          "nameFa": "جوپار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jowzam",
+          "nameFa": "جوزم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jiroft",
+          "nameFa": "جیرفت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chatrud",
+          "nameFa": "چترود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khatunabad",
+          "nameFa": "خاتون آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khanuk",
+          "nameFa": "خانوک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khvaju-shahr",
+          "nameFa": "خواجو شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khursand",
+          "nameFa": "خورسند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darb-e-behesht",
+          "nameFa": "درب بهشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dashtkar",
+          "nameFa": "دشتکار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dow-sari",
+          "nameFa": "دوساری",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehaj",
+          "nameFa": "دهج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rabor",
+          "nameFa": "رابر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ravar",
+          "nameFa": "راور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rayen",
+          "nameFa": "راین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rafsanjan",
+          "nameFa": "رفسنجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kerman-rudbar",
+          "nameFa": "رودبار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "reyhan-shahr",
+          "nameFa": "ریحان شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarand",
+          "nameFa": "زرند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zangiabad",
+          "nameFa": "زنگی آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zeh-e-kalut",
+          "nameFa": "زه کلوت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zeydabad",
+          "nameFa": "زیدآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sirjan",
+          "nameFa": "سیرجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahdad",
+          "nameFa": "شهداد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahr-e-babak",
+          "nameFa": "شهربابک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "safayyeh",
+          "nameFa": "صفاییه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anbarabad",
+          "nameFa": "عنبرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "faryab",
+          "nameFa": "فاریاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fahraj",
+          "nameFa": "فهرج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaleh-ganj",
+          "nameFa": "قلعه گنج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kazemabad",
+          "nameFa": "کاظم آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "koshkuiyeh",
+          "nameFa": "کوشکویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhbanan",
+          "nameFa": "کوهبنان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kahnuj",
+          "nameFa": "کهنوج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kian-shahr",
+          "nameFa": "کیان شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golbaf",
+          "nameFa": "گلباف",
+          "sortOrder": 100
+        },
+        {
+          "slug": "golzar",
+          "nameFa": "گلزار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lalehzar",
+          "nameFa": "لاله زار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mahan",
+          "nameFa": "ماهان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohamadabad",
+          "nameFa": "محمد آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohammadabad-e-gonbaki",
+          "nameFa": "محمد آباد گنبکی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohiabad",
+          "nameFa": "محی آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mardehek",
+          "nameFa": "مردهک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mes-e-sarcheshmeh",
+          "nameFa": "مس سرچشمه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "manujan",
+          "nameFa": "منوجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "najaf-shahr",
+          "nameFa": "نجف شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "narmashir",
+          "nameFa": "نرماشیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nezamshahr",
+          "nameFa": "نظامشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "negar",
+          "nameFa": "نگار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nowdezh",
+          "nameFa": "نودژ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hojedk",
+          "nameFa": "هجدک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kerman-hamashahr",
+          "nameFa": "هماشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hanza",
+          "nameFa": "هنزا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "yazdan-shahr",
+          "nameFa": "یزدان شهر",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 200
+    },
+    {
+      "slug": "kermanshah",
+      "nameFa": "کرمانشاه",
+      "cities": [
+        {
+          "slug": "kermanshah",
+          "nameFa": "کرمانشاه",
+          "sortOrder": 0
+        },
+        {
+          "slug": "ezgeleh",
+          "nameFa": "ازگله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "eslamabad-e-gharb",
+          "nameFa": "اسلام آباد غرب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "banevreh",
+          "nameFa": "بانوره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bayangan",
+          "nameFa": "باینگان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bisotun",
+          "nameFa": "بیستون",
+          "sortOrder": 100
+        },
+        {
+          "slug": "paveh",
+          "nameFa": "پاوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tazehabad",
+          "nameFa": "تازه آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "javanrud",
+          "nameFa": "جوانرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "halashi",
+          "nameFa": "حلاشی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "robat",
+          "nameFa": "رباط",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ravansar",
+          "nameFa": "روانسر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "satar",
+          "nameFa": "ستار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarpol-e-zahab",
+          "nameFa": "سرپل ذهاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarmast",
+          "nameFa": "سرمست",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sonqor",
+          "nameFa": "سنقر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sumar",
+          "nameFa": "سومار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahu",
+          "nameFa": "شاهو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahrak-e-rijab",
+          "nameFa": "شهرک ریجاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sahneh",
+          "nameFa": "صحنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qasr-e-shirin",
+          "nameFa": "قصرشیرین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kerend-gharb",
+          "nameFa": "کرند غرب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kangavar",
+          "nameFa": "کنگاور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuzaran",
+          "nameFa": "کوزاران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gowdin",
+          "nameFa": "گودین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gahvareh",
+          "nameFa": "گهواره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gilan-e-gharb",
+          "nameFa": "گیلانغرب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "miyan-rahan",
+          "nameFa": "میان راهان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nowdeshah",
+          "nameFa": "نودشاه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nowsud",
+          "nameFa": "نوسود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "harsin",
+          "nameFa": "هرسین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "homeyl",
+          "nameFa": "هومیل",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 210
+    },
+    {
+      "slug": "kohgiluyeh-and-boyer-ahmad",
+      "nameFa": "کهگیلویه و بویراحمد",
+      "cities": [
+        {
+          "slug": "yasuj",
+          "nameFa": "یاسوج",
+          "sortOrder": 0
+        },
+        {
+          "slug": "basht",
+          "nameFa": "باشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pataveh",
+          "nameFa": "پاتاوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "charam",
+          "nameFa": "چرام",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chitab",
+          "nameFa": "چیتاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dogonbadan",
+          "nameFa": "دوگنبدان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dehdasht",
+          "nameFa": "دهدشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dishmok",
+          "nameFa": "دیشموک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarfaryab",
+          "nameFa": "سرفاریاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "suq",
+          "nameFa": "سوق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sisakht",
+          "nameFa": "سی سخت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaleh-raisi",
+          "nameFa": "قلعه رئیسی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "garab-e-sofla",
+          "nameFa": "گراب سفلی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "landeh",
+          "nameFa": "لنده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "likak",
+          "nameFa": "لیکک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "madavan",
+          "nameFa": "مادوان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "margown",
+          "nameFa": "مارگون",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 220
+    },
+    {
+      "slug": "golestan",
+      "nameFa": "گلستان",
+      "cities": [
+        {
+          "slug": "gorgan",
+          "nameFa": "گرگان",
+          "sortOrder": 0
+        },
+        {
+          "slug": "azadshahr",
+          "nameFa": "آزادشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aqqala",
+          "nameFa": "آق قلا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "anbar-olum",
+          "nameFa": "انبار علوم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "incheh-borun",
+          "nameFa": "اینچه برون",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-torkaman",
+          "nameFa": "بندرترکمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-e-gaz",
+          "nameFa": "بندرگز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tatar-e-olya",
+          "nameFa": "تاتار علیا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jelin-e-olya",
+          "nameFa": "جلین علیا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "now-deh-khanduz",
+          "nameFa": "حالا ده خاندوز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khan-bebin",
+          "nameFa": "خان ببین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "daland",
+          "nameFa": "دالاند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ramian",
+          "nameFa": "رامیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarkhon-kalateh",
+          "nameFa": "سرخون کلاته",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sangdevin",
+          "nameFa": "سنگدوین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "siminshahr",
+          "nameFa": "سیمین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aliabad-e-katul",
+          "nameFa": "علی آباد کتول",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fazelabad",
+          "nameFa": "فاضل آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "faraghi",
+          "nameFa": "فراغی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kordkuy",
+          "nameFa": "کردکوی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kalaleh",
+          "nameFa": "کلاله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "galikash",
+          "nameFa": "گالیکش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gomishan",
+          "nameFa": "گمیشان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gonbad-e-kavus",
+          "nameFa": "گنبدکاووس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "maraveh-tappeh",
+          "nameFa": "مراوه تپه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mazraeh",
+          "nameFa": "مزرعه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "minudasht",
+          "nameFa": "مینودشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "neginshahr",
+          "nameFa": "نگین شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "now-kandeh",
+          "nameFa": "نوکنده",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 230
+    },
+    {
+      "slug": "gilan",
+      "nameFa": "گیلان",
+      "cities": [
+        {
+          "slug": "rasht",
+          "nameFa": "رشت",
+          "sortOrder": 0
+        },
+        {
+          "slug": "astara",
+          "nameFa": "آستارا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "astaneh-ye-ashrafiyeh",
+          "nameFa": "آستانه اشرفیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ahmadsargurab",
+          "nameFa": "احمدسرگوراب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asalem",
+          "nameFa": "اسالم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "amlash",
+          "nameFa": "املش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "otaqvar",
+          "nameFa": "اوتاقور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bazar-jomeh",
+          "nameFa": "بازار جمعه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "barehsar",
+          "nameFa": "بره سر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-e-anzali",
+          "nameFa": "بندر انزلی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pareh-sar",
+          "nameFa": "پره سر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tutkabon",
+          "nameFa": "توتکابن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jirandeh",
+          "nameFa": "جیرنده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chaboksar",
+          "nameFa": "چابکسر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chaf-and-chamkhaleh",
+          "nameFa": "چاف و چمخاله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chubar",
+          "nameFa": "چوبر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "haviq",
+          "nameFa": "حویق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khoshk-e-bijar",
+          "nameFa": "خشک بیجار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khomam",
+          "nameFa": "خمام",
+          "sortOrder": 100
+        },
+        {
+          "slug": "deylaman",
+          "nameFa": "دیلمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rankuh",
+          "nameFa": "رانکوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rahimabad",
+          "nameFa": "رحیم آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rostamabad",
+          "nameFa": "رستم آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gilan-rezvanshahr",
+          "nameFa": "رضوانشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gilan-rudbar",
+          "nameFa": "رودبار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rudboneh",
+          "nameFa": "رودبونه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rudsar",
+          "nameFa": "رودسر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sangar",
+          "nameFa": "سنگر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "siahkal",
+          "nameFa": "سیاهکل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shaft",
+          "nameFa": "شفت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shalman",
+          "nameFa": "شلمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sowme-eh-sara",
+          "nameFa": "صومعه سارا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fuman",
+          "nameFa": "فومن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kelachay",
+          "nameFa": "کلاچای",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuchesfahan",
+          "nameFa": "کوچصفهان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kumeleh",
+          "nameFa": "کومله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kiashahr",
+          "nameFa": "کیاشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gurab-zarmikh",
+          "nameFa": "گوراب زرمیخ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lahijan",
+          "nameFa": "لاهیجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lasht-e-nesha",
+          "nameFa": "لشت نشا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "langarud",
+          "nameFa": "لنگرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lowshan",
+          "nameFa": "لوشان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "luleman",
+          "nameFa": "لولمان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lavandevil",
+          "nameFa": "لوندویل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lisar",
+          "nameFa": "لیسار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "masal",
+          "nameFa": "ماسال",
+          "sortOrder": 100
+        },
+        {
+          "slug": "masuleh",
+          "nameFa": "ماسوله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "maklavan",
+          "nameFa": "ماکلوان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marjaghal",
+          "nameFa": "مرجغال",
+          "sortOrder": 100
+        },
+        {
+          "slug": "manjil",
+          "nameFa": "منجیل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "vajargah",
+          "nameFa": "واجارگاه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hashtpar",
+          "nameFa": "هشتپر",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 240
+    },
+    {
+      "slug": "lorestan",
+      "nameFa": "لرستان",
+      "cities": [
+        {
+          "slug": "lorestan-khorramabad",
+          "nameFa": "خرم آباد",
+          "sortOrder": 0
+        },
+        {
+          "slug": "azna",
+          "nameFa": "ازنا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "oshtorinan",
+          "nameFa": "اشتورینان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aleshtar",
+          "nameFa": "الشتر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aligudarz",
+          "nameFa": "الیگودرز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bayranshahr",
+          "nameFa": "بایرانشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "borujerd",
+          "nameFa": "بروجرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pol-e-dokhtar",
+          "nameFa": "پلدختر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chalanchulan",
+          "nameFa": "چالانچولان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chaqabol",
+          "nameFa": "چقابل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "darb-e-gonbad",
+          "nameFa": "درب گنبد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dorud",
+          "nameFa": "دورود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zagheh",
+          "nameFa": "زاغه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sepiddasht",
+          "nameFa": "سپیددشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarab-e-dowreh",
+          "nameFa": "سراب دوره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shulehabad-e-olya",
+          "nameFa": "شوله آباد علیا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lorestan-firuzabad",
+          "nameFa": "فیروزآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kunani",
+          "nameFa": "کونانی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhdasht",
+          "nameFa": "کوهدشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "garab",
+          "nameFa": "گراب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mamulan",
+          "nameFa": "مامولان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "momenabad",
+          "nameFa": "مومن آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lorestan-nurabad",
+          "nameFa": "نورآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "veysian",
+          "nameFa": "ویسیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "haft-cheshmeh",
+          "nameFa": "هفت چشمه",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 250
+    },
+    {
+      "slug": "mazandaran",
+      "nameFa": "مازندران",
+      "cities": [
+        {
+          "slug": "sari",
+          "nameFa": "ساری",
+          "sortOrder": 0
+        },
+        {
+          "slug": "arateh",
+          "nameFa": "آراته",
+          "sortOrder": 100
+        },
+        {
+          "slug": "alasht",
+          "nameFa": "آلاشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "amol",
+          "nameFa": "آمل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "imamzadeh-abdollah",
+          "nameFa": "امامزاده عبدالله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "amirkola",
+          "nameFa": "امیرکلا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "izadshahr",
+          "nameFa": "ایزدشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "babol",
+          "nameFa": "بابل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "babolsar",
+          "nameFa": "بابلسر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mazandaran-baladeh",
+          "nameFa": "بلده",
+          "sortOrder": 100
+        },
+        {
+          "slug": "behshahr",
+          "nameFa": "بهشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bahnemir",
+          "nameFa": "بهنمیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pain-hular",
+          "nameFa": "پایین هولار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pol-sefid",
+          "nameFa": "پل سفید",
+          "sortOrder": 100
+        },
+        {
+          "slug": "pul",
+          "nameFa": "پول",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tonekabon",
+          "nameFa": "تنکابن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "juybar",
+          "nameFa": "جویبار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chalus",
+          "nameFa": "چالوس",
+          "sortOrder": 100
+        },
+        {
+          "slug": "chamestan",
+          "nameFa": "چمستان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mazandaran-khorramabad",
+          "nameFa": "خرم آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khalil-shahr",
+          "nameFa": "خلیل شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khush-rudpey",
+          "nameFa": "خوش رودپی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dabudasht",
+          "nameFa": "دابودشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ramsar",
+          "nameFa": "رامسر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rostamkola",
+          "nameFa": "رستمکلا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "royan",
+          "nameFa": "رویان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rineh",
+          "nameFa": "رینه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zargarmahalleh",
+          "nameFa": "زرگرمحله",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zirab",
+          "nameFa": "زیراب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sorkhrud",
+          "nameFa": "سرخرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "salman-shahr",
+          "nameFa": "سلمان شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "surak",
+          "nameFa": "سورک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shirgah",
+          "nameFa": "شیرگاه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shirud",
+          "nameFa": "شیرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "abbasabad",
+          "nameFa": "عباس آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fereydunkenar",
+          "nameFa": "فریدونکنار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farim",
+          "nameFa": "فریم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaem-shahr",
+          "nameFa": "قائم شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ketalem-and-sadat-shahr",
+          "nameFa": "کتالم و سادات شهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kojur",
+          "nameFa": "کجور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kelarabad",
+          "nameFa": "کلارآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kelardasht",
+          "nameFa": "کلاردشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kalleh-bast",
+          "nameFa": "کله بست",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhi-kheyl",
+          "nameFa": "کوهی خیل",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kiasar",
+          "nameFa": "کیاسر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kiakola",
+          "nameFa": "کیاکولا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gatab",
+          "nameFa": "گتاب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gazanak",
+          "nameFa": "گزنک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mazandaran-galugah",
+          "nameFa": "گلوگاه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marzikola",
+          "nameFa": "مارزیکولا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mazandaran-mahmudabad",
+          "nameFa": "محمودآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marzanabad",
+          "nameFa": "مرزن آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nashtarud",
+          "nameFa": "نشتارود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "neka",
+          "nameFa": "نکا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nur",
+          "nameFa": "نور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nowshahr",
+          "nameFa": "نوشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hachirud",
+          "nameFa": "هاچیرود",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 260
+    },
+    {
+      "slug": "markazi",
+      "nameFa": "مرکزی",
+      "cities": [
+        {
+          "slug": "arak",
+          "nameFa": "اراک",
+          "sortOrder": 0
+        },
+        {
+          "slug": "astaneh",
+          "nameFa": "آستانه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ashtian",
+          "nameFa": "آشتیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aveh",
+          "nameFa": "آوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bazneh",
+          "nameFa": "بازنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "parandak",
+          "nameFa": "پرندک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tafresh",
+          "nameFa": "تفرش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tureh",
+          "nameFa": "توره",
+          "sortOrder": 100
+        },
+        {
+          "slug": "javersiyan",
+          "nameFa": "جاورسیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khoshkrud",
+          "nameFa": "خشکرود",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khomeyn",
+          "nameFa": "خمین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khenejin",
+          "nameFa": "خنجین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khondab",
+          "nameFa": "خنداب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "davudabad",
+          "nameFa": "داوودآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "delijan",
+          "nameFa": "دلیجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razeghi",
+          "nameFa": "رازقی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zaviyeh",
+          "nameFa": "زاویه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saruq",
+          "nameFa": "ساروق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "saveh",
+          "nameFa": "ساوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shazand",
+          "nameFa": "شازند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahbaz",
+          "nameFa": "شهباز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gharqabad",
+          "nameFa": "غرق آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farmahin",
+          "nameFa": "فرمهین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qurchi-bashi",
+          "nameFa": "قرچی باشی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "karchan",
+          "nameFa": "کارچان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "komijan",
+          "nameFa": "کمیجان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mamuniyeh",
+          "nameFa": "مامونیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mahallat",
+          "nameFa": "محلات",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mahajeran",
+          "nameFa": "مهاجران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "milajerd",
+          "nameFa": "میلاجرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "naraq",
+          "nameFa": "نراق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nowbaran",
+          "nameFa": "نوبران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nimvar",
+          "nameFa": "نیم ور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hendudur",
+          "nameFa": "هندودور",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 270
+    },
+    {
+      "slug": "hormozgan",
+      "nameFa": "هرمزگان",
+      "cities": [
+        {
+          "slug": "bandar-abbas",
+          "nameFa": "بندرعباس",
+          "sortOrder": 0
+        },
+        {
+          "slug": "abu-musa",
+          "nameFa": "ابوموسی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bastak",
+          "nameFa": "بستک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-charak",
+          "nameFa": "بندر چارک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-khamir",
+          "nameFa": "بندر خمیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bandar-lengeh",
+          "nameFa": "بندرلنگه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bika",
+          "nameFa": "بیکا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "parsian",
+          "nameFa": "پارسیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tazian-e-pain",
+          "nameFa": "تازیان پایین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "takht",
+          "nameFa": "تخت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tirur",
+          "nameFa": "تیرور",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jask",
+          "nameFa": "جاسک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jenah",
+          "nameFa": "جناح",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hormozgan-hajjiabad",
+          "nameFa": "حاجی آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dargahan",
+          "nameFa": "درگهان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dezghan",
+          "nameFa": "دزقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "dashti",
+          "nameFa": "دشتی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "rudan",
+          "nameFa": "رودان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ruydar",
+          "nameFa": "رویدار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ziarat-e-ali",
+          "nameFa": "زیارت علی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hormozgan-sardasht",
+          "nameFa": "سردشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sargaz",
+          "nameFa": "سرگز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "senderk",
+          "nameFa": "سندرک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "suza",
+          "nameFa": "سوزا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sirik",
+          "nameFa": "سیریک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fareghan",
+          "nameFa": "فارغان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "fin",
+          "nameFa": "فین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qeshm",
+          "nameFa": "قشم",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qaleh-qazi",
+          "nameFa": "قلعه قاضی",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kong",
+          "nameFa": "کنگ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kukherd",
+          "nameFa": "کوخرد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kushk-e-nar",
+          "nameFa": "کوشک نار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kuhestak",
+          "nameFa": "کوهستک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kish",
+          "nameFa": "کیش",
+          "sortOrder": 100
+        },
+        {
+          "slug": "garuk",
+          "nameFa": "گاروک",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gowharan",
+          "nameFa": "گوهران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lamazan",
+          "nameFa": "لمازان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "minab",
+          "nameFa": "میناب",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hormuz",
+          "nameFa": "هرمز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hasht-bandi",
+          "nameFa": "هشت بندی",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 280
+    },
+    {
+      "slug": "hamadan",
+      "nameFa": "همدان",
+      "cities": [
+        {
+          "slug": "hamadan",
+          "nameFa": "همدان",
+          "sortOrder": 0
+        },
+        {
+          "slug": "ajin",
+          "nameFa": "آجین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "azandarian",
+          "nameFa": "ازندریان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "asadabad",
+          "nameFa": "اسدآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "barzul",
+          "nameFa": "برزول",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bahar",
+          "nameFa": "بهار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "tuyserkan",
+          "nameFa": "تویسرکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "samen",
+          "nameFa": "ثامن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "juraqan",
+          "nameFa": "جورقان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "jowkar",
+          "nameFa": "جوکار",
+          "sortOrder": 100
+        },
+        {
+          "slug": "damaq",
+          "nameFa": "داماق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "razan",
+          "nameFa": "رزن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zangeneh",
+          "nameFa": "زنگنه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "sarkan",
+          "nameFa": "سرکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shirin-su",
+          "nameFa": "شیرین سو",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hamadan-salehabad",
+          "nameFa": "صالح آباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "famenin",
+          "nameFa": "فامنین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "farasfaj",
+          "nameFa": "فراسفج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "firuzan",
+          "nameFa": "فیروزان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qorveh-e-darjazin",
+          "nameFa": "قروه درجزین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "qahavand",
+          "nameFa": "قهاوند",
+          "sortOrder": 100
+        },
+        {
+          "slug": "kabudarahang",
+          "nameFa": "کبودرآهنگ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "gol-tappeh",
+          "nameFa": "گل تپه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "giyan",
+          "nameFa": "گیان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "lalejin",
+          "nameFa": "لالجین",
+          "sortOrder": 100
+        },
+        {
+          "slug": "maryanaj",
+          "nameFa": "مریانج",
+          "sortOrder": 100
+        },
+        {
+          "slug": "malayer",
+          "nameFa": "ملایر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mohajeran",
+          "nameFa": "مهاجران",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nahavand",
+          "nameFa": "نهاوند",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 290
+    },
+    {
+      "slug": "yazd",
+      "nameFa": "یزد",
+      "cities": [
+        {
+          "slug": "yazd",
+          "nameFa": "یزد",
+          "sortOrder": 0
+        },
+        {
+          "slug": "abarkuh",
+          "nameFa": "ابرکوه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ahmadabad",
+          "nameFa": "احمدآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "yazd-ardakan",
+          "nameFa": "اردکان",
+          "sortOrder": 100
+        },
+        {
+          "slug": "ashkezar",
+          "nameFa": "اشکذر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bafq",
+          "nameFa": "بافق",
+          "sortOrder": 100
+        },
+        {
+          "slug": "bafruiyeh",
+          "nameFa": "بفروییه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "behabad",
+          "nameFa": "بهاباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "taft",
+          "nameFa": "تفت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "hamidiya",
+          "nameFa": "حمیدیا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "khezrabad",
+          "nameFa": "خضرآباد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "yazd-rezvanshahr",
+          "nameFa": "رضوانشهر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "zarach",
+          "nameFa": "زارچ",
+          "sortOrder": 100
+        },
+        {
+          "slug": "shahediyeh",
+          "nameFa": "شاهدیه",
+          "sortOrder": 100
+        },
+        {
+          "slug": "aqda",
+          "nameFa": "عقدا",
+          "sortOrder": 100
+        },
+        {
+          "slug": "marvast",
+          "nameFa": "مروست",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mehrdasht",
+          "nameFa": "مهردشت",
+          "sortOrder": 100
+        },
+        {
+          "slug": "mehriz",
+          "nameFa": "مهریز",
+          "sortOrder": 100
+        },
+        {
+          "slug": "meybod",
+          "nameFa": "میبد",
+          "sortOrder": 100
+        },
+        {
+          "slug": "nadushan",
+          "nameFa": "ندوشن",
+          "sortOrder": 100
+        },
+        {
+          "slug": "yazd-nir",
+          "nameFa": "نیر",
+          "sortOrder": 100
+        },
+        {
+          "slug": "herat",
+          "nameFa": "هرات",
+          "sortOrder": 100
+        }
+      ],
+      "sortOrder": 300
+    }
+  ]
+}
