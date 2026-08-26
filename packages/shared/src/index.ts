@@ -23,6 +23,7 @@ export type {
 } from './contracts/auth';
 
 export {
+  provinceView,
   cityView,
   categoryView,
   interestView,
@@ -30,6 +31,7 @@ export {
   catalogResponse,
 } from './contracts/catalog';
 export type {
+  ProvinceView,
   CityView,
   CategoryView,
   InterestView,
@@ -275,6 +277,13 @@ export {
   appSettingView,
   appSettingsResponse,
   updateSettingRequest,
+  activityTagSlug,
+  activityTagView,
+  activityTagsResponse,
+  createActivityTagRequest,
+  updateActivityTagRequest,
+  reorderActivityTagsRequest,
+  adminPlacesResponse,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -350,6 +359,12 @@ export type {
   AppSettingView,
   AppSettingsResponse,
   UpdateSettingRequest,
+  ActivityTagView,
+  ActivityTagsResponse,
+  CreateActivityTagRequest,
+  UpdateActivityTagRequest,
+  ReorderActivityTagsRequest,
+  AdminPlacesResponse,
 } from './contracts/admin';
 
 export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';

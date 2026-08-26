@@ -75,6 +75,8 @@ export interface DiscoveredEvent {
   categoryId: string;
   categorySlug: string;
   categoryNameFa: string;
+  /** The host's own words, when the category invites them («سایر», M21). */
+  customCategoryLabel: string | null;
   cityId: string;
   citySlug: string;
   cityNameFa: string;

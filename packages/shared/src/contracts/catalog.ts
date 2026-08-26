@@ -3,20 +3,50 @@ import { z } from 'zod';
 /**
  * The catalog: every list a user is allowed to pick from.
  *
- * One request returns all of it. The lists are small (one city at launch, a few
- * dozen districts, two categories, ~20 interests), they change rarely, and the
- * onboarding wizard needs all of them at once — three round trips over an
- * Iranian mobile connection to render one form would be the wrong trade.
+ * One request returns all of it. The onboarding wizard needs every list at once,
+ * they change rarely, and three round trips over an Iranian mobile connection to
+ * render one form would be the wrong trade.
+ *
+ * M21 made that trade tighter rather than wrong. The city list went from one row
+ * to 1,252 — about 190 KiB of JSON — so `GET /api/v1/catalog` is now the one
+ * proxied response nginx is allowed to gzip (~15 KiB) and the one the client is
+ * told it may cache. The alternative, a `?provinceId=` endpoint the picker calls
+ * on every province change, would trade one 15 KiB fetch per session for a round
+ * trip per interaction, on connections where the round trip is the expensive
+ * part. Provinces are carried alongside so the picker can be a cascade over data
+ * it already holds rather than a `<select>` with 1,252 options in it.
  *
  * Only active rows are ever returned. "An interest outside the admin list is
  * rejected" is then the same fact on both sides: the client cannot offer one and
  * the server will not accept one.
  */
 
+/**
+ * A province, purely as a grouping for the city picker.
+ *
+ * Nothing references a province id — `user_profile` and `event` still record a
+ * city, exactly as they did before M21. Adding a province column to either would
+ * have been a denormalisation that can disagree with `city.province_id`, and the
+ * join to find a profile's province is over 31 rows.
+ */
+export const provinceView = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  nameFa: z.string(),
+});
+export type ProvinceView = z.infer<typeof provinceView>;
+
 export const cityView = z.object({
   id: z.uuid(),
   slug: z.string(),
   nameFa: z.string(),
+  /**
+   * Nullable because `city.province_id` is (migration 0020): a city an admin
+   * created before filing it under a province is a real state. A client
+   * grouping by province should show these under a "بدون استان" heading rather
+   * than dropping them.
+   */
+  provinceId: z.uuid().nullable(),
   districts: z.array(
     z.object({
       id: z.uuid(),
@@ -32,6 +62,22 @@ export const categoryView = z.object({
   slug: z.string(),
   nameFa: z.string(),
   icon: z.string().nullable(),
+  /**
+   * The «سایر» behaviour: this category invites the host to name their own
+   * activity, and the API will accept a `customCategoryLabel` alongside it.
+   *
+   * A flag on the row rather than a `slug === 'other'` check in the client, so
+   * renaming the category or adding a second catch-all needs no release.
+   */
+  allowsCustomLabel: z.boolean(),
+  /**
+   * The cities this category is offered in, or `null` for "everywhere".
+   *
+   * `null` rather than `[]` for the common case, so "offered nowhere" stays
+   * expressible and distinguishable from "unrestricted" — a distinction an
+   * empty array would collapse, with the two meanings being opposites.
+   */
+  cityIds: z.array(z.uuid()).nullable(),
 });
 export type CategoryView = z.infer<typeof categoryView>;
 
@@ -67,6 +113,7 @@ export const promotionPricing = z.object({
 export type PromotionPricing = z.infer<typeof promotionPricing>;
 
 export const catalogResponse = z.object({
+  provinces: z.array(provinceView),
   cities: z.array(cityView),
   categories: z.array(categoryView),
   interests: z.array(interestView),

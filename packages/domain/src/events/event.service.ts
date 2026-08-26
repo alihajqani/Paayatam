@@ -28,6 +28,12 @@ export interface CreateEventInput {
   title: string;
   description: string;
   categoryId: string;
+  /**
+   * What the host called their activity, for a category that `allowsCustomLabel`
+   * («سایر»). Required for those and refused for every other — see
+   * `resolveCategory`.
+   */
+  customCategoryLabel?: string;
   cityId: string;
   districtId?: string;
   startsAt: Date;
@@ -125,6 +131,8 @@ export interface EventDetail {
   title: string;
   description: string;
   category: NamedRef;
+  /** The host's own words, when the category invites them («سایر»). Null otherwise. */
+  customCategoryLabel: string | null;
   city: NamedRef;
   district: NamedRef | null;
   startsAt: Date;
@@ -173,7 +181,15 @@ export interface EventDetail {
  * moderation would train hosts to avoid editing — which is worse for everyone
  * than a stale time on a listing.
  */
-const SENSITIVE_FIELDS = ['title', 'description'] as const;
+/**
+ * Fields whose change re-opens the moderation question.
+ *
+ * `customCategoryLabel` joined them in M21 for the obvious reason: it is free
+ * text a host types, so it is exactly the kind of field the blacklist exists to
+ * read. A «سایر» label that never re-triggers a scan would be the one place in
+ * the product where a host can write anything and nothing looks at it.
+ */
+const SENSITIVE_FIELDS = ['title', 'description', 'customCategoryLabel'] as const;
 
 const EVENT_INCLUDE = {
   category: { select: { id: true, slug: true, nameFa: true } },
@@ -234,9 +250,19 @@ export class EventService {
     const created = await this.prisma.$transaction(async (tx) => {
       await this.assertWithinQuota(tx, hostUserId, now);
 
-      const category = await this.resolveCategory(tx, input.categoryId);
       const location = await this.catalog.resolveLocation(input.cityId, input.districtId, tx);
-      const scan = await this.moderation.scanEventContent(input, tx);
+      // After `resolveLocation`, because the city restriction is checked against
+      // the city the catalog accepted rather than the one the client sent.
+      const category = await this.resolveCategory(
+        tx,
+        input.categoryId,
+        location.cityId,
+        input.customCategoryLabel,
+      );
+      const scan = await this.moderation.scanEventContent(
+        { ...input, customCategoryLabel: category.customCategoryLabel },
+        tx,
+      );
 
       const outcome = outcomeFor(scan.decision);
 
@@ -258,6 +284,7 @@ export class EventService {
           titleNormalized: scan.normalized.title,
           descriptionNormalized: scan.normalized.description,
           categoryId: category.id,
+          customCategoryLabel: category.customCategoryLabel,
           cityId: location.cityId,
           districtId: location.districtId,
           startsAt: input.startsAt,
@@ -370,6 +397,12 @@ export class EventService {
           publishedAt: true,
           version: true,
           deletedAt: true,
+          // For the M21 edit path: a category change, a city change and a custom
+          // label change are one question, and answering it needs the values the
+          // row currently holds.
+          categoryId: true,
+          cityId: true,
+          customCategoryLabel: true,
         },
       });
 
@@ -408,22 +441,44 @@ export class EventService {
         version: { increment: 1 },
       };
 
-      if (input.categoryId !== undefined) {
-        const category = await this.resolveCategory(tx, input.categoryId);
-        data.category = { connect: { id: category.id } };
-      }
+      // The city is settled first, because the category's availability is
+      // checked against it — and an edit can move both at once.
+      let effectiveCityId = existing.cityId;
       if (input.cityId !== undefined || input.districtId !== undefined) {
         // Resolved as a pair: a district only means something inside its city, so
         // changing either one has to be re-checked against the other.
         const location = await this.catalog.resolveLocation(
-          input.cityId ?? (await currentCityId(tx, existing.id)),
+          input.cityId ?? existing.cityId,
           input.districtId,
           tx,
         );
+        effectiveCityId = location.cityId;
         data.city = { connect: { id: location.cityId } };
         data.district = location.districtId
           ? { connect: { id: location.districtId } }
           : { disconnect: true };
+      }
+
+      // Re-resolved when the category, the label **or the city** moves. The city
+      // is the one that is easy to miss: moving a «موزه» event to a city that
+      // category is not offered in has to be refused, and an edit that only
+      // changed `cityId` would otherwise sail past the check.
+      const categoryTouched =
+        input.categoryId !== undefined ||
+        input.customCategoryLabel !== undefined ||
+        effectiveCityId !== existing.cityId;
+
+      if (categoryTouched) {
+        const category = await this.resolveCategory(
+          tx,
+          input.categoryId ?? existing.categoryId,
+          effectiveCityId,
+          // `undefined` means "not sent", so an edit that touches only the city
+          // keeps the label the row already has rather than clearing it.
+          input.customCategoryLabel ?? existing.customCategoryLabel ?? undefined,
+        );
+        data.category = { connect: { id: category.id } };
+        data.customCategoryLabel = category.customCategoryLabel;
       }
 
       const contentChanged = SENSITIVE_FIELDS.some(
@@ -440,6 +495,7 @@ export class EventService {
           {
             title: input.title ?? existing.title,
             description: input.description ?? existing.description,
+            customCategoryLabel: input.customCategoryLabel ?? existing.customCategoryLabel,
           },
           data,
         );
@@ -897,7 +953,7 @@ export class EventService {
 
   private async rescan(
     tx: Prisma.TransactionClient,
-    content: { title: string; description: string },
+    content: { title: string; description: string; customCategoryLabel?: string | null },
     data: Prisma.EventUpdateInput,
   ): Promise<ContentScan> {
     const scan = await this.moderation.scanEventContent(content, tx);
@@ -979,20 +1035,60 @@ export class EventService {
     }
   }
 
+  /**
+   * The category, the city it is offered in, and the custom label if it takes one.
+   *
+   * All three together rather than three checks at three call sites: a category
+   * restricted to a set of cities and an event in a city outside that set is a
+   * pairing, in the same way `resolveLocation` treats a city and a district as a
+   * pairing. Checking them apart is how the two quietly disagree.
+   */
   private async resolveCategory(
     tx: Prisma.TransactionClient,
     categoryId: string,
-  ): Promise<{ id: string }> {
+    cityId: string,
+    customCategoryLabel: string | undefined,
+  ): Promise<{ id: string; customCategoryLabel: string | null }> {
     const category = await tx.category.findUnique({
       where: { id: categoryId },
-      select: { id: true, isActive: true },
+      select: { id: true, isActive: true, allowsCustomLabel: true },
     });
     if (!category || !category.isActive) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, {
         fields: [{ path: 'categoryId', message: 'is not a selectable category' }],
       });
     }
-    return { id: category.id };
+
+    // An empty `city_category` set means "offered everywhere" (migration 0020),
+    // so the restriction only bites once at least one row exists. Counting first
+    // keeps the common case to one indexed read that returns zero.
+    const restrictions = await tx.cityCategory.count({ where: { categoryId: category.id } });
+    if (restrictions > 0) {
+      const offeredHere = await tx.cityCategory.findUnique({
+        where: { cityId_categoryId: { cityId, categoryId: category.id } },
+        select: { cityId: true },
+      });
+      if (offeredHere === null) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, {
+          fields: [{ path: 'categoryId', message: 'is not offered in this city' }],
+        });
+      }
+    }
+
+    const label = customCategoryLabel?.trim();
+    const hasLabel = label !== undefined && label.length > 0;
+
+    if (category.allowsCustomLabel && !hasLabel) {
+      // Required, not optional. A «سایر» event with no label tells a reader
+      // nothing at all — it is the one category whose whole meaning is the words
+      // the host puts in this field.
+      throw new AppError(ErrorCode.CUSTOM_LABEL_REQUIRED);
+    }
+    if (!category.allowsCustomLabel && hasLabel) {
+      throw new AppError(ErrorCode.CUSTOM_LABEL_NOT_ALLOWED);
+    }
+
+    return { id: category.id, customCategoryLabel: hasLabel ? label : null };
   }
 }
 
@@ -1056,14 +1152,6 @@ function pickScalarEdits(input: UpdateEventInput): Prisma.EventUpdateInput {
   return data;
 }
 
-async function currentCityId(tx: Prisma.TransactionClient, eventId: string): Promise<string> {
-  const row = await tx.event.findUniqueOrThrow({
-    where: { id: eventId },
-    select: { cityId: true },
-  });
-  return row.cityId;
-}
-
 type EventRow = Prisma.EventGetPayload<{ include: typeof EVENT_INCLUDE }>;
 
 /**
@@ -1086,6 +1174,7 @@ function toEventDetail(event: EventRow, now: Date): EventDetail {
     title: event.title,
     description: event.description,
     category: event.category,
+    customCategoryLabel: event.customCategoryLabel,
     city: event.city,
     district: event.district,
     startsAt: event.startsAt,

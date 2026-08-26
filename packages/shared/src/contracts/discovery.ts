@@ -65,6 +65,8 @@ export const discoveredEventView = z.object({
   title: z.string(),
   description: z.string(),
   category: namedRef,
+  /** The host's own words, when the category invites them («سایر»). Null otherwise. */
+  customCategoryLabel: z.string().nullable(),
   city: namedRef,
   district: namedRef.nullable(),
   startsAt: z.iso.datetime(),

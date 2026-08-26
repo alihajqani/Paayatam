@@ -45,12 +45,18 @@ export class ModerationService {
    * reason for the boundary between the fields to change a verdict.
    */
   async scanEventContent(
-    content: { title: string; description: string },
+    content: { title: string; description: string; customCategoryLabel?: string | null },
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<ContentScan & { normalized: NormalizedContent }> {
     const blacklist = await this.blacklist.load(tx);
+    // The «سایر» label (M21) joins the corpus but produces no normalized column:
+    // it is moderated like the title and deliberately not searchable, because
+    // widening the 0005 `search_vector` trigger would put a tsvector rebuild on
+    // the product's most contended write path. Migration 0020 has the argument.
     const matches = this.blacklist.match(
-      `${content.title}\n${content.description}`,
+      [content.title, content.description, content.customCategoryLabel ?? '']
+        .filter((part) => part !== '')
+        .join('\n'),
       blacklist.rules,
     );
 

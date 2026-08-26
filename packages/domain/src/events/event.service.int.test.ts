@@ -220,6 +220,60 @@ describe('EventService.create — auto-moderation', () => {
   });
 });
 
+/**
+ * The «سایر» tag (M21).
+ *
+ * `allows_custom_label` is a column rather than a `slug === 'other'` check, so
+ * these tests set the flag on a fixture category rather than reaching for a
+ * particular slug — which is the property being asserted as much as the
+ * behaviour.
+ */
+describe('EventService.create — a category that allows a custom label', () => {
+  beforeEach(async () => {
+    await prisma.category.update({
+      where: { id: fixture.categoryId },
+      data: { allowsCustomLabel: true },
+    });
+  });
+
+  it("stores the host's own words", async () => {
+    const created = await events.create(
+      hostId,
+      validInput({ customCategoryLabel: 'بازدید از نمایشگاه کتاب' }),
+    );
+
+    expect(created.customCategoryLabel).toBe('بازدید از نمایشگاه کتاب');
+  });
+
+  /**
+   * Required, not optional. A «سایر» event with no label tells a reader nothing
+   * at all — the words the host types are the entire meaning of the category.
+   */
+  it('refuses the category without one', async () => {
+    await expect(events.create(hostId, validInput())).rejects.toMatchObject({
+      code: 'CUSTOM_LABEL_REQUIRED',
+    });
+  });
+
+  /**
+   * The label is free text a host types, so it is exactly the kind of field the
+   * blacklist exists to read. A label that never reached the scanner would be the
+   * one place in the product where a host can write anything unexamined.
+   */
+  it('scans the label against the blacklist, like the title', async () => {
+    const created = await events.create(
+      hostId,
+      validInput({ customCategoryLabel: 'دورهمی با مشروب' }),
+    );
+
+    expect(created.status).toBe('PENDING_MODERATION');
+    expect(created.moderationStatus).toBe('PENDING');
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    await expect(prisma.moderationCase.count({ where: { subjectId: row.id } })).resolves.toBe(1);
+  });
+});
+
 describe('EventService.create — validation', () => {
   it('refuses a host who has not completed their profile', async () => {
     const stranger = await createUser(prisma, 'TERMS_ACCEPTED');
@@ -250,6 +304,12 @@ describe('EventService.create — validation', () => {
     await expect(
       events.create(hostId, validInput({ categoryId: fixture.retiredCategoryId })),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
+  it('refuses a custom label for a category that does not allow one', async () => {
+    await expect(
+      events.create(hostId, validInput({ customCategoryLabel: 'هرچه دلم خواست' })),
+    ).rejects.toMatchObject({ code: 'CUSTOM_LABEL_NOT_ALLOWED' });
   });
 
   it('refuses an inactive city', async () => {

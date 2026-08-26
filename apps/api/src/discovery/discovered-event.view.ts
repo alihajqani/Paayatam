@@ -22,6 +22,7 @@ export function toDiscoveredEventView(event: DiscoveredEvent): DiscoveredEventVi
       slug: event.categorySlug,
       nameFa: event.categoryNameFa,
     },
+    customCategoryLabel: event.customCategoryLabel,
     city: { id: event.cityId, slug: event.citySlug, nameFa: event.cityNameFa },
     district:
       event.districtId === null || event.districtSlug === null || event.districtNameFa === null

@@ -54,6 +54,17 @@ const eventBody = z.object({
   title: z.string().trim().min(3).max(80),
   description: z.string().trim().min(10).max(2000),
   categoryId: z.uuid(),
+  /**
+   * What the host calls their activity, for a category that `allowsCustomLabel`
+   * («سایر»).
+   *
+   * Required by the server for those categories and refused for every other, so
+   * it is `optional()` here and conditional there — the condition depends on a
+   * catalog row, which is not something a schema can see.
+   *
+   * Free text, so it goes through the blacklist like the title does.
+   */
+  customCategoryLabel: z.string().trim().min(2).max(60).optional(),
   cityId: z.uuid(),
   districtId: z.uuid().optional(),
   startsAt: z.iso.datetime(),
@@ -175,6 +186,8 @@ export const eventView = z.object({
   title: z.string(),
   description: z.string(),
   category: namedRef,
+  /** The host's own words, when the category invites them. Null otherwise. */
+  customCategoryLabel: z.string().nullable(),
   city: namedRef,
   district: namedRef.nullable(),
   startsAt: z.iso.datetime(),

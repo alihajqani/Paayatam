@@ -18,8 +18,14 @@ export interface PromotionPricingSnapshot {
 }
 
 export interface CatalogSnapshot {
-  cities: (NamedRef & { districts: NamedRef[] })[];
-  categories: (NamedRef & { icon: string | null })[];
+  provinces: NamedRef[];
+  cities: (NamedRef & { provinceId: string | null; districts: NamedRef[] })[];
+  categories: (NamedRef & {
+    icon: string | null;
+    allowsCustomLabel: boolean;
+    /** The cities it is offered in, or `null` for everywhere. */
+    cityIds: string[] | null;
+  })[];
   interests: (NamedRef & { categoryId: string | null })[];
   promotion: PromotionPricingSnapshot;
 }
@@ -53,7 +59,12 @@ export class CatalogService {
    * over a mobile connection for no benefit.
    */
   async snapshot(): Promise<CatalogSnapshot> {
-    const [cities, categories, interests, promotion] = await Promise.all([
+    const [provinces, cities, categories, interests, promotion] = await Promise.all([
+      this.prisma.province.findMany({
+        where: { isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
+        select: { id: true, slug: true, nameFa: true },
+      }),
       this.prisma.city.findMany({
         where: { isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
@@ -68,7 +79,18 @@ export class CatalogService {
       this.prisma.category.findMany({
         where: { isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
-        select: { id: true, slug: true, nameFa: true, icon: true },
+        select: {
+          id: true,
+          slug: true,
+          nameFa: true,
+          icon: true,
+          allowsCustomLabel: true,
+          // Almost always empty — `city_category` holds restrictions, and an
+          // unrestricted category has no rows (migration 0020). So this include
+          // costs one indexed read that returns nothing for every category
+          // nobody has narrowed.
+          cities: { select: { cityId: true } },
+        },
       }),
       this.prisma.interest.findMany({
         where: { isActive: true },
@@ -88,13 +110,20 @@ export class CatalogService {
     ]);
 
     return {
+      provinces,
       cities: cities.map((city) => ({
         id: city.id,
         slug: city.slug,
         nameFa: city.nameFa,
+        provinceId: city.provinceId,
         districts: city.districts,
       })),
-      categories,
+      categories: categories.map(({ cities: restrictions, ...category }) => ({
+        ...category,
+        // No rows means unrestricted, which the wire spells `null` — see the
+        // note on `categoryView.cityIds` for why not `[]`.
+        cityIds: restrictions.length === 0 ? null : restrictions.map((row) => row.cityId),
+      })),
       interests,
       promotion,
     };

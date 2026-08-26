@@ -360,6 +360,7 @@ const SELECT_COLUMNS = Prisma.sql`
   cat."id"                         AS "categoryId",
   cat."slug"                       AS "categorySlug",
   cat."name_fa"                    AS "categoryNameFa",
+  e."custom_category_label"        AS "customCategoryLabel",
   ct."id"                          AS "cityId",
   ct."slug"                        AS "citySlug",
   ct."name_fa"                     AS "cityNameFa",
@@ -450,6 +451,7 @@ interface SearchRow {
   categoryId: string;
   categorySlug: string;
   categoryNameFa: string;
+  customCategoryLabel: string | null;
   cityId: string;
   citySlug: string;
   cityNameFa: string;

@@ -27,6 +27,10 @@ export const ErrorCode = {
   INVALID_INTEREST: 'INVALID_INTEREST',
   CITY_NOT_AVAILABLE: 'CITY_NOT_AVAILABLE',
   INVALID_DISTRICT: 'INVALID_DISTRICT',
+  /** A `customCategoryLabel` was sent for a category that does not allow one (M21). */
+  CUSTOM_LABEL_NOT_ALLOWED: 'CUSTOM_LABEL_NOT_ALLOWED',
+  /** A category that allows a custom label was chosen without one (M21). */
+  CUSTOM_LABEL_REQUIRED: 'CUSTOM_LABEL_REQUIRED',
 
   // Events
   EVENT_NOT_FOUND: 'EVENT_NOT_FOUND',
@@ -93,6 +97,18 @@ export const ErrorCode = {
   UNSEAL_GRANT_EXPIRED: 'UNSEAL_GRANT_EXPIRED',
   FOUR_EYES_REQUIRED: 'FOUR_EYES_REQUIRED',
 
+  // Catalog administration (M21)
+  /** Two categories cannot share a slug — it is the identifier code refers to. */
+  CATALOG_SLUG_TAKEN: 'CATALOG_SLUG_TAKEN',
+  /**
+   * Refusing to delete a tag events already reference.
+   *
+   * Deactivation is the answer, and it is what the panel offers instead:
+   * deleting would either orphan published events or cascade them away, and
+   * `is_active` exists exactly so neither has to happen (migration 0003).
+   */
+  CATALOG_TAG_IN_USE: 'CATALOG_TAG_IN_USE',
+
   // Platform
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
@@ -119,8 +135,12 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   AGE_BELOW_MINIMUM: 'استفاده از پایه‌تَم برای افراد زیر ۱۸ سال امکان‌پذیر نیست.',
   PROFILE_INCOMPLETE: 'برای ادامه، ابتدا پروفایل خود را کامل کنید.',
   INVALID_INTEREST: 'یکی از علاقه‌مندی‌های انتخاب‌شده معتبر نیست.',
-  CITY_NOT_AVAILABLE: 'پایه‌تَم فعلاً فقط در تهران فعال است.',
+  // Reworded in M21: the product serves 1,252 cities, and a message naming
+  // Tehran would now be wrong in 1,251 of them.
+  CITY_NOT_AVAILABLE: 'پایه‌تَم هنوز در شهر انتخاب‌شده فعال نیست.',
   INVALID_DISTRICT: 'منطقهٔ انتخاب‌شده با شهر انتخابی هم‌خوانی ندارد.',
+  CUSTOM_LABEL_NOT_ALLOWED: 'برای این دستهٔ تفریح نمی‌توان عنوان دلخواه ثبت کرد.',
+  CUSTOM_LABEL_REQUIRED: 'برای دستهٔ «سایر» باید نوع تفریح را بنویسید.',
 
   EVENT_NOT_FOUND: 'این فعالیت یافت نشد.',
   EVENT_NOT_JOINABLE: 'امکان ثبت درخواست برای این فعالیت وجود ندارد.',
@@ -172,6 +192,10 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   UNSEAL_GRANT_EXPIRED: 'مهلت دسترسی به این گفتگو به پایان رسیده است.',
   FOUR_EYES_REQUIRED: 'این تغییر به تأیید یک مدیر دیگر نیاز دارد.',
 
+  CATALOG_SLUG_TAKEN: 'این شناسه پیش‌تر برای تفریح دیگری ثبت شده است.',
+  CATALOG_TAG_IN_USE:
+    'این تفریح در فعالیت‌های ثبت‌شده استفاده شده است؛ به‌جای حذف، آن را غیرفعال کنید.',
+
   FORBIDDEN: 'شما به این بخش دسترسی ندارید.',
   NOT_FOUND: 'مورد درخواستی یافت نشد.',
   VALIDATION_FAILED: 'اطلاعات واردشده کامل یا معتبر نیست.',
@@ -208,6 +232,8 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   FOUR_EYES_REQUIRED: 403,
   CAPACITY_EXCEEDED: 409,
   CONFLICT_STALE_VERSION: 409,
+  CATALOG_SLUG_TAKEN: 409,
+  CATALOG_TAG_IN_USE: 409,
   EVENT_ALREADY_STARTED: 409,
   INVALID_STATE_TRANSITION: 409,
   REVIEW_NOT_EDITABLE: 409,

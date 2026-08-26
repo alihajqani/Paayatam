@@ -17,6 +17,7 @@ export function toEventView(event: EventDetail): EventView {
     title: event.title,
     description: event.description,
     category: event.category,
+    customCategoryLabel: event.customCategoryLabel,
     city: event.city,
     district: event.district,
     startsAt: event.startsAt.toISOString(),
