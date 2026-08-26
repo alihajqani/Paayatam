@@ -24,6 +24,12 @@ const baseEnv = {
   TELEGRAM_BOT_TOKEN: '1234567890:AAaaBBbbCCccDDddEEeeFFffGGgghhhh1234',
   MONITORING_CHAT_ID: '-1001234567890',
   MONITORING_ALERT_COOLDOWN_SECONDS: 300,
+  // M22 phase 7. `info` here rather than the production default of `warn`, so the
+  // existing cases keep exercising every level; the floor has its own tests below.
+  MONITORING_ENABLED: true,
+  MONITORING_MIN_LEVEL: 'info',
+  MONITORING_ENVIRONMENT: 'test-env',
+  NODE_ENV: 'test',
 } as unknown as Env;
 
 describe('TelegramLoggerService', () => {
@@ -178,5 +184,117 @@ describe('TelegramLoggerService', () => {
     expect(sent[0]).toContain('🔴');
     expect(sent[1]).toContain('🟡');
     expect(sent[2]).toContain('🟢');
+  });
+
+  // ── M22 phase 7 ────────────────────────────────────────────────────────────
+
+  it('carries severity, service, environment and a stable code on every alert', () => {
+    const service = new TelegramLoggerService(baseEnv, clock);
+    const { sent } = withStubbedBot(service);
+
+    service.alert('queue:telegram-send', 'error', 'A job gave up', { queue: 'telegram-send' });
+
+    const text = sent[0] ?? '';
+    // The five fixed lines. An alert without them is one somebody has to
+    // reconstruct the context of.
+    expect(text).toContain('severity: error');
+    expect(text).toContain('service: worker');
+    expect(text).toContain('env: test-env');
+    // The throttle key doubles as the machine-readable code, so alerts about the
+    // same thing are searchable across incidents.
+    expect(text).toContain('code: queue:telegram-send');
+    expect(text).toContain('time: 2026-08-21T10:00:00.000Z');
+  });
+
+  it('falls back to NODE_ENV when no environment is named', () => {
+    const service = new TelegramLoggerService(
+      { ...baseEnv, MONITORING_ENVIRONMENT: undefined },
+      clock,
+    );
+    const { sent } = withStubbedBot(service);
+
+    service.alert('k', 'error', 'boom');
+
+    expect(sent[0]).toContain('env: test');
+  });
+
+  /**
+   * The kill switch, distinct from "not configured". One means nobody set
+   * alerting up; the other means somebody wants it off right now — and
+   * collapsing them would make silencing alerts require deleting the destination.
+   */
+  it('builds no bot when MONITORING_ENABLED is off, even with a chat id', () => {
+    const service = new TelegramLoggerService({ ...baseEnv, MONITORING_ENABLED: false }, clock);
+
+    expect(botOf(service)).toBeNull();
+    expect(() => service.alert('k', 'error', 'boom')).not.toThrow();
+  });
+
+  it('drops anything below the configured level', () => {
+    const service = new TelegramLoggerService(
+      { ...baseEnv, MONITORING_MIN_LEVEL: 'error' as const },
+      clock,
+    );
+    const { sent } = withStubbedBot(service);
+
+    service.alert('a', 'info', 'quiet');
+    service.alert('b', 'warn', 'medium');
+    service.alert('c', 'error', 'loud');
+
+    // The two below the floor stay in the structured log, which is where an
+    // informational line belongs.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('loud');
+  });
+
+  /**
+   * The per-key throttle bounds one noisy source. This bounds the other shape: a
+   * hundred *different* keys failing at once, which is what a database outage
+   * looks like from here.
+   */
+  it('stops after the global budget, and reports the overflow next window', () => {
+    const service = new TelegramLoggerService(baseEnv, clock);
+    const { sent } = withStubbedBot(service);
+
+    for (let index = 0; index < 25; index += 1) {
+      service.alert(`key-${String(index)}`, 'error', `failure ${String(index)}`);
+    }
+
+    expect(sent).toHaveLength(20);
+
+    // Past the window: the first alert through carries what the budget dropped.
+    clock.set(new Date('2026-08-21T10:06:00.000Z'));
+    service.alert('key-next', 'error', 'after the window');
+
+    expect(sent).toHaveLength(21);
+    expect(sent[20]).toContain('5 alert(s) dropped by the budget in the previous window');
+  });
+
+  /**
+   * Rule 5. A Telegram outage that produced a Telegram alert per failed Telegram
+   * alert would be an unbounded loop pointed at the dependency that is already
+   * unwell — so the catch block calls the logger and nothing else.
+   */
+  it('never turns a delivery failure into another alert', async () => {
+    const service = new TelegramLoggerService(baseEnv, clock);
+    const sendMessage = vi.fn(() => Promise.reject(new Error('telegram is down')));
+    (service as unknown as { bot: { api: unknown } }).bot = { api: { sendMessage } };
+
+    service.alert('k', 'error', 'boom');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // One attempt, and no second message describing the first one failing.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fail its caller when delivery throws', async () => {
+    const service = new TelegramLoggerService(baseEnv, clock);
+    (service as unknown as { bot: { api: unknown } }).bot = {
+      api: { sendMessage: () => Promise.reject(new Error('nope')) },
+    };
+
+    expect(() => service.alert('k', 'error', 'boom')).not.toThrow();
+    await Promise.resolve();
   });
 });

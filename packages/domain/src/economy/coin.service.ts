@@ -95,6 +95,38 @@ export class CoinService {
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
+  /**
+   * Accounts whose cached balance no longer equals their ledger (M22 phase 7).
+   *
+   * ADR-0007's invariant — `balance == SUM(coin_ledger.amount)` — asked of the
+   * live database, with **no admin session**: the panel's version of this is
+   * `AdminInsightService.reconcile` and is behind `ledger.read` because a person
+   * is asking. This one is asked by a nightly sweep so a drift is found by a
+   * machine at 4 a.m. rather than by a user disputing a balance in six weeks.
+   *
+   * Bounded, because the interesting number is "is it zero?" — a drift of two
+   * accounts and a drift of two thousand both mean the same thing to whoever gets
+   * the alert, and neither wants a list.
+   */
+  async findDrift(limit = 20): Promise<Array<{ userId: string; balance: number; ledger: number }>> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ user_id: string; balance: number; ledger: bigint | null }>
+    >`
+      SELECT a."user_id", a."balance", COALESCE(SUM(l."amount"), 0) AS ledger
+      FROM "coin_account" a
+      LEFT JOIN "coin_ledger" l ON l."user_id" = a."user_id"
+      GROUP BY a."user_id", a."balance"
+      HAVING a."balance" <> COALESCE(SUM(l."amount"), 0)
+      LIMIT ${limit}
+    `;
+
+    return rows.map((row) => ({
+      userId: row.user_id,
+      balance: row.balance,
+      ledger: Number(row.ledger ?? 0n),
+    }));
+  }
+
   async balanceOf(userId: string, tx: Prisma.TransactionClient = this.prisma): Promise<number> {
     const account = await tx.coinAccount.findUnique({
       where: { userId },

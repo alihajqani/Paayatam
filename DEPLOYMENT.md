@@ -519,7 +519,55 @@ The message should appear in the group. What arrives there afterwards: jobs that
 exhausted their retries, failed backups, failed deploys, and rollbacks. Nothing
 routine — a channel that fires on the ordinary is a channel people mute.
 
-### 11.2 What to look at
+### 11.2 What the worker alerts on
+
+Five sources, and no others. Each one is a thing a person has to do something
+about:
+
+| Alert key | Raised when | What it means |
+| --- | --- | --- |
+| `job-exhausted:<queue>:<job>` | A job used its last retry | The queue is dropping work |
+| `job-failure-write` | The failed-job record itself could not be written | The failure log has a hole in it |
+| `campaign-paused:<id>` | A campaign was rate-limited three times in a row | The breaker tripped; the campaign is paused, not lost |
+| `ledger.drift` | A coin balance disagrees with its ledger (nightly, 04:30) | Something wrote to `coin_account` outside `CoinService` |
+| `outbox.stale` | The oldest undelivered outbox row is over 15 minutes old | Notifications are silently not being delivered |
+
+The last two are sweeps rather than reactions, because both failures are
+**invisible**: nobody complains about a notification they were never told
+existed, and a drifted balance is discovered by a user disputing it weeks later.
+Neither writes anything — a drift is reported, never "corrected", because
+choosing between overwriting a balance somebody is holding and writing a plug
+entry into an append-only ledger is a judgement call with money attached.
+
+Every alert carries `severity`, `service`, `env`, a stable `code` and a UTC
+timestamp, and **none of them carries a user id, a phone number or a message
+body**. If you need to know *which* accounts drifted, the panel's
+**دفتر سکه → «تطبیق موجودی‌ها با دفتر»** button asks the same question behind
+`ledger.read` — because a person asking is an authorised, audited read, and an
+alert is a Telegram group.
+
+Four knobs, all in `.env` and all read by the worker at start-up:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `MONITORING_CHAT_ID` | *(empty)* | Where alerts go. Empty disables delivery. |
+| `MONITORING_ENABLED` | `1` | Kill switch. `0` silences delivery without clearing the chat id. |
+| `MONITORING_MIN_LEVEL` | `warn` | Floor: `info` \| `warn` \| `error`. |
+| `MONITORING_ALERT_COOLDOWN_SECONDS` | `300` | Shortest gap between two alerts sharing a key. |
+| `MONITORING_ENVIRONMENT` | `NODE_ENV` | Stamped on every alert. Set it once staging also alerts. |
+
+Turning alerting off — by either the chat id or the kill switch — **loses
+delivery, not information**. Everything still goes to the container log at its
+own level, so `./scripts/compose.sh logs worker | grep -i alert` is the offline
+version of the group.
+
+After changing any of them:
+
+```bash
+./scripts/compose.sh up -d worker
+```
+
+### 11.3 What to look at
 
 ```bash
 ./scripts/compose.sh ps                          # health of every service

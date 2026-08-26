@@ -542,11 +542,33 @@ Node's `--env-file` expands `${…}`, so they really are two copies;
 
 ### Monitoring
 
-The worker posts to a Telegram group (`MONITORING_CHAT_ID`) when a job exhausts
-its retries; `scripts/notify-telegram.sh` does the same for failed backups,
-deploys and rollbacks. Alerts are throttled per key with the suppressed count
-carried forward, so a queue failing every job produces one message per window
-rather than a flood that gets the bot rate-limited.
+The worker posts to a Telegram group (`MONITORING_CHAT_ID`). Five things reach
+it, and nothing else does:
+
+| Alert | Raised when |
+| --- | --- |
+| `job-exhausted:<queue>:<job>` | A job used its last retry |
+| `job-failure-write` | The failed-job record itself could not be written |
+| `campaign-paused:<id>` | A campaign was rate-limited three times running and paused itself |
+| `ledger.drift` | A coin balance disagrees with its ledger (nightly sweep) |
+| `outbox.stale` | The oldest undelivered outbox row is over fifteen minutes old |
+
+The first three are reactions to something that already went wrong. The last two
+go looking, because both failures are **silent**: nobody complains about a
+notification they were never told existed, and a drifted balance surfaces weeks
+later as a user disputing it. Both sweeps are read-only — a drift is reported,
+never "corrected", since the two available corrections are overwriting a balance
+somebody is holding and writing a plug entry into an append-only ledger.
+
+Every alert carries `severity`, `service`, `env`, a stable code and a UTC
+timestamp, and none carries a user id, a phone number or a message body. Alerts
+are throttled per key with the suppressed count carried forward, and a global
+budget caps the whole channel per window, so a queue failing every job produces
+one message rather than a flood that gets the bot rate-limited.
+`MONITORING_ENABLED=0` silences delivery without clearing the chat id; either way
+the same lines go to the container log, so turning alerting off loses delivery
+rather than information. `scripts/notify-telegram.sh` uses the same group for
+failed backups, deploys and rollbacks.
 
 Everything else is structured JSON on stdout, capped at 10 MB × 5 files per
 service, plus Prometheus metrics at `/metrics` — reachable only from inside the

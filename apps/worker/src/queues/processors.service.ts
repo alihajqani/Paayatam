@@ -3,6 +3,7 @@ import type { Job } from 'bullmq';
 import {
   ChannelService,
   ChatService,
+  CoinService,
   EventLifecycleService,
   InvitationService,
   MessagingService,
@@ -40,6 +41,15 @@ const CHANNEL_FAILURE_ALERT_THRESHOLD = 3;
  */
 const DISPATCH_BATCH = 500;
 
+/**
+ * How old the oldest undelivered outbox row may get before it is an incident.
+ *
+ * Fifteen minutes is three backstop passes. One pass can be missed by a restart
+ * and two by a slow deploy; three means the row is being *tried* and is failing,
+ * which is the case worth waking somebody for.
+ */
+const OUTBOX_STALE_MS = 15 * 60 * 1000;
+
 @Injectable()
 export class Processors implements OnModuleInit {
   private readonly logger = new Logger(Processors.name);
@@ -70,6 +80,12 @@ export class Processors implements OnModuleInit {
     private readonly invitations: InvitationService,
     /** Channel publishing outcomes, so a stuck channel is visible on /metrics (M16). */
     private readonly metrics: MetricsRegistry,
+    /**
+     * For one thing only: asking the ledger whether it still adds up (M22 phase 7).
+     *
+     * The worker never *moves* coins on a schedule. This reads.
+     */
+    private readonly coins: CoinService,
     /** Alerts a person should act on: a stuck channel, a tripped breaker (M20). */
     private readonly alerts: TelegramLoggerService,
   ) {}
@@ -280,6 +296,8 @@ export class Processors implements OnModuleInit {
         // the fast one; this guarantees an outbox row committed during an outage
         // is eventually delivered.
         await this.onDomainEvent(job);
+        // …and then ask whether the drain actually kept up (M22 phase 7).
+        await this.checkOutboxHealth();
         return;
       }
 
@@ -353,6 +371,44 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      /**
+       * Does the ledger still add up? (M22 phase 7)
+       *
+       * ADR-0007 makes `coin_account.balance` a cache of `SUM(coin_ledger.amount)`,
+       * and until now that invariant was asserted by tests and by nobody in
+       * production. A drift means one of three things — a write that bypassed
+       * `CoinService`, a partially-applied transaction, or manual `psql` — and all
+       * three are things somebody needs to know about tonight rather than when a
+       * user disputes a balance.
+       *
+       * Deliberately **read-only**. Nothing here corrects a drift: an automatic
+       * "fix" would either overwrite a balance a user is holding or write a
+       * plug entry into an append-only ledger, and choosing between those is a
+       * judgement call with money attached. The job's whole job is to notice.
+       */
+      case JOBS.LEDGER_RECONCILE: {
+        const drift = await this.coins.findDrift();
+        if (drift.length === 0) {
+          // Logged even when clean, for the same reason the purge is: a sweep that
+          // silently stopped running looks exactly like one that finds nothing.
+          this.logger.log('Ledger reconciliation: no drift');
+          return;
+        }
+
+        this.logger.error(`Ledger reconciliation: ${String(drift.length)} account(s) drifted`);
+        this.alerts.alert('ledger.drift', 'error', 'Coin balances disagree with the ledger', {
+          accounts: drift.length,
+          // The worst one, as a magnitude. Enough to tell a rounding artefact from
+          // a duplicated grant, and no user id — a drift report goes to an
+          // operations group, and ADR-0009 does not stop applying because the
+          // message is an alert (§3.6 layer 2).
+          largestGap: Math.max(...drift.map((row) => Math.abs(row.balance - row.ledger))),
+          totalGap: drift.reduce((sum, row) => sum + (row.balance - row.ledger), 0),
+          truncated: drift.length >= 20,
+        });
+        return;
+      }
+
       case JOBS.REVIEW_SWEEP: {
         const settled = await this.reviews.settleExpired();
         if (settled.partial + settled.empty > 0) {
@@ -366,6 +422,40 @@ export class Processors implements OnModuleInit {
       default:
         this.logger.warn(`Unknown scheduled job ${job.name}`);
     }
+  }
+
+  /**
+   * Is the outbox keeping up? (M22 phase 7)
+   *
+   * Called after every backstop drain, so the question is asked of an outbox that
+   * has *just* been given the chance to catch up. A row still sitting there after
+   * that is not a burst — it is a row the relay keeps failing on, and because the
+   * drain takes the oldest first, one stuck row blocks everything behind it.
+   *
+   * This is the "critical health incident" the alerting requirement names. It is
+   * the one failure in the system with no user-visible symptom: nobody complains
+   * about a notification they were never told existed, so the only way anyone
+   * finds out is if the software says so.
+   *
+   * Age rather than count, for the reason `backlog()` gives. `alert()` throttles
+   * on the key, so a genuinely stuck relay reports once and then stays quiet
+   * rather than sending a message every five minutes for a week.
+   */
+  private async checkOutboxHealth(): Promise<void> {
+    const backlog = await this.relay.backlog();
+    if (backlog.oldestAgeMs === null || backlog.oldestAgeMs < OUTBOX_STALE_MS) return;
+
+    this.logger.error(
+      `Outbox backlog: ${String(backlog.pending)} pending, oldest ` +
+        `${String(Math.round(backlog.oldestAgeMs / 60_000))}m old`,
+    );
+    this.alerts.alert('outbox.stale', 'error', 'The outbox is not draining', {
+      pending: backlog.pending,
+      oldestMinutes: Math.round(backlog.oldestAgeMs / 60_000),
+      // No ids and no payloads: an outbox row's payload is the notification's, and
+      // a notification is about a named person doing something (ADR-0009). The
+      // count and the age are what an operator acts on anyway.
+    });
   }
 
   /**

@@ -132,6 +132,9 @@ importers:
       fastify:
         specifier: 5.11.3
         version: 5.11.3
+      grammy:
+        specifier: ^1.45.1
+        version: 1.45.1
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2

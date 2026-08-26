@@ -326,6 +326,7 @@ export { planNotifications } from './notifications/fanout';
 export type { PlannedNotification } from './notifications/fanout';
 export { NotificationsModule } from './notifications/notifications.module';
 export { OutboxRelayService } from './outbox/relay.service';
+export type { OutboxBacklog } from './outbox/relay.service';
 export type { RelayResult } from './outbox/relay.service';
 
 export { ChannelService } from './channel/channel.service';

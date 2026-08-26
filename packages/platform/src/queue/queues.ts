@@ -117,6 +117,16 @@ export const JOBS = {
    * worker that was down when that happened.
    */
   CAMPAIGN_DISPATCH: 'campaign-dispatch',
+  /**
+   * Ask the ledger whether it still adds up (M22 phase 7).
+   *
+   * ADR-0007's invariant has been asserted by a test since M9 and by nobody in
+   * production. A nightly check is what turns "the balance is a cache of the
+   * ledger" from a property the tests believe into one the deployment knows — and
+   * a coin inconsistency found by a machine at 4 a.m. is a different incident from
+   * one found by a user disputing their balance in six weeks.
+   */
+  LEDGER_RECONCILE: 'ledger-reconcile',
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
@@ -184,4 +194,11 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    * costs nobody anything.
    */
   { name: JOBS.RETENTION_PURGE, pattern: '0 4 * * *', tz: 'Asia/Tehran' },
+  /**
+   * Half past four, after the purge.
+   *
+   * Deliberately *after* it: the purge deletes expired rows, and reconciling
+   * before it would occasionally report a drift that the next half hour resolves.
+   */
+  { name: JOBS.LEDGER_RECONCILE, pattern: '30 4 * * *', tz: 'Asia/Tehran' },
 ];

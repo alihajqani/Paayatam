@@ -153,6 +153,33 @@ export const envSchema = z
      * incident is the one nobody hears about.
      */
     MONITORING_ALERT_COOLDOWN_SECONDS: z.coerce.number().int().min(0).default(300),
+    /**
+     * The kill switch, separate from "is it configured" (M22 phase 7).
+     *
+     * `MONITORING_CHAT_ID` being unset means an operator has not set alerting up.
+     * This means one has, and wants it off **right now** — during a planned
+     * migration, or when a known-noisy incident is already being worked. Two
+     * different states with two different fixes, and collapsing them would mean
+     * silencing alerts required deleting the destination and remembering to put it
+     * back.
+     */
+    MONITORING_ENABLED: booleanFlag.default(true),
+    /**
+     * The floor on what reaches Telegram.
+     *
+     * `warn` by default, so an informational line stays in the structured log
+     * where it can be searched without also being an interruption. Set to `error`
+     * during a noisy period, or to `info` while commissioning a deployment.
+     */
+    MONITORING_MIN_LEVEL: z.enum(['info', 'warn', 'error']).default('warn'),
+    /**
+     * Which environment an alert says it came from.
+     *
+     * Defaults to `NODE_ENV`. Named separately because two deployments can share a
+     * `NODE_ENV` of `production` and be entirely different systems — and an alert
+     * that does not say which one it is about is an alert somebody has to guess at.
+     */
+    MONITORING_ENVIRONMENT: z.string().min(1).optional(),
 
     // ── Safety rails ─────────────────────────────────────────────────────────
     ALLOW_PROD_SEED: booleanFlag.default(false),

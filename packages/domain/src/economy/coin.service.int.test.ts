@@ -275,3 +275,81 @@ describe('coin_ledger constraints', () => {
     ).rejects.toThrow();
   });
 });
+
+/**
+ * The nightly drift sweep (M22 phase 7).
+ *
+ * `reconciliation.int.test.ts` proves the invariant holds when every movement goes
+ * through `CoinService`. This proves the *detector* works when one does not —
+ * which is the only case it exists for. A drift can only be introduced here by
+ * writing to `coin_account` directly, exactly as a stray `psql` session or a
+ * future service that forgot the rule would.
+ */
+describe('CoinService.findDrift', () => {
+  it('finds nothing when every balance matches its ledger', async () => {
+    const alice = await createUser(prisma, 'PROFILE_COMPLETE');
+    const bob = await createUser(prisma, 'PROFILE_COMPLETE');
+    await coins.apply(grant(alice, 50, 't:alice:1'));
+    await coins.apply(grant(bob, 20, 't:bob:1'));
+    await coins.apply({ ...grant(bob, -5, 't:bob:2'), type: 'EVENT_CREATE_SPEND' });
+
+    await expect(coins.findDrift()).resolves.toEqual([]);
+  });
+
+  /**
+   * An account with a balance and no ledger at all.
+   *
+   * The shape a manual `UPDATE coin_account SET balance = …` leaves behind, and
+   * the one the invariant is least able to survive: the statement a user is shown
+   * would not mention the coins they are holding.
+   */
+  it('finds a balance that no ledger row explains', async () => {
+    const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+    await prisma.coinAccount.create({ data: { userId, balance: 400 } });
+
+    const drift = await coins.findDrift();
+
+    expect(drift).toEqual([{ userId, balance: 400, ledger: 0 }]);
+  });
+
+  it('finds a balance that drifted away from its ledger', async () => {
+    const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+    await coins.apply(grant(userId, 30, 't:drift:1'));
+    // The bypass. Nothing in the product does this; that is the point.
+    await prisma.coinAccount.update({ where: { userId }, data: { balance: 31 } });
+
+    const drift = await coins.findDrift();
+
+    expect(drift).toEqual([{ userId, balance: 31, ledger: 30 }]);
+  });
+
+  /**
+   * Bounded, because the alert says "how many" rather than "which".
+   *
+   * A drift of two accounts and a drift of two thousand mean the same thing to
+   * whoever gets the alert, and the sweep must not pull the whole table into the
+   * worker's memory to say so.
+   */
+  it('stops at the limit it was given', async () => {
+    for (let index = 0; index < 3; index += 1) {
+      const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+      await prisma.coinAccount.create({ data: { userId, balance: 10 + index } });
+    }
+
+    await expect(coins.findDrift(2)).resolves.toHaveLength(2);
+    await expect(coins.findDrift()).resolves.toHaveLength(3);
+  });
+
+  /** A ledger that sums to a balance of zero is not a drift. */
+  it('ignores an account whose movements cancel out', async () => {
+    const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+    const granted = await coins.apply(grant(userId, 40, 't:cancel:1'));
+    await coins.reverse({
+      ledgerId: granted.ledgerId,
+      reasonCode: 'test.reversal',
+      actorType: 'SYSTEM',
+    });
+
+    await expect(coins.findDrift()).resolves.toEqual([]);
+  });
+});
