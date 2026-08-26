@@ -22,19 +22,22 @@ import {
   ChatUnsealService,
   GeographyAdminService,
   GiftCodeAdminService,
+  MessagingAdminService,
   PolicyAdminService,
   ReferralAdminService,
   type AdminSession,
   type CitySummary,
   type ConsentRecord,
+  type MessageCampaignSummary,
   type EventSummary,
   type GiftCodeSummary,
   type PolicySummary,
   type ProvinceSummary,
+  type TelegramIdentity,
   type ReferralReview,
   type UserSummary,
 } from '@payetam/domain';
-import { PiiHasher } from '@payetam/platform';
+import { JOBS, PiiHasher, QUEUES, QueueService, jobId } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import {
   adjustCoinsRequest,
@@ -65,9 +68,11 @@ import {
   unsealChatRequest,
   updateGiftCodeRequest,
   createCityRequest,
+  createMessageRequest,
   createPolicyDraftRequest,
   createProvinceRequest,
   policyConsentQuery,
+  previewMessageRequest,
   reorderCitiesRequest,
   updateCityRequest,
   updateProvinceRequest,
@@ -86,13 +91,19 @@ import {
   type AdminPolicyView,
   type AdminUpdateProfileRequest,
   type CreateCityRequest,
+  type CreateMessageRequest,
   type CreatePolicyDraftRequest,
   type CreateProvinceRequest,
   type ReorderCitiesRequest,
   type UpdateCityRequest,
   type UpdateProvinceRequest,
+  type MessageCampaignListResponse,
+  type MessageCampaignView,
+  type MessagePreviewResponse,
   type PolicyConsentQuery,
   type PolicyConsentResponse,
+  type PreviewMessageRequest,
+  type TelegramIdentityView,
   type ProfileView,
   type PublishPolicyRequest,
   type UpdatePolicyDraftRequest,
@@ -193,6 +204,7 @@ export class AdminController {
     private readonly referrals: ReferralAdminService,
     private readonly catalog: CatalogAdminService,
     private readonly geography: GeographyAdminService,
+    private readonly messaging: MessagingAdminService,
     private readonly policies: PolicyAdminService,
     private readonly insight: AdminInsightService,
     /**
@@ -204,6 +216,12 @@ export class AdminController {
      */
     private readonly health: HealthService,
     private readonly pii: PiiHasher,
+    /**
+     * Only ever to *enqueue*. The API never processes a job (ADR-0005), and the
+     * one thing it produces here is the nudge that starts a confirmed campaign
+     * without waiting for the next scheduled pass.
+     */
+    private readonly queues: QueueService,
   ) {}
 
   /**
@@ -1131,6 +1149,157 @@ export class AdminController {
     return { consents: page.rows.map(toPolicyConsentView), total: page.total };
   }
 
+  // ── Outbound messaging (M22 phase 4) ───────────────────────────────────────
+
+  /**
+   * How many people an audience reaches. **Nothing is written and nothing is sent.**
+   *
+   * A `POST` because the audience is a structured body rather than a query string,
+   * not because it changes anything — and the service refuses to return a list, so
+   * this cannot become a way to enumerate users by city or activity.
+   */
+  @Post('messages/preview')
+  @HttpCode(HttpStatus.OK)
+  async previewMessage(
+    @Body(new ZodValidationPipe(previewMessageRequest)) body: PreviewMessageRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessagePreviewResponse> {
+    const preview = await this.messaging.preview(admin, {
+      audience: body.audience,
+      bodyText: body.bodyText,
+      ...(body.parseMode !== undefined ? { parseMode: body.parseMode } : {}),
+    });
+    return {
+      recipients: preview.recipients,
+      appliedFilters: preview.appliedFilters,
+      bodyText: preview.bodyText,
+      parseMode: preview.parseMode,
+    };
+  }
+
+  /**
+   * Compose a campaign. It lands as `DRAFT` and **this call sends nothing.**
+   *
+   * A dry run finishes here at `COMPLETED` with its recipients counted and no job
+   * ever enqueued; migration 0021's CHECK is what makes it impossible to promote
+   * one afterwards.
+   */
+  @Post('messages')
+  @HttpCode(HttpStatus.CREATED)
+  async createMessage(
+    @Body(new ZodValidationPipe(createMessageRequest)) body: CreateMessageRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    const campaign = await this.messaging.create(admin, {
+      // One recipient is a direct message; anything else is a broadcast, and the
+      // service demands the wider permission for it.
+      kind:
+        body.audience.userPublicIds?.length === 1 && Object.keys(body.audience).length === 1
+          ? 'DIRECT'
+          : 'BROADCAST',
+      bodyText: body.bodyText,
+      ...(body.parseMode !== undefined ? { parseMode: body.parseMode } : {}),
+      audience: body.audience,
+      ...(body.dryRun !== undefined ? { dryRun: body.dryRun } : {}),
+      idempotencyKey: body.idempotencyKey,
+    });
+    return toMessageCampaignView(campaign);
+  }
+
+  @Get('messages')
+  async listMessages(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(pageQuery)) query: PageQuery,
+  ): Promise<MessageCampaignListResponse> {
+    const page = await this.messaging.list(admin, {
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { campaigns: page.rows.map(toMessageCampaignView), total: page.total };
+  }
+
+  @Get('messages/:publicId')
+  async getMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    return toMessageCampaignView(await this.messaging.get(admin, publicId));
+  }
+
+  /**
+   * The second button, and the only edge into delivery.
+   *
+   * Nudges the dispatch queue as soon as the transition commits, so a confirmed
+   * campaign starts in seconds rather than waiting out the minute-by-minute
+   * schedule. The API enqueues and never processes (ADR-0005) — the nudge is a
+   * `queue.add`, and the schedule is still the guarantee.
+   */
+  @Post('messages/:publicId/confirm')
+  @HttpCode(HttpStatus.OK)
+  async confirmMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    const campaign = await this.messaging.confirm(admin, publicId);
+    await this.queues.enqueue(
+      QUEUES.SCHEDULED,
+      JOBS.CAMPAIGN_DISPATCH,
+      jobId('campaign-dispatch', campaign.publicId.replaceAll('-', '')),
+      {},
+    );
+    return toMessageCampaignView(campaign);
+  }
+
+  /**
+   * Stop a campaign.
+   *
+   * Every recipient still pending becomes `SKIPPED`, which is what makes this mean
+   * something: the dispatcher selects on `PENDING`, and a send job already sitting
+   * in Redis finds its recipient resolved and returns without sending. Anything
+   * already delivered stays delivered — nothing can recall a Telegram message.
+   */
+  @Post('messages/:publicId/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    return toMessageCampaignView(await this.messaging.cancel(admin, publicId));
+  }
+
+  /** Resume one the circuit breaker paused, once Telegram has calmed down. */
+  @Post('messages/:publicId/resume')
+  @HttpCode(HttpStatus.OK)
+  async resumeMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    const campaign = await this.messaging.resume(admin, publicId);
+    await this.queues.enqueue(
+      QUEUES.SCHEDULED,
+      JOBS.CAMPAIGN_DISPATCH,
+      jobId('campaign-dispatch', campaign.publicId.replaceAll('-', ''), 'resume'),
+      {},
+    );
+    return toMessageCampaignView(campaign);
+  }
+
+  /**
+   * A user's Telegram id and username (M22 phase 12).
+   *
+   * The one documented exception to ADR-0009's rule that only the identity module
+   * reads `telegram_account`. Behind `user.telegram.read`, which `SUPER_ADMIN`
+   * alone holds, and **every call writes an audit row** — a permission says who may
+   * look, and only the row says who did.
+   */
+  @Get('users/:publicId/telegram')
+  async userTelegramIdentity(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<TelegramIdentityView> {
+    return toTelegramIdentityView(await this.messaging.telegramIdentity(admin, publicId));
+  }
+
   // ── Geography (M22 phase 9) ────────────────────────────────────────────────
 
   /**
@@ -1606,5 +1775,47 @@ function toAdminCityView(city: CitySummary): AdminCityView {
     districtCount: city.districtCount,
     profileCount: city.profileCount,
     eventCount: city.eventCount,
+  };
+}
+
+/**
+ * One campaign, field by field (§3.6 layer 2).
+ *
+ * `appliedFilters` rather than the audience itself: the panel needs to say which
+ * filters were used, and a raw list of city ids in a response is a list somebody
+ * exports. The counts come from the service, which reads them from the recipient
+ * rows rather than from a number anybody maintained by hand.
+ */
+function toMessageCampaignView(campaign: MessageCampaignSummary): MessageCampaignView {
+  return {
+    publicId: campaign.publicId,
+    kind: campaign.kind,
+    status: campaign.status,
+    bodyText: campaign.bodyText,
+    parseMode: campaign.parseMode,
+    dryRun: campaign.dryRun,
+    estimatedRecipients: campaign.estimatedRecipients,
+    counts: campaign.counts,
+    appliedFilters: Object.keys(campaign.audience),
+    eventPublicId: campaign.eventPublicId,
+    pausedAt: campaign.pausedAt?.toISOString() ?? null,
+    pauseReason: campaign.pauseReason,
+    createdAt: campaign.createdAt.toISOString(),
+    confirmedAt: campaign.confirmedAt?.toISOString() ?? null,
+    startedAt: campaign.startedAt?.toISOString() ?? null,
+    finishedAt: campaign.finishedAt?.toISOString() ?? null,
+    cancelledAt: campaign.cancelledAt?.toISOString() ?? null,
+  };
+}
+
+/** The Telegram id as a string — see the contract for why that is deliberate. */
+function toTelegramIdentityView(identity: TelegramIdentity): TelegramIdentityView {
+  return {
+    telegramUserId: identity.telegramUserId,
+    username: identity.username,
+    directLink: identity.directLink,
+    linkUnavailableReason: identity.linkUnavailableReason,
+    botBlocked: identity.botBlocked,
+    lastSeenAt: identity.lastSeenAt.toISOString(),
   };
 }

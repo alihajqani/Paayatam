@@ -284,6 +284,17 @@ export type {
   CreateActivityTagInput,
   UpdateActivityTagInput,
 } from './adminaccess/catalog-admin.service';
+export { MessagingService, RATE_LIMIT_BREAKER_THRESHOLD } from './messaging/messaging.service';
+export type {
+  MessageCampaignSummary,
+  DeliveryCounts,
+  DeliveryTarget,
+  MessageAudience,
+  PendingDelivery,
+} from './messaging/messaging.service';
+export { MessagingModule } from './messaging/messaging.module';
+export { MessagingAdminService } from './adminaccess/messaging-admin.service';
+export type { AudiencePreview, TelegramIdentity } from './adminaccess/messaging-admin.service';
 export { GeographyAdminService } from './adminaccess/geography-admin.service';
 export type { ProvinceSummary, CitySummary } from './adminaccess/geography-admin.service';
 export { PolicyAdminService } from './adminaccess/policy-admin.service';

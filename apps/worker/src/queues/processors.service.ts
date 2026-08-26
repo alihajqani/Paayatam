@@ -4,14 +4,17 @@ import {
   ChannelService,
   ChatService,
   EventLifecycleService,
+  MessagingService,
   NotificationService,
   OutboxRelayService,
   ParticipationService,
+  RATE_LIMIT_BREAKER_THRESHOLD,
   RetentionService,
   ReviewService,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
 import { TEMPLATES, render, renderChannelPost } from '@payetam/telegram';
+import { TelegramLoggerService } from '../monitoring/telegram-logger.service';
 import { TelegramClient } from '../telegram/telegram.client';
 import { WorkerFactory } from './worker.factory';
 
@@ -25,6 +28,16 @@ import { WorkerFactory } from './worker.factory';
  */
 /** Three consecutive five-minute sweeps: loud within the hour, quiet on a blip. */
 const CHANNEL_FAILURE_ALERT_THRESHOLD = 3;
+
+/**
+ * How many recipients one dispatch pass turns into jobs.
+ *
+ * The limiter releases 25 a second, so 500 is twenty seconds of work — enough that
+ * the queue never runs dry between minute-by-minute passes, small enough that a
+ * four-thousand-recipient broadcast does not materialise as four thousand Redis
+ * entries in one tick.
+ */
+const DISPATCH_BATCH = 500;
 
 @Injectable()
 export class Processors implements OnModuleInit {
@@ -43,8 +56,12 @@ export class Processors implements OnModuleInit {
     private readonly reviews: ReviewService,
     private readonly channel: ChannelService,
     private readonly retention: RetentionService,
+    /** Admin campaigns and paid invitations (M22 phases 4 and 11). */
+    private readonly messaging: MessagingService,
     /** Channel publishing outcomes, so a stuck channel is visible on /metrics (M16). */
     private readonly metrics: MetricsRegistry,
+    /** Alerts a person should act on: a stuck channel, a tripped breaker (M20). */
+    private readonly alerts: TelegramLoggerService,
   ) {}
 
   /**
@@ -58,13 +75,23 @@ export class Processors implements OnModuleInit {
    */
   private consecutiveChannelFailures = 0;
 
+  /**
+   * Consecutive 429s per campaign, for the circuit breaker (M22 phase 4).
+   *
+   * Cleared by the first success, so a burst that resolves itself leaves nothing
+   * behind. See `onRateLimited` for why it lives here rather than in Redis.
+   */
+  private readonly rateLimitStreak = new Map<string, number>();
+
   async onModuleInit(): Promise<void> {
     this.workers.create(QUEUES.DOMAIN_EVENTS, (job) => this.onDomainEvent(job));
     // Two job names on one queue: both talk to Telegram, so both are paced by the
     // one limiter that exists for it (ADR-0005).
-    this.workers.create(QUEUES.TELEGRAM_SEND, (job) =>
-      job.name === JOBS.BOT_CALLBACK_ANSWER ? this.onCallbackAnswer(job) : this.onSend(job),
-    );
+    this.workers.create(QUEUES.TELEGRAM_SEND, (job) => {
+      if (job.name === JOBS.BOT_CALLBACK_ANSWER) return this.onCallbackAnswer(job);
+      if (job.name === JOBS.CAMPAIGN_SEND) return this.onCampaignSend(job);
+      return this.onSend(job);
+    });
     this.workers.create(QUEUES.SCHEDULED, (job) => this.onScheduled(job));
 
     for (const entry of SCHEDULE) {
@@ -110,7 +137,9 @@ export class Processors implements OnModuleInit {
    *  - **BLOCKED** is terminal and *not* a failure: it marks `bot_blocked` and
    *    returns normally, because throwing would retry a block and burn the rate
    *    budget other users' notifications need.
-   *  - **RETRY** throws, which is how a queue is told to try again.
+   *  - **RETRY** and **RATE_LIMITED** throw, which is how a queue is told to try
+   *    again. They are one case here: a single notification has no campaign to
+   *    trip a breaker for, and the queue's backoff is the whole of the answer.
    */
   private async onSend(job: Job): Promise<void> {
     const notificationId = (job.data as { notificationId?: string }).notificationId;
@@ -160,6 +189,7 @@ export class Processors implements OnModuleInit {
         return;
 
       case 'RETRY':
+      case 'RATE_LIMITED':
         await this.notifications.markFailed(notification.id, outcome.reason);
         // Thrown, so BullMQ applies the backoff and eventually dead-letters it.
         throw new Error(outcome.reason);
@@ -289,6 +319,11 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      case JOBS.CAMPAIGN_DISPATCH: {
+        await this.onCampaignDispatch();
+        return;
+      }
+
       /**
        * The retention purge (§8), which M15 built as a service and left here to
        * schedule — the same split every other sweep above went through.
@@ -321,6 +356,161 @@ export class Processors implements OnModuleInit {
       default:
         this.logger.warn(`Unknown scheduled job ${job.name}`);
     }
+  }
+
+  /**
+   * Turn confirmed campaigns into individual send jobs (M22 phase 4).
+   *
+   * Bounded per pass. A four-thousand-recipient broadcast becomes four thousand
+   * queued jobs eventually, and building all of them in one tick would put four
+   * thousand entries into Redis before the limiter has released the first — which
+   * is a memory spike for no gain, since the limiter is what decides throughput.
+   *
+   * Nothing is mutated to "claim" a recipient. The BullMQ job id is derived from
+   * the recipient row, so a second pass over the same rows re-adds ids that already
+   * exist and BullMQ ignores them. That is the first of the two idempotency layers;
+   * the row's own `PENDING → terminal` transition is the second.
+   */
+  private async onCampaignDispatch(): Promise<void> {
+    const campaigns = await this.messaging.claimSendingCampaigns();
+
+    for (const campaign of campaigns) {
+      const pending = await this.messaging.pendingDeliveries(campaign.id, DISPATCH_BATCH);
+
+      for (const delivery of pending) {
+        await this.queues.enqueue(
+          QUEUES.TELEGRAM_SEND,
+          JOBS.CAMPAIGN_SEND,
+          jobId('campaign', delivery.recipientId),
+          { recipientId: delivery.recipientId, campaignId: delivery.campaignId },
+        );
+      }
+
+      if (pending.length === 0) {
+        // Nothing left to enqueue. Whether that means "finished" depends on what
+        // the send jobs did, which `finalizeIfDone` reads rather than assumes.
+        const finished = await this.messaging.finalizeIfDone(campaign.id);
+        if (finished) this.logger.log(`Campaign ${campaign.publicId} finished`);
+      } else {
+        // Keep the panel's tally moving while a long broadcast drains, so an
+        // operator watching it sees progress rather than a number that jumps at
+        // the end.
+        await this.messaging.refreshCounts(campaign.id);
+      }
+    }
+  }
+
+  /**
+   * One recipient of one campaign.
+   *
+   * The outcomes are the same four `onSend` handles and are recorded differently,
+   * because a campaign has to be able to report them separately afterwards:
+   *
+   *  - **SENT** records the Telegram message id.
+   *  - **BLOCKED** is terminal and not a failure. There is nobody to deliver to,
+   *    and retrying a block burns the budget other messages need (ADR-0005).
+   *  - **RATE_LIMITED** stays pending and throws, so BullMQ backs off — and
+   *    increments the campaign's breaker. Past the threshold the campaign pauses
+   *    itself rather than pushing on, because a 429 that survived `auto-retry` and
+   *    the global limiter is Telegram asking us to stop.
+   *  - **RETRY** stays pending and throws.
+   *
+   * A recipient the campaign no longer wants — cancelled, paused, or already
+   * resolved — comes back null from `loadDelivery` and this returns without
+   * sending. That is what makes cancel mean something for a job already sitting in
+   * Redis.
+   */
+  private async onCampaignSend(job: Job): Promise<void> {
+    const data = job.data as { recipientId?: string; campaignId?: string };
+    if (data.recipientId === undefined || data.campaignId === undefined) return;
+
+    const target = await this.messaging.loadDelivery(data.recipientId);
+    if (!target) return;
+
+    if (target.telegramUserId === null || target.botBlocked) {
+      await this.messaging.recordDelivery(data.recipientId, { status: 'INVALID' });
+      return;
+    }
+
+    const outcome = await this.telegram.send(target.telegramUserId, target.bodyText, undefined, {
+      parseMode: target.parseMode,
+    });
+
+    switch (outcome.kind) {
+      case 'SENT':
+        this.rateLimitStreak.delete(data.campaignId);
+        await this.messaging.recordDelivery(data.recipientId, {
+          status: 'SENT',
+          telegramMessageId: outcome.messageId,
+        });
+        return;
+
+      case 'BLOCKED':
+        await this.messaging.recordDelivery(data.recipientId, {
+          status: 'BLOCKED',
+          error: outcome.reason,
+        });
+        return;
+
+      case 'RATE_LIMITED': {
+        await this.messaging.recordAttempt(data.recipientId, outcome.reason);
+        await this.onRateLimited(data.campaignId, outcome.reason);
+        throw new Error(outcome.reason);
+      }
+
+      case 'RETRY': {
+        await this.messaging.recordAttempt(data.recipientId, outcome.reason);
+        // A send that has run out of attempts is a failure this recipient keeps,
+        // rather than a row that stays PENDING forever and stops the campaign
+        // finalising.
+        if (job.attemptsMade + 1 >= (job.opts.attempts ?? 1)) {
+          await this.messaging.recordDelivery(data.recipientId, {
+            status: 'FAILED',
+            error: outcome.reason,
+          });
+          return;
+        }
+        throw new Error(outcome.reason);
+      }
+    }
+  }
+
+  /**
+   * The circuit breaker.
+   *
+   * In memory, per campaign, for the reason `TelegramLoggerService` keeps its
+   * throttle in memory: this is a property of the run rather than of a row, there
+   * is one worker, and a breaker that needs a network round trip to decide whether
+   * the network is angry is not a breaker. A restart resets it, which is the right
+   * default — a fresh process should try again.
+   *
+   * Pausing rather than cancelling: the campaign keeps its pending recipients and
+   * an operator resumes it once Telegram has calmed down. Cancelling would throw
+   * away the remaining audience over what may be a five-minute problem.
+   */
+  private async onRateLimited(campaignId: string, reason: string): Promise<void> {
+    const streak = (this.rateLimitStreak.get(campaignId) ?? 0) + 1;
+    this.rateLimitStreak.set(campaignId, streak);
+
+    this.metrics.counter(
+      'payetam_campaign_rate_limited_total',
+      'Campaign deliveries refused by Telegram with 429.',
+      {},
+    );
+
+    if (streak < RATE_LIMIT_BREAKER_THRESHOLD) return;
+
+    await this.messaging.pause(campaignId, `rate limited ${String(streak)} times in a row`);
+    this.rateLimitStreak.delete(campaignId);
+
+    // Keyed on the campaign, so a paused one alerts once rather than once per
+    // recipient still in flight.
+    this.alerts.alert(`campaign-paused:${campaignId}`, 'error', 'A campaign paused itself', {
+      campaignId,
+      reason,
+      threshold: RATE_LIMIT_BREAKER_THRESHOLD,
+    });
+    this.logger.error(`Campaign ${campaignId} paused after repeated rate limits`);
   }
 
   /**

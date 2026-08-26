@@ -9,6 +9,7 @@ import {
   type AdminUserDetailView,
   type ProfileView,
   type SetUserStatusRequest,
+  type TelegramIdentityView,
 } from '@payetam/shared';
 import { messageOf, newIdempotencyKey, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
@@ -328,6 +329,41 @@ async function submitProfileEdit(): Promise<void> {
   }
 }
 
+// ── Telegram identity (M22 phase 12) ────────────────────────────────────────
+
+/**
+ * The one place in the panel that can see a Telegram id.
+ *
+ * Behind `user.telegram.read`, which `SUPER_ADMIN` alone holds, and **loaded on
+ * demand rather than with the page**. That is not laziness: the API writes an
+ * audit row on every read, so fetching it with the rest of the profile would
+ * record "looked at somebody's Telegram id" every time anybody opened a user —
+ * which would make the trail useless for the question it exists to answer.
+ *
+ * When there is no username there is no link, and the screen says so. A
+ * `tg://user?id=…` would resolve only for a client that already knows the peer;
+ * offering one that silently does nothing is worse than offering none, and the
+ * answer in that case is to send a message from the panel instead.
+ */
+const telegram = ref<TelegramIdentityView | null>(null);
+const telegramError = ref<string | null>(null);
+const telegramBusy = ref(false);
+
+const canSeeTelegram = computed(() => session.can(PERMISSIONS.USER_TELEGRAM_READ));
+
+async function revealTelegram(): Promise<void> {
+  if (telegramBusy.value) return;
+  telegramBusy.value = true;
+  telegramError.value = null;
+  try {
+    telegram.value = await request<TelegramIdentityView>(`/users/${publicId.value}/telegram`);
+  } catch (cause) {
+    telegramError.value = messageOf(cause, 'شناسهٔ تلگرام خوانده نشد.');
+  } finally {
+    telegramBusy.value = false;
+  }
+}
+
 /** «۳ درخواست پذیرفته‌شده، ۱ عدم حضور» — the sparse tally, rendered. */
 const participationRows = computed(() =>
   Object.entries(detail.value?.participations ?? {}).sort(([a], [b]) => a.localeCompare(b)),
@@ -595,6 +631,73 @@ onMounted(load);
             انصراف
           </button>
         </div>
+      </section>
+
+      <!-- ── Telegram identity (M22 phase 12) ─────────────────────────── -->
+      <section v-if="canSeeTelegram" class="rounded-xl border border-line bg-surface p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold">هویت تلگرام</h2>
+          <button
+            v-if="telegram === null"
+            type="button"
+            class="min-h-9 rounded-lg border border-line px-3 text-xs disabled:opacity-40"
+            :disabled="telegramBusy"
+            @click="revealTelegram"
+          >
+            {{ telegramBusy ? 'در حال خواندن…' : 'نمایش' }}
+          </button>
+        </div>
+
+        <p v-if="telegram === null && telegramError === null" class="mt-1 text-xs text-ink-faint">
+          این اطلاعات به‌صورت پیش‌فرض بارگذاری نمی‌شود. هر بار نمایش، یک ردیف در گزارش رخدادها ثبت
+          می‌کند.
+        </p>
+        <p v-if="telegramError" class="mt-2 text-sm text-danger" role="alert">
+          {{ telegramError }}
+        </p>
+
+        <dl v-if="telegram" class="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          <div>
+            <dt class="inline text-ink-soft">شناسهٔ عددی:</dt>
+            <dd class="inline">
+              <bdi class="font-mono">{{ telegram.telegramUserId }}</bdi>
+            </dd>
+          </div>
+          <div>
+            <dt class="inline text-ink-soft">نام کاربری:</dt>
+            <dd class="inline">
+              <bdi v-if="telegram.username" class="font-mono">@{{ telegram.username }}</bdi>
+              <span v-else class="text-ink-faint">ندارد</span>
+            </dd>
+          </div>
+          <div>
+            <dt class="inline text-ink-soft">ربات را بلاک کرده:</dt>
+            <dd class="inline">{{ telegram.botBlocked ? 'بله' : 'خیر' }}</dd>
+          </div>
+          <div>
+            <dt class="inline text-ink-soft">آخرین حضور:</dt>
+            <dd class="inline">{{ formatDate(telegram.lastSeenAt) }}</dd>
+          </div>
+          <div class="sm:col-span-2">
+            <!--
+              `rel="noopener noreferrer"` because this leaves the panel, and
+              `target="_blank"` without it hands the opened tab a reference back.
+            -->
+            <a
+              v-if="telegram.directLink"
+              :href="telegram.directLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-brand underline"
+            >
+              باز کردن گفت‌وگو در تلگرام
+            </a>
+            <p v-else class="text-xs text-ink-faint">
+              این کاربر نام کاربری عمومی ندارد، پس پیوند مستقیمی وجود ندارد که تلگرام بتواند باز
+              کند. برای تماس، از بخش «پیام‌ها» استفاده کنید.
+            </p>
+          </div>
+        </dl>
       </section>
 
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

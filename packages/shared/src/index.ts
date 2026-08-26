@@ -293,6 +293,15 @@ export {
   policyConsentView,
   policyConsentQuery,
   policyConsentResponse,
+  messageAudience,
+  previewMessageRequest,
+  messagePreviewResponse,
+  createMessageRequest,
+  messageCampaignStatus,
+  deliveryCountsView,
+  messageCampaignView,
+  messageCampaignListResponse,
+  telegramIdentityView,
   catalogSlug,
   adminProvinceView,
   adminProvinceListResponse,
@@ -396,6 +405,15 @@ export type {
   PolicyConsentView,
   PolicyConsentQuery,
   PolicyConsentResponse,
+  MessageAudienceRequest,
+  PreviewMessageRequest,
+  MessagePreviewResponse,
+  CreateMessageRequest,
+  MessageCampaignStatusView,
+  DeliveryCountsView,
+  MessageCampaignView,
+  MessageCampaignListResponse,
+  TelegramIdentityView,
   AdminProvinceView,
   AdminProvinceListResponse,
   AdminCityView,
@@ -415,6 +433,9 @@ export type {
 } from './contracts/admin';
 
 export { foldForSearch, foldedIncludes } from './search-fold';
+
+export { TELEGRAM_MESSAGE_LIMIT, validateTelegramMessage } from './telegram-message';
+export type { MessageFormatProblem, MessageFormatVerdict } from './telegram-message';
 
 export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';
 export type { ImageFormat, UploadVerdict, UploadRejection } from './upload';

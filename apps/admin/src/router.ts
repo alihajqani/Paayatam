@@ -123,6 +123,23 @@ const routes: RouteRecordRaw[] = [
   },
   {
     /**
+     * Sending a Telegram message (M22 phase 4).
+     *
+     * `message.send` opens the screen; the wider `message.broadcast` is what the
+     * filter controls need, and the compose form disables them without it. Both
+     * are checked again in the service — hiding a control is a courtesy.
+     *
+     * Filed under «اقتصاد»? No — under `system`, because this is an operational
+     * capability rather than a lever on the economy, and it sits next to the
+     * audit trail an operator checks after using it.
+     */
+    path: '/messages',
+    name: 'messages',
+    component: () => import('@/views/MessagesView.vue'),
+    meta: { title: 'پیام‌ها', permission: PERMISSIONS.MESSAGE_SEND, group: 'system' },
+  },
+  {
+    /**
      * Provinces and cities (M22 phase 9).
      *
      * `catalog.manage`, the same key the activity tags sit behind: both are lists

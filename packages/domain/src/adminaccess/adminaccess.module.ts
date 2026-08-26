@@ -3,6 +3,7 @@ import { CatalogModule } from '../catalog/catalog.module';
 import { ChatModule } from '../chat/chat.module';
 import { EconomyModule } from '../economy/economy.module';
 import { IdentityModule } from '../identity/identity.module';
+import { MessagingModule } from '../messaging/messaging.module';
 import { ProfileModule } from '../profile/profile.module';
 import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
@@ -11,6 +12,7 @@ import { AdminOperationsService } from './admin-operations.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { GeographyAdminService } from './geography-admin.service';
+import { MessagingAdminService } from './messaging-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
@@ -32,7 +34,14 @@ import { ReferralAdminService } from './referral-admin.service';
  * a fifteen-minute clock.
  */
 @Module({
-  imports: [CatalogModule, ChatModule, EconomyModule, IdentityModule, ProfileModule],
+  imports: [
+    CatalogModule,
+    ChatModule,
+    EconomyModule,
+    IdentityModule,
+    MessagingModule,
+    ProfileModule,
+  ],
   providers: [
     AdminCredentials,
     AdminAccessService,
@@ -43,6 +52,7 @@ import { ReferralAdminService } from './referral-admin.service';
     ReferralAdminService,
     CatalogAdminService,
     GeographyAdminService,
+    MessagingAdminService,
     PolicyAdminService,
   ],
   exports: [
@@ -55,6 +65,7 @@ import { ReferralAdminService } from './referral-admin.service';
     ReferralAdminService,
     CatalogAdminService,
     GeographyAdminService,
+    MessagingAdminService,
     PolicyAdminService,
   ],
 })

@@ -11,6 +11,16 @@ export type SendOutcome =
   | { kind: 'SENT'; messageId: number }
   /** The bot is blocked or the chat is gone. Terminal — never retry (ADR-0005). */
   | { kind: 'BLOCKED'; reason: string }
+  /**
+   * Telegram answered 429 and `auto-retry` could not absorb it (M22 phase 4).
+   *
+   * Retryable like `RETRY`, and reported separately because it means something
+   * different: a rate limit that survives both the plugin's `retry_after` sleep
+   * and BullMQ's global limiter is Telegram asking us to stop, not a blip. A
+   * campaign that sees several in a row trips its circuit breaker, which nothing
+   * could do if this arrived indistinguishable from a network error.
+   */
+  | { kind: 'RATE_LIMITED'; reason: string; retryAfterSeconds: number | null }
   /** Anything else. The queue's backoff applies. */
   | { kind: 'RETRY'; reason: string };
 
@@ -110,6 +120,7 @@ export class TelegramClient {
       const outcome = classify(error);
       if (outcome.kind === 'SENT') return true;
       if (outcome.kind === 'BLOCKED') return true;
+      if (outcome.kind === 'RATE_LIMITED') return false;
       // Telegram refuses to delete anything older than 48 hours in some chats.
       // Treated as done for the same reason a missing message is: retrying cannot
       // change it, and the row must stop being reconsidered on every sweep.
@@ -117,12 +128,27 @@ export class TelegramClient {
     }
   }
 
-  async send(chatId: bigint, text: string, keyboard?: InlineKeyboard): Promise<SendOutcome> {
+  /**
+   * Send one message to one person.
+   *
+   * `parseMode` defaults to `'HTML'`, which is what every template in
+   * `packages/telegram` is written for and what every caller before M22 wanted.
+   * An admin-authored body passes `undefined` instead: with no parse mode Telegram
+   * renders the text literally, so there is nothing to escape and nothing to
+   * inject — which is why plain is the default on *that* path and HTML is opt-in
+   * (see `validateTelegramMessage`).
+   */
+  async send(
+    chatId: bigint,
+    text: string,
+    keyboard?: InlineKeyboard,
+    options: { parseMode?: 'HTML' | undefined } = { parseMode: 'HTML' },
+  ): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 
     try {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
-        parse_mode: 'HTML',
+        ...(options.parseMode !== undefined ? { parse_mode: options.parseMode } : {}),
         link_preview_options: { is_disabled: true },
         ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
       });
@@ -196,6 +222,17 @@ export function classify(error: unknown): SendOutcome {
     if (error.error_code === 403) return { kind: 'BLOCKED', reason: error.description };
     if (error.error_code === 400 && /chat not found/i.test(error.description)) {
       return { kind: 'BLOCKED', reason: error.description };
+    }
+    if (error.error_code === 429) {
+      // `parameters.retry_after` is what Telegram asks us to wait. Surfaced rather
+      // than swallowed so a caller can log it and a breaker can act on it; the
+      // *waiting* is still `auto-retry`'s and BullMQ's job.
+      const retryAfter = error.parameters.retry_after;
+      return {
+        kind: 'RATE_LIMITED',
+        reason: `429: ${error.description}`,
+        retryAfterSeconds: typeof retryAfter === 'number' ? retryAfter : null,
+      };
     }
     return { kind: 'RETRY', reason: `${String(error.error_code)}: ${error.description}` };
   }

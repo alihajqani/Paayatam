@@ -84,6 +84,15 @@ export const JOBS = {
    * no user**, which is what keeps a Telegram identifier out of Redis.
    */
   BOT_CALLBACK_ANSWER: 'bot-callback-answer',
+  /**
+   * One recipient of an admin campaign or a paid invitation (M22 phases 4 and 11).
+   *
+   * On `telegram-send` with everything else, so it shares the one global limiter:
+   * a four-thousand-recipient broadcast must not be able to starve the reply
+   * somebody is watching a spinner for. The job id is derived from the recipient
+   * row, so re-adding it is a no-op and the dispatcher is free to run twice.
+   */
+  CAMPAIGN_SEND: 'campaign-send',
 
   // The repeatable sweeps (ADR-0005's schedule).
   EVENT_LIFECYCLE: 'event-lifecycle',
@@ -96,6 +105,18 @@ export const JOBS = {
   CHANNEL_SYNC: 'channel-sync',
   /** The retention purge (§8): expired chats, notifications, outbox and audit rows. */
   RETENTION_PURGE: 'retention-purge',
+  /**
+   * Turn confirmed campaigns into individual send jobs (M22 phase 4).
+   *
+   * On `scheduled` rather than `telegram-send`, because it talks to Postgres and
+   * not to Telegram — putting it behind the 25/s limiter would pace the *planning*
+   * of a broadcast at the speed of its delivery.
+   *
+   * Enqueued directly by the API the moment a campaign is confirmed, so a send
+   * starts in seconds; the minute-by-minute schedule below is the backstop for a
+   * worker that was down when that happened.
+   */
+  CAMPAIGN_DISPATCH: 'campaign-dispatch',
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
@@ -149,6 +170,10 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
   { name: JOBS.REVIEW_SWEEP, pattern: '0 * * * *' },
   { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
   { name: JOBS.CHANNEL_SYNC, pattern: '*/5 * * * *' },
+  // Every minute. The API nudges this queue on confirmation, so the schedule is
+  // the backstop rather than the mechanism — a campaign confirmed while the worker
+  // was restarting is picked up within a minute instead of never.
+  { name: JOBS.CAMPAIGN_DISPATCH, pattern: '* * * * *' },
   /**
    * Once a night, in the quietest hour Tehran has.
    *

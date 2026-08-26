@@ -21,7 +21,9 @@ import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ProfileService } from '../profile/profile.service';
+import { MessagingService } from '../messaging/messaging.service';
 import { GeographyAdminService } from './geography-admin.service';
+import { MessagingAdminService } from './messaging-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import {
@@ -99,6 +101,8 @@ const insight = new AdminInsightService(service, clock, access);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
+const messaging = new MessagingService(service, clock, audit);
+const messagingAdmin = new MessagingAdminService(service, access, messaging, audit);
 
 /**
  * One admin operation, and the permission it demands.
@@ -457,6 +461,54 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.CATALOG_MANAGE,
     run: (session) => geography.reorderCities(session, [NO_SUCH_ID]),
   },
+  {
+    // A one-user audience is the narrow case, so `message.send` alone covers it.
+    name: 'POST /admin/v1/messages/preview (one recipient)',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) =>
+      messagingAdmin.preview(session, {
+        audience: { userPublicIds: [NO_SUCH_ID] },
+        bodyText: 'سلام',
+      }),
+  },
+  {
+    // A filter is a broadcast, whatever its size, and needs the wider key.
+    name: 'POST /admin/v1/messages/preview (a filter)',
+    permission: PERMISSIONS.MESSAGE_BROADCAST,
+    run: (session) =>
+      messagingAdmin.preview(session, { audience: { everyone: true }, bodyText: 'سلام' }),
+  },
+  {
+    name: 'POST /admin/v1/messages',
+    permission: PERMISSIONS.MESSAGE_BROADCAST,
+    run: (session) =>
+      messagingAdmin.create(session, {
+        kind: 'BROADCAST',
+        bodyText: 'سلام',
+        audience: { everyone: true },
+        idempotencyKey: 'matrix-create-key',
+      }),
+  },
+  {
+    name: 'POST /admin/v1/messages/:publicId/confirm',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) => messagingAdmin.confirm(session, NO_SUCH_ID),
+  },
+  {
+    name: 'POST /admin/v1/messages/:publicId/cancel',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) => messagingAdmin.cancel(session, NO_SUCH_ID),
+  },
+  {
+    name: 'GET /admin/v1/messages',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) => messagingAdmin.list(session),
+  },
+  {
+    name: 'GET /admin/v1/users/:publicId/telegram',
+    permission: PERMISSIONS.USER_TELEGRAM_READ,
+    run: (session) => messagingAdmin.telegramIdentity(session, NO_SUCH_ID),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -494,7 +546,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(56);
+    expect(OPERATIONS).toHaveLength(63);
   });
 
   for (const role of ROLES) {

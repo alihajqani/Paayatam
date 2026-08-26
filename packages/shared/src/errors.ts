@@ -113,6 +113,19 @@ export const ErrorCode = {
   /** Archiving the current version would leave the type with none, and lock out onboarding. */
   POLICY_IS_CURRENT: 'POLICY_IS_CURRENT',
 
+  // Outbound messaging (M22 phase 4)
+  /**
+   * The body is empty, too long, or carries markup Telegram will not accept.
+   *
+   * Refused rather than sanitised: an operator who pasted markup from a document
+   * should find out before four thousand people receive something mangled, and a
+   * sanitiser that drops half a tag produces a message nobody wrote. `details`
+   * carries every problem so the panel can name them all at once.
+   */
+  MESSAGE_FORMAT_INVALID: 'MESSAGE_FORMAT_INVALID',
+  /** A rehearsal cannot be promoted into a send. Compose it again for real. */
+  MESSAGE_DRY_RUN: 'MESSAGE_DRY_RUN',
+
   // Catalog administration (M21)
   /** Two categories cannot share a slug — it is the identifier code refers to. */
   CATALOG_SLUG_TAKEN: 'CATALOG_SLUG_TAKEN',
@@ -223,6 +236,10 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   POLICY_CONFIRMATION_MISMATCH: 'شمارهٔ نسخه‌ای که وارد کردید با پیش‌نویس هم‌خوانی ندارد.',
   POLICY_IS_CURRENT: 'نسخهٔ جاری را نمی‌توان بایگانی کرد. ابتدا نسخهٔ تازه‌ای منتشر کنید.',
 
+  MESSAGE_FORMAT_INVALID: 'متن پیام برای تلگرام معتبر نیست. طول و قالب‌بندی را بررسی کنید.',
+  MESSAGE_DRY_RUN:
+    'این یک پیش‌نمایش است و قابل ارسال نیست. پیام را دوباره برای ارسال واقعی بسازید.',
+
   CATALOG_SLUG_TAKEN: 'این شناسه پیش‌تر برای تفریح دیگری ثبت شده است.',
   CATALOG_TAG_IN_USE:
     'این تفریح در فعالیت‌های ثبت‌شده استفاده شده است؛ به‌جای حذف، آن را غیرفعال کنید.',
@@ -279,6 +296,8 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   CATALOG_SLUG_TAKEN: 409,
   CATALOG_TAG_IN_USE: 409,
   CITY_HAS_REFERENCES: 409,
+  MESSAGE_FORMAT_INVALID: 422,
+  MESSAGE_DRY_RUN: 409,
   POLICY_DRAFT_EXISTS: 409,
   POLICY_NOT_EDITABLE: 409,
   POLICY_IS_CURRENT: 409,
