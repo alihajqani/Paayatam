@@ -221,7 +221,7 @@ Each of these is a gap in the **API**, and the panel does not mock one up.
 | **Escalate a case** | `decideCase` takes `APPROVED` or `REJECTED`; `ESCALATED` is a status the automation sets |
 | **Break-glass chat unseal** | The API has it (`POST /chats/:id/unseal`) and it is deliberately **not** on a screen yet. It needs an open case, a written reason and a 15-minute box, and every message read is audited individually (T14) — a workflow that deserves designing rather than a button |
 | **Role changes / four-eyes approval** | `POST /roles/requests` and its approval exist. Same reasoning: a capability that lets one account become every role wants a considered screen |
-| **Blacklist, catalog and policy management** | §6 lists them; no API was built for them in M12 and none is invented here |
+| **Blacklist and policy management** | §6 lists them; no API was built for them in M12 and none is invented here. **Catalog management shipped in M21** — see §7.1 |
 | **CSV export of the ledger or the audit trail** | Both are paginated reads. An export is a decision about where a file of user records is allowed to go, and it belongs with a retention answer |
 
 ---
@@ -247,6 +247,38 @@ Each row shows its documented default beside its current value. A change needs a
 | Scheduled sweeps | Their next tick. A job keeps what it has already read |
 
 No setting needs a restart.
+
+
+### 7.1 Activity tags — «تفریحات» (M21)
+
+`catalog.manage` sat in the permission catalogue from M12 with nothing behind it: the panel could
+authorise an act nobody could perform. **پنل مدیریت → سیستم → تفریحات** (`/activities`) is that act.
+
+Add, rename, re-icon, reorder, enable, disable and delete the activity tags a host files an event
+under — and set which cities each is offered in. Adding an activity used to mean editing
+`tools/seed-catalog.ts`, getting a review and shipping a release, which is the wrong shape for a
+list whose job is to grow every time the product enters a city it has not served.
+
+Four refusals the screen surfaces rather than discovers:
+
+- **A slug cannot be renamed.** There is no slug field on the update endpoint at all. It is the
+  identifier seeds, tests and documentation refer to.
+- **A tag with events cannot be deleted.** `event.category_id` is `RESTRICT`; the row carries its
+  `eventCount`, so the button is disabled with the count in the tooltip. Deactivate instead.
+- **Reordering is one request.** Up/down sends the whole order in a transaction, so a half-applied
+  change cannot leave the list in an order nobody chose.
+- **A city restriction can only name a real city.** The picker is fed by `GET /admin/v1/places`.
+
+The «عنوان دلخواه» checkbox is the «سایر» behaviour: hosts type their own activity name, which is
+blacklist-scanned like the event title. It is a column (`category.allows_custom_label`), not a
+`slug === 'other'` check, so renaming the row or adding a second catch-all needs no release.
+
+Everything writes `audit_log` (`catalog.tag.created` / `.updated` / `.deleted` / `.reordered`).
+
+Cities, districts and interests stay seed-managed — cities are now generated data with a provenance,
+and a screen for hand-editing 1,252 generated rows would invite the drift the generator prevents.
+[`docs/activities-and-places.md`](activities-and-places.md) is the full guide, including how to do
+any of this from a seed file instead.
 
 ---
 

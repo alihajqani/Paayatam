@@ -320,17 +320,29 @@ on a brand-new database, never on one with data you care about:
 
 ```bash
 cd /srv/payetam
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:policies   # cancellation windows, thresholds
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:catalog    # categories and cities
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:blacklist  # the moderation word list
-./scripts/compose.sh --profile tools run --rm tools pnpm seed:settings   # default runtime settings
+./scripts/compose.sh --profile tools run --rm tools pnpm seed:policies    # cancellation windows, thresholds
+./scripts/compose.sh --profile tools run --rm tools pnpm seed:geography  # 31 provinces, 1,252 cities
+./scripts/compose.sh --profile tools run --rm tools pnpm seed:catalog     # activity tags, interests, districts
+./scripts/compose.sh --profile tools run --rm tools pnpm seed:blacklist   # the moderation word list
+./scripts/compose.sh --profile tools run --rm tools pnpm seed:settings    # default runtime settings
 ```
+
+`seed:geography` before `seed:catalog`: districts are attached to a city by slug, and the
+catalog seed skips them with a warning if the city is not there yet.
+
+**`seed:geography` is the one seed on this list that is safe to re-run on a live
+database.** It can only ever *widen* availability — a city that is active stays
+active whatever `--activate` says — because a seed that could switch a served city
+off is one that can take a city's users offline by being run at the wrong moment.
+Pass `--activate=capitals` or `--activate=none` for a staged rollout; see
+[`docs/activities-and-places.md`](docs/activities-and-places.md) §3.
 
 | Seed | Writes | Safe to re-run? |
 |---|---|---|
 | `seed:rbac` | Roles and permissions | ✅ Yes — the deploy does it every time |
 | `seed:policies` | Policy thresholds | ⚠️ Overwrites anything edited in the panel |
-| `seed:catalog` | Categories, cities | ⚠️ Overwrites the catalogue |
+| `seed:geography` | Provinces and cities | ✅ Yes — never deactivates a served city |
+| `seed:catalog` | Activity tags, interests, districts | ⚠️ Overwrites names and ordering |
 | `seed:blacklist` | Blocked words | ⚠️ Overwrites the list |
 | `seed:settings` | Runtime settings | ⚠️ Overwrites settings edited in the panel |
 | `seed:events` | **Fake events** | ⛔ Never in production |

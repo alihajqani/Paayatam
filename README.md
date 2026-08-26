@@ -92,6 +92,7 @@ including two delivery bugs that sat behind a green test suite for four mileston
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | **The master plan.** Frozen decisions, data model, state machines, milestones, acceptance criteria. Read this first |
 | [`docs/adr/`](docs/adr/README.md) | Architecture Decision Records — one decision each, with what was rejected and why |
 | [`docs/threat-model.md`](docs/threat-model.md) | Assets, adversaries, controls, and **explicitly accepted risks** |
+| [`docs/activities-and-places.md`](docs/activities-and-places.md) | **Adding an activity tag or a city.** Panel vs. seed file, slug rules, the «سایر» flag |
 | [`docs/glossary-fa.md`](docs/glossary-fa.md) | Persian ↔ English terms, error messages, typography rules |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | **Putting it on a server.** Step by step, from a bare VPS to a verified deploy |
 | [`SECURITY.md`](SECURITY.md) | What the production stack exposes, what protects it, and what is accepted |
