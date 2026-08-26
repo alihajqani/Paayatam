@@ -60,6 +60,7 @@ const TEST_POOL_SIZE = 10;
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRaw`
     TRUNCATE TABLE
+      "event_invitation", "message_recipient", "message_campaign",
       "notification", "job_failure", "outbox_event", "moderation_case",
       "chat_action", "chat_message",
       "chat_participant", "chat_unseal_grant", "anonymous_chat",
@@ -71,7 +72,7 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
       "trust_score_ledger", "trust_score", "coin_ledger",
       "coin_account", "consent", "telegram_account", "audit_log", "user",
       "policy_version", "interest", "category", "district", "city",
-      "app_setting", "feature_flag"
+      "app_setting", "feature_flag", "province", "event_channel_config"
     RESTART IDENTITY CASCADE
   `;
 }
