@@ -46,7 +46,30 @@ let onUnauthenticated: (() => void) | null = null;
 
 export function setCsrfToken(token: string | null): void {
   csrfToken = token;
+  // A sign-in or a sign-out changes who is asking. An answer fetched for the
+  // previous session must not be handed to the next one.
+  inFlight.clear();
 }
+
+/**
+ * GETs sent and not yet answered, keyed by path **and query** (M22 phase 3).
+ *
+ * The query is part of the key here and is not in the Mini App's copy, because
+ * this is where it matters: every list screen in the panel is
+ * `?query=&status=&limit=&offset=`, and two of those differing only in `offset`
+ * are two different requests. Collapsing them on path alone would serve page one
+ * to a person who asked for page two.
+ *
+ * What it does collapse is the real duplicate: a `watch` on a filter that fires
+ * twice in a tick, a moderator clicking a column header twice, a screen that
+ * mounts and immediately re-reads. **Only while in flight** — the entry is
+ * dropped when the request settles, so this is deduplication and never a cache.
+ * A queue screen that showed a stale answer would be worse than a slow one.
+ *
+ * Mutations are never collapsed: two identical POSTs are two intentions, and
+ * `Idempotency-Key` is what makes a repeat of one safe.
+ */
+const inFlight = new Map<string, Promise<unknown>>();
 
 /**
  * What to do when the API says the session is gone.
@@ -80,6 +103,20 @@ export function newIdempotencyKey(): string {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  if ((options.method ?? 'GET') !== 'GET') return send<T>(path, options);
+
+  const key = `${path}${toQuery(options.query)}`;
+  const existing = inFlight.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const pending = send<T>(path, options).finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, pending);
+  return pending;
+}
+
+async function send<T>(path: string, options: RequestOptions): Promise<T> {
   const method = options.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';

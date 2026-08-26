@@ -27,7 +27,29 @@ let accessToken: string | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  // A reply fetched under the previous token must never be handed to a caller
+  // asking under the new one. Cheap to drop; the alternative is a cache keyed on
+  // a credential.
+  inFlight.clear();
 }
+
+/**
+ * GETs that have been sent and not yet answered, keyed by path (M22 phase 3).
+ *
+ * Two components mounting in the same tick and asking for the same thing is one
+ * request, not two. That happens more than it looks: the home screen loads chats
+ * and reviews while the router is still settling, a user double-taps a row on a
+ * slow connection, a retry fires while the first attempt is still open. On the
+ * networks this app is built for (ADR-0003) the round trip is the expensive part,
+ * so collapsing duplicates is worth more than any byte saved in the bundle.
+ *
+ * **Only GETs, and only while in flight.** This is not a cache: the entry is
+ * dropped the moment the request settles, so the next call goes to the network
+ * and nothing can serve a stale answer. A mutation is never collapsed — two
+ * identical POSTs are two intentions, and the thing that makes a repeat safe is
+ * `Idempotency-Key`, which is a different mechanism with a different guarantee.
+ */
+const inFlight = new Map<string, Promise<unknown>>();
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT';
@@ -58,6 +80,20 @@ export function newIdempotencyKey(): string {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = options.method ?? 'GET';
+  if (method !== 'GET') return send<T>(path, options);
+
+  const existing = inFlight.get(path);
+  if (existing) return existing as Promise<T>;
+
+  const pending = send<T>(path, options).finally(() => {
+    inFlight.delete(path);
+  });
+  inFlight.set(path, pending);
+  return pending;
+}
+
+async function send<T>(path: string, options: RequestOptions): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
