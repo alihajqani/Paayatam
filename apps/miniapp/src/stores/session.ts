@@ -7,7 +7,9 @@ import type {
   CompleteProfileResponse,
   MeResponse,
   PolicyView,
+  ProfileView,
   SessionUser,
+  UpdateProfileRequest,
 } from '@payetam/shared';
 import { request, setAccessToken } from '@/api/client';
 import { webApp } from '@/telegram/webapp';
@@ -150,6 +152,28 @@ export const useSessionStore = defineStore('session', () => {
     return response;
   }
 
+  /**
+   * Edit an existing profile (M22 phase 2).
+   *
+   * `PATCH`, carrying only the fields that changed — the server leaves an absent
+   * one alone, so a screen that renders four inputs cannot clear a fifth it never
+   * showed.
+   *
+   * The response is written straight into `me` rather than merged, and then `/me`
+   * is **not** re-fetched: the server has just told us the whole profile it
+   * stored, so asking again would be a second round trip to learn the same thing.
+   * Nothing is applied optimistically — the store is updated after the server
+   * agrees, so a failed request leaves the screen showing what is actually saved.
+   */
+  async function updateProfile(input: UpdateProfileRequest): Promise<ProfileView> {
+    const response = await request<{ profile: ProfileView }>('/me/profile', {
+      method: 'PATCH',
+      body: input,
+    });
+    if (me.value) me.value = { ...me.value, profile: response.profile };
+    return response.profile;
+  }
+
   return {
     me,
     // `refreshToken` is deliberately not returned: nothing outside this store needs
@@ -167,5 +191,6 @@ export const useSessionStore = defineStore('session', () => {
     acceptTerms,
     loadCatalog,
     completeProfile,
+    updateProfile,
   };
 });

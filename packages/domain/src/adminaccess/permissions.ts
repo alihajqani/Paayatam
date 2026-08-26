@@ -59,6 +59,9 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly Permission[]> = {
     // `fraud_signals` have been recorded since M9 for a human who had no button.
     PERMISSIONS.REFERRAL_MANAGE,
     PERMISSIONS.AUDIT_READ,
+    // A moderator judging an event against the rules needs to be able to read
+    // the rules. Nothing here lets them change one (M22).
+    PERMISSIONS.POLICY_READ,
   ],
 
   SUPPORT: [
@@ -66,6 +69,10 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly Permission[]> = {
     PERMISSIONS.USER_READ,
     PERMISSIONS.REPORT_REVIEW,
     PERMISSIONS.LEDGER_READ,
+    // Reading the current terms is what answers half the questions support gets.
+    // Writing them is not, which is why `policy.manage` and `policy.publish` are
+    // not here (M22).
+    PERMISSIONS.POLICY_READ,
   ],
 
   ANALYST: [PERMISSIONS.DASHBOARD_READ],

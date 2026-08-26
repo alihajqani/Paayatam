@@ -42,6 +42,8 @@ export type {
 export {
   gender,
   completeProfileRequest,
+  updateProfileRequest,
+  adminUpdateProfileRequest,
   profileView,
   coinBalanceView,
   meResponse,
@@ -50,6 +52,8 @@ export {
 export type {
   Gender,
   CompleteProfileRequest,
+  UpdateProfileRequest,
+  AdminUpdateProfileRequest,
   ProfileView,
   CoinBalanceView,
   MeResponse,
@@ -366,6 +370,8 @@ export type {
   ReorderActivityTagsRequest,
   AdminPlacesResponse,
 } from './contracts/admin';
+
+export { foldForSearch, foldedIncludes } from './search-fold';
 
 export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';
 export type { ImageFormat, UploadVerdict, UploadRejection } from './upload';

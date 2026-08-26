@@ -83,6 +83,8 @@ export type {
   CompleteProfileInput,
   ProfileCompletion,
   ProfileDetail,
+  ProfileEditor,
+  UpdateProfileInput,
 } from './profile/profile.service';
 export { ProfileModule } from './profile/profile.module';
 

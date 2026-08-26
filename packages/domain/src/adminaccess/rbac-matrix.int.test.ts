@@ -8,6 +8,7 @@ import {
   TEST_CHAT_ENCRYPTION_KEY,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { CatalogService } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { MessageCipher } from '../chat/message-cipher';
 import { CoinService } from '../economy/coin.service';
@@ -19,6 +20,7 @@ import { ChatUnsealService } from './chat-unseal.service';
 import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
+import { ProfileService } from '../profile/profile.service';
 import { ReferralAdminService } from './referral-admin.service';
 import {
   PERMISSIONS,
@@ -64,9 +66,30 @@ const cipher = new MessageCipher(env);
 // The matrix never authenticates, so Redis is never reached. A stub rather than a
 // live connection keeps this suite about authorisation and nothing else.
 const redis = { client: {} } as unknown as RedisService;
+const catalog = new CatalogService(service, settings);
+// Only `APP_TIMEZONE` is read, and only by the 18+ check on a profile edit.
+const envForProfile: Env = { ...env, APP_TIMEZONE: 'Asia/Tehran' };
 
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
-const operations = new AdminOperationsService(service, clock, access, coins, trust, audit);
+const profiles = new ProfileService(
+  service,
+  clock,
+  envForProfile,
+  catalog,
+  settings,
+  coins,
+  trust,
+  audit,
+);
+const operations = new AdminOperationsService(
+  service,
+  clock,
+  access,
+  coins,
+  trust,
+  audit,
+  profiles,
+);
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);
 const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);
 const referrals = new ReferralAdminService(service, clock, access, audit);
@@ -345,6 +368,15 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.CATALOG_MANAGE,
     run: (session) => catalogAdmin.listPlaces(session),
   },
+  {
+    name: 'PATCH /admin/v1/users/:publicId/profile',
+    permission: PERMISSIONS.USER_PROFILE_EDIT,
+    run: (session) =>
+      operations.updateUserProfile(session, NO_SUCH_ID, {
+        displayName: 'نام تازه',
+        reason: 'اصلاح به درخواست کاربر',
+      }),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -382,7 +414,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(41);
+    expect(OPERATIONS).toHaveLength(42);
   });
 
   for (const role of ROLES) {

@@ -329,3 +329,212 @@ describe('ProfileService.find', () => {
     await expect(profiles.find(userId)).resolves.toBeNull();
   });
 });
+
+/**
+ * Editing a profile that already exists (M22 phase 2).
+ *
+ * What is worth a real database here is what the edit path must *not* do. The
+ * onboarding reward is keyed on the user in `coin_ledger` and `completed_at` is
+ * written once — both are claims about columns and indexes, and the way to break
+ * either is to reuse `complete` for edits. These tests are what stop that.
+ */
+describe('ProfileService.update — editing an existing profile', () => {
+  async function completedUser(): Promise<string> {
+    const userId = await createUser(prisma, 'TERMS_ACCEPTED');
+    await profiles.complete(userId, validInput());
+    return userId;
+  }
+
+  it('changes only the field that was sent', async () => {
+    const userId = await completedUser();
+
+    const updated = await profiles.update(userId, { displayName: 'سارای تازه' });
+
+    expect(updated.displayName).toBe('سارای تازه');
+    // Everything else survives, which is the whole difference between PATCH and
+    // the POST that takes a whole profile.
+    expect(updated.bio).toBe('بازی رومیزی و کوه');
+    expect(updated.city.id).toBe(fixture.tehranId);
+    expect(updated.district?.id).toBe(fixture.tehranDistrictId);
+    expect(updated.interests.map((interest) => interest.id).sort()).toEqual(
+      [fixture.boardGamesId, fixture.hikingId].sort(),
+    );
+  });
+
+  it('clears a nullable field when null is sent, and leaves it when the key is absent', async () => {
+    const userId = await completedUser();
+
+    await expect(profiles.update(userId, { bio: null })).resolves.toMatchObject({ bio: null });
+    // Absent, not null: the display name must not be touched by a bio edit.
+    await expect(profiles.update(userId, { displayName: 'سارا' })).resolves.toMatchObject({
+      bio: null,
+      displayName: 'سارا',
+    });
+  });
+
+  it('never grants the reward again, however many times it is called', async () => {
+    const userId = await completedUser();
+    const before = await coins.balanceOf(userId);
+
+    await profiles.update(userId, { displayName: 'یک' });
+    await profiles.update(userId, { displayName: 'دو' });
+
+    await expect(coins.balanceOf(userId)).resolves.toBe(before);
+    await expect(
+      prisma.coinLedger.count({ where: { idempotencyKey: onboardingRewardKey(userId) } }),
+    ).resolves.toBe(1);
+  });
+
+  it('leaves completed_at and the onboarding state where they were', async () => {
+    const userId = await completedUser();
+    const before = await prisma.userProfile.findUniqueOrThrow({
+      where: { userId },
+      select: { completedAt: true },
+    });
+
+    clock.set(new Date(NOW.getTime() + 30 * 86_400_000));
+    await profiles.update(userId, { displayName: 'یک ماه بعد' });
+
+    const after = await prisma.userProfile.findUniqueOrThrow({
+      where: { userId },
+      select: { completedAt: true },
+    });
+    expect(after.completedAt).toEqual(before.completedAt);
+    await expect(
+      prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { onboardingState: true } }),
+    ).resolves.toEqual({ onboardingState: 'PROFILE_COMPLETE' });
+
+    clock.set(NOW);
+  });
+
+  it('re-checks the age on the server clock, and refuses an under-age edit', async () => {
+    const userId = await completedUser();
+
+    await expect(profiles.update(userId, { birthYear: 2015 })).rejects.toMatchObject({
+      code: 'AGE_BELOW_MINIMUM',
+    });
+
+    // Nothing was written: the refusal happens before the transaction opens.
+    await expect(
+      prisma.userProfile.findUniqueOrThrow({ where: { userId }, select: { birthYear: true } }),
+    ).resolves.toEqual({ birthYear: 1996 });
+  });
+
+  it('drops a district that belongs to the city the user just left', async () => {
+    const userId = await completedUser();
+    await prisma.city.update({ where: { id: fixture.karajId }, data: { isActive: true } });
+
+    const updated = await profiles.update(userId, { cityId: fixture.karajId });
+
+    expect(updated.city.id).toBe(fixture.karajId);
+    // Keeping منطقه ۱ of Tehran under کرج would be a pair the catalog is right to
+    // reject — so the edit clears it rather than sending one.
+    expect(updated.district).toBeNull();
+  });
+
+  it('refuses a district that belongs to a different city', async () => {
+    const userId = await completedUser();
+    await prisma.city.update({ where: { id: fixture.karajId }, data: { isActive: true } });
+
+    await expect(
+      profiles.update(userId, { districtId: fixture.karajDistrictId }),
+    ).rejects.toMatchObject({ code: 'INVALID_DISTRICT' });
+  });
+
+  it('refuses a city the catalog has deactivated', async () => {
+    const userId = await completedUser();
+
+    await expect(profiles.update(userId, { cityId: fixture.karajId })).rejects.toMatchObject({
+      code: 'CITY_NOT_AVAILABLE',
+    });
+  });
+
+  it('refuses an interest that is not selectable', async () => {
+    const userId = await completedUser();
+
+    await expect(
+      profiles.update(userId, { interestIds: [fixture.retiredInterestId] }),
+    ).rejects.toMatchObject({ code: 'INVALID_INTEREST' });
+
+    // The whole edit rolls back, so the old set is intact rather than half-replaced.
+    await expect(prisma.userInterest.count({ where: { userId } })).resolves.toBe(2);
+  });
+
+  it('replaces the interest set rather than adding to it', async () => {
+    const userId = await completedUser();
+
+    const updated = await profiles.update(userId, { interestIds: [fixture.hikingId] });
+
+    expect(updated.interests.map((interest) => interest.id)).toEqual([fixture.hikingId]);
+  });
+
+  it('refuses to edit a profile that does not exist yet', async () => {
+    const userId = await createUser(prisma, 'TERMS_ACCEPTED');
+
+    await expect(profiles.update(userId, { displayName: 'کسی' })).rejects.toMatchObject({
+      code: 'PROFILE_INCOMPLETE',
+    });
+  });
+
+  it('records a user edit as field names only, with no values', async () => {
+    const userId = await completedUser();
+
+    await profiles.update(userId, { displayName: 'نام تازه', bio: 'متن تازه' });
+
+    const row = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'profile.updated', targetId: userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(row.actorType).toBe('USER');
+    expect(row.after).toEqual({ changedFields: ['displayName', 'bio'] });
+    // ADR-0009: the trail records that a change happened, not a copy of it.
+    expect(JSON.stringify(row.after)).not.toContain('نام تازه');
+  });
+
+  it('records an admin edit with old and new values, the reason, and no bio text', async () => {
+    const userId = await completedUser();
+
+    await profiles.update(
+      userId,
+      { displayName: 'اصلاح‌شده', bio: 'متن حساس' },
+      { kind: 'ADMIN', adminUserId: 'admin-1', reason: 'به درخواست کاربر' },
+    );
+
+    const row = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'admin.profile.updated', targetId: userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(row.actorType).toBe('ADMIN');
+    expect(row.actorId).toBe('admin-1');
+    expect(row.before).toMatchObject({ displayName: 'سارا' });
+    expect(row.after).toMatchObject({ displayName: 'اصلاح‌شده', reason: 'به درخواست کاربر' });
+    // The bio is a length on both sides and never the text — `user.read` masks it
+    // for staff, and an audit row is a place the masking does not reach.
+    expect(JSON.stringify(row.before)).not.toContain('بازی رومیزی');
+    expect(JSON.stringify(row.after)).not.toContain('متن حساس');
+    expect(row.after).toMatchObject({ bioLength: 'متن حساس'.length });
+  });
+
+  it('records nothing as changed when the edit sends the values already stored', async () => {
+    const userId = await completedUser();
+
+    await profiles.update(userId, { displayName: 'سارا' });
+
+    const row = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'profile.updated', targetId: userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(row.after).toEqual({ changedFields: [] });
+  });
+
+  it('carries the invitation opt-out', async () => {
+    const userId = await completedUser();
+
+    await expect(profiles.update(userId, { inviteOptOut: true })).resolves.toMatchObject({
+      inviteOptOut: true,
+    });
+    await expect(profiles.update(userId, { inviteOptOut: false })).resolves.toMatchObject({
+      inviteOptOut: false,
+    });
+  });
+});

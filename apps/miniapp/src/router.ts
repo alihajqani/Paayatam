@@ -13,6 +13,18 @@ const router = createRouter({
     { path: '/', name: 'splash', component: () => import('@/views/SplashView.vue') },
     { path: '/terms', name: 'terms', component: () => import('@/views/TermsView.vue') },
     { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue') },
+    {
+      /**
+       * Editing, as opposed to `/profile`, which is the onboarding step (M22).
+       *
+       * Declared outside `ONBOARDING_PATHS` on purpose: it is a *product* screen
+       * reachable from home, and putting it in the funnel would bounce every
+       * finished user straight back to `/home` the moment they opened it.
+       */
+      path: '/profile/edit',
+      name: 'profile-edit',
+      component: () => import('@/views/EditProfileView.vue'),
+    },
     { path: '/home', name: 'home', component: () => import('@/views/HomeView.vue') },
     { path: '/discover', name: 'discover', component: () => import('@/views/DiscoverView.vue') },
     {

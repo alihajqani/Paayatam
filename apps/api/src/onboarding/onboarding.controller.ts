@@ -1,14 +1,18 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
 import { CoinService, ConsentService, ProfileService, UserService } from '@payetam/domain';
 import {
   acceptConsentRequest,
   completeProfileRequest,
+  updateProfileRequest,
   type CompleteProfileRequest,
   type CompleteProfileResponse,
   type MeResponse,
   type PolicyView,
+  type ProfileView,
+  type UpdateProfileRequest,
 } from '@payetam/shared';
 import type { FastifyRequest } from 'fastify';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AllowPendingTerms, CurrentUser, Public, type AuthenticatedUser } from '../auth/auth.guard';
 import { toProfileView } from './profile.view';
@@ -125,5 +129,50 @@ export class OnboardingController {
       rewardGranted: completion.rewardGranted,
       trustScore: completion.trustScore,
     };
+  }
+
+  /**
+   * Edit the signed-in user's own profile (M22 phase 2).
+   *
+   * `PATCH`, and the verb is the contract: an absent field is left alone, so a
+   * client that only changed the bio sends only the bio and cannot accidentally
+   * clear the interests it did not render. `POST /onboarding/profile` stays
+   * exactly as it was — it is the onboarding step, it takes a whole profile, and
+   * it is the only path that grants coins.
+   *
+   * **Authorisation is structural rather than checked.** The user id comes from
+   * the session, never from the body or the path, so there is no parameter a
+   * caller could point at somebody else's profile. Editing another user is an
+   * admin capability behind `user.profile.edit`, on a different route.
+   *
+   * Behind the terms gate like every other authenticated route, and behind the
+   * global rate limiter's `PROFILE_UPDATE` bucket — a profile edit is a write a
+   * script could run in a loop, and the moderation surface it feeds (display
+   * name, bio) is exactly what makes that worth bounding.
+   */
+  @Patch('me/profile')
+  @RateLimit('PROFILE_UPDATE')
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(
+    @Body(new ZodValidationPipe(updateProfileRequest)) body: UpdateProfileRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<{ profile: ProfileView }> {
+    const internalId = await this.users.resolveInternalId(current.publicId);
+
+    // Rebuilt key by key rather than spread, because `exactOptionalPropertyTypes`
+    // distinguishes an absent key from an explicit `undefined` — and a parsed Zod
+    // body carries the second for every field the client omitted.
+    const profile = await this.profiles.update(internalId, {
+      ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      ...(body.birthYear !== undefined ? { birthYear: body.birthYear } : {}),
+      ...(body.cityId !== undefined ? { cityId: body.cityId } : {}),
+      ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
+      ...(body.bio !== undefined ? { bio: body.bio } : {}),
+      ...(body.interestIds !== undefined ? { interestIds: body.interestIds } : {}),
+      ...(body.inviteOptOut !== undefined ? { inviteOptOut: body.inviteOptOut } : {}),
+    });
+
+    return { profile: toProfileView(profile) };
   }
 }

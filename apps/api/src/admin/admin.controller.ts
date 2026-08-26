@@ -33,6 +33,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
+  adminUpdateProfileRequest,
   adminAuditQuery,
   adminEventListQuery,
   adminLedgerQuery,
@@ -58,6 +59,8 @@ import {
   updateSettingRequest,
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
+  type AdminUpdateProfileRequest,
+  type ProfileView,
   type AdminLoginRequest,
   type AdminAuditQuery,
   type AdminAuditResponse,
@@ -593,6 +596,51 @@ export class AdminController {
     @CurrentAdmin() admin: AdminSession,
   ): Promise<ReferralReviewView> {
     return toReferralReviewView(await this.referrals.reinstate(admin, id, body.note));
+  }
+
+  /**
+   * Correct somebody else's profile (M22 phase 2).
+   *
+   * Behind `user.profile.edit`, asserted in the service — not here. This
+   * controller has no permission check in it, and that is ADR-0010 rule 2 rather
+   * than an omission: the same service is reached by jobs and scripts that do not
+   * pass through a controller at all.
+   *
+   * `PATCH`, so an absent field is left alone and a panel that renders four inputs
+   * cannot clear the fifth it never showed. The `reason` is required by the
+   * schema — an unexplained edit to another person's record is not reviewable six
+   * weeks later, which is the only time anybody will need it to be.
+   */
+  @Patch('users/:publicId/profile')
+  @HttpCode(HttpStatus.OK)
+  async updateUserProfile(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(adminUpdateProfileRequest)) body: AdminUpdateProfileRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<{ profile: ProfileView }> {
+    const profile = await this.operations.updateUserProfile(admin, publicId, {
+      ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      ...(body.birthYear !== undefined ? { birthYear: body.birthYear } : {}),
+      ...(body.cityId !== undefined ? { cityId: body.cityId } : {}),
+      ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
+      ...(body.bio !== undefined ? { bio: body.bio } : {}),
+      reason: body.reason,
+    });
+
+    return {
+      profile: {
+        displayName: profile.displayName,
+        gender: profile.gender,
+        birthYear: profile.birthYear,
+        city: profile.city,
+        district: profile.district,
+        bio: profile.bio,
+        interests: profile.interests,
+        inviteOptOut: profile.inviteOptOut,
+        completedAt: profile.completedAt?.toISOString() ?? null,
+      },
+    };
   }
 
   @Post('users/:publicId/status')

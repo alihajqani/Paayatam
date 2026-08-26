@@ -46,7 +46,12 @@ onMounted(() => {
     </section>
 
     <section v-if="profile" class="flex flex-col gap-2 rounded-xl bg-tg-secondary-bg p-4">
-      <h2 class="text-sm text-tg-subtitle">پروفایل</h2>
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-sm text-tg-subtitle">پروفایل</h2>
+        <RouterLink to="/profile/edit" class="min-h-11 py-2 text-sm text-tg-link"
+          >ویرایش</RouterLink
+        >
+      </div>
       <p>
         {{ profile.city.nameFa
         }}<template v-if="profile.district"> — {{ profile.district.nameFa }}</template>

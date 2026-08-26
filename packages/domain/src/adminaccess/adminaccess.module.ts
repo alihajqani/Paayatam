@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
 import { ChatModule } from '../chat/chat.module';
 import { EconomyModule } from '../economy/economy.module';
+import { ProfileModule } from '../profile/profile.module';
 import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
 import { AdminInsightService } from './admin-insight.service';
@@ -16,6 +17,11 @@ import { ReferralAdminService } from './referral-admin.service';
  * Staff identity, authorisation and the admin operations they authorise
  * (ADR-0010).
  *
+ * `ProfileModule` is imported so that an admin editing somebody's profile goes
+ * through **the same** `ProfileService.update` a user does (M22 phase 2). A second
+ * implementation for staff would be a second set of validation rules, and the one
+ * that drifts is always the one fewer people read.
+ *
  * `ChatModule` is imported for `MessageCipher` alone, and the fact that it has to
  * be imported at all is the point: the key that decrypts private conversations
  * lives in one module, and the only other place in the product that reaches for it
@@ -23,7 +29,7 @@ import { ReferralAdminService } from './referral-admin.service';
  * a fifteen-minute clock.
  */
 @Module({
-  imports: [CatalogModule, ChatModule, EconomyModule],
+  imports: [CatalogModule, ChatModule, EconomyModule, ProfileModule],
   providers: [
     AdminCredentials,
     AdminAccessService,
