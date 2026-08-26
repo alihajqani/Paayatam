@@ -656,6 +656,36 @@ What happens, in order — and the order is the point:
 Expect a few seconds of downtime at step 6. Telegram redelivers webhook updates
 it could not deliver, and the outbox lives in Postgres, so nothing queued is lost.
 
+### Confirming which release is actually running
+
+From M22 the release string is visible in three places, and they are the same
+string: `deploy.sh` exports `PAYETAM_VERSION` from the tag, Compose tags every
+image with it, passes it into the `web` build so both bundles are compiled with
+it, and hands it to the API through `environment:`.
+
+```bash
+curl -s https://app.paayatam.online/api/v1/version    # {"version":"v0.3.0"}
+```
+
+`smoke-tests.sh` asserts this automatically and fails the deploy if it disagrees
+with the release being deployed — which is the one symptom of a container that
+was never actually replaced.
+
+The two frontends show it too: the foot of the Mini App's home screen, and the
+foot of the panel's sidebar. The panel shows the API's release beside its own,
+because the two roll separately — nginx serves the new bundle as soon as its
+container is up while the API is behind its own start-up and its own migration
+step. A minute of disagreement there is normal; a persistent one is not.
+
+The Mini App additionally tells a user when their bundle is behind the server,
+because a Telegram WebView caches hard and reopens without asking. That is the
+state that makes a bug report unreproducible, so it says so on the screen rather
+than leaving it to be worked out.
+
+**If nothing was passed**, all of it reads `local` — which is a wrong answer to
+"which release is this" and a deliberate one: it is obviously fake, where a blank
+or a literal `${PAYETAM_VERSION}` is just confusing.
+
 ---
 
 ## 14. Rolling back

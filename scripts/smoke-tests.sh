@@ -92,6 +92,17 @@ code="$(status_of "$APP_HOST" /health)"
 body="$(fetch "$APP_HOST" /health 2> /dev/null || echo '')"
 [[ "$body" == *'"status":"ok"'* ]] && pass "/health reports ok" || bad "/health body was: ${body:-empty}"
 
+# The check that tells you *which* release answered, not just that something did
+# (M22 phase 10). `PAYETAM_VERSION` is exported by deploy.sh before it builds, so
+# the tag being deployed, the image tag and this answer are the same string — and
+# a mismatch here is the one symptom of a container that was never replaced.
+body="$(fetch "$APP_HOST" /api/v1/version 2> /dev/null || echo '')"
+if [[ "$body" == *"\"version\":\"${PAYETAM_VERSION:-local}\""* ]]; then
+    pass "/api/v1/version reports ${PAYETAM_VERSION:-local}"
+else
+    bad "/api/v1/version said ${body:-nothing}, expected ${PAYETAM_VERSION:-local}"
+fi
+
 code="$(status_of "$APP_HOST" /)"
 [[ "$code" == '200' ]] && pass "the Mini App bundle is served" || bad "GET / → ${code} (expected 200)"
 

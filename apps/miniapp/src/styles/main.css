@@ -34,6 +34,49 @@
   --color-tg-destructive: var(--tg-theme-destructive-text-color, #e53935);
   --color-tg-section-bg: var(--tg-theme-section-bg-color, #ffffff);
   --color-tg-subtitle: var(--tg-theme-subtitle-text-color, #707579);
+
+  /*
+   * ── The brand palette, and the one exception it makes ────────────────────
+   *
+   * Six ribbon colours sampled from `logo.png` — the k-means centres of the mark
+   * with the white disc removed, in descending share. `docs/brand.md` records how
+   * they were taken, how the asset was made, and every place a copy of it lives.
+   *
+   * These are the only colours in the Mini App that are **not** a Telegram theme
+   * token, and the rule above still holds as written: no *component* may write a
+   * hex value. What changes is that these tokens are fixed rather than reported,
+   * for a reason the theme system cannot cover — a brand is the one thing on the
+   * screen that must look the same to every user. A logo that recoloured itself
+   * per theme would not be a logo.
+   *
+   * The constraint that keeps that from breaking anything: **no text is ever
+   * drawn in these, and no text is ever drawn on them.** They appear as the
+   * gradient hairline under the header and as the halo behind the splash mark —
+   * decoration that carries no information, so it cannot fail a contrast check
+   * against a theme nobody has seen. Any future use has to meet the same test.
+   */
+  --color-brand-blue: #1d6bb9;
+  --color-brand-cyan: #57cce5;
+  --color-brand-violet: #7f5fb3;
+  --color-brand-rose: #cf5185;
+  --color-brand-pink: #ea81bf;
+  --color-brand-amber: #f3b47f;
+}
+
+/*
+ * The ribbons, in the order they run through the mark. Read right-to-left as the
+ * document is, so the gradient and the artwork sweep the same way.
+ */
+@utility brand-rule {
+  background-image: linear-gradient(
+    to left,
+    var(--color-brand-blue),
+    var(--color-brand-cyan),
+    var(--color-brand-violet),
+    var(--color-brand-rose),
+    var(--color-brand-pink),
+    var(--color-brand-amber)
+  );
 }
 
 @layer base {
@@ -56,6 +99,15 @@
   :focus-visible {
     outline: 2px solid var(--color-tg-accent);
     outline-offset: 2px;
+  }
+
+  /*
+   * A Latin string inside Persian text is the one place `dir="rtl"` gets it
+   * wrong: a version like `v0.3.0` renders with its segments reversed. `bdi`
+   * isolates it, and the version line is wrapped in one.
+   */
+  bdi {
+    unicode-bidi: isolate;
   }
 
   @media (prefers-reduced-motion: reduce) {

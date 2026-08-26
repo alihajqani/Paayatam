@@ -54,6 +54,7 @@ import { ParticipationController } from './participation/participation.controlle
 import { BotService } from './telegram/bot.service';
 import { TelegramMembershipProbe } from './telegram/membership.probe';
 import { TelegramWebhookController } from './telegram/webhook.controller';
+import { VersionController } from './version/version.controller';
 
 /**
  * Root module.
@@ -124,6 +125,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     ReportsController,
     AdminController,
     TelegramWebhookController,
+    VersionController,
   ],
   providers: [
     AuthService,

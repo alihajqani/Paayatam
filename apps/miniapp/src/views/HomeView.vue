@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
+import AppVersion from '@/components/AppVersion.vue';
 import { formatCoins, toPersianDigits } from '@/format/fa';
 import { useChatsStore } from '@/stores/chats';
 import { useReviewsStore } from '@/stores/reviews';
@@ -139,5 +140,12 @@ onMounted(() => {
         <span class="text-tg-hint">›</span>
       </RouterLink>
     </nav>
+
+    <!--
+      Bottom of the home screen, which is where a version string lives in every
+      app the user already has. `mt-auto` so it sits at the foot of a short
+      viewport rather than floating under the last button.
+    -->
+    <AppVersion class="mt-auto" />
   </main>
 </template>

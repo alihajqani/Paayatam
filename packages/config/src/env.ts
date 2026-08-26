@@ -65,6 +65,21 @@ export const envSchema = z
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
     API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     PUBLIC_API_URL: urlWithScheme(['http', 'https'], 'http(s)').default('http://localhost:3000'),
+    /**
+     * Which release this process is (M22 phase 10).
+     *
+     * The same variable `docker/docker-compose.prod.yml` already tags every image
+     * with, read here so the API can *say* which one it is over `GET
+     * /api/v1/version`. Deliberately not validated harder than "a string": the
+     * shape rule lives in `resolveVersion()` in `@payetam/shared`, which the two
+     * bundles also call — a release string that is legal on the server and refused
+     * in the browser would be the worst of both.
+     *
+     * Never required, in any environment. A deployment that forgot to export it
+     * reports `local`, which is a wrong answer to "which release is this" and a
+     * far better outcome than an API that will not boot over a label.
+     */
+    PAYETAM_VERSION: z.string().optional(),
 
     // ── Required from M1 ─────────────────────────────────────────────────────
     DATABASE_URL: urlWithScheme(['postgresql', 'postgres'], 'PostgreSQL'),

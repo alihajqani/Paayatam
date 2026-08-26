@@ -73,6 +73,40 @@ export function stepFor(state: string | undefined, pendingPolicies = 0): string 
 }
 
 /**
+ * Whether the shell should draw the header, which is also the way home (M22 phase 10).
+ *
+ * Here rather than in `App.vue` for the same reason `stepFor` is here: it is a
+ * question about navigation state, the guard below answers the same question in a
+ * different form, and the two must not be able to disagree. If this said yes on a
+ * screen the guard sends elsewhere, the header would be a control that visibly
+ * does nothing when tapped.
+ *
+ * The rule is `stepFor`'s, read backwards: the header appears exactly where
+ * `stepFor` would return `/home` — a finished profile with no policy outstanding —
+ * and on a screen that is not itself part of the funnel.
+ */
+export function showsHomeButton(
+  routeName: string | undefined,
+  state: string | undefined,
+  pendingPolicies = 0,
+): boolean {
+  if (stepFor(state, pendingPolicies) !== '/home') return false;
+  return !FUNNEL_ROUTES.has(routeName ?? '');
+}
+
+/**
+ * The named routes the funnel owns.
+ *
+ * `splash` because it is a redirect with a spinner on it, and `terms` and
+ * `profile` because they are the funnel — though in practice `stepFor` has
+ * already returned a non-`/home` answer for anyone who can see those two. The set
+ * is what covers the third case: a *finished* user re-reading the terms from the
+ * home screen, which M22 made reachable. That screen is not a funnel step for
+ * them, but it is still not a screen to hang a second navigation off.
+ */
+const FUNNEL_ROUTES = new Set(['splash', 'terms', 'profile']);
+
+/**
  * Routes that only make sense while onboarding is unfinished.
  *
  * `/terms` is deliberately **not** here from M22 on. A finished user must be able

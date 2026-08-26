@@ -1,5 +1,34 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router';
+import { computed } from 'vue';
+import { RouterView, useRoute } from 'vue-router';
+import AppHeader from '@/components/AppHeader.vue';
+import { showsHomeButton } from '@/router';
+import { useSessionStore } from '@/stores/session';
+
+const route = useRoute();
+const session = useSessionStore();
+
+/**
+ * The header is drawn only where `/home` is somewhere to go (M22 phase 10).
+ *
+ * The rule itself lives in `router.ts` beside `stepFor`, which decides the same
+ * thing for the guard — a header link the guard would bounce is a control that
+ * visibly does nothing, and the only way to guarantee it cannot happen is for
+ * both to read one function.
+ *
+ * `session.ready` is this file's own condition rather than that function's: it is
+ * about whether the shell has anything to render yet, not about where the user
+ * belongs.
+ */
+const showHeader = computed(
+  () =>
+    session.ready &&
+    showsHomeButton(
+      route.name === undefined || route.name === null ? undefined : String(route.name),
+      session.onboardingState,
+      session.pendingPolicies.length,
+    ),
+);
 </script>
 
 <template>
@@ -16,6 +45,7 @@ import { RouterView } from 'vue-router';
       paddingTop: 'max(1rem, env(safe-area-inset-top))',
     }"
   >
+    <AppHeader v-if="showHeader" />
     <RouterView />
   </div>
 </template>

@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   Patch,
   Post,
@@ -40,8 +41,9 @@ import {
   type ReferralReview,
   type UserSummary,
 } from '@payetam/domain';
-import { JOBS, PiiHasher, QUEUES, QueueService, jobId } from '@payetam/platform';
-import { AppError, ErrorCode } from '@payetam/shared';
+import type { Env } from '@payetam/config';
+import { ENV, JOBS, PiiHasher, QUEUES, QueueService, jobId } from '@payetam/platform';
+import { AppError, ErrorCode, resolveVersion } from '@payetam/shared';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
@@ -202,6 +204,9 @@ import {
 @Controller('admin/v1')
 @UseGuards(AdminAuthGuard)
 export class AdminController {
+  /** The release string, resolved once at construction. See `version()` below. */
+  private readonly release: string;
+
   constructor(
     private readonly access: AdminAccessService,
     private readonly operations: AdminOperationsService,
@@ -229,7 +234,14 @@ export class AdminController {
      * without waiting for the next scheduled pass.
      */
     private readonly queues: QueueService,
-  ) {}
+    /** Only for the release string; nothing else in this controller reads it. */
+    @Inject(ENV) env: Env,
+  ) {
+    // Resolved once: it cannot change while the process lives, and the shape rule
+    // is `resolveVersion()`'s, so the panel and the Mini App are told the same
+    // thing about the same deployment.
+    this.release = resolveVersion(env.PAYETAM_VERSION);
+  }
 
   /**
    * Email, password and TOTP — all three, always (D11).
@@ -754,6 +766,25 @@ export class AdminController {
       },
       health: health.checks,
     };
+  }
+
+  /**
+   * Which release the API is running (M22 phase 10, plan §4).
+   *
+   * The same string `/api/v1/version` returns, behind the admin session rather
+   * than public — not because the value is sensitive on this side and not on the
+   * other, but because there is no reason for the panel to talk to an endpoint
+   * outside its own prefix: `/admin/v1` is what nginx proxies for this bundle and
+   * what the session cookie is scoped to.
+   *
+   * No permission check, and that is on purpose. Every other handler in this file
+   * hands a session to a service that decides; this one has nothing to decide —
+   * an `ANALYST` who can see the dashboard can see which release produced it, and
+   * a release tag is not a fact any role is kept from.
+   */
+  @Get('version')
+  version(): { version: string } {
+    return { version: this.release };
   }
 
   // ── Users ──────────────────────────────────────────────────────────────────

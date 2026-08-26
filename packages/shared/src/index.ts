@@ -453,3 +453,5 @@ export type { MessageFormatProblem, MessageFormatVerdict } from './telegram-mess
 
 export { validateUpload, sniff, readDimensions, MAX_UPLOAD_BYTES, MAX_DIMENSION } from './upload';
 export type { ImageFormat, UploadVerdict, UploadRejection } from './upload';
+
+export { UNKNOWN_VERSION, resolveVersion, isVersionMismatch } from './version';

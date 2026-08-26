@@ -35,9 +35,33 @@
   --color-line: #e4e7ec;
   --color-line-strong: #d0d5dd;
 
-  --color-brand: #1f6feb;
-  --color-brand-ink: #ffffff;
-  --color-brand-soft: #eaf2ff;
+  /*
+   * ── The brand blue, and where it comes from (M22 phase 10) ────────────────
+   *
+   * `#1d6bb9` is the dominant blue ribbon in `logo.png`, sampled rather than
+   * chosen — see `docs/brand.md`. It replaces the `#1f6feb` this file used
+   * before, which was a good blue that happened not to be *this product's* blue.
+   *
+   * It is also the more legible of the two, which settled the question: 5.45:1
+   * against the surface where the old value was 4.63:1. Every pairing below
+   * clears WCAG AA, and the ratios are recorded beside them so a future tweak has
+   * something to check itself against rather than an eye.
+   */
+  --color-brand: #1d6bb9; /* 5.45:1 on --color-surface */
+  --color-brand-ink: #ffffff; /* 5.45:1 on --color-brand */
+  --color-brand-soft: #eaf2fb; /* brand on it: 4.82:1 */
+
+  /*
+   * The other five ribbons, for the one place the panel shows the mark: the
+   * hairline under the sidebar heading. Decoration only, exactly as in the Mini
+   * App — no text is drawn in them and none on them, so they are the one set of
+   * colours here that does not need a contrast ratio beside it.
+   */
+  --color-brand-cyan: #57cce5;
+  --color-brand-violet: #7f5fb3;
+  --color-brand-rose: #cf5185;
+  --color-brand-pink: #ea81bf;
+  --color-brand-amber: #f3b47f;
 
   --color-danger: #d92d20;
   --color-danger-soft: #fef3f2;
@@ -59,9 +83,14 @@
     --color-line: #262a31;
     --color-line-strong: #363b44;
 
-    --color-brand: #4c8dff;
-    --color-brand-ink: #0b0d10;
-    --color-brand-soft: #16233a;
+    /*
+     * The same hue (210°) and the same saturation, lightened until it carries on
+     * a dark surface. Derived from `--color-brand` rather than picked, so a
+     * change to the logo blue moves both together.
+     */
+    --color-brand: #65a6e7; /* 7.04:1 on --color-surface */
+    --color-brand-ink: #0b0d10; /* 7.76:1 on --color-brand */
+    --color-brand-soft: #102437; /* brand on it: 6.14:1 */
 
     --color-danger: #f97066;
     --color-danger-soft: #2a1614;
@@ -71,6 +100,22 @@
     --color-good-soft: #10261b;
     --color-neutral-soft: #20242b;
   }
+}
+
+/*
+ * The ribbons, in the order they run through the mark. Right-to-left, so the
+ * gradient sweeps the way the document does and the way the artwork does.
+ */
+@utility brand-rule {
+  background-image: linear-gradient(
+    to left,
+    var(--color-brand),
+    var(--color-brand-cyan),
+    var(--color-brand-violet),
+    var(--color-brand-rose),
+    var(--color-brand-pink),
+    var(--color-brand-amber)
+  );
 }
 
 @layer base {

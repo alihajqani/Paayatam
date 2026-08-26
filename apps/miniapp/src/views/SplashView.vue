@@ -43,6 +43,31 @@ onMounted(start);
 
 <template>
   <main class="flex flex-1 flex-col items-center justify-center gap-6 text-center">
+    <!--
+      The mark on its own, on the one screen with nothing else on it (M22 phase
+      10). `alt=""` because the name is the `h1` directly below it.
+
+      The halo is a blurred sibling rather than part of the artwork. The asset is
+      transparent precisely so it can sit on a theme nobody has seen; a glow baked
+      into it would be a background it carries into all of them.
+    -->
+    <div class="relative flex items-center justify-center">
+      <div
+        class="brand-rule absolute size-32 rounded-full opacity-15 blur-2xl"
+        role="presentation"
+      ></div>
+      <img
+        src="/brand/mark-256.webp"
+        alt=""
+        aria-hidden="true"
+        width="88"
+        height="88"
+        decoding="async"
+        fetchpriority="high"
+        class="relative size-22"
+      />
+    </div>
+
     <h1 class="text-2xl font-bold">پایه‌تَم</h1>
 
     <template v-if="error">
