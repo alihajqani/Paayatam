@@ -16,6 +16,42 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
+**Milestone 22 complete — v0.3.0, product and admin upgrades.**
+
+A user can now **edit their profile** after onboarding rather than living with
+what they typed the first time, and support can correct one on their behalf
+behind `user.profile.edit`, with every field change audited.
+
+The panel can **send a Telegram message** — to one person, or as a broadcast to a
+filtered slice. Nothing sends until a preview has been run and the recipient count
+typed back; delivery is the worker's, rate-limited, resumable, and unable to send
+twice to the same person. See [`docs/admin-panel.md`](docs/admin-panel.md) §9.
+
+**Three actions now cost coins**: creating an event is 5, sending it to the
+channel is 15, and inviting the twenty people most likely to come is 10. Every
+charge is atomic with the act it pays for, idempotent under retry, and refunded
+when the act it paid for could not happen.
+
+**Terms, privacy and rules are versioned.** A published version is immutable, one
+version per type is current, and publishing asks every user to re-accept before
+they can act again. Acceptance is append-only by database trigger.
+
+**Provinces and cities are managed from the panel** — created, renamed, reordered
+and deactivated, never deleted, because profiles and events point at them.
+
+**Channel membership can be required**, configurably and per action, and it fails
+open on every outcome except an authoritative refusal from Telegram — so an
+outage degrades the gate rather than the product. It is **off by default.**
+
+The worker now **goes looking for failures** rather than only reacting to them:
+a nightly ledger-drift sweep and an outbox-staleness check alert a separate
+Telegram group, redacted, throttled, and behind a kill switch.
+
+And the Mini App **has a face**: a mark derived from the logo, a palette sampled
+from it, a header that is also the way home, the balance on the home screen, and a
+version string on both surfaces that matches the release actually deployed. See
+[`docs/brand.md`](docs/brand.md) and [`docs/performance.md`](docs/performance.md).
+
 **Milestone 19 complete — both launch blockers closed.** The admin panel exists (`apps/admin`, twelve
 screens over the API M12 built), and the two-account privacy gate has been executed and automated.
 See [`docs/admin-panel.md`](docs/admin-panel.md) and
