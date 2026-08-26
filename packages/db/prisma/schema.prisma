@@ -70,26 +70,26 @@ model User {
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(3)
 
-  telegramAccount TelegramAccount?
-  consents        Consent[]
-  profile         UserProfile?
-  interests       UserInterest[]
-  coinAccount     CoinAccount?
-  coinLedger      CoinLedger[]
-  hostedEvents    Event[]
-  participations  EventParticipant[]
-  chatMemberships ChatParticipant[]
-  chatsClosed     AnonymousChat[]    @relation("ChatClosedBy")
-  chatActions     ChatAction[]       @relation("ChatActionActor")
-  trustScore      TrustScore?
-  trustLedger     TrustScoreLedger[]
-  referralsMade   Referral[]         @relation("ReferralsMade")
-  reviewsWritten  Review[]           @relation("ReviewsWritten")
-  reportsFiled    Report[]           @relation("ReportsFiled")
-  notifications   Notification[]
-  idempotency     RequestIdempotency[]
-  reviewsReceived Review[]           @relation("ReviewsReceived")
-  referralReceived Referral?         @relation("ReferralReceived")
+  telegramAccount     TelegramAccount?
+  consents            Consent[]
+  profile             UserProfile?
+  interests           UserInterest[]
+  coinAccount         CoinAccount?
+  coinLedger          CoinLedger[]
+  hostedEvents        Event[]
+  participations      EventParticipant[]
+  chatMemberships     ChatParticipant[]
+  chatsClosed         AnonymousChat[]      @relation("ChatClosedBy")
+  chatActions         ChatAction[]         @relation("ChatActionActor")
+  trustScore          TrustScore?
+  trustLedger         TrustScoreLedger[]
+  referralsMade       Referral[]           @relation("ReferralsMade")
+  reviewsWritten      Review[]             @relation("ReviewsWritten")
+  reportsFiled        Report[]             @relation("ReportsFiled")
+  notifications       Notification[]
+  idempotency         RequestIdempotency[]
+  reviewsReceived     Review[]             @relation("ReviewsReceived")
+  referralReceived    Referral?            @relation("ReferralReceived")
   giftCodeRedemptions GiftCodeRedemption[]
 
   @@index([status])
@@ -210,20 +210,47 @@ model Consent {
 // it from every selectable list while leaving history intact.
 // ─────────────────────────────────────────────────────────────────────────────
 
-model City {
+/// A province, so a picker over 1,252 cities can be two short lists instead of
+/// one long one.
+///
+/// Added in M21 with `city.province_id` NULLABLE beside it: the column tolerating
+/// a gap permanently is what lets an admin create a city before anybody has
+/// decided which province it is filed under (migration 0020).
+model Province {
   id        String   @id @default(uuid(7))
   slug      String   @unique
   nameFa    String   @map("name_fa")
-  isActive  Boolean  @default(false) @map("is_active")
+  isActive  Boolean  @default(true) @map("is_active")
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  districts District[]
-  profiles  UserProfile[]
-  events    Event[]
+  cities City[]
 
   @@index([isActive, sortOrder])
+  @@map("province")
+}
+
+model City {
+  id         String   @id @default(uuid(7))
+  slug       String   @unique
+  nameFa     String   @map("name_fa")
+  isActive   Boolean  @default(false) @map("is_active")
+  sortOrder  Int      @default(0) @map("sort_order")
+  /// Nullable on purpose and permanently — see migration 0020.
+  provinceId String?  @map("province_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  districts  District[]
+  profiles   UserProfile[]
+  events     Event[]
+  categories CityCategory[]
+
+  province Province? @relation(fields: [provinceId], references: [id], onDelete: Restrict)
+
+  @@index([isActive, sortOrder])
+  @@index([provinceId, isActive, sortOrder])
   @@map("city")
 }
 
@@ -248,19 +275,27 @@ model District {
 
 /// Activity categories — the launch is gated to two of them by feature flag (plan §2).
 model Category {
-  id        String   @id @default(uuid(7))
-  slug      String   @unique
-  nameFa    String   @map("name_fa")
+  id                String   @id @default(uuid(7))
+  slug              String   @unique
+  nameFa            String   @map("name_fa")
   /// An emoji or icon key rendered by the Mini App. Never a URL: the CSP forbids
   /// external hosts (ADR-0003).
-  icon      String?
-  isActive  Boolean  @default(false) @map("is_active")
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  icon              String?
+  isActive          Boolean  @default(false) @map("is_active")
+  sortOrder         Int      @default(0) @map("sort_order")
+  /// The «سایر» flag: this category invites the host to name their own activity,
+  /// which lands in `event.custom_category_label`.
+  ///
+  /// A column rather than a `slug === 'other'` comparison, so a rename or a
+  /// second catch-all is data an admin edits rather than a branch in code
+  /// (migration 0020).
+  allowsCustomLabel Boolean  @default(false) @map("allows_custom_label")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   interests Interest[]
   events    Event[]
+  cities    CityCategory[]
 
   @@index([isActive, sortOrder])
   @@map("category")
@@ -283,6 +318,25 @@ model Interest {
 
   @@index([isActive, sortOrder])
   @@map("interest")
+}
+
+/// Which cities offer which activity category.
+///
+/// **An empty set means every city.** A category nobody has restricted is
+/// offered nationwide, which is what all of them are today — so this table
+/// starts empty and stays empty until an admin narrows one deliberately
+/// (migration 0020 explains why the inverse convention was rejected).
+model CityCategory {
+  cityId     String   @map("city_id")
+  categoryId String   @map("category_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  city     City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([cityId, categoryId])
+  @@index([categoryId])
+  @@map("city_category")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -481,28 +535,28 @@ model TrustScore {
 /// would break `score == SUM(delta)` the first time anybody hit a bound, and that
 /// sum is the property the reconciliation test exists to check.
 model TrustScoreLedger {
-  id             String          @id @default(uuid(7))
-  userId         String          @map("user_id")
-  idempotencyKey String          @unique @map("idempotency_key")
-  type           TrustLedgerType
+  id               String          @id @default(uuid(7))
+  userId           String          @map("user_id")
+  idempotencyKey   String          @unique @map("idempotency_key")
+  type             TrustLedgerType
   /// Effective, and permitted to be zero — unlike `coin_ledger.amount`. A rule
   /// that fires against somebody already at 100 has no effect, and the row must
   /// still be written because the row is what consumes the idempotency key: drop
   /// it and a redelivered job pays out for real once the score has room again.
-  delta          Int
-  scoreBefore    Int             @map("score_before")
-  scoreAfter     Int             @map("score_after")
-  reasonCode     String          @map("reason_code")
-  algoVersion    Int             @map("algo_version")
-  actorType      ActorType       @map("actor_type")
-  actorId        String?         @map("actor_id")
-  refType        String?         @map("ref_type")
-  refId          String?         @map("ref_id")
+  delta            Int
+  scoreBefore      Int             @map("score_before")
+  scoreAfter       Int             @map("score_after")
+  reasonCode       String          @map("reason_code")
+  algoVersion      Int             @map("algo_version")
+  actorType        ActorType       @map("actor_type")
+  actorId          String?         @map("actor_id")
+  refType          String?         @map("ref_type")
+  refId            String?         @map("ref_id")
   /// UNIQUE, and Postgres treats NULLs as distinct — so this reads as "a row can
   /// be reversed at most once".
-  reversesLedgerId String?       @unique @map("reverses_ledger_id")
-  metadata       Json?
-  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  reversesLedgerId String?         @unique @map("reverses_ledger_id")
+  metadata         Json?
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user     User              @relation(fields: [userId], references: [id], onDelete: Restrict)
   reverses TrustScoreLedger? @relation("TrustLedgerReversal", fields: [reversesLedgerId], references: [id], onDelete: Restrict)
@@ -590,8 +644,8 @@ model Referral {
   /// is telling a farmer what to change next time.
   reviewNote        String?                  @map("review_note")
 
-  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   referrer   User       @relation("ReferralsMade", fields: [referrerUserId], references: [id], onDelete: Restrict)
   referred   User       @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: Restrict)
@@ -647,7 +701,7 @@ model GiftCode {
   publicId String @unique @default(uuid(4)) @map("public_id")
   /// Normalized on write: upper-case, no spaces, no dashes. The UNIQUE is what
   /// makes «abc-123» and «ABC123» the same code rather than two.
-  code String @unique
+  code     String @unique
 
   /// What redeeming grants. Positive integer Toman-free coins — never a float,
   /// never client-supplied (plan §4).
@@ -693,7 +747,6 @@ model GiftCode {
   /// lot, even though the codes themselves are gone by design (ADR-0016).
   batchId String? @map("batch_id")
 
-
   /// The staff account that created it. Null for a code seeded by a script.
   createdByAdminId String? @map("created_by_admin_id")
 
@@ -725,14 +778,14 @@ model GiftCode {
 /// granted nothing is not a redemption, and a ledger row cannot be claimed by two
 /// of them.
 model GiftCodeRedemption {
-  id         String @id @default(uuid(7))
-  giftCodeId String @map("gift_code_id")
-  userId     String @map("user_id")
+  id           String @id @default(uuid(7))
+  giftCodeId   String @map("gift_code_id")
+  userId       String @map("user_id")
   /// 1-based, per (code, user).
-  seq        Int
+  seq          Int
   /// What was actually granted, snapshotted — `gift_code.coins` may be retuned
   /// later and this must stay explainable against what was paid.
-  coins      Int
+  coins        Int
   /// The coin movement this redemption produced.
   coinLedgerId String @unique @map("coin_ledger_id")
 
@@ -806,9 +859,9 @@ enum GenderPreference {
 }
 
 model Event {
-  id          String  @id @default(uuid(7))
-  publicId    String  @unique @default(uuid(4)) @map("public_id")
-  hostUserId  String  @map("host_user_id")
+  id          String @id @default(uuid(7))
+  publicId    String @unique @default(uuid(4)) @map("public_id")
+  hostUserId  String @map("host_user_id")
   title       String
   description String
 
@@ -817,24 +870,30 @@ model Event {
   /// called from a Postgres trigger: the M5 `search_vector` trigger reads these
   /// rather than re-implementing normalization in PL/pgSQL, and the M12 re-scan
   /// on a blacklist bump matches against them without re-normalizing the corpus.
-  titleNormalized       String  @map("title_normalized")
-  descriptionNormalized String  @map("description_normalized")
+  titleNormalized       String @map("title_normalized")
+  descriptionNormalized String @map("description_normalized")
 
-  categoryId String  @map("category_id")
-  cityId     String  @map("city_id")
-  districtId String? @map("district_id")
+  categoryId          String  @map("category_id")
+  /// What the host called it, when the category `allowsCustomLabel` («سایر»).
+  ///
+  /// Blacklist-scanned on write like the title, but deliberately absent from
+  /// `search_vector` — migration 0020 says why widening the 0005 trigger was the
+  /// wrong trade.
+  customCategoryLabel String? @map("custom_category_label")
+  cityId              String  @map("city_id")
+  districtId          String? @map("district_id")
 
   startsAt DateTime @map("starts_at") @db.Timestamptz(3)
   endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
 
-  capacity Int
+  capacity      Int
   /// Invariant 1. Only ever changed under `SELECT … FOR UPDATE` on this row (M6).
   acceptedCount Int @default(0) @map("accepted_count")
 
-  costType CostType @map("cost_type")
+  costType   CostType @map("cost_type")
   /// Integer Toman, never a float (plan §4).
-  costAmount Int?    @map("cost_amount")
-  costNote   String? @map("cost_note")
+  costAmount Int?     @map("cost_amount")
+  costNote   String?  @map("cost_note")
 
   rules            String?
   genderPreference GenderPreference? @map("gender_preference")
@@ -957,11 +1016,11 @@ model EventParticipant {
 
   status ParticipantStatus @default(PENDING)
 
-  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz(3)
+  requestedAt    DateTime  @default(now()) @map("requested_at") @db.Timestamptz(3)
   /// When the host accepted or rejected — the decision, not its outcome.
-  decidedAt   DateTime? @map("decided_at") @db.Timestamptz(3)
-  acceptedAt  DateTime? @map("accepted_at") @db.Timestamptz(3)
-  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  decidedAt      DateTime? @map("decided_at") @db.Timestamptz(3)
+  acceptedAt     DateTime? @map("accepted_at") @db.Timestamptz(3)
+  cancelledAt    DateTime? @map("cancelled_at") @db.Timestamptz(3)
   /// Cancel before this and the cancellation is free (plan §11: 15 minutes).
   graceExpiresAt DateTime? @map("grace_expires_at") @db.Timestamptz(3)
   /// `min(now + 24h, starts_at - 3h)`. Past it, the request expires and the seat
@@ -987,11 +1046,11 @@ model EventParticipant {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  event   Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  user    User        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  penalty CoinLedger? @relation(fields: [penaltyLedgerId], references: [id], onDelete: Restrict)
+  event      Event          @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  penalty    CoinLedger?    @relation(fields: [penaltyLedgerId], references: [id], onDelete: Restrict)
   /// Created with the request, not with the acceptance (plan §2.5).
-  chat    AnonymousChat?
+  chat       AnonymousChat?
   /// Both sides' reviews of this participation, and the window they share (M11).
   reviews    Review[]
   reviewPair ReviewPair?
@@ -1071,7 +1130,7 @@ model AnonymousChat {
   /// The only chat identifier that appears in a URL or a response.
   publicId String @unique @default(uuid(4)) @map("public_id")
 
-  eventId String @map("event_id")
+  eventId       String @map("event_id")
   /// One chat per request (plan §4.4). The UNIQUE is what makes "this request's
   /// chat" a lookup rather than a query that could return two rows.
   participantId String @unique @map("participant_id")
@@ -1208,7 +1267,7 @@ model ChatMessage {
   /// M13 relay after delivery so an edit or a delete can reach the copy.
   telegramMessageIds      Json    @default("{}") @map("telegram_message_ids")
 
-  editedAt DateTime? @map("edited_at") @db.Timestamptz(3)
+  editedAt  DateTime? @map("edited_at") @db.Timestamptz(3)
   /// Set when the sender deletes: the recipient's copy becomes «پیام حذف شد»
   /// while this row survives as the evidentiary record (D10).
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
@@ -1237,8 +1296,8 @@ model ChatMessage {
 /// trigger, not a convention — a consent record that can be edited is not a
 /// consent record.
 model ChatAction {
-  id     String @id @default(uuid(7))
-  chatId String @map("chat_id")
+  id          String  @id @default(uuid(7))
+  chatId      String  @map("chat_id")
   /// Null when the platform acted — an expiry, a moderation block.
   actorUserId String? @map("actor_user_id")
 
@@ -1291,9 +1350,9 @@ model BlacklistVersion {
 }
 
 model BlacklistTerm {
-  id   String @id @default(uuid(7))
+  id             String               @id @default(uuid(7))
   /// As a moderator typed it. Kept for the admin UI; never matched against.
-  termRaw String @map("term_raw")
+  termRaw        String               @map("term_raw")
   /// What matching actually uses — the term put through the same ADR-0012
   /// pipeline as the incoming text. Storing only the raw form would mean
   /// normalizing every term on every scan, and getting it wrong once.
@@ -1345,22 +1404,22 @@ model ModerationCase {
   trigger     ModerationTrigger
   status      ModerationCaseStatus  @default(OPEN)
 
-  assignedAdminId String? @map("assigned_admin_id")
+  assignedAdminId  String? @map("assigned_admin_id")
   /// The blacklist version that produced this case. Null for MANUAL cases,
   /// which no version judged.
-  blacklistVersion Int?   @map("blacklist_version")
+  blacklistVersion Int?    @map("blacklist_version")
   /// The terms that matched, as an allowlisted projection — id, raw term,
   /// pattern type, severity. Never the scanned text itself.
-  matchedTerms     Json?  @map("matched_terms")
-  reportCount      Int    @default(0) @map("report_count")
+  matchedTerms     Json?   @map("matched_terms")
+  reportCount      Int     @default(0) @map("report_count")
 
-  decision     String?
-  decisionNote String?   @map("decision_note")
-  decidedBy    String?   @map("decided_by")
-  decidedAt    DateTime? @map("decided_at") @db.Timestamptz(3)
+  decision      String?
+  decisionNote  String?   @map("decision_note")
+  decidedBy     String?   @map("decided_by")
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(3)
   /// Set by a moderator when the automation was wrong. This is what turns the
   /// false-positive rate into a number rather than an impression (ADR-0012).
-  falsePositive Boolean? @map("false_positive")
+  falsePositive Boolean?  @map("false_positive")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -1424,15 +1483,15 @@ model OutboxEvent {
 /// time thresholds, ranking weights, report thresholds — lives here rather than in
 /// code, so tuning is a config change with no deploy (ADR-0007, ADR-0011).
 model AppSetting {
-  key       String   @id
-  value     Json
+  key         String   @id
+  value       Json
   /// JSON Schema used to validate `value` on write, so a typo in the admin panel
   /// cannot put the economy into an impossible state.
-  valueSchema Json?  @map("value_schema")
-  version   Int      @default(1)
-  updatedBy String?  @map("updated_by")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  valueSchema Json?    @map("value_schema")
+  version     Int      @default(1)
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("app_setting")
 }
@@ -1472,14 +1531,14 @@ model RequestIdempotency {
 
   /// Method and path are stored so the same key on a different endpoint is a
   /// conflict rather than a silent cross-endpoint replay.
-  method String @db.VarChar(10)
-  path   String @db.VarChar(255)
+  method             String @db.VarChar(10)
+  path               String @db.VarChar(255)
   /// SHA-256 of the request body.
   requestFingerprint String @map("request_fingerprint") @db.VarChar(64)
 
   /// Only successful responses are stored. A failed request must stay retryable,
   /// or a network blip would pin a user to an error for the life of the row.
-  statusCode Int @map("status_code")
+  statusCode   Int    @map("status_code")
   /// The exact serialized response, not JSONB: key order is part of "identical".
   responseBody String @map("response_body")
 
@@ -1576,10 +1635,10 @@ model Review {
   /// Exposed in URLs, so a random UUIDv4 like every other external identifier.
   publicId String @unique @default(uuid(4)) @map("public_id")
 
-  eventId       String @map("event_id")
+  eventId        String @map("event_id")
   /// The participation being reviewed. Both sides of one participation share it,
   /// which is what makes `review_pair` a single row.
-  participantId String @map("participant_id")
+  participantId  String @map("participant_id")
   reviewerUserId String @map("reviewer_user_id")
   revieweeUserId String @map("reviewee_user_id")
 
@@ -1590,8 +1649,8 @@ model Review {
   tags    String[] @default([])
   comment String?
 
-  status           ReviewStatus           @default(SUBMITTED)
-  moderationStatus EventModerationStatus  @default(APPROVED) @map("moderation_status")
+  status           ReviewStatus          @default(SUBMITTED)
+  moderationStatus EventModerationStatus @default(APPROVED) @map("moderation_status")
 
   submittedAt    DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(3)
   revealedAt     DateTime? @map("revealed_at") @db.Timestamptz(3)
@@ -1745,7 +1804,7 @@ model AdminUser {
   email String @unique @db.Citext
 
   /// argon2id, memory-hard, per-user salt inside the encoded hash.
-  passwordHash String @map("password_hash")
+  passwordHash  String @map("password_hash")
   /// AES-256-GCM at rest, same cipher the chat bodies use. TOTP is **mandatory**
   /// (D11), so this is not nullable — an admin without a second factor is not a
   /// state this table can represent.
@@ -1762,11 +1821,11 @@ model AdminUser {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  roles           AdminUserRole[]
-  unsealGrants    ChatUnsealGrant[]
-  roleChangesMade RoleChangeRequest[] @relation("RoleChangeRequestedBy")
-  roleChangesSeen RoleChangeRequest[] @relation("RoleChangeApprovedBy")
-  giftCodesCreated GiftCode[]
+  roles             AdminUserRole[]
+  unsealGrants      ChatUnsealGrant[]
+  roleChangesMade   RoleChangeRequest[] @relation("RoleChangeRequestedBy")
+  roleChangesSeen   RoleChangeRequest[] @relation("RoleChangeApprovedBy")
+  giftCodesCreated  GiftCode[]
   referralsRejected Referral[]
 
   @@index([status])
@@ -1840,8 +1899,8 @@ model RoleChangeRequest {
   id String @id @default(uuid(7))
 
   /// The admin whose roles would change.
-  subjectAdminId String   @map("subject_admin_id")
-  roleKey        String   @map("role_key")
+  subjectAdminId String  @map("subject_admin_id")
+  roleKey        String  @map("role_key")
   /// True to grant, false to revoke.
   granting       Boolean
   reason         String
@@ -1850,8 +1909,8 @@ model RoleChangeRequest {
   approvedById  String?          @map("approved_by_id")
   status        RoleChangeStatus @default(PENDING)
 
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  decidedAt  DateTime? @map("decided_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  decidedAt DateTime? @map("decided_at") @db.Timestamptz(3)
 
   requestedBy AdminUser  @relation("RoleChangeRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   approvedBy  AdminUser? @relation("RoleChangeApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
@@ -1931,12 +1990,12 @@ model Notification {
   payload     Json
 
   /// Exactly-once, in the database.
-  dedupeKey String             @unique @map("dedupe_key")
-  status    NotificationStatus @default(PENDING)
-  attempts  Int                @default(0)
-  lastError String?            @map("last_error")
+  dedupeKey         String             @unique @map("dedupe_key")
+  status            NotificationStatus @default(PENDING)
+  attempts          Int                @default(0)
+  lastError         String?            @map("last_error")
   /// What Telegram called the message, so an edit or a delete can find it later.
-  telegramMessageId Int?       @map("telegram_message_id")
+  telegramMessageId Int?               @map("telegram_message_id")
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   sentAt    DateTime? @map("sent_at") @db.Timestamptz(3)
@@ -1964,14 +2023,14 @@ model Notification {
 model JobFailure {
   id String @id @default(uuid(7))
 
-  queue   String
-  jobName String @map("job_name")
+  queue    String
+  jobName  String @map("job_name")
   /// BullMQ's job id, which is deterministic — so a re-drive collides with the
   /// original rather than producing a second delivery.
-  jobId   String @map("job_id")
-  payload Json
-  error   String
-  attempts Int   @default(0)
+  jobId    String @map("job_id")
+  payload  Json
+  error    String
+  attempts Int    @default(0)
 
   /// Set when somebody re-drove it, so the queue does not re-run the same failure
   /// every time an admin opens the page.
