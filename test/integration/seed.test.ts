@@ -56,6 +56,12 @@ async function seed(script: string, env: Record<string, string> = {}): Promise<R
 beforeAll(async () => {
   await resetDatabase(prisma);
   // Events need a city, a category and districts to reference; settings need nothing.
+  //
+  // `seed-geography` first, and the order is load-bearing rather than tidy:
+  // cities moved there in M21, and `seed-catalog` attaches Tehran's districts to
+  // a city it looks up by slug. Run the other way round it warns and skips them,
+  // and `seed-events` then has no active city to place an event in.
+  expect((await seed('seed-geography')).code).toBe(0);
   expect((await seed('seed-catalog')).code).toBe(0);
   expect((await seed('seed-settings')).code).toBe(0);
   expect((await seed('seed-events')).code).toBe(0);

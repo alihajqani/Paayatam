@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -70,6 +70,10 @@ let reviewPublicId: string;
 let scannedGiftCodePublicId: string;
 /** The referral the scan rejects and reinstates, over and over, one pass each. */
 let scannedReferralId: string;
+/** An activity tag the scan edits and reorders. Never deleted, so every pass finds it. */
+let scanTagId: string;
+/** A second one, for the delete. Gone after the first pass — see the note at its endpoint. */
+let scanDoomedTagId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
@@ -79,7 +83,7 @@ let authAttempt = 0;
 let refreshAttempt = 0;
 
 interface Endpoint {
-  method: 'GET' | 'POST' | 'PATCH' | 'PUT';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   url: string;
   /** Endpoints that answer without a session; the rest are sent one. */
   anonymous?: boolean;
@@ -699,6 +703,20 @@ beforeAll(async () => {
     })
   ).id;
 
+  // Two activity tags (M21): one the scan edits on every pass, one it deletes.
+  scanTagId = (
+    await prisma.category.create({
+      data: { slug: 'leak-scan-tag', nameFa: 'پویش نشتی', isActive: false },
+      select: { id: true },
+    })
+  ).id;
+  scanDoomedTagId = (
+    await prisma.category.create({
+      data: { slug: 'leak-scan-doomed', nameFa: 'پویش حذف', isActive: false },
+      select: { id: true },
+    })
+  ).id;
+
   ENDPOINTS.push(
     { method: 'GET', url: `/api/v1/events/${eventPublicId}` },
     { method: 'GET', url: `/api/v1/events/${eventPublicId}/explain-rank` },
@@ -964,6 +982,46 @@ beforeAll(async () => {
     { method: 'GET', url: '/admin/v1/me', admin: true },
     { method: 'GET', url: '/admin/v1/moderation/cases', admin: true },
     { method: 'GET', url: '/admin/v1/audit', admin: true },
+    // Activity tags (M21).
+    { method: 'GET', url: '/admin/v1/activity-tags', admin: true },
+    { method: 'GET', url: '/admin/v1/places', admin: true },
+    {
+      /**
+       * A fresh slug per call, through the function form of `body`.
+       *
+       * The scan runs the whole list once per leak pattern, and a fixed slug
+       * would answer `CATALOG_SLUG_TAKEN` on every pass after the first — so
+       * the *created* body, the one worth scanning, would be read once and the
+       * rest of the passes would scan an error envelope.
+       */
+      method: 'POST',
+      url: '/admin/v1/activity-tags',
+      admin: true,
+      body: () => ({ slug: `leak-scan-${randomUUID()}`, nameFa: 'پویش', icon: '🔎' }),
+    },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/activity-tags/${scanTagId}`,
+      admin: true,
+      body: { nameFa: 'پویش نشتی' },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/activity-tags/reorder',
+      admin: true,
+      body: { order: [scanTagId] },
+    },
+    {
+      /**
+       * 200 on the first pass and 404 afterwards, which is the same bargain the
+       * chat-close and duplicate-join endpoints already make here: a refusal is
+       * a response the scan wants to read, and only the GETs are held to
+       * answering successfully at least once.
+       */
+      method: 'DELETE',
+      url: `/admin/v1/activity-tags/${scanDoomedTagId}`,
+      admin: true,
+    },
     {
       method: 'POST',
       url: `/admin/v1/coins/adjust`,

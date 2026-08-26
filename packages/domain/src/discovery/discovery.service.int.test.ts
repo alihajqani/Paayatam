@@ -588,6 +588,10 @@ describe('the projection (plan §3.6, invariant 7)', () => {
         'costAmount',
         'costNote',
         'costType',
+        // M21: the host's own words for a «سایر»-style tag. Public by
+        // construction — it is the label a stranger reads on the card in place
+        // of the category name.
+        'customCategoryLabel',
         'description',
         'districtId',
         'districtNameFa',
