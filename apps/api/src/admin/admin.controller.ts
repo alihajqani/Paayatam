@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -16,6 +17,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   AdminAccessService,
   AdminInsightService,
+  CatalogAdminService,
   AdminOperationsService,
   ChatUnsealService,
   GiftCodeAdminService,
@@ -76,6 +78,16 @@ import {
   type AnalyticsWindowQuery,
   type AppSettingView,
   type AppSettingsResponse,
+  activityTagsResponse,
+  createActivityTagRequest,
+  updateActivityTagRequest,
+  reorderActivityTagsRequest,
+  type ActivityTagView,
+  type ActivityTagsResponse,
+  type CreateActivityTagRequest,
+  type UpdateActivityTagRequest,
+  type ReorderActivityTagsRequest,
+  type AdminPlacesResponse,
   type AuditLogResponse,
   type BulkCreateGiftCodesRequest,
   type BulkCreateGiftCodesResponse,
@@ -141,6 +153,7 @@ export class AdminController {
     private readonly unseal: ChatUnsealService,
     private readonly giftCodes: GiftCodeAdminService,
     private readonly referrals: ReferralAdminService,
+    private readonly catalog: CatalogAdminService,
     private readonly insight: AdminInsightService,
     /**
      * The same readiness check `/ready` uses, folded into the dashboard.
@@ -901,6 +914,73 @@ export class AdminController {
     const row = settings.find((setting) => setting.key === updated.key);
     if (!row) throw new AppError(ErrorCode.INTERNAL_ERROR);
     return row;
+  }
+
+  // ── Activity tags — «تفریحات» (M21) ────────────────────────────────────────
+
+  /**
+   * Every activity tag, active or not.
+   *
+   * Inactive rows included deliberately: this is the screen somebody turns one
+   * back on from, and hiding them would make that impossible from the panel that
+   * owns the list.
+   */
+  @Get('activity-tags')
+  async listActivityTags(@CurrentAdmin() admin: AdminSession): Promise<ActivityTagsResponse> {
+    return { tags: await this.catalog.listTags(admin) };
+  }
+
+  /** Provinces and cities, for the "offered in which cities" picker. */
+  @Get('places')
+  async listPlaces(@CurrentAdmin() admin: AdminSession): Promise<AdminPlacesResponse> {
+    return this.catalog.listPlaces(admin);
+  }
+
+  @Post('activity-tags')
+  async createActivityTag(
+    @Body(new ZodValidationPipe(createActivityTagRequest)) body: CreateActivityTagRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ActivityTagView> {
+    return this.catalog.createTag(admin, body);
+  }
+
+  /**
+   * `PATCH`, not `POST`: an omitted field means "leave it", which is what makes
+   * a single toggle a single field on the wire and stops two operators editing
+   * different columns from overwriting each other.
+   *
+   * There is no slug field. See `CatalogAdminService` — an endpoint that can be
+   * *asked* to rename an identifier is one somebody eventually wires an input to.
+   */
+  @Patch('activity-tags/:id')
+  async updateActivityTag(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateActivityTagRequest)) body: UpdateActivityTagRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ActivityTagView> {
+    return this.catalog.updateTag(admin, id, body);
+  }
+
+  /**
+   * Refused with a count when events already reference the tag — the panel
+   * offers deactivation instead, which is what `is_active` is for.
+   */
+  @Delete('activity-tags/:id')
+  async deleteActivityTag(
+    @Param('id') id: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<{ deleted: true }> {
+    await this.catalog.deleteTag(admin, id);
+    return { deleted: true };
+  }
+
+  /** The whole ordering in one transaction, so a drag cannot half-apply. */
+  @Post('activity-tags/reorder')
+  async reorderActivityTags(
+    @Body(new ZodValidationPipe(reorderActivityTagsRequest)) body: ReorderActivityTagsRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ActivityTagsResponse> {
+    return activityTagsResponse.parse({ tags: await this.catalog.reorderTags(admin, body.order) });
   }
 
   // ── Break-glass (T14) ──────────────────────────────────────────────────────

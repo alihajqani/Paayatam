@@ -6,6 +6,7 @@ import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
 import { AdminInsightService } from './admin-insight.service';
 import { AdminOperationsService } from './admin-operations.service';
+import { CatalogAdminService } from './catalog-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
@@ -31,6 +32,7 @@ import { ReferralAdminService } from './referral-admin.service';
     AdminInsightService,
     GiftCodeAdminService,
     ReferralAdminService,
+    CatalogAdminService,
   ],
   exports: [
     AdminCredentials,
@@ -40,6 +42,7 @@ import { ReferralAdminService } from './referral-admin.service';
     AdminInsightService,
     GiftCodeAdminService,
     ReferralAdminService,
+    CatalogAdminService,
   ],
 })
 export class AdminAccessModule {}

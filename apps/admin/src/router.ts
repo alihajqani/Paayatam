@@ -116,6 +116,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'گزارش رخدادها', permission: PERMISSIONS.AUDIT_READ, group: 'system' },
   },
   {
+    path: '/activities',
+    name: 'activities',
+    component: () => import('@/views/ActivitiesView.vue'),
+    meta: { title: 'تفریحات', permission: PERMISSIONS.CATALOG_MANAGE, group: 'system' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),

@@ -17,6 +17,7 @@ import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { AdminInsightService } from './admin-insight.service';
+import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import {
@@ -70,6 +71,7 @@ const unseal = new ChatUnsealService(service, clock, settings, cipher, access, a
 const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);
 const referrals = new ReferralAdminService(service, clock, access, audit);
 const insight = new AdminInsightService(service, clock, access);
+const catalogAdmin = new CatalogAdminService(service, access, audit);
 
 /**
  * One admin operation, and the permission it demands.
@@ -310,6 +312,38 @@ const OPERATIONS: Operation[] = [
     name: 'POST /admin/v1/settings/:key',
     permission: PERMISSIONS.SETTINGS_MANAGE,
     run: (session) => operations.updateSetting(session, 'no.such.key', 1, 'x'),
+  },
+  // Activity tags (M21). `catalog.manage` had been in the catalogue since M12
+  // with no operation behind it — these are the first entries it has ever had.
+  {
+    name: 'GET /admin/v1/activity-tags',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => catalogAdmin.listTags(session),
+  },
+  {
+    name: 'POST /admin/v1/activity-tags',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => catalogAdmin.createTag(session, { slug: 'no-such-tag', nameFa: 'x' }),
+  },
+  {
+    name: 'PATCH /admin/v1/activity-tags/:id',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => catalogAdmin.updateTag(session, NO_SUCH_ID, { nameFa: 'x' }),
+  },
+  {
+    name: 'DELETE /admin/v1/activity-tags/:id',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => catalogAdmin.deleteTag(session, NO_SUCH_ID),
+  },
+  {
+    name: 'POST /admin/v1/activity-tags/reorder',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => catalogAdmin.reorderTags(session, [NO_SUCH_ID]),
+  },
+  {
+    name: 'GET /admin/v1/places',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => catalogAdmin.listPlaces(session),
   },
 ];
 

@@ -275,6 +275,13 @@ export type {
   ReferralPage,
   ReferralReview,
 } from './adminaccess/referral-admin.service';
+export { CatalogAdminService } from './adminaccess/catalog-admin.service';
+export type {
+  AdminPlaces,
+  ActivityTagSummary,
+  CreateActivityTagInput,
+  UpdateActivityTagInput,
+} from './adminaccess/catalog-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';

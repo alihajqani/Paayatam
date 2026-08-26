@@ -1014,3 +1014,126 @@ export const updateSettingRequest = z.object({
   reason: z.string().trim().min(5).max(500),
 });
 export type UpdateSettingRequest = z.infer<typeof updateSettingRequest>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Activity tags — the «تفریحات» catalogue (M21)
+//
+// `catalog.manage` has existed in the permission catalogue since M12 and had no
+// API behind it: the panel could authorise an act nobody could perform. This is
+// that act. Adding an activity was a code change and a deploy, which is the
+// wrong shape for a list that grows every time the product enters a new city.
+//
+// Categories only. Cities, districts and interests are still seed-managed —
+// widening this to the whole catalog would have meant four CRUD screens where
+// the pressing need is one, and `catalog.manage` covers them all when they come.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The slug rule, in one place.
+ *
+ * Lowercase ASCII, digits and single hyphens. Slugs are **identifiers, not
+ * labels** — the Persian name is the label, and it is freely editable. A slug is
+ * what code, seeds and fixtures refer to, so it is ASCII (a Persian slug in a URL
+ * is percent-encoded into unreadability) and it is the one field the update
+ * endpoint refuses to change.
+ */
+export const activityTagSlug = z
+  .string()
+  .trim()
+  .min(2)
+  .max(48)
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    'slug must be lowercase ASCII words joined by single hyphens',
+  );
+
+export const activityTagView = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  nameFa: z.string(),
+  /** An emoji or icon key. Never a URL — the CSP forbids external hosts (ADR-0003). */
+  icon: z.string().nullable(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int(),
+  allowsCustomLabel: z.boolean(),
+  /** The cities it is offered in, or `null` for everywhere. */
+  cityIds: z.array(z.uuid()).nullable(),
+  /**
+   * How many events already reference it.
+   *
+   * On the list so the panel can explain *why* a delete was refused before the
+   * operator clicks it, rather than after.
+   */
+  eventCount: z.number().int().nonnegative(),
+});
+export type ActivityTagView = z.infer<typeof activityTagView>;
+
+export const activityTagsResponse = z.object({ tags: z.array(activityTagView) });
+export type ActivityTagsResponse = z.infer<typeof activityTagsResponse>;
+
+export const createActivityTagRequest = z.object({
+  slug: activityTagSlug,
+  nameFa: z.string().trim().min(1).max(60),
+  icon: z.string().trim().max(16).nullable().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(9999).optional(),
+  allowsCustomLabel: z.boolean().optional(),
+  cityIds: z.array(z.uuid()).max(2000).nullable().optional(),
+});
+export type CreateActivityTagRequest = z.infer<typeof createActivityTagRequest>;
+
+/**
+ * Everything except the slug.
+ *
+ * Every field optional, and an omitted field is left alone — so the panel can
+ * send one changed toggle rather than the whole row, and two operators editing
+ * different fields do not overwrite each other.
+ *
+ * The slug's absence is the point. It is the identifier seeds, tests and
+ * documentation refer to; renaming it silently repoints every one of them at
+ * nothing. Deactivate the row and make a new one instead.
+ */
+export const updateActivityTagRequest = z
+  .object({
+    nameFa: z.string().trim().min(1).max(60).optional(),
+    icon: z.string().trim().max(16).nullable().optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+    allowsCustomLabel: z.boolean().optional(),
+    cityIds: z.array(z.uuid()).max(2000).nullable().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: 'no fields to update' });
+export type UpdateActivityTagRequest = z.infer<typeof updateActivityTagRequest>;
+
+/**
+ * Reordering, as one call.
+ *
+ * A screen where an operator drags five rows must not be five requests that can
+ * half-fail and leave the list in an order nobody chose. The service writes them
+ * in one transaction.
+ */
+export const reorderActivityTagsRequest = z.object({
+  order: z.array(z.uuid()).min(1).max(500),
+});
+export type ReorderActivityTagsRequest = z.infer<typeof reorderActivityTagsRequest>;
+
+/**
+ * Provinces and cities for the tag scope picker.
+ *
+ * Its own admin endpoint rather than a reuse of the public catalog: that one is
+ * cached, public and active-only, and widening it to carry inactive rows for one
+ * admin screen would publish them to everybody.
+ */
+export const adminPlacesResponse = z.object({
+  provinces: z.array(z.object({ id: z.uuid(), slug: z.string(), nameFa: z.string() })),
+  cities: z.array(
+    z.object({
+      id: z.uuid(),
+      slug: z.string(),
+      nameFa: z.string(),
+      provinceId: z.uuid().nullable(),
+      isActive: z.boolean(),
+    }),
+  ),
+});
+export type AdminPlacesResponse = z.infer<typeof adminPlacesResponse>;
