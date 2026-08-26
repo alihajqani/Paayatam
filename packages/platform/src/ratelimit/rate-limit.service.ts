@@ -197,6 +197,15 @@ export const RATE_LIMITS = {
    */
   EVENT_INVITE: { limit: 10, windowSeconds: 86_400 },
   /**
+   * Re-checking channel membership: 10 a minute (M22 phase 6).
+   *
+   * The one endpoint in the product where a tap becomes a Telegram call
+   * synchronously. Ten a minute is far more than a person pressing «بررسی دوباره»
+   * after joining, and low enough that a loop cannot spend the bot's budget on
+   * `getChatMember` calls that other users' messages need.
+   */
+  MEMBERSHIP_CHECK: { limit: 10, windowSeconds: 60 },
+  /**
    * Authentication, by IP rather than by user — there is no user yet.
    *
    * Not in T12's list, and added because it is the one endpoint an attacker can

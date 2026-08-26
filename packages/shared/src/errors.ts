@@ -137,6 +137,17 @@ export const ErrorCode = {
   /** A rehearsal cannot be promoted into a send. Compose it again for real. */
   MESSAGE_DRY_RUN: 'MESSAGE_DRY_RUN',
 
+  // The event channel (M22 phase 6)
+  /**
+   * The user has to join the channel before this operation is available.
+   *
+   * `details.joinUrl` carries where to send them, so the client renders a working
+   * button rather than a sentence about a channel it cannot name.
+   */
+  CHANNEL_MEMBERSHIP_REQUIRED: 'CHANNEL_MEMBERSHIP_REQUIRED',
+  /** Turning the requirement on with nowhere to send people is refused. */
+  CHANNEL_NOT_CONFIGURED: 'CHANNEL_NOT_CONFIGURED',
+
   // Catalog administration (M21)
   /** Two categories cannot share a slug — it is the identifier code refers to. */
   CATALOG_SLUG_TAKEN: 'CATALOG_SLUG_TAKEN',
@@ -250,6 +261,11 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   POLICY_CONFIRMATION_MISMATCH: 'شمارهٔ نسخه‌ای که وارد کردید با پیش‌نویس هم‌خوانی ندارد.',
   POLICY_IS_CURRENT: 'نسخهٔ جاری را نمی‌توان بایگانی کرد. ابتدا نسخهٔ تازه‌ای منتشر کنید.',
 
+  CHANNEL_MEMBERSHIP_REQUIRED:
+    'برای انجام این کار، ابتدا در کانال پایه‌تَم عضو شوید و سپس دوباره تلاش کنید.',
+  CHANNEL_NOT_CONFIGURED:
+    'پیوند عضویت کانال تنظیم نشده است. تا وقتی پیوندی وجود ندارد، اجباری کردن عضویت ممکن نیست.',
+
   MESSAGE_FORMAT_INVALID: 'متن پیام برای تلگرام معتبر نیست. طول و قالب‌بندی را بررسی کنید.',
   MESSAGE_DRY_RUN:
     'این یک پیش‌نمایش است و قابل ارسال نیست. پیام را دوباره برای ارسال واقعی بسازید.',
@@ -311,6 +327,8 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   CATALOG_TAG_IN_USE: 409,
   CITY_HAS_REFERENCES: 409,
   MESSAGE_FORMAT_INVALID: 422,
+  CHANNEL_MEMBERSHIP_REQUIRED: 403,
+  CHANNEL_NOT_CONFIGURED: 409,
   MESSAGE_DRY_RUN: 409,
   POLICY_DRAFT_EXISTS: 409,
   POLICY_NOT_EDITABLE: 409,

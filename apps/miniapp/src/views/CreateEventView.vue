@@ -8,6 +8,7 @@ import {
   type GenderPreference,
 } from '@payetam/shared';
 import { ApiError } from '@/api/client';
+import ChannelGate from '@/components/ChannelGate.vue';
 import CostNotice from '@/components/CostNotice.vue';
 import MainButton from '@/components/MainButton.vue';
 import { isoToLocalInput, localInputToIso, nowAsLocalInput } from '@/format/datetime';
@@ -247,6 +248,10 @@ onMounted(load);
         عنوان و توضیحات پیش از انتشار بررسی می‌شوند. شناسهٔ تلگرام شما هرگز نمایش داده نمی‌شود.
       </p>
     </header>
+
+    <!-- Shown before the form rather than after the submit: the server-side gate
+         is the control, and this is the explanation (M22 phase 6). -->
+    <ChannelGate action="EVENT_CREATE" />
 
     <div v-if="loadError" class="flex flex-col items-start gap-2">
       <p class="text-tg-destructive">{{ loadError }}</p>

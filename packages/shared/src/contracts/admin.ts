@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { policyType } from './auth';
+import { gatedAction } from './catalog';
 
 /**
  * Admin and reporting contracts (M12, ADR-0010).
@@ -1171,6 +1172,51 @@ export const activityTagSlug = z
     /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
     'slug must be lowercase ASCII words joined by single hyphens',
   );
+
+// ── The event channel (M22 phase 6) ──────────────────────────────────────────
+
+/**
+ * What an operator sees and edits.
+ *
+ * **No token, ever.** `TELEGRAM_CHANNEL_ID` and `TELEGRAM_BOT_TOKEN` are
+ * environment variables and neither appears here: what this carries is the
+ * channel's public face — a @username, a join link — plus whether membership is
+ * required. A destination editable from a web session is a destination an
+ * attacker with a session can redirect, which is why the *posting* target stays
+ * in the environment.
+ */
+export const channelConfigView = z.object({
+  chatIdentifier: z.string().nullable(),
+  publicUsername: z.string().nullable(),
+  inviteUrl: z.url().nullable(),
+  membershipRequired: z.boolean(),
+  requiredActions: z.array(gatedAction),
+  verifyViaTelegram: z.boolean(),
+  updatedAt: z.iso.datetime(),
+  /** There is somewhere to send a user who has to join. */
+  hasJoinLink: z.boolean(),
+  /** There is an identifier the API can ask Telegram about. */
+  canVerify: z.boolean(),
+  /**
+   * Reasons not to switch the requirement on, rendered **before** the switch.
+   *
+   * Turning it on with a channel the bot cannot see locks out every user at once,
+   * so the panel is required to say so first rather than afterwards.
+   */
+  warnings: z.array(z.enum(['NO_JOIN_LINK', 'NO_CHAT_IDENTIFIER', 'NO_ACTIONS_SELECTED'])),
+});
+export type ChannelConfigView = z.infer<typeof channelConfigView>;
+
+export const updateChannelConfigRequest = z.object({
+  chatIdentifier: z.string().trim().max(64).nullable().optional(),
+  publicUsername: z.string().trim().max(64).nullable().optional(),
+  /** Validated and rebuilt server-side: `https://t.me/…` only, no query, no fragment. */
+  inviteUrl: z.string().trim().max(300).nullable().optional(),
+  membershipRequired: z.boolean().optional(),
+  requiredActions: z.array(gatedAction).max(8).optional(),
+  verifyViaTelegram: z.boolean().optional(),
+});
+export type UpdateChannelConfigRequest = z.infer<typeof updateChannelConfigRequest>;
 
 // ── Outbound messaging (M22 phases 4 and 12) ─────────────────────────────────
 

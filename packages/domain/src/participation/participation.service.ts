@@ -6,6 +6,7 @@ import { CLOCK, ENV, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { ChatService } from '../chat/chat.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import {
@@ -95,6 +96,8 @@ export class ParticipationService {
     private readonly outbox: OutboxService,
     private readonly chat: ChatService,
     private readonly penalties: PenaltyService,
+    /** The channel-membership gate (M22 phase 6), in the service that owns the act. */
+    private readonly membership: ChannelMembershipService,
   ) {}
 
   /**
@@ -108,6 +111,9 @@ export class ParticipationService {
    */
   async join(userId: string, eventPublicId: string): Promise<ParticipationDetail> {
     const now = this.clock.now();
+    // The channel-membership gate (M22 phase 6), before anything is read or
+    // locked: refusing early costs nothing and takes no row lock.
+    await this.membership.assertAllowed(userId, 'EVENT_JOIN');
     const joiner = await this.loadJoiner(userId);
 
     const [hostResponseHours, minHoursBefore] = await Promise.all([

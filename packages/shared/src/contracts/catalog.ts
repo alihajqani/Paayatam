@@ -134,3 +134,40 @@ export const catalogResponse = z.object({
   promotion: promotionPricing,
 });
 export type CatalogResponse = z.infer<typeof catalogResponse>;
+
+// ── Channel membership (M22 phase 6) ─────────────────────────────────────────
+
+export const gatedAction = z.enum([
+  'EVENT_CREATE',
+  'EVENT_JOIN',
+  'EVENT_CHANNEL_SEND',
+  'EVENT_INVITE',
+]);
+export type GatedActionView = z.infer<typeof gatedAction>;
+
+/**
+ * Where this user stands with the channel requirement.
+ *
+ * `status` is five outcomes rather than a boolean because they lead to five
+ * different sentences, and three of them are **not the user's fault**: the chat is
+ * unavailable, the bot cannot see the member list, or Telegram did not answer.
+ * `allowed` is true for all three — the product fails open — and the screen says
+ * something honest instead of asking somebody to fix a configuration problem.
+ */
+export const membershipStateResponse = z.object({
+  required: z.boolean(),
+  requiredActions: z.array(gatedAction),
+  /** Where the «عضویت» button goes. Null when nothing is configured. */
+  joinUrl: z.url().nullable(),
+  status: z.enum([
+    'NOT_REQUIRED',
+    'MEMBER',
+    'NOT_MEMBER',
+    'CHAT_UNAVAILABLE',
+    'BOT_CANNOT_VERIFY',
+    'UNKNOWN',
+  ]),
+  allowed: z.boolean(),
+  reason: z.string().nullable(),
+});
+export type MembershipStateResponse = z.infer<typeof membershipStateResponse>;

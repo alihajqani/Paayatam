@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { ParticipationView } from '@payetam/shared';
 import { ApiError } from '@/api/client';
+import ChannelGate from '@/components/ChannelGate.vue';
 import MainButton from '@/components/MainButton.vue';
 import ReportDialog from '@/components/ReportDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
@@ -121,6 +122,10 @@ onMounted(load);
     <button type="button" class="min-h-11 self-start text-sm text-tg-link" @click="router.back()">
       بازگشت
     </button>
+
+    <!-- Before the join button rather than after it: the server refuses either
+         way, and finding out first is the difference (M22 phase 6). -->
+    <ChannelGate action="EVENT_JOIN" />
 
     <StateBlock :state="state" :error-text="loadError" :rows="4" @retry="load">
       <template v-if="event">

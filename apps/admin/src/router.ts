@@ -140,6 +140,19 @@ const routes: RouteRecordRaw[] = [
   },
   {
     /**
+     * The event channel and the membership requirement (M22 phase 6).
+     *
+     * `channel.manage` rather than `settings.manage`, because everything behind
+     * that key retunes a number and this one switch can refuse every gated action
+     * for every user at once.
+     */
+    path: '/channel',
+    name: 'channel',
+    component: () => import('@/views/ChannelView.vue'),
+    meta: { title: 'کانال رویدادها', permission: PERMISSIONS.CHANNEL_MANAGE, group: 'system' },
+  },
+  {
+    /**
      * Provinces and cities (M22 phase 9).
      *
      * `catalog.manage`, the same key the activity tags sit behind: both are lists

@@ -11,6 +11,8 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { ChannelConfigService } from '../channel/channel-config.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { InvitationService, inviteSpendKey } from './invitation.service';
@@ -37,7 +39,19 @@ const env = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
 const settings = new SettingsService(service);
 const coins = new CoinService(service, clock);
 const audit = new AuditService(service, clock);
-const invitations = new InvitationService(service, clock, env, settings, coins, audit);
+/**
+ * The channel-membership gate, in its permissive default state.
+ *
+ * `event_channel_config` is truncated between tests, so `membershipRequired` is
+ * false and every check answers NOT_REQUIRED — the gate is a no-op here, which is
+ * what these suites want. `membership.int.test.ts` is where it is switched on.
+ */
+const membership = new ChannelMembershipService(
+  service,
+  new ChannelConfigService(service, clock, audit),
+);
+
+const invitations = new InvitationService(service, clock, env, settings, coins, membership, audit);
 
 let fixture: CatalogFixture;
 let hostId: string;

@@ -1,7 +1,13 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import type { PrismaClient, PrismaService } from '@payetam/db';
-import { AuditService, InvitationService, MessagingService } from '@payetam/domain';
+import {
+  AuditService,
+  ChannelConfigService,
+  ChannelMembershipService,
+  InvitationService,
+  MessagingService,
+} from '@payetam/domain';
 import { FakeClock, JOBS, jobId } from '@payetam/platform';
 import {
   createTestPrisma,
@@ -40,12 +46,25 @@ const messaging = new MessagingService(service, clock, audit);
  * must not be able to disagree. Its other half — pricing and charging — is
  * exercised in `invitation.service.int.test.ts`.
  */
+/**
+ * The channel-membership gate, in its permissive default state.
+ *
+ * `event_channel_config` is truncated between tests, so `membershipRequired` is
+ * false and every check answers NOT_REQUIRED — the gate is a no-op here, which is
+ * what these suites want. `membership.int.test.ts` is where it is switched on.
+ */
+const membership = new ChannelMembershipService(
+  service,
+  new ChannelConfigService(service, clock, audit),
+);
+
 const invitations = new InvitationService(
   service,
   clock,
   { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as never,
   {} as never,
   {} as never,
+  membership,
   audit,
 );
 

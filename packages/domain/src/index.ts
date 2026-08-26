@@ -311,6 +311,7 @@ export type {
 export { MessagingModule } from './messaging/messaging.module';
 export { MessagingAdminService } from './adminaccess/messaging-admin.service';
 export type { AudiencePreview, TelegramIdentity } from './adminaccess/messaging-admin.service';
+export { ChannelAdminService } from './adminaccess/channel-admin.service';
 export { GeographyAdminService } from './adminaccess/geography-admin.service';
 export type { ProvinceSummary, CitySummary } from './adminaccess/geography-admin.service';
 export { PolicyAdminService } from './adminaccess/policy-admin.service';
@@ -328,6 +329,26 @@ export { OutboxRelayService } from './outbox/relay.service';
 export type { RelayResult } from './outbox/relay.service';
 
 export { ChannelService } from './channel/channel.service';
+export {
+  ChannelConfigService,
+  CHANNEL_CONFIG_ID,
+  GATED_ACTIONS,
+  normalizeChatIdentifier,
+  normalizeInviteUrl,
+  normalizeUsername,
+} from './channel/channel-config.service';
+export type {
+  ChannelConfig,
+  ChannelConfigStatus,
+  ChannelConfigWarning,
+  GatedAction,
+} from './channel/channel-config.service';
+export { ChannelMembershipService, MEMBERSHIP_PROBE } from './channel/membership.service';
+export type {
+  MembershipProbe,
+  MembershipProbeResult,
+  MembershipState,
+} from './channel/membership.service';
 export type { PublishablePost, TakedownTarget } from './channel/channel.service';
 export { ChannelModule } from './channel/channel.module';
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
+import { ChannelModule } from '../channel/channel.module';
 import { ChatModule } from '../chat/chat.module';
 import { EconomyModule } from '../economy/economy.module';
 import { IdentityModule } from '../identity/identity.module';
@@ -10,6 +11,7 @@ import { AdminCredentials } from './admin-credentials';
 import { AdminInsightService } from './admin-insight.service';
 import { AdminOperationsService } from './admin-operations.service';
 import { CatalogAdminService } from './catalog-admin.service';
+import { ChannelAdminService } from './channel-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { GeographyAdminService } from './geography-admin.service';
 import { MessagingAdminService } from './messaging-admin.service';
@@ -36,6 +38,9 @@ import { ReferralAdminService } from './referral-admin.service';
 @Module({
   imports: [
     CatalogModule,
+    // For `ChannelConfigService`: the panel is where the event channel and its
+    // membership requirement are configured (M22 phase 6).
+    ChannelModule,
     ChatModule,
     EconomyModule,
     IdentityModule,
@@ -51,6 +56,7 @@ import { ReferralAdminService } from './referral-admin.service';
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
+    ChannelAdminService,
     GeographyAdminService,
     MessagingAdminService,
     PolicyAdminService,
@@ -64,6 +70,7 @@ import { ReferralAdminService } from './referral-admin.service';
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
+    ChannelAdminService,
     GeographyAdminService,
     MessagingAdminService,
     PolicyAdminService,

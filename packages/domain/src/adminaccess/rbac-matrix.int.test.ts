@@ -22,6 +22,8 @@ import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ProfileService } from '../profile/profile.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { ChannelConfigService } from '../channel/channel-config.service';
+import { ChannelAdminService } from './channel-admin.service';
 import { GeographyAdminService } from './geography-admin.service';
 import { MessagingAdminService } from './messaging-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
@@ -101,6 +103,10 @@ const insight = new AdminInsightService(service, clock, access);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
+const channelAdmin = new ChannelAdminService(
+  access,
+  new ChannelConfigService(service, clock, audit),
+);
 const messaging = new MessagingService(service, clock, audit);
 const messagingAdmin = new MessagingAdminService(service, access, messaging, audit);
 
@@ -509,6 +515,16 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.USER_TELEGRAM_READ,
     run: (session) => messagingAdmin.telegramIdentity(session, NO_SUCH_ID),
   },
+  {
+    name: 'GET /admin/v1/channel-config',
+    permission: PERMISSIONS.CHANNEL_MANAGE,
+    run: (session) => channelAdmin.get(session),
+  },
+  {
+    name: 'PUT /admin/v1/channel-config',
+    permission: PERMISSIONS.CHANNEL_MANAGE,
+    run: (session) => channelAdmin.update(session, { membershipRequired: false }),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -546,7 +562,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(63);
+    expect(OPERATIONS).toHaveLength(65);
   });
 
   for (const role of ROLES) {

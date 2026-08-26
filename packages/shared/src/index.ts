@@ -31,6 +31,8 @@ export {
   interestView,
   promotionPricing,
   catalogResponse,
+  gatedAction,
+  membershipStateResponse,
 } from './contracts/catalog';
 export type {
   ProvinceView,
@@ -39,6 +41,8 @@ export type {
   InterestView,
   PromotionPricing,
   CatalogResponse,
+  GatedActionView,
+  MembershipStateResponse,
 } from './contracts/catalog';
 
 export {
@@ -299,6 +303,8 @@ export {
   policyConsentView,
   policyConsentQuery,
   policyConsentResponse,
+  channelConfigView,
+  updateChannelConfigRequest,
   messageAudience,
   previewMessageRequest,
   messagePreviewResponse,
@@ -411,6 +417,8 @@ export type {
   PolicyConsentView,
   PolicyConsentQuery,
   PolicyConsentResponse,
+  ChannelConfigView,
+  UpdateChannelConfigRequest,
   MessageAudienceRequest,
   PreviewMessageRequest,
   MessagePreviewResponse,

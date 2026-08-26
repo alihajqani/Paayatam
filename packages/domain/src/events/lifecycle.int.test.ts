@@ -11,6 +11,8 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { ChannelConfigService } from '../channel/channel-config.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { SettingsService } from '../catalog/settings.service';
 import { ChatService } from '../chat/chat.service';
 import { MessageCipher } from '../chat/message-cipher';
@@ -83,6 +85,18 @@ const lifecycle = new EventLifecycleService(
   audit,
   outbox,
 );
+/**
+ * The channel-membership gate, in its permissive default state.
+ *
+ * `event_channel_config` is truncated between tests, so `membershipRequired` is
+ * false and every check answers NOT_REQUIRED — the gate is a no-op here, which is
+ * what these suites want. `membership.int.test.ts` is where it is switched on.
+ */
+const membership = new ChannelMembershipService(
+  service,
+  new ChannelConfigService(service, clock, audit),
+);
+
 const participation = new ParticipationService(
   service,
   clock,
@@ -92,6 +106,7 @@ const participation = new ParticipationService(
   outbox,
   chat,
   penalties,
+  membership,
 );
 
 const STARTS_AT = new Date('2026-09-20T15:00:00.000Z');

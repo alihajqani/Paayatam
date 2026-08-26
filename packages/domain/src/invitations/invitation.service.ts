@@ -7,6 +7,7 @@ import { ENV } from '@payetam/platform';
 import type { Env } from '@payetam/config';
 import { renderEventInvitation } from '@payetam/telegram';
 import { AuditService } from '../audit/audit.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { rankCandidates, type InviteCandidate, type InviteWeights } from './score';
@@ -123,6 +124,8 @@ export class InvitationService {
     @Inject(ENV) private readonly env: Env,
     private readonly settings: SettingsService,
     private readonly coins: CoinService,
+    /** The channel-membership gate (M22 phase 6), in the service that owns the act. */
+    private readonly membership: ChannelMembershipService,
     private readonly audit: AuditService,
   ) {}
 
@@ -188,6 +191,7 @@ export class InvitationService {
     clientKey: string,
   ): Promise<InviteResult> {
     const event = await this.loadInvitableEvent(hostUserId, eventPublicId);
+    await this.membership.assertAllowed(hostUserId, 'EVENT_INVITE');
     const [weights, maxRecipients, cost] = await Promise.all([
       this.weights(),
       this.settings.getInt('events.top_invite_max_recipients'),

@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -18,6 +19,7 @@ import {
   AdminAccessService,
   AdminInsightService,
   CatalogAdminService,
+  ChannelAdminService,
   AdminOperationsService,
   ChatUnsealService,
   GeographyAdminService,
@@ -26,6 +28,7 @@ import {
   PolicyAdminService,
   ReferralAdminService,
   type AdminSession,
+  type ChannelConfigStatus,
   type CitySummary,
   type ConsentRecord,
   type MessageCampaignSummary,
@@ -72,6 +75,7 @@ import {
   createPolicyDraftRequest,
   createProvinceRequest,
   policyConsentQuery,
+  updateChannelConfigRequest,
   previewMessageRequest,
   reorderCitiesRequest,
   updateCityRequest,
@@ -82,6 +86,8 @@ import {
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
   type AdminCityListQuery,
+  type ChannelConfigView,
+  type UpdateChannelConfigRequest,
   type AdminCityListResponse,
   type AdminCityView,
   type AdminPolicyListQuery,
@@ -204,6 +210,7 @@ export class AdminController {
     private readonly referrals: ReferralAdminService,
     private readonly catalog: CatalogAdminService,
     private readonly geography: GeographyAdminService,
+    private readonly channel: ChannelAdminService,
     private readonly messaging: MessagingAdminService,
     private readonly policies: PolicyAdminService,
     private readonly insight: AdminInsightService,
@@ -1300,6 +1307,53 @@ export class AdminController {
     return toTelegramIdentityView(await this.messaging.telegramIdentity(admin, publicId));
   }
 
+  // ── The event channel (M22 phase 6) ────────────────────────────────────────
+
+  /**
+   * The channel's public face, the requirement, and whether it is safe to switch on.
+   *
+   * `warnings` is the point of the status shape: turning the requirement on with a
+   * channel the bot cannot see locks out every user at once, so the reasons not to
+   * are returned *with* the configuration rather than discovered afterwards.
+   *
+   * No token appears here. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL_ID` stay in
+   * the environment; a posting destination editable from a web session is one an
+   * attacker with a session can redirect.
+   */
+  @Get('channel-config')
+  async channelConfig(@CurrentAdmin() admin: AdminSession): Promise<ChannelConfigView> {
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /**
+   * Change it, behind `channel.manage`.
+   *
+   * The invite link is validated and **rebuilt** server-side — `https://t.me/…`
+   * only, no query, no fragment — because this value becomes an `href` in a button
+   * every user sees, and an unvalidated one is a phishing link the product would be
+   * hosting.
+   */
+  @Put('channel-config')
+  async updateChannelConfig(
+    @Body(new ZodValidationPipe(updateChannelConfigRequest)) body: UpdateChannelConfigRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    return toChannelConfigView(
+      await this.channel.update(admin, {
+        ...(body.chatIdentifier !== undefined ? { chatIdentifier: body.chatIdentifier } : {}),
+        ...(body.publicUsername !== undefined ? { publicUsername: body.publicUsername } : {}),
+        ...(body.inviteUrl !== undefined ? { inviteUrl: body.inviteUrl } : {}),
+        ...(body.membershipRequired !== undefined
+          ? { membershipRequired: body.membershipRequired }
+          : {}),
+        ...(body.requiredActions !== undefined ? { requiredActions: body.requiredActions } : {}),
+        ...(body.verifyViaTelegram !== undefined
+          ? { verifyViaTelegram: body.verifyViaTelegram }
+          : {}),
+      }),
+    );
+  }
+
   // ── Geography (M22 phase 9) ────────────────────────────────────────────────
 
   /**
@@ -1817,5 +1871,21 @@ function toTelegramIdentityView(identity: TelegramIdentity): TelegramIdentityVie
     linkUnavailableReason: identity.linkUnavailableReason,
     botBlocked: identity.botBlocked,
     lastSeenAt: identity.lastSeenAt.toISOString(),
+  };
+}
+
+/** Field by field (§3.6 layer 2). Nothing here can carry a token. */
+function toChannelConfigView(config: ChannelConfigStatus): ChannelConfigView {
+  return {
+    chatIdentifier: config.chatIdentifier,
+    publicUsername: config.publicUsername,
+    inviteUrl: config.inviteUrl,
+    membershipRequired: config.membershipRequired,
+    requiredActions: config.requiredActions,
+    verifyViaTelegram: config.verifyViaTelegram,
+    updatedAt: config.updatedAt.toISOString(),
+    hasJoinLink: config.hasJoinLink,
+    canVerify: config.canVerify,
+    warnings: config.warnings,
   };
 }

@@ -18,6 +18,7 @@ import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import { ChannelService } from '../channel/channel.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { ModerationService, type ContentScan } from '../moderation/moderation.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { assertParticipantTransition } from '../participation/state-machine';
@@ -259,6 +260,15 @@ export class EventService {
     private readonly settings: SettingsService,
     private readonly moderation: ModerationService,
     private readonly channel: ChannelService,
+    /**
+     * The channel-membership gate (M22 phase 6).
+     *
+     * Here rather than in a route guard, which is the requirement's own
+     * instruction: a guard protects the routes somebody remembered to decorate,
+     * and this protects the operation — including from the bot handler and from
+     * whatever calls it next.
+     */
+    private readonly membership: ChannelMembershipService,
     private readonly coins: CoinService,
     private readonly penalties: PenaltyService,
     private readonly chat: ChatService,
@@ -299,6 +309,7 @@ export class EventService {
     const now = this.clock.now();
     this.assertScheduleSane(input.startsAt, input.endsAt, now);
     await this.assertHostCanAuthor(hostUserId);
+    await this.membership.assertAllowed(hostUserId, 'EVENT_CREATE');
 
     // Read before the transaction: it is one indexed lookup, and taking a
     // connection for it while holding the outer one is what `SettingsService`
@@ -790,6 +801,7 @@ export class EventService {
    */
   async publishToChannel(hostUserId: string, publicId: string): Promise<EventDetail> {
     const now = this.clock.now();
+    await this.membership.assertAllowed(hostUserId, 'EVENT_CHANNEL_SEND');
     const cost = await this.settings.getInt('economy.event_channel_send_coins');
 
     const id = await this.prisma.$transaction(
