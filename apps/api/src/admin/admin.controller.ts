@@ -21,10 +21,13 @@ import {
   AdminOperationsService,
   ChatUnsealService,
   GiftCodeAdminService,
+  PolicyAdminService,
   ReferralAdminService,
   type AdminSession,
+  type ConsentRecord,
   type EventSummary,
   type GiftCodeSummary,
+  type PolicySummary,
   type ReferralReview,
   type UserSummary,
 } from '@payetam/domain';
@@ -33,6 +36,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
+  adminPolicyListQuery,
   adminUpdateProfileRequest,
   adminAuditQuery,
   adminEventListQuery,
@@ -56,11 +60,23 @@ import {
   setUserStatusRequest,
   unsealChatRequest,
   updateGiftCodeRequest,
+  createPolicyDraftRequest,
+  policyConsentQuery,
+  publishPolicyRequest,
+  updatePolicyDraftRequest,
   updateSettingRequest,
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
+  type AdminPolicyListQuery,
+  type AdminPolicyListResponse,
+  type AdminPolicyView,
   type AdminUpdateProfileRequest,
+  type CreatePolicyDraftRequest,
+  type PolicyConsentQuery,
+  type PolicyConsentResponse,
   type ProfileView,
+  type PublishPolicyRequest,
+  type UpdatePolicyDraftRequest,
   type AdminLoginRequest,
   type AdminAuditQuery,
   type AdminAuditResponse,
@@ -157,6 +173,7 @@ export class AdminController {
     private readonly giftCodes: GiftCodeAdminService,
     private readonly referrals: ReferralAdminService,
     private readonly catalog: CatalogAdminService,
+    private readonly policies: PolicyAdminService,
     private readonly insight: AdminInsightService,
     /**
      * The same readiness check `/ready` uses, folded into the dashboard.
@@ -973,6 +990,127 @@ export class AdminController {
    * back on from, and hiding them would make that impossible from the panel that
    * owns the list.
    */
+  // ── Legal documents (M22 phase 8) ──────────────────────────────────────────
+
+  /**
+   * Every version of every document, drafts included.
+   *
+   * Behind `policy.read`, which `SUPPORT` and `MODERATOR` hold: answering "what
+   * do the current terms say?" is half of what support does, and it is not the
+   * same capability as writing new ones.
+   */
+  @Get('policies')
+  async listPolicies(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminPolicyListQuery)) query: AdminPolicyListQuery,
+  ): Promise<AdminPolicyListResponse> {
+    const rows = await this.policies.list(admin, {
+      ...(query.type !== undefined ? { type: query.type } : {}),
+      ...(query.status !== undefined ? { status: query.status } : {}),
+    });
+    return { policies: rows.map(toAdminPolicyView) };
+  }
+
+  @Get('policies/:id')
+  async getPolicy(
+    @Param('id') id: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(await this.policies.get(admin, id));
+  }
+
+  /** Start the next version of a document. The number is the server's to allocate. */
+  @Post('policies')
+  @HttpCode(HttpStatus.CREATED)
+  async createPolicyDraft(
+    @Body(new ZodValidationPipe(createPolicyDraftRequest)) body: CreatePolicyDraftRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(
+      await this.policies.createDraft(admin, {
+        type: body.type,
+        titleFa: body.titleFa,
+        contentMd: body.contentMd,
+        ...(body.summaryFa !== undefined ? { summaryFa: body.summaryFa } : {}),
+        ...(body.changeSummaryFa !== undefined ? { changeSummaryFa: body.changeSummaryFa } : {}),
+      }),
+    );
+  }
+
+  /**
+   * Edit a draft.
+   *
+   * `expectedRevision` is required by the schema, not optional. Two people editing
+   * one legal document is the ordinary case, and last-write-wins silently discards
+   * whichever of them saved first.
+   */
+  @Patch('policies/:id')
+  async updatePolicyDraft(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updatePolicyDraftRequest)) body: UpdatePolicyDraftRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(
+      await this.policies.updateDraft(admin, id, {
+        expectedRevision: body.expectedRevision,
+        ...(body.titleFa !== undefined ? { titleFa: body.titleFa } : {}),
+        ...(body.contentMd !== undefined ? { contentMd: body.contentMd } : {}),
+        ...(body.summaryFa !== undefined ? { summaryFa: body.summaryFa } : {}),
+        ...(body.changeSummaryFa !== undefined ? { changeSummaryFa: body.changeSummaryFa } : {}),
+      }),
+    );
+  }
+
+  /**
+   * Publish, behind `policy.publish` and behind a typed-back version number.
+   *
+   * The confirmation is a number rather than a boolean because a boolean is a
+   * checkbox and a checkbox is a reflex. Reading the version off the screen and
+   * repeating it is the cheapest defence available against publishing the wrong
+   * draft on a page showing three.
+   */
+  @Post('policies/:id/publish')
+  @HttpCode(HttpStatus.OK)
+  async publishPolicy(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(publishPolicyRequest)) body: PublishPolicyRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(await this.policies.publish(admin, id, body));
+  }
+
+  @Post('policies/:id/archive')
+  @HttpCode(HttpStatus.OK)
+  async archivePolicy(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(publishPolicyRequest.pick({ reason: true })))
+    body: { reason: string },
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(await this.policies.archive(admin, id, body.reason));
+  }
+
+  /**
+   * Who accepted what, and when.
+   *
+   * Behind `policy.consent.read` — per-user evidence is a different capability
+   * from reading the document. The projection carries a public id and never an
+   * `ip_hash`: the hash exists for abuse investigation, and a screen is not that.
+   */
+  @Get('policy-consents')
+  async listPolicyConsents(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(policyConsentQuery)) query: PolicyConsentQuery,
+  ): Promise<PolicyConsentResponse> {
+    const page = await this.policies.listConsents(admin, {
+      ...(query.policyVersionId !== undefined ? { policyVersionId: query.policyVersionId } : {}),
+      ...(query.userPublicId !== undefined ? { userPublicId: query.userPublicId } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { consents: page.rows.map(toPolicyConsentView), total: page.total };
+  }
+
   @Get('activity-tags')
   async listActivityTags(@CurrentAdmin() admin: AdminSession): Promise<ActivityTagsResponse> {
     return { tags: await this.catalog.listTags(admin) };
@@ -1243,5 +1381,54 @@ function toAdminEventView(event: EventSummary): AdminEventView {
     requestCount: event.requestCount,
     reportCount: event.reportCount,
     createdAt: event.createdAt.toISOString(),
+  };
+}
+
+/**
+ * One legal version, field by field (M22 phase 8).
+ *
+ * `contentMd` is projected in full and deliberately: a legal document is short,
+ * and the screen that lists versions is the screen somebody compares two of them
+ * on. A second fetch per row would make "what changed?" a chore.
+ */
+function toAdminPolicyView(policy: PolicySummary): AdminPolicyView {
+  return {
+    id: policy.id,
+    type: policy.type,
+    version: policy.version,
+    status: policy.status,
+    titleFa: policy.titleFa,
+    contentMd: policy.contentMd,
+    summaryFa: policy.summaryFa,
+    changeSummaryFa: policy.changeSummaryFa,
+    isCurrent: policy.isCurrent,
+    revision: policy.revision,
+    createdByAdminId: policy.createdByAdminId,
+    publishedByAdminId: policy.publishedByAdminId,
+    createdAt: policy.createdAt.toISOString(),
+    updatedAt: policy.updatedAt.toISOString(),
+    publishedAt: policy.publishedAt?.toISOString() ?? null,
+    archivedAt: policy.archivedAt?.toISOString() ?? null,
+    acceptanceCount: policy.acceptanceCount,
+  };
+}
+
+/**
+ * One acceptance.
+ *
+ * `ip_hash` and `user_agent_hash` exist on the row and are **not** here. They are
+ * an HMAC kept for abuse investigation; putting them on a screen would turn them
+ * into a value somebody could correlate across users, which is the one thing
+ * hashing them was supposed to prevent (ADR-0009).
+ */
+function toPolicyConsentView(record: ConsentRecord): PolicyConsentResponse['consents'][number] {
+  return {
+    userPublicId: record.userPublicId,
+    policyVersionId: record.policyVersionId,
+    label: record.label,
+    context: record.context,
+    acceptedAt: record.acceptedAt.toISOString(),
+    appVersion: record.appVersion,
+    requestId: record.requestId,
   };
 }

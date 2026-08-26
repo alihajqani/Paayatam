@@ -8,8 +8,8 @@ export type { SessionTokens, AccessTokenClaims } from './identity/session.servic
 export { UserService, isUniqueViolation } from './identity/user.service';
 export type { PublicUser } from './identity/user.service';
 
-export { ConsentService } from './identity/consent.service';
-export type { CurrentPolicy, ConsentContextInfo } from './identity/consent.service';
+export { ConsentService, policyLabel } from './identity/consent.service';
+export type { CurrentPolicy, ConsentContextInfo, PolicyStanding } from './identity/consent.service';
 
 export { IdentityModule, INIT_DATA_VALIDATOR } from './identity/identity.module';
 
@@ -284,6 +284,8 @@ export type {
   CreateActivityTagInput,
   UpdateActivityTagInput,
 } from './adminaccess/catalog-admin.service';
+export { PolicyAdminService } from './adminaccess/policy-admin.service';
+export type { PolicySummary, ConsentRecord } from './adminaccess/policy-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';

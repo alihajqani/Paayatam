@@ -122,6 +122,20 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'تفریحات', permission: PERMISSIONS.CATALOG_MANAGE, group: 'system' },
   },
   {
+    /**
+     * Legal documents (M22 phase 8).
+     *
+     * `policy.read` rather than `policy.manage`, so support and moderation can
+     * open it: reading the rules is half of what support does, and writing them
+     * is a different capability. The screen hides the buttons the session cannot
+     * use, and every one of them is checked again in the service.
+     */
+    path: '/policies',
+    name: 'policies',
+    component: () => import('@/views/PoliciesView.vue'),
+    meta: { title: 'اسناد حقوقی', permission: PERMISSIONS.POLICY_READ, group: 'system' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),

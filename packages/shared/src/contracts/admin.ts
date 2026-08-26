@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { policyType } from './auth';
 
 /**
  * Admin and reporting contracts (M12, ADR-0010).
@@ -993,6 +994,127 @@ export type AdminAuditResponse = z.infer<typeof adminAuditResponse>;
  * not in the code is a leftover nothing reads, and showing it would invite
  * somebody to tune it.
  */
+// ── Legal documents (M22 phase 8) ────────────────────────────────────────────
+
+export const policyStatus = z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']);
+export type PolicyStatusView = z.infer<typeof policyStatus>;
+
+/**
+ * One legal version as the panel reads it.
+ *
+ * `contentMd` is included even in the list, because a legal document is short and
+ * the screen that lists versions is the screen somebody compares them on. The
+ * alternative — a second fetch per row — would make "what changed?" a chore.
+ */
+export const adminPolicyView = z.object({
+  id: z.uuid(),
+  type: policyType,
+  version: z.number().int().positive(),
+  status: policyStatus,
+  titleFa: z.string().nullable(),
+  contentMd: z.string(),
+  summaryFa: z.string().nullable(),
+  changeSummaryFa: z.string().nullable(),
+  isCurrent: z.boolean(),
+  /** Optimistic-concurrency token. Echo it back on an edit or the write is refused. */
+  revision: z.number().int().nonnegative(),
+  createdByAdminId: z.uuid().nullable(),
+  publishedByAdminId: z.uuid().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  publishedAt: z.iso.datetime().nullable(),
+  archivedAt: z.iso.datetime().nullable(),
+  /** How many people have accepted this exact version. */
+  acceptanceCount: z.number().int().nonnegative(),
+});
+export type AdminPolicyView = z.infer<typeof adminPolicyView>;
+
+export const adminPolicyListQuery = z.object({
+  type: policyType.optional(),
+  status: policyStatus.optional(),
+});
+export type AdminPolicyListQuery = z.infer<typeof adminPolicyListQuery>;
+
+export const adminPolicyListResponse = z.object({
+  policies: z.array(adminPolicyView),
+});
+export type AdminPolicyListResponse = z.infer<typeof adminPolicyListResponse>;
+
+/**
+ * A new draft.
+ *
+ * No `version` field: the next number for a type is the server's to allocate, and
+ * a client that could choose one could collide with a published version or skip
+ * ahead of it. `UNIQUE (type, version)` would refuse the collision; not offering
+ * the field is what stops the attempt.
+ */
+export const createPolicyDraftRequest = z.object({
+  type: policyType,
+  titleFa: z.string().trim().min(2).max(120),
+  contentMd: z.string().trim().min(50).max(60_000),
+  summaryFa: z.string().trim().max(280).optional(),
+  changeSummaryFa: z.string().trim().max(1_000).optional(),
+});
+export type CreatePolicyDraftRequest = z.infer<typeof createPolicyDraftRequest>;
+
+/**
+ * Editing a draft.
+ *
+ * `expectedRevision` is required rather than optional. Two people editing one
+ * draft is the ordinary case for legal text — somebody writes it, somebody else
+ * corrects it — and a last-write-wins update silently discards whichever of them
+ * saved first.
+ */
+export const updatePolicyDraftRequest = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  titleFa: z.string().trim().min(2).max(120).optional(),
+  contentMd: z.string().trim().min(50).max(60_000).optional(),
+  summaryFa: z.string().trim().max(280).nullable().optional(),
+  changeSummaryFa: z.string().trim().max(1_000).nullable().optional(),
+});
+export type UpdatePolicyDraftRequest = z.infer<typeof updatePolicyDraftRequest>;
+
+/**
+ * Publishing, and the confirmation that has to come with it.
+ *
+ * `confirmVersion` must equal the version being published. It is not a checkbox
+ * and not a boolean: an operator has to read the number off the screen and type
+ * it, which is the cheapest available defence against publishing the wrong draft
+ * on a page with three of them.
+ */
+export const publishPolicyRequest = z.object({
+  confirmVersion: z.number().int().positive(),
+  /** Required. Recorded in the audit row — publishing is the legally significant act. */
+  reason: z.string().trim().min(3).max(280),
+});
+export type PublishPolicyRequest = z.infer<typeof publishPolicyRequest>;
+
+export const policyConsentView = z.object({
+  userPublicId: z.uuid(),
+  policyVersionId: z.uuid(),
+  /** Snapshotted at acceptance — `TERMS v3`. Survives the version being archived. */
+  label: z.string().nullable(),
+  context: z.enum(['ONBOARDING', 'REACCEPT', 'CONTACT_SHARE']),
+  acceptedAt: z.iso.datetime(),
+  appVersion: z.string().nullable(),
+  requestId: z.string().nullable(),
+});
+export type PolicyConsentView = z.infer<typeof policyConsentView>;
+
+export const policyConsentQuery = z.object({
+  policyVersionId: z.uuid().optional(),
+  userPublicId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type PolicyConsentQuery = z.infer<typeof policyConsentQuery>;
+
+export const policyConsentResponse = z.object({
+  consents: z.array(policyConsentView),
+  total: z.number().int().nonnegative(),
+});
+export type PolicyConsentResponse = z.infer<typeof policyConsentResponse>;
+
 export const appSettingView = z.object({
   key: z.string(),
   value: z.number(),

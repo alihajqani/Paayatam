@@ -31,7 +31,7 @@ async function start(): Promise<void> {
     // `session.onboardingState`, not `session.me`: a NEW user has no `me` yet,
     // because `/me` is behind the terms gate — and `stepFor(undefined)` routes back
     // to this very screen, which is a silent hang rather than an error.
-    await router.replace(stepFor(session.onboardingState));
+    await router.replace(stepFor(session.onboardingState, session.pendingPolicies.length));
   } catch (cause) {
     error.value =
       cause instanceof ApiError ? cause.messageFa : 'ورود انجام نشد. لطفاً دوباره تلاش کنید.';

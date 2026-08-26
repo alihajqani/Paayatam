@@ -6,6 +6,7 @@ import type {
   CompleteProfileRequest,
   CompleteProfileResponse,
   MeResponse,
+  MyPoliciesResponse,
   PolicyView,
   ProfileView,
   SessionUser,
@@ -37,6 +38,18 @@ export const useSessionStore = defineStore('session', () => {
    */
   const authUser = ref<SessionUser | null>(null);
   const policies = ref<PolicyView[]>([]);
+  /**
+   * Documents this user has not accepted yet (M22 phase 8).
+   *
+   * Loaded on sign-in and after every acceptance, and read by the router: a
+   * non-empty list routes to `/terms` however far through the product the user
+   * was. It is a **navigation aid**, not the control — `@RequiresCurrentPolicies()`
+   * re-checks on the server for every protected write, because a client that skips
+   * a screen is not a client that skipped the rule.
+   */
+  const pendingPolicies = ref<PolicyView[]>([]);
+  /** What they have already agreed to, and when. Shown on the terms screen. */
+  const acceptedPolicies = ref<MyPoliciesResponse['accepted']>([]);
   const catalog = ref<CatalogResponse | null>(null);
   const ready = ref(false);
 
@@ -72,6 +85,28 @@ export const useSessionStore = defineStore('session', () => {
    */
   async function loadMeIfPermitted(state: SessionUser['onboardingState']): Promise<void> {
     if (state !== 'NEW') await refreshMe();
+    // Unconditional, unlike `/me`: `/me/policies` carries `@AllowPendingTerms`
+    // precisely so a `NEW` user can be told what they are being asked to accept.
+    await loadMyPolicies();
+  }
+
+  /**
+   * What this user still owes.
+   *
+   * Deliberately swallows its failure. The router reads `pendingPolicies` to decide
+   * where to send somebody, and a network blip on this one call must not strand a
+   * signed-in user on a screen they cannot leave — the server refuses the protected
+   * writes either way, with a Persian message that says why.
+   */
+  async function loadMyPolicies(): Promise<void> {
+    try {
+      const response = await request<MyPoliciesResponse>('/me/policies');
+      pendingPolicies.value = response.pending;
+      acceptedPolicies.value = response.accepted;
+    } catch {
+      pendingPolicies.value = [];
+      acceptedPolicies.value = [];
+    }
   }
 
   async function signIn(): Promise<void> {
@@ -136,7 +171,10 @@ export const useSessionStore = defineStore('session', () => {
       method: 'POST',
       body: { policyVersionIds: policies.value.map((policy) => policy.id) },
     });
+    // Both, and in this order: `/me` for the onboarding state the router reads
+    // first, then the standing that decides whether the gate is still closed.
     await refreshMe();
+    await loadMyPolicies();
   }
 
   async function loadCatalog(): Promise<void> {
@@ -182,12 +220,15 @@ export const useSessionStore = defineStore('session', () => {
     onboardingState,
     expiresInSeconds,
     policies,
+    pendingPolicies,
+    acceptedPolicies,
     catalog,
     ready,
     signIn,
     renew,
     refreshMe,
     loadPolicies,
+    loadMyPolicies,
     acceptTerms,
     loadCatalog,
     completeProfile,

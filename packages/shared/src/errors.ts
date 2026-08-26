@@ -97,6 +97,22 @@ export const ErrorCode = {
   UNSEAL_GRANT_EXPIRED: 'UNSEAL_GRANT_EXPIRED',
   FOUR_EYES_REQUIRED: 'FOUR_EYES_REQUIRED',
 
+  // Legal documents (M22 phase 8)
+  /**
+   * One open draft per document type, at a time.
+   *
+   * Two drafts of the terms is a question about which one is "the" next version,
+   * and the answer would be whichever got published first — which is not a
+   * decision anybody made.
+   */
+  POLICY_DRAFT_EXISTS: 'POLICY_DRAFT_EXISTS',
+  /** A published or archived version cannot be edited. That is what makes consent mean something. */
+  POLICY_NOT_EDITABLE: 'POLICY_NOT_EDITABLE',
+  /** The version typed back to confirm publication did not match the draft. */
+  POLICY_CONFIRMATION_MISMATCH: 'POLICY_CONFIRMATION_MISMATCH',
+  /** Archiving the current version would leave the type with none, and lock out onboarding. */
+  POLICY_IS_CURRENT: 'POLICY_IS_CURRENT',
+
   // Catalog administration (M21)
   /** Two categories cannot share a slug — it is the identifier code refers to. */
   CATALOG_SLUG_TAKEN: 'CATALOG_SLUG_TAKEN',
@@ -147,7 +163,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   EVENT_QUOTA_EXCEEDED: 'به سقف ساخت فعالیت در روز رسیده‌اید.',
   CONTENT_BLOCKED: 'متن واردشده با قوانین انتشار مطابقت ندارد. لطفاً آن را ویرایش کنید.',
   CAPACITY_BELOW_ACCEPTED: 'ظرفیت نمی‌تواند کمتر از تعداد افراد پذیرفته‌شده باشد.',
-  CONFLICT_STALE_VERSION: 'این فعالیت در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
+  CONFLICT_STALE_VERSION: 'این مورد در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
   EVENT_ALREADY_STARTED: 'این فعالیت شروع شده است و دیگر نمی‌توان آن را لغو کرد.',
 
   DUPLICATE_REQUEST: 'شما قبلاً برای این فعالیت درخواست داده‌اید.',
@@ -192,6 +208,11 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   UNSEAL_GRANT_EXPIRED: 'مهلت دسترسی به این گفتگو به پایان رسیده است.',
   FOUR_EYES_REQUIRED: 'این تغییر به تأیید یک مدیر دیگر نیاز دارد.',
 
+  POLICY_DRAFT_EXISTS: 'برای این سند از قبل یک پیش‌نویس باز وجود دارد. همان را ویرایش کنید.',
+  POLICY_NOT_EDITABLE: 'نسخهٔ منتشرشده قابل ویرایش نیست. نسخهٔ تازه‌ای بسازید.',
+  POLICY_CONFIRMATION_MISMATCH: 'شمارهٔ نسخه‌ای که وارد کردید با پیش‌نویس هم‌خوانی ندارد.',
+  POLICY_IS_CURRENT: 'نسخهٔ جاری را نمی‌توان بایگانی کرد. ابتدا نسخهٔ تازه‌ای منتشر کنید.',
+
   CATALOG_SLUG_TAKEN: 'این شناسه پیش‌تر برای تفریح دیگری ثبت شده است.',
   CATALOG_TAG_IN_USE:
     'این تفریح در فعالیت‌های ثبت‌شده استفاده شده است؛ به‌جای حذف، آن را غیرفعال کنید.',
@@ -211,6 +232,17 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   UNAUTHENTICATED: 401,
   USER_BANNED: 403,
   TERMS_NOT_ACCEPTED: 403,
+  /**
+   * 403, alongside `TERMS_NOT_ACCEPTED` rather than defaulting to 400 (M22).
+   *
+   * From M22 this code has two callers, and both are refusals of the same kind:
+   * `ConsentService.acceptPolicies` rejecting a submission against superseded
+   * versions, and the `@RequiresCurrentPolicies()` gate refusing a write until the
+   * new version is accepted. "You may not do this yet" is 403; a 400 would say the
+   * request was malformed, which it is not. Clients branch on `code`, never on the
+   * status, so nothing that worked before reads differently.
+   */
+  POLICY_VERSION_STALE: 403,
   FORBIDDEN: 403,
   HOST_CANNOT_JOIN: 403,
   TRUST_TOO_LOW: 403,
@@ -234,6 +266,9 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   CONFLICT_STALE_VERSION: 409,
   CATALOG_SLUG_TAKEN: 409,
   CATALOG_TAG_IN_USE: 409,
+  POLICY_DRAFT_EXISTS: 409,
+  POLICY_NOT_EDITABLE: 409,
+  POLICY_IS_CURRENT: 409,
   EVENT_ALREADY_STARTED: 409,
   INVALID_STATE_TRANSITION: 409,
   REVIEW_NOT_EDITABLE: 409,

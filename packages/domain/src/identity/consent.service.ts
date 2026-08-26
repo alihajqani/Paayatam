@@ -9,11 +9,40 @@ export interface CurrentPolicy {
   version: number;
   contentMd: string;
   summaryFa: string | null;
+  /** M22: the document's own name, and what changed. Null on pre-M22 rows. */
+  titleFa: string | null;
+  changeSummaryFa: string | null;
+  /** `TERMS v3` — what a consent record snapshots. */
+  label: string;
 }
 
 export interface ConsentContextInfo {
   ipAddress?: string;
   userAgent?: string;
+  /** Correlation id, so an acceptance can be tied to the access log (M22). */
+  requestId?: string;
+  /** A release string. Safe client context — never a device fingerprint. */
+  appVersion?: string;
+}
+
+/** What a user still owes, and what they have already agreed to (M22). */
+export interface PolicyStanding {
+  pending: CurrentPolicy[];
+  accepted: { policy: CurrentPolicy; acceptedAt: Date }[];
+}
+
+/**
+ * The two document types a user must accept before using the product.
+ *
+ * `COMMUNITY` is deliberately absent: it exists in the enum and can be published
+ * and read, but it does not gate anything. A third mandatory document is a product
+ * decision, not a consequence of somebody adding an enum member.
+ */
+const REQUIRED_TYPES: readonly string[] = ['TERMS', 'PRIVACY'];
+
+/** `TERMS v3` — the exact identifier a consent record snapshots. */
+export function policyLabel(type: string, version: number): string {
+  return `${type} v${String(version)}`;
 }
 
 @Injectable()
@@ -24,39 +53,77 @@ export class ConsentService {
     private readonly pii: PiiHasher,
   ) {}
 
+  /**
+   * Every currently published document, of every type.
+   *
+   * Filtered on `is_current`, which migration 0002's partial unique index makes
+   * "at most one per type" and migration 0021's CHECK makes "and it is published".
+   * A draft therefore cannot appear here however it was written.
+   *
+   * ── Deliberately not cached ──────────────────────────────────────────────────
+   *
+   * A thirty-second in-memory cache was the obvious optimisation and was removed
+   * before it shipped, because of what it does in the seconds after a publish: a
+   * replica still holding the old set computes `requiredPolicies()` from it, and a
+   * user who has just been shown the *new* document and pressed «می‌پذیرم» submits
+   * ids that do not match — so the acceptance is refused as
+   * `POLICY_VERSION_STALE`. The gate would refuse the very act that clears it, for
+   * up to half a minute, on exactly the release where everybody is being asked at
+   * once.
+   *
+   * The saving it bought was one indexed read of a table with a handful of rows,
+   * against the `(type, is_current)` index from migration 0002. That is not a
+   * cost worth a correctness cliff, and a per-process cache cannot be invalidated
+   * from the process that published.
+   */
   async currentPolicies(): Promise<CurrentPolicy[]> {
     const versions = await this.prisma.policyVersion.findMany({
       where: { isCurrent: true },
       orderBy: { type: 'asc' },
+      select: {
+        id: true,
+        type: true,
+        version: true,
+        contentMd: true,
+        summaryFa: true,
+        titleFa: true,
+        changeSummaryFa: true,
+      },
     });
 
-    return versions.map((v) => ({
-      id: v.id,
-      type: v.type,
-      version: v.version,
-      contentMd: v.contentMd,
-      summaryFa: v.summaryFa,
-    }));
+    return versions.map(toCurrentPolicy);
+  }
+
+  /** The required subset — what actually gates the product. */
+  private async requiredPolicies(): Promise<CurrentPolicy[]> {
+    const current = await this.currentPolicies();
+    return current.filter((policy) => REQUIRED_TYPES.includes(policy.type));
   }
 
   /**
    * Records acceptance of the supplied policy versions and advances onboarding.
    *
-   * Idempotent by construction: `UNIQUE(user_id, policy_version_id, context)` means a
-   * duplicate INSERT loses at the database, so ten concurrent submissions produce one
-   * row each and no error. Nothing here reads-then-writes.
+   * Idempotent by construction: `UNIQUE(user_id, policy_version_id, context)` means
+   * a duplicate INSERT loses at the database, so ten concurrent submissions produce
+   * one row each and no error. Nothing here reads-then-writes.
    *
    * Rejects stale versions rather than accepting them silently — consenting to a
    * superseded document is not consent to the current one.
+   *
+   * ── Which context is written (M22) ──────────────────────────────────────────
+   *
+   * `ONBOARDING` for a user who has never accepted anything, `REACCEPT` for one
+   * agreeing to a version published after they joined. The distinction matters
+   * legally and is why `context` is part of the unique key rather than a label:
+   * the same person can accept the same document under two different
+   * circumstances, and both rows are evidence.
    */
   async acceptPolicies(
     userId: string,
     policyVersionIds: string[],
     context: ConsentContextInfo = {},
   ): Promise<void> {
-    const required = await this.prisma.policyVersion.findMany({
-      where: { isCurrent: true, type: { in: ['TERMS', 'PRIVACY'] } },
-    });
+    const required = await this.requiredPolicies();
 
     if (required.length === 0) {
       // No published policy means nothing can be accepted. Better a loud failure
@@ -82,6 +149,45 @@ export class ConsentService {
     const ipHash = this.pii.hash(context.ipAddress);
     const userAgentHash = this.pii.hash(context.userAgent);
 
+    /**
+     * What this call actually has to write, and under which context.
+     *
+     * Two reads, and both are load-bearing.
+     *
+     * **Versions already accepted are skipped**, whatever context they were
+     * accepted under. `UNIQUE (user, version, context)` alone does not make a
+     * repeat call a no-op: the second call would classify itself as `REACCEPT`,
+     * miss the `ONBOARDING` rows on the same versions, and write a second set. The
+     * unique index is what makes two *concurrent* identical calls safe; this is
+     * what makes two *sequential* ones safe.
+     *
+     * **The context is per user, not per version.** Somebody who has accepted
+     * nothing is onboarding; somebody agreeing to a version published after they
+     * joined is re-accepting. The distinction matters legally, which is why it is
+     * part of the unique key rather than a label.
+     */
+    const [priorAcceptances, alreadyAccepted] = await Promise.all([
+      this.prisma.consent.count({ where: { userId } }),
+      this.prisma.consent.findMany({
+        where: { userId, policyVersionId: { in: required.map((policy) => policy.id) } },
+        select: { policyVersionId: true },
+      }),
+    ]);
+
+    const done = new Set(alreadyAccepted.map((row) => row.policyVersionId));
+    const outstanding = required.filter((policy) => !done.has(policy.id));
+    const consentContext = priorAcceptances === 0 ? 'ONBOARDING' : 'REACCEPT';
+
+    if (outstanding.length === 0) {
+      // Everything current is already agreed to. Still nudge the onboarding state,
+      // because a user whose acceptance predates a crash may not have got it.
+      await this.prisma.user.updateMany({
+        where: { id: userId, onboardingState: 'NEW' },
+        data: { onboardingState: 'TERMS_ACCEPTED' },
+      });
+      return;
+    }
+
     await this.prisma.$transaction(async (tx) => {
       // `createMany` + `skipDuplicates` compiles to a single INSERT ... ON CONFLICT
       // DO NOTHING.
@@ -93,13 +199,17 @@ export class ConsentService {
       // ten requests blocking on each other's uncommitted rows until they timed out.
       // One statement has neither problem.
       await tx.consent.createMany({
-        data: [...requiredIds].map((policyVersionId) => ({
+        data: outstanding.map((policy) => ({
           userId,
-          policyVersionId,
-          context: 'ONBOARDING' as const,
+          policyVersionId: policy.id,
+          context: consentContext,
           acceptedAt,
           ipHash,
           userAgentHash,
+          // Snapshotted, so the record survives the version being archived (M22).
+          policyVersionLabel: policy.label,
+          requestId: context.requestId ?? null,
+          appVersion: context.appVersion ?? null,
         })),
         skipDuplicates: true,
       });
@@ -114,10 +224,7 @@ export class ConsentService {
   }
 
   async hasAcceptedCurrentPolicies(userId: string): Promise<boolean> {
-    const required = await this.prisma.policyVersion.findMany({
-      where: { isCurrent: true, type: { in: ['TERMS', 'PRIVACY'] } },
-      select: { id: true },
-    });
+    const required = await this.requiredPolicies();
     if (required.length === 0) return false;
 
     const accepted = await this.prisma.consent.count({
@@ -126,4 +233,65 @@ export class ConsentService {
 
     return accepted === required.length;
   }
+
+  /**
+   * What this user still owes, and what they have already agreed to (M22).
+   *
+   * `pending` covers **every** current document, not only the required two: a
+   * published community guideline should be shown to somebody who has not seen it,
+   * even though refusing it does not lock them out. The *gate* reads
+   * `hasAcceptedCurrentPolicies`, which is the required subset — so the screen can
+   * be more informative than the enforcement without the two disagreeing.
+   */
+  async standingFor(userId: string): Promise<PolicyStanding> {
+    const current = await this.currentPolicies();
+    if (current.length === 0) return { pending: [], accepted: [] };
+
+    const rows = await this.prisma.consent.findMany({
+      where: { userId, policyVersionId: { in: current.map((policy) => policy.id) } },
+      select: { policyVersionId: true, acceptedAt: true },
+      orderBy: { acceptedAt: 'asc' },
+    });
+
+    // Earliest acceptance per version: a REACCEPT row for the same version would
+    // otherwise make "when did you agree to this?" answer with the later of two
+    // dates, and the first one is the one that matters.
+    const acceptedAt = new Map<string, Date>();
+    for (const row of rows) {
+      if (!acceptedAt.has(row.policyVersionId)) acceptedAt.set(row.policyVersionId, row.acceptedAt);
+    }
+
+    const accepted: { policy: CurrentPolicy; acceptedAt: Date }[] = [];
+    for (const policy of current) {
+      const when = acceptedAt.get(policy.id);
+      if (when !== undefined) accepted.push({ policy, acceptedAt: when });
+    }
+
+    return {
+      pending: current.filter((policy) => !acceptedAt.has(policy.id)),
+      accepted,
+    };
+  }
+}
+
+/** The wire-ish shape, from a row. An allowlist, never a spread (§3.6 layer 2). */
+function toCurrentPolicy(row: {
+  id: string;
+  type: 'TERMS' | 'PRIVACY' | 'COMMUNITY';
+  version: number;
+  contentMd: string;
+  summaryFa: string | null;
+  titleFa: string | null;
+  changeSummaryFa: string | null;
+}): CurrentPolicy {
+  return {
+    id: row.id,
+    type: row.type,
+    version: row.version,
+    contentMd: row.contentMd,
+    summaryFa: row.summaryFa,
+    titleFa: row.titleFa,
+    changeSummaryFa: row.changeSummaryFa,
+    label: policyLabel(row.type, row.version),
+  };
 }

@@ -7,10 +7,12 @@ import {
   type CompleteProfileRequest,
   type CompleteProfileResponse,
   type MeResponse,
+  type MyPoliciesResponse,
   type PolicyView,
   type ProfileView,
   type UpdateProfileRequest,
 } from '@payetam/shared';
+import { currentRequestContext } from '@payetam/platform';
 import type { FastifyRequest } from 'fastify';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -62,6 +64,32 @@ export class OnboardingController {
   }
 
   /**
+   * What this user still has to accept, and what they already have (M22 phase 8).
+   *
+   * `@AllowPendingTerms` for the same reason `POST /onboarding/consent` has it:
+   * the whole point of this endpoint is to be reachable by somebody who has not
+   * accepted anything yet.
+   *
+   * `pending` is what the Mini App routes on. It is **not** the authority — the
+   * `@RequiresCurrentPolicies()` guard re-checks on every protected write, because
+   * a client that skips a screen is not a client that skipped the rule.
+   */
+  @AllowPendingTerms()
+  @Get('me/policies')
+  async myPolicies(@CurrentUser() current: AuthenticatedUser): Promise<MyPoliciesResponse> {
+    const internalId = await this.users.resolveInternalId(current.publicId);
+    const standing = await this.consent.standingFor(internalId);
+
+    return {
+      pending: standing.pending,
+      accepted: standing.accepted.map((entry) => ({
+        policy: entry.policy,
+        acceptedAt: entry.acceptedAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
    * Records acceptance and advances onboarding.
    *
    * `@AllowPendingTerms` because this is the endpoint that resolves the pending
@@ -83,11 +111,21 @@ export class OnboardingController {
   ): Promise<{ onboardingState: string }> {
     const user = await this.users.findByPublicId(current.publicId);
     const internalId = await this.users.resolveInternalId(user.publicId);
+    // The same id `x-request-id` echoes back and every log line for this request
+    // carries, so an acceptance can be found in the access log by one string.
+    const requestId = currentRequestContext()?.requestId;
 
     await this.consent.acceptPolicies(internalId, body.policyVersionIds, {
       // Hashed with a server pepper before storage; the raw values never persist.
       ...(request.ip ? { ipAddress: request.ip } : {}),
       ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+      // Correlation id and a release string (M22). Both go in clear, because
+      // neither identifies a person: one ties the record to the access log, the
+      // other says which build of the app the document was read in.
+      ...(requestId !== undefined ? { requestId } : {}),
+      ...(typeof request.headers['x-app-version'] === 'string'
+        ? { appVersion: request.headers['x-app-version'].slice(0, 32) }
+        : {}),
     });
 
     const updated = await this.users.findByPublicId(current.publicId);

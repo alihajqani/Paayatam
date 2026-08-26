@@ -19,7 +19,7 @@ import {
 } from '@payetam/shared';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
+import { CurrentUser, RequiresCurrentPolicies, type AuthenticatedUser } from '../auth/auth.guard';
 import { toCoinEntryView, toTrustEntryView } from './economy.view';
 
 /**
@@ -110,6 +110,7 @@ export class EconomyController {
    * this endpoint attracts, and `RATE_LIMITS.GIFT_CODE_REDEEM` is what makes
    * guessing slow.
    */
+  @RequiresCurrentPolicies()
   @Post('gift-codes/redeem')
   @RateLimit('GIFT_CODE_REDEEM')
   @HttpCode(HttpStatus.OK)

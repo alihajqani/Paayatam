@@ -21,6 +21,7 @@ import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ProfileService } from '../profile/profile.service';
+import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import {
   PERMISSIONS,
@@ -95,6 +96,7 @@ const giftCodes = new GiftCodeAdminService(service, clock, access, settings, aud
 const referrals = new ReferralAdminService(service, clock, access, audit);
 const insight = new AdminInsightService(service, clock, access);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
+const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 
 /**
  * One admin operation, and the permission it demands.
@@ -377,6 +379,47 @@ const OPERATIONS: Operation[] = [
         reason: 'اصلاح به درخواست کاربر',
       }),
   },
+  {
+    name: 'GET /admin/v1/policies',
+    permission: PERMISSIONS.POLICY_READ,
+    run: (session) => policyAdmin.list(session),
+  },
+  {
+    name: 'GET /admin/v1/policies/:id',
+    permission: PERMISSIONS.POLICY_READ,
+    run: (session) => policyAdmin.get(session, NO_SUCH_ID),
+  },
+  {
+    name: 'POST /admin/v1/policies',
+    permission: PERMISSIONS.POLICY_MANAGE,
+    run: (session) =>
+      policyAdmin.createDraft(session, {
+        type: 'COMMUNITY',
+        titleFa: 'پیش‌نویس',
+        contentMd: 'x'.repeat(60),
+      }),
+  },
+  {
+    name: 'PATCH /admin/v1/policies/:id',
+    permission: PERMISSIONS.POLICY_MANAGE,
+    run: (session) => policyAdmin.updateDraft(session, NO_SUCH_ID, { expectedRevision: 0 }),
+  },
+  {
+    name: 'POST /admin/v1/policies/:id/publish',
+    permission: PERMISSIONS.POLICY_PUBLISH,
+    run: (session) =>
+      policyAdmin.publish(session, NO_SUCH_ID, { confirmVersion: 1, reason: 'انتشار' }),
+  },
+  {
+    name: 'POST /admin/v1/policies/:id/archive',
+    permission: PERMISSIONS.POLICY_PUBLISH,
+    run: (session) => policyAdmin.archive(session, NO_SUCH_ID, 'بایگانی'),
+  },
+  {
+    name: 'GET /admin/v1/policy-consents',
+    permission: PERMISSIONS.POLICY_CONSENT_READ,
+    run: (session) => policyAdmin.listConsents(session),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -414,7 +457,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(42);
+    expect(OPERATIONS).toHaveLength(49);
   });
 
   for (const role of ROLES) {

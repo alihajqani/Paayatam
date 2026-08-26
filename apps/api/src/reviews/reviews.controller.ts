@@ -7,7 +7,7 @@ import {
   type SubmitReviewRequest,
   type UserReviewsResponse,
 } from '@payetam/shared';
-import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
+import { CurrentUser, RequiresCurrentPolicies, type AuthenticatedUser } from '../auth/auth.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { toOwnReviewView, toPendingReviewView, toRevealedReviewView } from './review.view';
 
@@ -43,6 +43,7 @@ export class ReviewsController {
    * is, whether the counterparty had already written. It never says what they
    * wrote, and there is no shape in this module that could.
    */
+  @RequiresCurrentPolicies()
   @Post('participants/:publicId/review')
   async submit(
     @Param('publicId') publicId: string,

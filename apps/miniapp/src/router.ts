@@ -57,16 +57,31 @@ const router = createRouter({
   ],
 });
 
-/** The one screen a user in each onboarding state belongs on. */
-export function stepFor(state: string | undefined): string {
+/**
+ * The one screen a user in each onboarding state belongs on.
+ *
+ * `pendingPolicies` is the M22 addition and it applies **after** onboarding: a
+ * user who finished months ago and has not accepted a version published since is
+ * sent back to `/terms` and stays there until they do. Everything before that is
+ * unchanged.
+ */
+export function stepFor(state: string | undefined, pendingPolicies = 0): string {
   if (state === 'NEW') return '/terms';
   if (state === 'TERMS_ACCEPTED') return '/profile';
-  if (state === 'PROFILE_COMPLETE') return '/home';
+  if (state === 'PROFILE_COMPLETE') return pendingPolicies > 0 ? '/terms' : '/home';
   return '/';
 }
 
-/** Routes that only make sense while onboarding is unfinished. */
-const ONBOARDING_PATHS = new Set(['/terms', '/profile']);
+/**
+ * Routes that only make sense while onboarding is unfinished.
+ *
+ * `/terms` is deliberately **not** here from M22 on. A finished user must be able
+ * to re-open the rules they agreed to — "support re-opening the current terms" —
+ * and a path in this set is bounced straight back to `/home`. The gate that used
+ * to rely on that is now `stepFor`, which returns `/terms` for anybody who owes an
+ * acceptance and `/home` for everybody else.
+ */
+const ONBOARDING_PATHS = new Set(['/profile']);
 
 /**
  * Sends the user to the step they are actually on — while they still have one.
@@ -87,7 +102,7 @@ router.beforeEach((to: RouteLocationNormalized) => {
   const session = useSessionStore();
   if (!session.ready) return '/';
 
-  const expected = stepFor(session.onboardingState);
+  const expected = stepFor(session.onboardingState, session.pendingPolicies.length);
 
   // Still in the funnel: exactly one screen is correct.
   if (expected !== '/home') return to.path === expected ? true : expected;

@@ -21,7 +21,7 @@ import {
 } from '@payetam/shared';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
+import { CurrentUser, RequiresCurrentPolicies, type AuthenticatedUser } from '../auth/auth.guard';
 import { toEventView } from './event.view';
 
 @Controller('api/v1')
@@ -41,6 +41,7 @@ export class EventsController {
    * text they wrote — including in the false-positive case, which ADR-0012 says
    * is the outcome to optimise against.
    */
+  @RequiresCurrentPolicies()
   @Post('events')
   @RateLimit('EVENT_CREATE')
   @HttpCode(HttpStatus.CREATED)
@@ -86,6 +87,7 @@ export class EventsController {
    * subject, which is the point of ADR-0007: a purchase somebody can look up
    * later.
    */
+  @RequiresCurrentPolicies()
   @Post('events/:publicId/boost')
   async boost(
     @Param('publicId') publicId: string,

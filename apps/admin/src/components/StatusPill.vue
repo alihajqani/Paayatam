@@ -51,6 +51,8 @@ const LABELS: Record<string, string> = {
   ESCALATED: 'ارجاع شده',
   // Referrals
   QUALIFIED: 'واجد شرایط',
+  // Legal documents (M22)
+  ARCHIVED: 'بایگانی',
   // Gift codes
   SCHEDULED: 'زمان‌بندی‌شده',
   DISABLED: 'غیرفعال',

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
 import { ChatModule } from '../chat/chat.module';
 import { EconomyModule } from '../economy/economy.module';
+import { IdentityModule } from '../identity/identity.module';
 import { ProfileModule } from '../profile/profile.module';
 import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
@@ -10,6 +11,7 @@ import { AdminOperationsService } from './admin-operations.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
+import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 // AuditModule and OutboxModule are @Global, so they need no import here.
 
@@ -29,7 +31,7 @@ import { ReferralAdminService } from './referral-admin.service';
  * a fifteen-minute clock.
  */
 @Module({
-  imports: [CatalogModule, ChatModule, EconomyModule, ProfileModule],
+  imports: [CatalogModule, ChatModule, EconomyModule, IdentityModule, ProfileModule],
   providers: [
     AdminCredentials,
     AdminAccessService,
@@ -39,6 +41,7 @@ import { ReferralAdminService } from './referral-admin.service';
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
+    PolicyAdminService,
   ],
   exports: [
     AdminCredentials,
@@ -49,6 +52,7 @@ import { ReferralAdminService } from './referral-admin.service';
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
+    PolicyAdminService,
   ],
 })
 export class AdminAccessModule {}
