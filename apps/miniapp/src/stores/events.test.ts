@@ -19,6 +19,7 @@ function discovered(overrides: Partial<DiscoveredEventView> = {}): DiscoveredEve
     title: 'شب بازی',
     description: 'توضیح',
     category: named,
+    customCategoryLabel: null,
     city: named,
     district: null,
     startsAt: '2026-08-20T16:00:00.000Z',

@@ -7,6 +7,7 @@ import StateBlock from '@/components/StateBlock.vue';
 import { haptic } from '@/telegram/webapp';
 import { useEventsStore } from '@/stores/events';
 import { useSessionStore } from '@/stores/session';
+import { useLocationPicker } from '@/composables/useLocationPicker';
 
 /**
  * Discovery (M5).
@@ -23,11 +24,17 @@ const session = useSessionStore();
 const error = ref<string | null>(null);
 const filtersOpen = ref(false);
 
-const cities = computed(() => session.catalog?.cities ?? []);
 const categories = computed(() => session.catalog?.categories ?? []);
-const districts = computed(
-  () => cities.value.find((city) => city.id === events.filters.cityId)?.districts ?? [],
-);
+// The filter sheet binds straight to the store, so the composable is handed a
+// writable ref onto `events.filters.cityId` rather than a local copy.
+const filterCityId = computed({
+  get: () => events.filters.cityId,
+  set: (value: string) => {
+    events.filters.cityId = value;
+  },
+});
+const { provinces, cities, districts, provinceId, onProvinceChange } =
+  useLocationPicker(filterCityId);
 
 const state = computed(() => {
   if (error.value !== null) return 'error' as const;
@@ -118,6 +125,20 @@ onMounted(load);
             <option value="">همه</option>
             <option v-for="category in categories" :key="category.id" :value="category.id">
               {{ category.nameFa }}
+            </option>
+          </select>
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-tg-subtitle">استان</span>
+          <select
+            v-model="provinceId"
+            class="min-h-11 rounded-xl bg-tg-bg px-3 text-tg-text"
+            @change="onProvinceChange"
+          >
+            <option value="">همه</option>
+            <option v-for="province in provinces" :key="province.id" :value="province.id">
+              {{ province.nameFa }}
             </option>
           </select>
         </label>

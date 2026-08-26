@@ -55,7 +55,9 @@ const full = computed(() => props.event.remainingCapacity <= 0);
       <span class="text-tg-hint">({{ formatRelative(event.startsAt) }})</span>
     </p>
 
-    <p class="text-sm text-tg-hint">{{ place }} · {{ event.category.nameFa }}</p>
+    <p class="text-sm text-tg-hint">
+      {{ place }} · {{ event.customCategoryLabel ?? event.category.nameFa }}
+    </p>
 
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span>{{ cost }}</span>

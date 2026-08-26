@@ -7,6 +7,7 @@ import { ApiError } from '@/api/client';
 import { birthYearOptions, toPersianDigits } from '@/format/fa';
 import { haptic } from '@/telegram/webapp';
 import { useSessionStore } from '@/stores/session';
+import { useLocationPicker } from '@/composables/useLocationPicker';
 
 /**
  * Step two: the profile.
@@ -37,17 +38,19 @@ const fieldErrors = ref<Record<string, string>>({});
 
 const years = birthYearOptions(new Date().getFullYear());
 
-const cities = computed(() => session.catalog?.cities ?? []);
 const interests = computed(() => session.catalog?.interests ?? []);
-const districts = computed(
-  () => cities.value.find((city) => city.id === cityId.value)?.districts ?? [],
-);
+// The province → city → district cascade (M21). `cityId` stays the submitted
+// value; the province is scaffolding for choosing it.
+const { provinces, cities, districts, provinceId, onProvinceChange } = useLocationPicker(cityId);
 
 async function load(): Promise<void> {
   loadError.value = null;
   try {
     await session.loadCatalog();
-    // One active city at launch, so preselecting it removes a pointless tap.
+    // Kept from the Tehran-only launch: with a single active city there is
+    // nothing to choose, so choosing it removes a pointless tap. Now that the
+    // catalog holds 1,252 it simply never fires — except on a deployment that
+    // has activated exactly one, which is a real way to run this product.
     if (cities.value.length === 1) cityId.value = cities.value[0]!.id;
   } catch (cause) {
     loadError.value = cause instanceof ApiError ? cause.messageFa : 'فهرست‌ها بارگذاری نشد.';
@@ -207,6 +210,20 @@ onMounted(load);
         <span v-if="fieldErrors['birthYear']" class="text-sm text-tg-destructive">
           {{ fieldErrors['birthYear'] }}
         </span>
+      </label>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">استان</span>
+        <select
+          v-model="provinceId"
+          class="min-h-11 rounded-xl bg-tg-secondary-bg px-3 text-tg-text"
+          @change="onProvinceChange"
+        >
+          <option value="" disabled>انتخاب کنید</option>
+          <option v-for="province in provinces" :key="province.id" :value="province.id">
+            {{ province.nameFa }}
+          </option>
+        </select>
       </label>
 
       <label class="flex flex-col gap-1">

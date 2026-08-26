@@ -132,7 +132,11 @@ onMounted(load);
           <p>
             {{ event.city.nameFa
             }}<span v-if="event.district">، {{ event.district.nameFa }}</span> ·
-            {{ event.category.nameFa }}
+            <!--
+              For a «سایر»-style tag the host's own words are the useful half;
+              «سایر» on its own tells a reader nothing (M21).
+            -->
+            {{ event.customCategoryLabel ?? event.category.nameFa }}
           </p>
           <p>{{ cost }}</p>
           <p>

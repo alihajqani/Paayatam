@@ -15,6 +15,7 @@ import { formatEventWhen } from '@/format/datetime';
 import { haptic } from '@/telegram/webapp';
 import { useEventsStore } from '@/stores/events';
 import { useSessionStore } from '@/stores/session';
+import { useLocationPicker } from '@/composables/useLocationPicker';
 
 /**
  * Event authoring (M4).
@@ -42,6 +43,7 @@ const session = useSessionStore();
 const title = ref('');
 const description = ref('');
 const categoryId = ref('');
+const customCategoryLabel = ref('');
 const cityId = ref('');
 const districtId = ref('');
 const startsAtLocal = ref('');
@@ -61,10 +63,27 @@ const loadError = ref<string | null>(null);
 const submitError = ref<string | null>(null);
 const fieldErrors = ref<Record<string, string>>({});
 
-const cities = computed(() => session.catalog?.cities ?? []);
-const categories = computed(() => session.catalog?.categories ?? []);
-const districts = computed(
-  () => cities.value.find((city) => city.id === cityId.value)?.districts ?? [],
+const { provinces, cities, districts, provinceId, onProvinceChange } = useLocationPicker(cityId);
+
+/**
+ * The activity tags offered where this event is (M21).
+ *
+ * `cityIds === null` means "everywhere", which is what every tag is until an
+ * admin narrows one — so before a city is chosen this is the whole list, and
+ * after it is the whole list minus anything restricted elsewhere.
+ */
+const categories = computed(() =>
+  (session.catalog?.categories ?? []).filter(
+    (category) =>
+      category.cityIds === null || cityId.value === '' || category.cityIds.includes(cityId.value),
+  ),
+);
+
+/** Whether the chosen tag is a «سایر»-style one that wants the host's own words. */
+const wantsCustomLabel = computed(
+  () =>
+    categories.value.find((category) => category.id === categoryId.value)?.allowsCustomLabel ===
+    true,
 );
 
 const needsAmount = computed(() => costType.value === 'FIXED' || costType.value === 'APPROX');
@@ -99,6 +118,12 @@ async function load(): Promise<void> {
 
 function onCityChange(): void {
   districtId.value = '';
+  // A tag restricted to other cities is no longer on offer here (M21). Clearing
+  // it means the host meets an empty select rather than a server refusal after
+  // they have filled in the rest of the form.
+  if (categoryId.value !== '' && !categories.value.some((c) => c.id === categoryId.value)) {
+    categoryId.value = '';
+  }
 }
 
 function onCostTypeChange(): void {
@@ -115,6 +140,11 @@ function buildRequest(): CreateEventRequest | null {
     title: title.value,
     description: description.value,
     categoryId: categoryId.value,
+    // Only when the tag invites it — the server refuses the field otherwise, and
+    // sending an empty string would be sending the field.
+    ...(wantsCustomLabel.value && customCategoryLabel.value.trim()
+      ? { customCategoryLabel: customCategoryLabel.value.trim() }
+      : {}),
     cityId: cityId.value,
     ...(districtId.value ? { districtId: districtId.value } : {}),
     startsAt: startsAt ?? '',
@@ -150,6 +180,8 @@ function messageFor(field: PropertyKey | undefined): string {
       return 'توضیحات باید بین ۱۰ تا ۲۰۰۰ نویسه باشد.';
     case 'categoryId':
       return 'دسته را انتخاب کنید.';
+    case 'customCategoryLabel':
+      return 'نوع تفریح را بین ۲ تا ۶۰ نویسه بنویسید.';
     case 'cityId':
       return 'شهر را انتخاب کنید.';
     case 'startsAt':
@@ -246,6 +278,39 @@ onMounted(load);
         <span v-if="fieldErrors['categoryId']" class="text-sm text-tg-destructive">
           {{ fieldErrors['categoryId'] }}
         </span>
+      </label>
+
+      <!--
+        Shown only for a tag that invites it («سایر»). Required when shown: a
+        «سایر» activity with no label tells a reader nothing, which is why the
+        server refuses one too.
+      -->
+      <label v-if="wantsCustomLabel" class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">نوع تفریح</span>
+        <input
+          v-model="customCategoryLabel"
+          type="text"
+          maxlength="60"
+          placeholder="مثلاً: بازدید از نمایشگاه کتاب"
+          class="min-h-11 rounded-xl bg-tg-secondary-bg px-3"
+        />
+        <span v-if="fieldErrors['customCategoryLabel']" class="text-sm text-tg-destructive">
+          {{ fieldErrors['customCategoryLabel'] }}
+        </span>
+      </label>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">استان</span>
+        <select
+          v-model="provinceId"
+          class="min-h-11 rounded-xl bg-tg-secondary-bg px-3"
+          @change="onProvinceChange"
+        >
+          <option value="" disabled>انتخاب کنید</option>
+          <option v-for="province in provinces" :key="province.id" :value="province.id">
+            {{ province.nameFa }}
+          </option>
+        </select>
       </label>
 
       <label class="flex flex-col gap-1">
