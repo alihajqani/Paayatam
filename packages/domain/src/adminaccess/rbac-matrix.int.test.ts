@@ -21,6 +21,7 @@ import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ProfileService } from '../profile/profile.service';
+import { GeographyAdminService } from './geography-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import {
@@ -97,6 +98,7 @@ const referrals = new ReferralAdminService(service, clock, access, audit);
 const insight = new AdminInsightService(service, clock, access);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
+const geography = new GeographyAdminService(service, access, audit);
 
 /**
  * One admin operation, and the permission it demands.
@@ -420,6 +422,41 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.POLICY_CONSENT_READ,
     run: (session) => policyAdmin.listConsents(session),
   },
+  {
+    name: 'GET /admin/v1/provinces',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.listProvinces(session),
+  },
+  {
+    name: 'POST /admin/v1/provinces',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.createProvince(session, { slug: 'no-such', nameFa: 'آزمایشی' }),
+  },
+  {
+    name: 'PATCH /admin/v1/provinces/:id',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.updateProvince(session, NO_SUCH_ID, { isActive: false }),
+  },
+  {
+    name: 'GET /admin/v1/cities',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.listCities(session),
+  },
+  {
+    name: 'POST /admin/v1/cities',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.createCity(session, { slug: 'no-such-city', nameFa: 'آزمایشی' }),
+  },
+  {
+    name: 'PATCH /admin/v1/cities/:id',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.updateCity(session, NO_SUCH_ID, { isActive: false }),
+  },
+  {
+    name: 'POST /admin/v1/cities/reorder',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.reorderCities(session, [NO_SUCH_ID]),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -457,7 +494,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(49);
+    expect(OPERATIONS).toHaveLength(56);
   });
 
   for (const role of ROLES) {

@@ -10,6 +10,7 @@ import { AdminInsightService } from './admin-insight.service';
 import { AdminOperationsService } from './admin-operations.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
+import { GeographyAdminService } from './geography-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
@@ -41,6 +42,7 @@ import { ReferralAdminService } from './referral-admin.service';
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
+    GeographyAdminService,
     PolicyAdminService,
   ],
   exports: [
@@ -52,6 +54,7 @@ import { ReferralAdminService } from './referral-admin.service';
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
+    GeographyAdminService,
     PolicyAdminService,
   ],
 })

@@ -123,6 +123,20 @@ const routes: RouteRecordRaw[] = [
   },
   {
     /**
+     * Provinces and cities (M22 phase 9).
+     *
+     * `catalog.manage`, the same key the activity tags sit behind: both are lists
+     * a user picks from, and the reason M21 kept cities out of the panel was drift
+     * in *generated* data rather than a different capability. Activation is not
+     * drift.
+     */
+    path: '/places',
+    name: 'places',
+    component: () => import('@/views/PlacesView.vue'),
+    meta: { title: 'شهرها و استان‌ها', permission: PERMISSIONS.CATALOG_MANAGE, group: 'system' },
+  },
+  {
+    /**
      * Legal documents (M22 phase 8).
      *
      * `policy.read` rather than `policy.manage`, so support and moderation can

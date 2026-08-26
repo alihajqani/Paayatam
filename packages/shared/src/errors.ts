@@ -124,6 +124,16 @@ export const ErrorCode = {
    * `is_active` exists exactly so neither has to happen (migration 0003).
    */
   CATALOG_TAG_IN_USE: 'CATALOG_TAG_IN_USE',
+  /**
+   * Deactivating a city that profiles or events point at, without confirming.
+   *
+   * Not a refusal — a **second step**. The details carry the counts so the panel
+   * can say «۲۳۴ پروفایل و ۱۲ فعالیت» rather than «مطمئنید؟», and the same request
+   * with `confirmReferences` goes through. Turning a city off is a real operation
+   * with real consequences for people already in it, and finding that out from the
+   * support queue is the failure this exists to prevent (M22 phase 9).
+   */
+  CITY_HAS_REFERENCES: 'CITY_HAS_REFERENCES',
 
   // Platform
   FORBIDDEN: 'FORBIDDEN',
@@ -216,6 +226,8 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   CATALOG_SLUG_TAKEN: 'این شناسه پیش‌تر برای تفریح دیگری ثبت شده است.',
   CATALOG_TAG_IN_USE:
     'این تفریح در فعالیت‌های ثبت‌شده استفاده شده است؛ به‌جای حذف، آن را غیرفعال کنید.',
+  CITY_HAS_REFERENCES:
+    'این شهر در پروفایل‌ها یا فعالیت‌های ثبت‌شده استفاده شده است. برای غیرفعال کردن، تأیید کنید.',
 
   FORBIDDEN: 'شما به این بخش دسترسی ندارید.',
   NOT_FOUND: 'مورد درخواستی یافت نشد.',
@@ -266,6 +278,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   CONFLICT_STALE_VERSION: 409,
   CATALOG_SLUG_TAKEN: 409,
   CATALOG_TAG_IN_USE: 409,
+  CITY_HAS_REFERENCES: 409,
   POLICY_DRAFT_EXISTS: 409,
   POLICY_NOT_EDITABLE: 409,
   POLICY_IS_CURRENT: 409,

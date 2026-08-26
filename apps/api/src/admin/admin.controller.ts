@@ -20,14 +20,17 @@ import {
   CatalogAdminService,
   AdminOperationsService,
   ChatUnsealService,
+  GeographyAdminService,
   GiftCodeAdminService,
   PolicyAdminService,
   ReferralAdminService,
   type AdminSession,
+  type CitySummary,
   type ConsentRecord,
   type EventSummary,
   type GiftCodeSummary,
   type PolicySummary,
+  type ProvinceSummary,
   type ReferralReview,
   type UserSummary,
 } from '@payetam/domain';
@@ -36,6 +39,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
+  adminCityListQuery,
   adminPolicyListQuery,
   adminUpdateProfileRequest,
   adminAuditQuery,
@@ -60,18 +64,33 @@ import {
   setUserStatusRequest,
   unsealChatRequest,
   updateGiftCodeRequest,
+  createCityRequest,
   createPolicyDraftRequest,
+  createProvinceRequest,
   policyConsentQuery,
+  reorderCitiesRequest,
+  updateCityRequest,
+  updateProvinceRequest,
   publishPolicyRequest,
   updatePolicyDraftRequest,
   updateSettingRequest,
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
+  type AdminCityListQuery,
+  type AdminCityListResponse,
+  type AdminCityView,
   type AdminPolicyListQuery,
+  type AdminProvinceListResponse,
+  type AdminProvinceView,
   type AdminPolicyListResponse,
   type AdminPolicyView,
   type AdminUpdateProfileRequest,
+  type CreateCityRequest,
   type CreatePolicyDraftRequest,
+  type CreateProvinceRequest,
+  type ReorderCitiesRequest,
+  type UpdateCityRequest,
+  type UpdateProvinceRequest,
   type PolicyConsentQuery,
   type PolicyConsentResponse,
   type ProfileView,
@@ -173,6 +192,7 @@ export class AdminController {
     private readonly giftCodes: GiftCodeAdminService,
     private readonly referrals: ReferralAdminService,
     private readonly catalog: CatalogAdminService,
+    private readonly geography: GeographyAdminService,
     private readonly policies: PolicyAdminService,
     private readonly insight: AdminInsightService,
     /**
@@ -1111,6 +1131,128 @@ export class AdminController {
     return { consents: page.rows.map(toPolicyConsentView), total: page.total };
   }
 
+  // ── Geography (M22 phase 9) ────────────────────────────────────────────────
+
+  /**
+   * The 31 provinces, with how many cities each holds and how many are served.
+   *
+   * `GET /places` already returns provinces and cities for the activity-tag
+   * picker and stays exactly as it was. This is a different read: it carries the
+   * counts an operator needs to *manage* the list rather than pick from it, and
+   * widening `/places` would have made the picker pay for them.
+   */
+  @Get('provinces')
+  async listProvinces(@CurrentAdmin() admin: AdminSession): Promise<AdminProvinceListResponse> {
+    const rows = await this.geography.listProvinces(admin);
+    return { provinces: rows.map(toAdminProvinceView) };
+  }
+
+  @Post('provinces')
+  @HttpCode(HttpStatus.CREATED)
+  async createProvince(
+    @Body(new ZodValidationPipe(createProvinceRequest)) body: CreateProvinceRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminProvinceView> {
+    return toAdminProvinceView(
+      await this.geography.createProvince(admin, {
+        slug: body.slug,
+        nameFa: body.nameFa,
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+      }),
+    );
+  }
+
+  @Patch('provinces/:id')
+  async updateProvince(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateProvinceRequest)) body: UpdateProvinceRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminProvinceView> {
+    return toAdminProvinceView(
+      await this.geography.updateProvince(admin, id, {
+        ...(body.nameFa !== undefined ? { nameFa: body.nameFa } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+      }),
+    );
+  }
+
+  /**
+   * A page of cities, searched and filtered on the server.
+   *
+   * Paged rather than returned whole, unlike every other catalog read in this
+   * controller: there are 1,252 of them, they carry reference counts, and the
+   * inactive ones are included — which is data no client should hold in memory.
+   */
+  @Get('cities')
+  async listCities(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminCityListQuery)) query: AdminCityListQuery,
+  ): Promise<AdminCityListResponse> {
+    const page = await this.geography.listCities(admin, {
+      ...(query.query !== undefined ? { query: query.query } : {}),
+      ...(query.provinceId !== undefined ? { provinceId: query.provinceId } : {}),
+      ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { cities: page.rows.map(toAdminCityView), total: page.total };
+  }
+
+  @Post('cities')
+  @HttpCode(HttpStatus.CREATED)
+  async createCity(
+    @Body(new ZodValidationPipe(createCityRequest)) body: CreateCityRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminCityView> {
+    return toAdminCityView(
+      await this.geography.createCity(admin, {
+        slug: body.slug,
+        nameFa: body.nameFa,
+        ...(body.provinceId !== undefined ? { provinceId: body.provinceId } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+      }),
+    );
+  }
+
+  /**
+   * Rename, re-file, reorder, activate or deactivate one city.
+   *
+   * There is no `DELETE`, and the omission is the design: `is_active` exists so a
+   * retired city keeps the profiles and events pointing at it intact (migration
+   * 0003), and the foreign keys are `RESTRICT`. Deactivating one that anything
+   * references answers `CITY_HAS_REFERENCES` with the counts until the same
+   * request carries `confirmReferences`.
+   */
+  @Patch('cities/:id')
+  async updateCity(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateCityRequest)) body: UpdateCityRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminCityView> {
+    return toAdminCityView(
+      await this.geography.updateCity(admin, id, {
+        ...(body.nameFa !== undefined ? { nameFa: body.nameFa } : {}),
+        ...(body.provinceId !== undefined ? { provinceId: body.provinceId } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+        ...(body.confirmReferences !== undefined
+          ? { confirmReferences: body.confirmReferences }
+          : {}),
+      }),
+    );
+  }
+
+  @Post('cities/reorder')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async reorderCities(
+    @Body(new ZodValidationPipe(reorderCitiesRequest)) body: ReorderCitiesRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<void> {
+    await this.geography.reorderCities(admin, body.order);
+  }
+
   @Get('activity-tags')
   async listActivityTags(@CurrentAdmin() admin: AdminSession): Promise<ActivityTagsResponse> {
     return { tags: await this.catalog.listTags(admin) };
@@ -1430,5 +1572,39 @@ function toPolicyConsentView(record: ConsentRecord): PolicyConsentResponse['cons
     acceptedAt: record.acceptedAt.toISOString(),
     appVersion: record.appVersion,
     requestId: record.requestId,
+  };
+}
+
+/** Field by field, never a spread (§3.6 layer 2). */
+function toAdminProvinceView(province: ProvinceSummary): AdminProvinceView {
+  return {
+    id: province.id,
+    slug: province.slug,
+    nameFa: province.nameFa,
+    isActive: province.isActive,
+    sortOrder: province.sortOrder,
+    cityCount: province.cityCount,
+    activeCityCount: province.activeCityCount,
+  };
+}
+
+/**
+ * One city, with the counts that decide whether deactivating it is safe.
+ *
+ * The counts are aggregates, never rows: "234 profiles" says enough to make the
+ * decision and names nobody.
+ */
+function toAdminCityView(city: CitySummary): AdminCityView {
+  return {
+    id: city.id,
+    slug: city.slug,
+    nameFa: city.nameFa,
+    isActive: city.isActive,
+    sortOrder: city.sortOrder,
+    provinceId: city.provinceId,
+    provinceNameFa: city.provinceNameFa,
+    districtCount: city.districtCount,
+    profileCount: city.profileCount,
+    eventCount: city.eventCount,
   };
 }

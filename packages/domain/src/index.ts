@@ -284,6 +284,8 @@ export type {
   CreateActivityTagInput,
   UpdateActivityTagInput,
 } from './adminaccess/catalog-admin.service';
+export { GeographyAdminService } from './adminaccess/geography-admin.service';
+export type { ProvinceSummary, CitySummary } from './adminaccess/geography-admin.service';
 export { PolicyAdminService } from './adminaccess/policy-admin.service';
 export type { PolicySummary, ConsentRecord } from './adminaccess/policy-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';

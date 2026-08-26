@@ -1172,6 +1172,123 @@ export const activityTagSlug = z
     'slug must be lowercase ASCII words joined by single hyphens',
   );
 
+// ── Geography: provinces and cities (M22 phase 9) ────────────────────────────
+
+/**
+ * The slug rule again, reused rather than restated.
+ *
+ * A city slug is the same kind of thing as an activity tag's: an ASCII identifier
+ * that seeds, fixtures and documentation refer to, distinct from the Persian name
+ * which is the label and is freely editable.
+ */
+export const catalogSlug = activityTagSlug;
+
+export const adminProvinceView = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  nameFa: z.string(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int(),
+  cityCount: z.number().int().nonnegative(),
+  activeCityCount: z.number().int().nonnegative(),
+});
+export type AdminProvinceView = z.infer<typeof adminProvinceView>;
+
+export const adminProvinceListResponse = z.object({ provinces: z.array(adminProvinceView) });
+export type AdminProvinceListResponse = z.infer<typeof adminProvinceListResponse>;
+
+/**
+ * One city, with the counts that decide whether deactivating it is safe.
+ *
+ * The three counts are the point of this view. "Do not delete a city that has
+ * references" is only enforceable if the operator can see the references before
+ * they click, and «۲۳۴ پروفایل» is a better warning than a constraint violation.
+ */
+export const adminCityView = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  nameFa: z.string(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int(),
+  provinceId: z.uuid().nullable(),
+  provinceNameFa: z.string().nullable(),
+  districtCount: z.number().int().nonnegative(),
+  profileCount: z.number().int().nonnegative(),
+  eventCount: z.number().int().nonnegative(),
+});
+export type AdminCityView = z.infer<typeof adminCityView>;
+
+/**
+ * The city list is **paged and searched on the server**, unlike the Mini App's
+ * picker.
+ *
+ * The two look similar and are not the same problem. The picker filters ~1,200
+ * *active* cities the client already downloaded; this one pages every city
+ * including the deactivated ones, with reference counts attached, which is not
+ * data any client should be holding in memory.
+ */
+export const adminCityListQuery = z.object({
+  query: z.string().trim().max(64).optional(),
+  provinceId: z.uuid().optional(),
+  isActive: z.stringbool().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminCityListQuery = z.infer<typeof adminCityListQuery>;
+
+export const adminCityListResponse = z.object({
+  cities: z.array(adminCityView),
+  total: z.number().int().nonnegative(),
+});
+export type AdminCityListResponse = z.infer<typeof adminCityListResponse>;
+
+export const createCityRequest = z.object({
+  slug: catalogSlug,
+  nameFa: z.string().trim().min(1).max(80),
+  provinceId: z.uuid().optional(),
+  /** Defaults to **false**, matching the column: a new city is not served yet. */
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+export type CreateCityRequest = z.infer<typeof createCityRequest>;
+
+/**
+ * Everything except the slug, which is immutable for the reason a tag's is: it is
+ * the identifier code refers to, and an endpoint that can be *asked* to rename is
+ * one somebody eventually wires a text input to.
+ *
+ * `confirmReferences` is what turns "deactivate" into a two-step action when
+ * profiles or events point at the city. Without it the service refuses and names
+ * the counts.
+ */
+export const updateCityRequest = z.object({
+  nameFa: z.string().trim().min(1).max(80).optional(),
+  provinceId: z.uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+  confirmReferences: z.boolean().optional(),
+});
+export type UpdateCityRequest = z.infer<typeof updateCityRequest>;
+
+export const createProvinceRequest = z.object({
+  slug: catalogSlug,
+  nameFa: z.string().trim().min(1).max(80),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+export type CreateProvinceRequest = z.infer<typeof createProvinceRequest>;
+
+export const updateProvinceRequest = z.object({
+  nameFa: z.string().trim().min(1).max(80).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+export type UpdateProvinceRequest = z.infer<typeof updateProvinceRequest>;
+
+export const reorderCitiesRequest = z.object({
+  order: z.array(z.uuid()).min(1).max(500),
+});
+export type ReorderCitiesRequest = z.infer<typeof reorderCitiesRequest>;
+
 export const activityTagView = z.object({
   id: z.uuid(),
   slug: z.string(),
