@@ -163,6 +163,50 @@ async function createEvent(token: string, title?: string) {
 }
 
 describe('the re-acceptance gate', () => {
+  /**
+   * The state a fresh deployment is in, and the one that broke the product.
+   *
+   * `hasAcceptedCurrentPolicies` returned `false` when nothing was published,
+   * which `AuthGuard` turns into `POLICY_VERSION_STALE` — so on any deployment
+   * whose legal text was still in draft, **every gated write was refused for
+   * every user**, and the refusal told them to go and re-read a document that did
+   * not exist. It also disagreed with `/me/policies`, which correctly reported
+   * nothing pending.
+   *
+   * Both halves are asserted here, because the bug was the two disagreeing.
+   */
+  it('does not gate on a document nobody has published', async () => {
+    // `resetDatabase` truncates `policy_version`, so this is genuinely empty.
+    const { token } = await signedInUser();
+
+    await expect(createEvent(token)).resolves.toMatchObject({ status: 201 });
+
+    const standing = await app.inject({
+      method: 'GET',
+      url: '/api/v1/me/policies',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(standing.statusCode).toBe(200);
+    expect((JSON.parse(standing.body) as { pending: unknown[] }).pending).toEqual([]);
+  });
+
+  it('gates again the moment a required document is published', async () => {
+    // The other direction of the same fix: `true` on empty must not become
+    // "the gate is off", only "there is nothing to be stale about".
+    const { token } = await signedInUser();
+    await expect(createEvent(token)).resolves.toMatchObject({ status: 201 });
+
+    await publish('TERMS', 1);
+    await publish('PRIVACY', 1);
+
+    await expect(createEvent(token, 'رویداد دوم')).resolves.toMatchObject({
+      status: 403,
+      code: 'POLICY_VERSION_STALE',
+    });
+    await expect(acceptCurrent(token)).resolves.toBe(200);
+    await expect(createEvent(token, 'رویداد سوم')).resolves.toMatchObject({ status: 201 });
+  });
+
   it('lets a user through once they have accepted the current versions', async () => {
     await publish('TERMS', 1);
     await publish('PRIVACY', 1);

@@ -223,9 +223,33 @@ export class ConsentService {
     });
   }
 
+  /**
+   * Whether this user owes a re-acceptance (M22 phase 8).
+   *
+   * ── The empty case, and why it is `true` ─────────────────────────────────
+   *
+   * **No required document published means there is nothing to accept**, so the
+   * gate must not block. This returned `false` and it was a product-stopping
+   * bug: `AuthGuard` turns `false` into `POLICY_VERSION_STALE`, so on a
+   * deployment with no published TERMS or PRIVACY version — a fresh install, or
+   * a release where the legal text is still in draft — **every gated write was
+   * refused for every user**, and the message told them to go and re-read a
+   * document that did not exist.
+   *
+   * It also disagreed with `standingFor()` twenty lines below, which correctly
+   * answers "you owe nothing" for the same state. The client was told it was
+   * clear and the server refused anyway, which is precisely the divergence the
+   * comment on `standingFor` says must not happen.
+   *
+   * This is not a hole. "Has never accepted anything" is a different question
+   * and is already answered earlier in the guard by `onboardingState === 'NEW'`
+   * → `TERMS_NOT_ACCEPTED`. This method exists only to catch somebody who
+   * accepted version *n* when version *n+1* is current — and with no current
+   * version there is no such person.
+   */
   async hasAcceptedCurrentPolicies(userId: string): Promise<boolean> {
     const required = await this.requiredPolicies();
-    if (required.length === 0) return false;
+    if (required.length === 0) return true;
 
     const accepted = await this.prisma.consent.count({
       where: { userId, policyVersionId: { in: required.map((p) => p.id) } },
