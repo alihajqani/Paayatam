@@ -72,6 +72,9 @@ export {
   updateEventRequest,
   eventView,
   myEventsResponse,
+  invitePreviewResponse,
+  inviteTopRequest,
+  inviteTopResponse,
 } from './contracts/events';
 export type {
   CostType,
@@ -83,6 +86,9 @@ export type {
   UpdateEventRequest,
   EventView,
   MyEventsResponse,
+  InvitePreviewResponse,
+  InviteTopRequest,
+  InviteTopResponse,
 } from './contracts/events';
 
 export {

@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import type { PrismaClient, PrismaService } from '@payetam/db';
-import { AuditService, MessagingService } from '@payetam/domain';
+import { AuditService, InvitationService, MessagingService } from '@payetam/domain';
 import { FakeClock, JOBS, jobId } from '@payetam/platform';
 import {
   createTestPrisma,
@@ -35,6 +35,19 @@ const NOW = new Date('2026-08-21T09:00:00.000Z');
 const clock = new FakeClock(NOW);
 const audit = new AuditService(service, clock);
 const messaging = new MessagingService(service, clock, audit);
+/**
+ * Real, because the worker writes to both tables on every outcome and the two
+ * must not be able to disagree. Its other half — pricing and charging — is
+ * exercised in `invitation.service.int.test.ts`.
+ */
+const invitations = new InvitationService(
+  service,
+  clock,
+  { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as never,
+  {} as never,
+  {} as never,
+  audit,
+);
 
 /** Every outbound call the worker makes, recorded rather than performed. */
 class FakeTelegramGateway {
@@ -99,6 +112,7 @@ function buildProcessors(): Processors {
     {} as never, // ChannelService
     {} as never, // RetentionService
     messaging,
+    invitations,
     { counter: vi.fn(), observe: vi.fn() } as never,
     alerts as never,
   );

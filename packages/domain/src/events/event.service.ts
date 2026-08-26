@@ -17,6 +17,7 @@ import { SettingsService } from '../catalog/settings.service';
 import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
+import { ChannelService } from '../channel/channel.service';
 import { ModerationService, type ContentScan } from '../moderation/moderation.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { assertParticipantTransition } from '../participation/state-machine';
@@ -257,6 +258,7 @@ export class EventService {
     private readonly catalog: CatalogService,
     private readonly settings: SettingsService,
     private readonly moderation: ModerationService,
+    private readonly channel: ChannelService,
     private readonly coins: CoinService,
     private readonly penalties: PenaltyService,
     private readonly chat: ChatService,
@@ -752,6 +754,87 @@ export class EventService {
               targetId: locked.id,
               before: { isVip: current.isVip, boostedUntil: current.boostedUntil?.toISOString() },
               after: { coinsSpent: spend.amount, balance: movement.balance },
+            },
+            tx,
+          );
+        }
+
+        return locked.id;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+
+    const event = await this.prisma.event.findUniqueOrThrow({
+      where: { id },
+      include: EVENT_INCLUDE,
+    });
+    return toEventDetail(event, this.clock.now());
+  }
+
+  /**
+   * Buy one publication in the channel (M22 phase 5).
+   *
+   * The third coin sink, and the one that needed a fourth `channel_post_kind`:
+   * `UNIQUE (event_id, kind)` is what makes a purchase exactly-once, so folding
+   * this into `BOOSTED` would have meant a host who boosted could not also buy a
+   * post — and the ledger could no longer say which of the two they bought.
+   *
+   * Both writes are in one transaction under the event lock. The coins leave and
+   * the claim row appears together, or neither does: a charge without a claim is a
+   * host who paid for nothing, and a claim without a charge is a free post.
+   *
+   * **Nothing is sent here.** The row lands unposted and the five-minute channel
+   * sweep is what talks to Telegram (ADR-0005, invariant 11). A failure there does
+   * *not* release this claim — unlike VIP or trending, it is the record that
+   * somebody paid, and the next sweep retries it.
+   */
+  async publishToChannel(hostUserId: string, publicId: string): Promise<EventDetail> {
+    const now = this.clock.now();
+    const cost = await this.settings.getInt('economy.event_channel_send_coins');
+
+    const id = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await lockEventByPublicIdForUpdate(tx, publicId);
+        // Not-yours and not-found answer identically (T3.3).
+        if (!locked || locked.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+        if (locked.hostUserId !== hostUserId) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+
+        // Publishing something nobody can join, or that has already started,
+        // spends coins on an advertisement for nothing.
+        if (locked.status !== 'PUBLISHED') throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
+        if (locked.startsAt <= now) throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
+
+        // Claimed **before** the charge, so a second purchase is refused rather
+        // than charged and then refunded. The unique index is the guard.
+        const claimed = await this.channel.claimPaidPublication(tx, locked.id);
+        if (!claimed) throw new AppError(ErrorCode.EVENT_ALREADY_IN_CHANNEL);
+
+        if (cost > 0) {
+          const movement = await this.coins.apply(
+            {
+              userId: hostUserId,
+              amount: -cost,
+              type: 'CHANNEL_POST_SPEND',
+              reasonCode: EVENT_CHANNEL_POST_REASON,
+              // The event, and nothing else: an event reaches the channel by
+              // purchase at most once, ever.
+              idempotencyKey: channelPostSpendKey(locked.id),
+              actorType: 'USER',
+              actorId: hostUserId,
+              refType: 'event',
+              refId: locked.id,
+            },
+            tx,
+          );
+
+          await this.audit.record(
+            {
+              actorType: 'USER',
+              actorId: hostUserId,
+              action: 'event.channel_post_purchased',
+              targetType: 'event',
+              targetId: locked.id,
+              after: { coinsSpent: cost, balance: movement.balance },
             },
             tx,
           );

@@ -76,6 +76,8 @@ export interface PendingDelivery {
 /** What the sender needs, resolved at the last possible moment. */
 export interface DeliveryTarget {
   recipientId: string;
+  /** The recipient, so the worker can mark the matching `event_invitation` row. */
+  userId: string;
   campaignPublicId: string;
   bodyText: string;
   parseMode: 'HTML' | undefined;
@@ -498,6 +500,7 @@ export class MessagingService {
       select: {
         id: true,
         status: true,
+        userId: true,
         campaign: {
           select: {
             publicId: true,
@@ -522,6 +525,7 @@ export class MessagingService {
 
     return {
       recipientId: row.id,
+      userId: row.userId,
       campaignPublicId: row.campaign.publicId,
       bodyText: row.campaign.bodyText,
       parseMode: row.campaign.parseMode === 'HTML' ? 'HTML' : undefined,

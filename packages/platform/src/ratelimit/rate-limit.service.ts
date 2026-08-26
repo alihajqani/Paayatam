@@ -188,6 +188,15 @@ export const RATE_LIMITS = {
    */
   PROFILE_UPDATE: { limit: 20, windowSeconds: 3_600 },
   /**
+   * Paid invitations: 10 a day (M22 phase 11).
+   *
+   * The coin cost is the real control — each one is ten coins — and this is the
+   * backstop against a scripted loop finding a way past it. Ten a day is more
+   * events than the daily quota allows anybody to create, so it cannot bind on a
+   * legitimate host.
+   */
+  EVENT_INVITE: { limit: 10, windowSeconds: 86_400 },
+  /**
    * Authentication, by IP rather than by user — there is no user yet.
    *
    * Not in T12's list, and added because it is the one endpoint an attacker can

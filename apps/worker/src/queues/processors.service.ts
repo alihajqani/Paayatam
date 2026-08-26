@@ -4,6 +4,7 @@ import {
   ChannelService,
   ChatService,
   EventLifecycleService,
+  InvitationService,
   MessagingService,
   NotificationService,
   OutboxRelayService,
@@ -58,6 +59,15 @@ export class Processors implements OnModuleInit {
     private readonly retention: RetentionService,
     /** Admin campaigns and paid invitations (M22 phases 4 and 11). */
     private readonly messaging: MessagingService,
+    /**
+     * The invitation half of a campaign.
+     *
+     * `message_recipient` is the queue's record of a delivery and
+     * `event_invitation` is the product's — the second is what a future selection
+     * reads to know somebody has already been asked. They are written together
+     * here so they cannot disagree.
+     */
+    private readonly invitations: InvitationService,
     /** Channel publishing outcomes, so a stuck channel is visible on /metrics (M16). */
     private readonly metrics: MetricsRegistry,
     /** Alerts a person should act on: a stuck channel, a tripped breaker (M20). */
@@ -429,6 +439,7 @@ export class Processors implements OnModuleInit {
 
     if (target.telegramUserId === null || target.botBlocked) {
       await this.messaging.recordDelivery(data.recipientId, { status: 'INVALID' });
+      await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'INVALID');
       return;
     }
 
@@ -443,6 +454,7 @@ export class Processors implements OnModuleInit {
           status: 'SENT',
           telegramMessageId: outcome.messageId,
         });
+        await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'SENT');
         return;
 
       case 'BLOCKED':
@@ -450,6 +462,7 @@ export class Processors implements OnModuleInit {
           status: 'BLOCKED',
           error: outcome.reason,
         });
+        await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'BLOCKED');
         return;
 
       case 'RATE_LIMITED': {
@@ -468,6 +481,7 @@ export class Processors implements OnModuleInit {
             status: 'FAILED',
             error: outcome.reason,
           });
+          await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'FAILED');
           return;
         }
         throw new Error(outcome.reason);
@@ -534,7 +548,19 @@ export class Processors implements OnModuleInit {
       if (removed) await this.channel.markTakenDown(target.postId);
     }
 
-    for (const post of await this.channel.claimPending()) {
+    /**
+     * Paid claims first, and never released on failure (M22 phase 5).
+     *
+     * A VIP or trending claim is re-derivable from `is_vip` and `request_count`,
+     * so a failed send deletes it and the next pass re-claims. A **paid** claim is
+     * the record that somebody spent fifteen coins; deleting it would lose the
+     * purchase, so it stays and is retried until Telegram accepts it.
+     *
+     * First, because a host who paid should not queue behind the trending sweep.
+     */
+    const paid = await this.channel.findUnpostedPaid();
+
+    for (const post of [...paid, ...(await this.channel.claimPending())]) {
       const outcome = await this.telegram.postToChannel(
         renderChannelPost({
           kind: post.kind,
@@ -561,7 +587,8 @@ export class Processors implements OnModuleInit {
         );
         sent += 1;
       } else {
-        await this.channel.releaseClaim(post.postId);
+        // Paid claims are never released — see the note above `paid`.
+        if (post.kind !== 'PAID') await this.channel.releaseClaim(post.postId);
         this.metrics.counter(
           'payetam_channel_post_total',
           'Channel publication attempts by outcome.',

@@ -12,6 +12,7 @@ import {
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService } from '../catalog/catalog.service';
+import { ChannelService } from '../channel/channel.service';
 import { SettingsService } from '../catalog/settings.service';
 import { ChatService } from '../chat/chat.service';
 import { MessageCipher } from '../chat/message-cipher';
@@ -45,6 +46,7 @@ const settings = new SettingsService(service);
 const catalog = new CatalogService(service, settings);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
+const channel = new ChannelService(service, clock, settings);
 const audit = new AuditService(service, clock);
 const outbox = new OutboxService(service, clock);
 const cipher = new MessageCipher({
@@ -61,6 +63,7 @@ const events = new EventService(
   catalog,
   settings,
   moderation,
+  channel,
   coins,
   penalties,
   chat,

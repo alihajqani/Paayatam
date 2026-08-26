@@ -18,6 +18,7 @@ import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { CatalogService } from '../catalog/catalog.service';
+import { ChannelService } from '../channel/channel.service';
 import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { BlacklistService } from '../moderation/blacklist.service';
 import { ModerationService } from '../moderation/moderation.service';
@@ -43,6 +44,7 @@ const settings = new SettingsService(service);
 const catalog = new CatalogService(service, settings);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
+const channel = new ChannelService(service, clock, settings);
 const audit = new AuditService(service, clock);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
@@ -59,6 +61,7 @@ const events = new EventService(
   catalog,
   settings,
   moderation,
+  channel,
   coins,
   penalties,
   chat,
@@ -918,6 +921,101 @@ describe('EventService.create — the creation charge (M22 phase 5)', () => {
       0,
     );
     await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT);
+  });
+});
+
+/**
+ * Buying a place in the channel (M22 phase 5).
+ *
+ * The property worth a real database is the same one boost has, plus one more:
+ * `UNIQUE (event_id, kind)` is what makes the purchase exactly-once, and the claim
+ * is taken *before* the charge so a second attempt is refused rather than charged
+ * and then refunded.
+ */
+describe('EventService.publishToChannel — the paid channel post', () => {
+  const SEND_COST = SETTING_DEFAULTS['economy.event_channel_send_coins'];
+
+  it('claims a PAID post and charges the configured price', async () => {
+    const created = await events.create(hostId, validInput());
+
+    await events.publishToChannel(hostId, created.publicId);
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    const post = await prisma.channelPost.findFirstOrThrow({ where: { eventId: row.id } });
+    expect(post.kind).toBe('PAID');
+    // Unposted: nothing here talks to Telegram, the worker's sweep does.
+    expect(post.postedAt).toBeNull();
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CREATE_COST - SEND_COST);
+
+    const entry = await prisma.coinLedger.findFirstOrThrow({
+      where: { type: 'CHANNEL_POST_SPEND' },
+    });
+    expect(entry.amount).toBe(-SEND_COST);
+    expect(entry.refId).toBe(row.id);
+  });
+
+  it('refuses a second purchase, and charges nothing for it', async () => {
+    const created = await events.create(hostId, validInput());
+    await events.publishToChannel(hostId, created.publicId);
+    const after = await coins.balanceOf(hostId);
+
+    await expect(events.publishToChannel(hostId, created.publicId)).rejects.toMatchObject({
+      code: 'EVENT_ALREADY_IN_CHANNEL',
+    });
+
+    await expect(coins.balanceOf(hostId)).resolves.toBe(after);
+    await expect(prisma.coinLedger.count({ where: { type: 'CHANNEL_POST_SPEND' } })).resolves.toBe(
+      1,
+    );
+  });
+
+  it('claims nothing when the host cannot afford it', async () => {
+    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: CREATE_COST });
+    await prisma.userProfile.create({
+      data: { userId: poor, displayName: 'کم‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
+    });
+    const created = await events.create(poor, validInput());
+
+    await expect(events.publishToChannel(poor, created.publicId)).rejects.toMatchObject({
+      code: 'INSUFFICIENT_COINS',
+    });
+
+    // The claim was taken first and rolled back with the charge, so the event is
+    // not silently barred from a future purchase by a row nobody paid for.
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    await expect(prisma.channelPost.count({ where: { eventId: row.id } })).resolves.toBe(0);
+  });
+
+  it('tells a stranger the event does not exist, and charges them nothing', async () => {
+    const created = await events.create(hostId, validInput());
+    const stranger = await createUser(prisma, 'PROFILE_COMPLETE', { coins: 500 });
+
+    await expect(events.publishToChannel(stranger, created.publicId)).rejects.toMatchObject({
+      code: 'EVENT_NOT_FOUND',
+    });
+    await expect(coins.balanceOf(stranger)).resolves.toBe(500);
+  });
+
+  it('refuses an event that has already started', async () => {
+    const created = await events.create(hostId, validInput());
+    clock.set(new Date('2026-08-20T16:00:00.000Z'));
+
+    await expect(events.publishToChannel(hostId, created.publicId)).rejects.toMatchObject({
+      code: 'EVENT_NOT_BOOSTABLE',
+    });
+  });
+
+  it('hands the unposted claim to the sweep, and keeps it after a failure', async () => {
+    const created = await events.create(hostId, validInput());
+    await events.publishToChannel(hostId, created.publicId);
+
+    const pending = await channel.findUnpostedPaid();
+
+    expect(pending.map((post) => post.eventPublicId)).toEqual([created.publicId]);
+    expect(pending[0]?.kind).toBe('PAID');
+    // Still there on the next pass: the worker never releases a paid claim,
+    // because it is the record that somebody paid.
+    await expect(channel.findUnpostedPaid()).resolves.toHaveLength(1);
   });
 });
 

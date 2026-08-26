@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import {
   EventService,
+  InvitationService,
   UserService,
   type CreateEventInput,
   type UpdateEventInput,
@@ -9,6 +10,7 @@ import {
   boostEventRequest,
   cancelEventRequest,
   createEventRequest,
+  inviteTopRequest,
   updateEventRequest,
   type BoostEventRequest,
   type CancelEventRequest,
@@ -16,9 +18,13 @@ import {
   type EventCancellationResponse,
   type EventView,
   type HostCancellationPreviewResponse,
+  type InvitePreviewResponse,
+  type InviteTopRequest,
+  type InviteTopResponse,
   type MyEventsResponse,
   type UpdateEventRequest,
 } from '@payetam/shared';
+import { JOBS, QUEUES, QueueService, jobId } from '@payetam/platform';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CurrentUser, RequiresCurrentPolicies, type AuthenticatedUser } from '../auth/auth.guard';
@@ -28,7 +34,10 @@ import { toEventView } from './event.view';
 export class EventsController {
   constructor(
     private readonly events: EventService,
+    private readonly invitations: InvitationService,
     private readonly users: UserService,
+    /** Only ever to enqueue: the API never processes a job (ADR-0005). */
+    private readonly queues: QueueService,
   ) {}
 
   /**
@@ -96,6 +105,96 @@ export class EventsController {
   ): Promise<EventView> {
     const hostUserId = await this.users.resolveInternalId(current.publicId);
     return toEventView(await this.events.boost(hostUserId, publicId, body.kind));
+  }
+
+  /**
+   * Buy this event a place in the channel (M22 phase 5).
+   *
+   * Distinct from the free `channel-sync` sweep, which keeps publishing VIP,
+   * boosted and trending events exactly as it did before. This is a host saying
+   * "put mine in" and paying `economy.event_channel_send_coins` for it.
+   *
+   * **Nothing is sent by this request.** The claim row lands unposted and the
+   * worker's sweep is what talks to Telegram (ADR-0005, invariant 11), so the
+   * response says "bought", not "posted" — and `channelStatus` on the event says
+   * which.
+   */
+  @RequiresCurrentPolicies()
+  @Post('events/:publicId/publish-to-channel')
+  @HttpCode(HttpStatus.OK)
+  async publishToChannel(
+    @Param('publicId') publicId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<EventView> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    return toEventView(await this.events.publishToChannel(hostUserId, publicId));
+  }
+
+  /**
+   * What a paid invitation would reach, and what it would cost (M22 phase 11).
+   *
+   * **Writes nothing and charges nothing.** The requirement that a preview must
+   * never trigger a charge is met structurally rather than by care: the service
+   * method it calls has no write path in it at all.
+   *
+   * Counts only, never a list. A host is entitled to understand the selection —
+   * "twelve of these twenty live in your city" — and not to a roster of users the
+   * platform picked out for them.
+   */
+  @Get('events/:publicId/invite-preview')
+  async invitePreview(
+    @Param('publicId') publicId: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<InvitePreviewResponse> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    const preview = await this.invitations.preview(hostUserId, publicId);
+    return {
+      candidates: preview.candidates,
+      selected: preview.selected,
+      maxRecipients: preview.maxRecipients,
+      cost: preview.cost,
+      balance: preview.balance,
+      affordable: preview.affordable,
+      reasons: preview.reasons,
+      blockedReason: preview.blockedReason,
+    };
+  }
+
+  /**
+   * Charge, select and queue the invitations (M22 phase 11).
+   *
+   * Everything that matters is in the service: the coins and the invitation rows
+   * commit together, nobody is invited twice, nobody who opted out is invited at
+   * all, and **nothing is charged when nobody is eligible.**
+   *
+   * The nudge afterwards is a `queue.add` so the sends start in seconds rather
+   * than waiting for the next scheduled dispatch. It is deliberately outside the
+   * transaction: a queue that was unreachable must not roll back a purchase the
+   * database has already recorded, and the minute-by-minute schedule picks it up
+   * either way.
+   */
+  @RequiresCurrentPolicies()
+  @Post('events/:publicId/invite-top')
+  @RateLimit('EVENT_INVITE')
+  @HttpCode(HttpStatus.OK)
+  async inviteTop(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(inviteTopRequest)) body: InviteTopRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<InviteTopResponse> {
+    const hostUserId = await this.users.resolveInternalId(current.publicId);
+    const result = await this.invitations.inviteTop(hostUserId, publicId, body.idempotencyKey);
+
+    if (result.campaignPublicId !== null && !result.replayed) {
+      await this.queues.enqueue(
+        QUEUES.SCHEDULED,
+        JOBS.CAMPAIGN_DISPATCH,
+        jobId('campaign-dispatch', result.campaignPublicId.replaceAll('-', '')),
+        {},
+      );
+    }
+
+    return result;
   }
 
   /**

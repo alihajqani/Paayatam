@@ -3,6 +3,8 @@ import { computed, ref } from 'vue';
 import type {
   CancellationPreviewResponse,
   CreateEventRequest,
+  InvitePreviewResponse,
+  InviteTopResponse,
   DiscoveredEventView,
   DiscoveryQueryRequest,
   DiscoveryResponse,
@@ -199,6 +201,48 @@ export const useEventsStore = defineStore('events', () => {
     return event;
   }
 
+  /**
+   * Buy this event a place in the channel (M22 phase 5).
+   *
+   * No `Idempotency-Key` needed and none sent: the server keys the charge on the
+   * event, so an event reaches the channel by purchase at most once ever and a
+   * retry collides on `channel_post`'s unique index rather than on a header. This
+   * is the opposite of `boost`, where a second purchase is a legitimate second
+   * window and only the header can tell the two apart.
+   */
+  async function publishToChannel(publicId: string): Promise<EventView> {
+    const event = await request<EventView>(`/events/${publicId}/publish-to-channel`, {
+      method: 'POST',
+    });
+    myEvents.value = myEvents.value.map((existing) =>
+      existing.publicId === publicId ? event : existing,
+    );
+    return event;
+  }
+
+  /** What a paid invitation would reach. Reads only — nothing is charged. */
+  async function invitePreview(publicId: string): Promise<InvitePreviewResponse> {
+    return request<InvitePreviewResponse>(`/events/${publicId}/invite-preview`);
+  }
+
+  /**
+   * Buy the top-20 invitation (M22 phase 11).
+   *
+   * `idempotencyKey` is passed in by the caller rather than minted here, because
+   * it has to be the same across a retry *and* across the confirm dialog's whole
+   * life — a key generated inside this function would make a double-tap two
+   * purchases, which is exactly what it exists to prevent.
+   */
+  async function inviteTop(publicId: string, idempotencyKey: string): Promise<InviteTopResponse> {
+    return request<InviteTopResponse>(`/events/${publicId}/invite-top`, {
+      method: 'POST',
+      body: { idempotencyKey },
+      // Both layers: the header protects the HTTP retry, the body key protects the
+      // purchase. They are independent and each is cheap.
+      idempotencyKey,
+    });
+  }
+
   async function loadParticipants(eventPublicId: string): Promise<void> {
     loadingParticipants.value = true;
     try {
@@ -235,6 +279,9 @@ export const useEventsStore = defineStore('events', () => {
     cancelPreview,
     cancel,
     boost,
+    publishToChannel,
+    invitePreview,
+    inviteTop,
     loadParticipants,
   };
 });

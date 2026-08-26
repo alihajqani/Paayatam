@@ -63,6 +63,40 @@ export const SETTING_DEFAULTS = {
   'events.top_invite_max_recipients': 20,
 
   /**
+   * How the top-20 selector ranks candidates (phase 11).
+   *
+   * In `app_setting` for §11's reason — "all tunable numbers in the database" —
+   * and because this particular set is a *product experiment*: whether previous
+   * attendance in the same category predicts turnout better than living in the
+   * right city is a question the numbers should be able to answer without a
+   * deploy.
+   *
+   * The scale is arbitrary and the ordering is not. Every term is bounded, the
+   * total is bounded, and the score is a plain sum — so "why was this person
+   * chosen?" is answered by a breakdown stored beside the invitation rather than
+   * by re-running a model. **Nothing here uses an attribute the product does not
+   * already collect for another purpose**, and nothing infers one.
+   */
+  'invite.weight_same_city': 30,
+  'invite.weight_interest_match': 20,
+  'invite.weight_category_history': 25,
+  'invite.weight_recent_activity': 15,
+  /** Trust contributes at most this much, scaled by the 0–100 score. */
+  'invite.weight_trust': 10,
+  /**
+   * Subtracted from anybody invited to *anything* recently.
+   *
+   * The one term that pushes down rather than up, and the reason it exists is
+   * that a good score is otherwise self-reinforcing: the same twenty people would
+   * be picked for every event until they muted the bot. A penalty is cheaper than
+   * a quota and needs no second table.
+   */
+  'invite.penalty_recent_invite': 20,
+  'invite.recent_invite_days': 14,
+  /** How recently somebody must have taken part to count as active. */
+  'invite.recent_activity_days': 30,
+
+  /**
    * Where a new account starts (plan §11). The 0–100 *range* is deliberately not
    * here: ADR-0007 writes it into the schema as a CHECK, and a configurable clamp
    * over a fixed constraint would be a setting whose only possible effect is a

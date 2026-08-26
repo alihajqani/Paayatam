@@ -2161,6 +2161,21 @@ enum ChannelPostKind {
   VIP
   BOOSTED
   TRENDING
+  /**
+   * The host paid for this one specific publication (M22 phase 5).
+   *
+   * A fourth reason rather than a reuse of `BOOSTED`, and for the same argument
+   * the other three make: "they bought a 24-hour lift", "they bought permanent VIP
+   * standing" and "they bought one post in the channel" are three different
+   * purchases at three different prices, and a ledger that cannot tell them apart
+   * cannot answer what promotion earned.
+   *
+   * It is also the one kind whose claim row is **never released on failure**: the
+   * others are re-derivable from `is_vip`, `boosted_until` and `request_count`, so
+   * deleting a failed claim costs nothing. This one is the record that somebody
+   * paid, and deleting it would lose the purchase.
+   */
+  PAID
 
   @@map("channel_post_kind")
 }

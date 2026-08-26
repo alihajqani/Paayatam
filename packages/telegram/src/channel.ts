@@ -2,7 +2,11 @@ import { escapeHtml, toPersianDigits } from './escape';
 
 /** What a channel post is rendered from. Note what is absent: the host. */
 export interface ChannelPostContent {
-  kind: 'VIP' | 'BOOSTED' | 'TRENDING';
+  /**
+   * Why this event is in the channel. Mirrors `channel_post_kind`, and is spelled
+   * out rather than imported so this package stays free of a Prisma dependency.
+   */
+  kind: 'VIP' | 'BOOSTED' | 'TRENDING' | 'PAID';
   title: string;
   categoryName: string;
   cityName: string;
@@ -21,6 +25,10 @@ const KIND_LABEL: Record<ChannelPostContent['kind'], string> = {
   VIP: '⭐️ ویژه',
   BOOSTED: '🔝 نردبان',
   TRENDING: '🔥 پرطرفدار',
+  // Deliberately the same visual weight as the other two purchased kinds: a paid
+  // post is a placement the host bought, and the reader is entitled to know that
+  // rather than to think the channel picked it (M22 phase 5).
+  PAID: '📣 معرفی‌شده',
 };
 
 const COST_LABEL: Record<string, string> = {

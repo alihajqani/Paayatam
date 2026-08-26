@@ -284,6 +284,22 @@ export type {
   CreateActivityTagInput,
   UpdateActivityTagInput,
 } from './adminaccess/catalog-admin.service';
+export {
+  InvitationService,
+  INVITE_SPEND_REASON,
+  inviteSpendKey,
+} from './invitations/invitation.service';
+export type { InvitePreview, InviteResult } from './invitations/invitation.service';
+export { CATEGORY_HISTORY_CAP, rankCandidates, scoreCandidate } from './invitations/score';
+export type {
+  InviteCandidate,
+  InviteTarget,
+  InviteWeights,
+  ScoreBreakdown,
+  ScoredCandidate,
+} from './invitations/score';
+export { InvitationsModule } from './invitations/invitations.module';
+
 export { MessagingService, RATE_LIMIT_BREAKER_THRESHOLD } from './messaging/messaging.service';
 export type {
   MessageCampaignSummary,

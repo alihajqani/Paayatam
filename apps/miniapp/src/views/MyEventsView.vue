@@ -8,6 +8,7 @@ import type {
 } from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import PromotionDialog from '@/components/PromotionDialog.vue';
+import ReachDialog from '@/components/ReachDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import TrustBadge from '@/components/TrustBadge.vue';
 import {
@@ -45,6 +46,14 @@ const deciding = ref<string | null>(null);
 
 /** Which event has the promotion dialog open. */
 const promoting = ref<string | null>(null);
+/**
+ * The other paid dialog (M22 phases 5 and 11).
+ *
+ * Its own state rather than a mode on `promoting`, so opening one closes the
+ * other: two purchase dialogs side by side on a phone is two «تأیید و پرداخت»
+ * buttons within a thumb's width of each other.
+ */
+const reaching = ref<string | null>(null);
 const cancelling = ref<string | null>(null);
 const cancelPreview = ref<HostCancellationPreviewResponse | null>(null);
 const cancelReason = ref('');
@@ -291,9 +300,23 @@ onMounted(load);
               v-if="event.status === 'PUBLISHED'"
               type="button"
               class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm"
-              @click="promoting = promoting === event.publicId ? null : event.publicId"
+              @click="
+                reaching = null;
+                promoting = promoting === event.publicId ? null : event.publicId;
+              "
             >
               معرفی در کانال ویژه
+            </button>
+            <button
+              v-if="event.status === 'PUBLISHED'"
+              type="button"
+              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm"
+              @click="
+                promoting = null;
+                reaching = reaching === event.publicId ? null : event.publicId;
+              "
+            >
+              رساندن به آدم‌های بیشتر
             </button>
             <button
               v-if="event.status === 'PUBLISHED' || event.status === 'PENDING_MODERATION'"
@@ -388,6 +411,15 @@ onMounted(load);
             :event="event"
             @done="onPromoted"
             @dismiss="promoting = null"
+          />
+
+          <!-- Buying reach: a channel post, or invitations to the people most
+               likely to come. Both priced and previewed before anything moves. -->
+          <ReachDialog
+            v-if="reaching === event.publicId"
+            :event="event"
+            @done="onPromoted"
+            @dismiss="reaching = null"
           />
 
           <!-- Cancellation, priced before it is committed. -->

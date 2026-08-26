@@ -64,6 +64,17 @@ export const ErrorCode = {
   ALREADY_REFERRED: 'ALREADY_REFERRED',
   EVENT_NOT_BOOSTABLE: 'EVENT_NOT_BOOSTABLE',
   /**
+   * The event cannot receive paid invitations right now (M22 phase 11).
+   *
+   * Its own code rather than a reuse of `EVENT_NOT_BOOSTABLE`, because the two
+   * lead to different sentences: one is about promotion and one is about people,
+   * and a host reading «قابل نردبان کردن نیست» after pressing «دعوت» would be
+   * reading about a different feature.
+   */
+  EVENT_NOT_INVITABLE: 'EVENT_NOT_INVITABLE',
+  /** This event has already been bought a place in the channel (M22 phase 5). */
+  EVENT_ALREADY_IN_CHANNEL: 'EVENT_ALREADY_IN_CHANNEL',
+  /**
    * Gift codes (M18). Four codes rather than one, because the four are things a
    * user can act on differently: retype it, ask for a new one, stop trying, or
    * find out they already have the coins. A single «کد معتبر نیست» would be an
@@ -210,6 +221,9 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   SELF_REFERRAL: 'نمی‌توانید کد دعوت خودتان را استفاده کنید.',
   ALREADY_REFERRED: 'شما قبلاً با کد دعوت دیگری ثبت شده‌اید.',
   EVENT_NOT_BOOSTABLE: 'این فعالیت قابل نردبان کردن نیست.',
+  EVENT_NOT_INVITABLE:
+    'برای این فعالیت نمی‌توان دعوت‌نامه فرستاد. فعالیت باید منتشر شده و هنوز شروع نشده باشد.',
+  EVENT_ALREADY_IN_CHANNEL: 'این فعالیت پیش‌تر برای انتشار در کانال ثبت شده است.',
   GIFT_CODE_INVALID: 'این کد هدیه معتبر نیست.',
   GIFT_CODE_EXPIRED: 'مهلت استفاده از این کد هدیه به پایان رسیده است.',
   GIFT_CODE_ALREADY_REDEEMED: 'شما پیش‌تر از این کد هدیه استفاده کرده‌اید.',
@@ -302,6 +316,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   POLICY_NOT_EDITABLE: 409,
   POLICY_IS_CURRENT: 409,
   EVENT_ALREADY_STARTED: 409,
+  EVENT_ALREADY_IN_CHANNEL: 409,
   INVALID_STATE_TRANSITION: 409,
   REVIEW_NOT_EDITABLE: 409,
   RATE_LIMITED: 429,

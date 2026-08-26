@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
-import type { ChannelPostKind } from '@payetam/db';
+import type { ChannelPostKind, Prisma } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { SettingsService } from '../catalog/settings.service';
 import { isUniqueViolation } from '../identity/user.service';
@@ -149,6 +149,81 @@ export class ChannelService {
     }
 
     return claimed;
+  }
+
+  /**
+   * Claim the one publication a host paid for (M22 phase 5).
+   *
+   * Joins the caller's transaction, because the claim and the coin movement have
+   * to commit together: a charge without a row is a host who paid for nothing, and
+   * a row without a charge is a free post.
+   *
+   * `UNIQUE (event_id, kind)` is the duplicate guard, and it is what makes the
+   * purchase exactly-once at the database rather than at the price. Returns false
+   * when the row already exists, so the caller can refuse the second purchase with
+   * a message instead of taking the coins again.
+   */
+  async claimPaidPublication(tx: Prisma.TransactionClient, eventId: string): Promise<boolean> {
+    try {
+      await tx.channelPost.create({
+        data: { eventId, kind: 'PAID', createdAt: this.clock.now() },
+        select: { id: true },
+      });
+      return true;
+    } catch (error) {
+      if (isUniqueViolation(error)) return false;
+      throw error;
+    }
+  }
+
+  /**
+   * Paid claims Telegram has not confirmed yet.
+   *
+   * A separate read from `claimPending` because the two have opposite failure
+   * behaviour. A VIP or trending claim that fails to send is **released** — the
+   * row is re-derivable from `is_vip` and `request_count`, so deleting it costs
+   * nothing and leaving it would bar the event forever. A paid claim is the record
+   * that somebody paid; it is never released, and every sweep retries it until
+   * Telegram accepts it.
+   */
+  async findUnpostedPaid(limit = 20): Promise<PublishablePost[]> {
+    const rows = await this.prisma.channelPost.findMany({
+      where: { kind: 'PAID', postedAt: null, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+      select: {
+        id: true,
+        event: {
+          select: {
+            publicId: true,
+            title: true,
+            startsAt: true,
+            capacity: true,
+            acceptedCount: true,
+            costType: true,
+            costAmount: true,
+            category: { select: { nameFa: true } },
+            city: { select: { nameFa: true } },
+            district: { select: { nameFa: true } },
+          },
+        },
+      },
+    });
+
+    return rows.map((row) => ({
+      postId: row.id,
+      eventPublicId: row.event.publicId,
+      kind: 'PAID' as const,
+      title: row.event.title,
+      categoryName: row.event.category.nameFa,
+      cityName: row.event.city.nameFa,
+      districtName: row.event.district?.nameFa ?? null,
+      startsAt: row.event.startsAt,
+      capacity: row.event.capacity,
+      acceptedCount: row.event.acceptedCount,
+      costType: row.event.costType,
+      costAmount: row.event.costAmount,
+    }));
   }
 
   /** Telegram confirmed it. Now the row can be taken down later. */
