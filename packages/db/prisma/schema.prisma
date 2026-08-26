@@ -503,6 +503,14 @@ enum CoinLedgerType {
   GIFT_CODE_REDEEM
   BOOST_SPEND
   VIP_SPEND
+  /// The three M22 sinks (phase 5). Separate values rather than one `SPEND`,
+  /// for the reason `GIFT_CODE_REDEEM` is separate from `ADMIN_ADJUSTMENT`:
+  /// "they made an event", "they pushed one to the channel" and "they paid to
+  /// invite twenty people" answer different questions in an audit and have
+  /// different people to ask about them.
+  EVENT_CREATE_SPEND
+  CHANNEL_POST_SPEND
+  INVITE_SPEND
   CANCELLATION_PENALTY
   NO_SHOW_PENALTY
   HOST_CANCELLATION_REFUND

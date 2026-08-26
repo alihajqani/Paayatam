@@ -21,6 +21,10 @@ export const coinLedgerType = z.enum([
   'GIFT_CODE_REDEEM',
   'BOOST_SPEND',
   'VIP_SPEND',
+  // The three M22 sinks (phase 5).
+  'EVENT_CREATE_SPEND',
+  'CHANNEL_POST_SPEND',
+  'INVITE_SPEND',
   'CANCELLATION_PENALTY',
   'NO_SHOW_PENALTY',
   'HOST_CANCELLATION_REFUND',

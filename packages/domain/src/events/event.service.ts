@@ -59,6 +59,40 @@ export const EVENT_BOOST_REASON = 'event.boost';
 export const EVENT_VIP_REASON = 'event.vip';
 
 /**
+ * The three M22 sinks (phase 5).
+ *
+ * Stable strings, because the admin ledger renders them and a rename would make
+ * every historical row read as something else (ADR-0007).
+ */
+export const EVENT_CREATE_REASON = 'event.created';
+export const EVENT_CHANNEL_POST_REASON = 'event.channel_post';
+export const EVENT_TOP_INVITE_REASON = 'event.invite_top';
+
+/**
+ * The creation charge's exactly-once key.
+ *
+ * Derived from the event, which is allocated inside the same transaction as the
+ * charge — so the two commit together or neither does, and a retry that produces
+ * a *different* event is a different event and pays for itself. What protects a
+ * retry of the *same* intention is plan §6's `Idempotency-Key` header, which the
+ * Mini App sends on this endpoint.
+ */
+export function eventCreateSpendKey(eventId: string): string {
+  return `event-create:${eventId}`;
+}
+
+/**
+ * The paid channel publication's key.
+ *
+ * The event, and nothing else: an event reaches the channel by purchase at most
+ * once, ever. A host who pays twice for the same event is a host who tapped
+ * twice, and the second tap must cost nothing.
+ */
+export function channelPostSpendKey(eventId: string): string {
+  return `channel-post:${eventId}`;
+}
+
+/**
  * The boost spend's exactly-once key, derived from the window it buys.
  *
  * Deterministic, so a request replayed *before* the first one committed collides
@@ -241,11 +275,33 @@ export class EventService {
    * The scan and the row commit together. Publishing first and scanning after
    * would mean a crash in between leaves banned content live with nothing
    * recording that it was ever judged.
+   *
+   * ── What it costs, and when (M22 phase 5) ──────────────────────────────────
+   *
+   * `economy.event_create_coins`, charged **inside this transaction**. That is
+   * the whole of the "never charge for something that did not happen"
+   * requirement: a host who cannot afford it gets `INSUFFICIENT_COINS` and the
+   * event row rolls back with the charge, so there is no state where one exists
+   * without the other.
+   *
+   * It is charged for **every** verdict, including BLOCK. The event exists, it
+   * consumed a slot of the daily quota, and it is queued for a human to read —
+   * all three happened. A moderator who then rejects it can reverse the charge
+   * through `coin.adjust`, which is a decision somebody signs for rather than an
+   * automatic refund for content the blacklist objected to.
+   *
+   * Zero means free and writes no ledger row at all: `coin_ledger.amount` may not
+   * be zero, and a row claiming somebody paid nothing is worse than no row.
    */
   async create(hostUserId: string, input: CreateEventInput): Promise<EventDetail> {
     const now = this.clock.now();
     this.assertScheduleSane(input.startsAt, input.endsAt, now);
     await this.assertHostCanAuthor(hostUserId);
+
+    // Read before the transaction: it is one indexed lookup, and taking a
+    // connection for it while holding the outer one is what `SettingsService`
+    // warns about (pool exhaustion under concurrency).
+    const createCost = await this.settings.getInt('economy.event_create_coins');
 
     const created = await this.prisma.$transaction(async (tx) => {
       await this.assertWithinQuota(tx, hostUserId, now);
@@ -330,6 +386,36 @@ export class EventService {
         });
       }
 
+      /**
+       * The charge, last, and inside the same transaction (M22 phase 5).
+       *
+       * Last so that a validation refusal above costs nothing and takes no lock
+       * on the coin account; inside so that `INSUFFICIENT_COINS` rolls the event
+       * back rather than leaving one an unpaying host created.
+       *
+       * Lock ordering: nothing else is held here — `assertWithinQuota` and the
+       * catalog reads take no row locks — so `CoinService`'s `FOR UPDATE` on the
+       * account is the only one, which keeps this consistent with ADR-0006's
+       * user-then-account rule.
+       */
+      const charge =
+        createCost > 0
+          ? await this.coins.apply(
+              {
+                userId: hostUserId,
+                amount: -createCost,
+                type: 'EVENT_CREATE_SPEND',
+                reasonCode: EVENT_CREATE_REASON,
+                idempotencyKey: eventCreateSpendKey(event.id),
+                actorType: 'USER',
+                actorId: hostUserId,
+                refType: 'event',
+                refId: event.id,
+              },
+              tx,
+            )
+          : null;
+
       await this.audit.record(
         {
           actorType: 'USER',
@@ -337,7 +423,11 @@ export class EventService {
           action: 'event.created',
           targetType: 'event',
           targetId: event.id,
-          after: auditFacts(scan, outcome),
+          after: {
+            ...auditFacts(scan, outcome),
+            coinsCharged: charge === null ? 0 : createCost,
+            ...(charge !== null ? { balance: charge.balance } : {}),
+          },
         },
         tx,
       );
@@ -1112,7 +1202,7 @@ function outcomeFor(decision: ContentScan['decision']): Outcome {
   }
 }
 
-function auditFacts(scan: ContentScan, outcome: Outcome): Prisma.InputJsonValue {
+function auditFacts(scan: ContentScan, outcome: Outcome): Record<string, Prisma.InputJsonValue> {
   return {
     status: outcome.status,
     moderationStatus: outcome.moderationStatus,

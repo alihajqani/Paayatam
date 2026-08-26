@@ -164,6 +164,55 @@ export async function seedCatalog(prisma: PrismaClient): Promise<CatalogFixture>
   };
 }
 
+let coinGrantSequence = 0;
+
+/**
+ * Puts coins in a test user's account, through a real ledger row.
+ *
+ * Needed from M22 onward because creating an event costs coins (phase 5), and
+ * most suites here build a host with `createUser` — which writes the user row
+ * directly and therefore never runs the onboarding grant that a real account gets.
+ *
+ * It writes the **ledger** and then the cached balance, in that order and with
+ * matching numbers, rather than setting `coin_account.balance` on its own. The
+ * reconciliation suite asserts `balance == SUM(coin_ledger.amount)` across the
+ * whole database, so a fixture that invented a balance out of nothing would fail
+ * a test that is checking the product rather than the fixture.
+ */
+export async function grantCoins(
+  prisma: PrismaClient,
+  userId: string,
+  amount: number,
+): Promise<void> {
+  coinGrantSequence += 1;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.coinAccount.createMany({ data: { userId }, skipDuplicates: true });
+    const account = await tx.coinAccount.findUniqueOrThrow({
+      where: { userId },
+      select: { balance: true },
+    });
+
+    await tx.coinLedger.create({
+      data: {
+        userId,
+        idempotencyKey: `test-grant:${userId}:${String(coinGrantSequence)}`,
+        type: 'ADMIN_ADJUSTMENT',
+        amount,
+        balanceBefore: account.balance,
+        balanceAfter: account.balance + amount,
+        reasonCode: 'test.fixture',
+        actorType: 'SYSTEM',
+      },
+    });
+
+    await tx.coinAccount.update({
+      where: { userId },
+      data: { balance: account.balance + amount, version: { increment: 1 } },
+    });
+  });
+}
+
 let telegramIdSequence = 100_000n;
 
 /**
@@ -177,6 +226,7 @@ let telegramIdSequence = 100_000n;
 export async function createUser(
   prisma: PrismaClient,
   onboardingState: 'NEW' | 'TERMS_ACCEPTED' | 'PROFILE_COMPLETE' = 'TERMS_ACCEPTED',
+  options: { coins?: number } = {},
 ): Promise<string> {
   telegramIdSequence += 1n;
   const user = await prisma.user.create({
@@ -185,5 +235,9 @@ export async function createUser(
       telegramAccount: { create: { telegramUserId: telegramIdSequence } },
     },
   });
+
+  if (options.coins !== undefined && options.coins > 0) {
+    await grantCoins(prisma, user.id, options.coins);
+  }
   return user.id;
 }

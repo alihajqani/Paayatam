@@ -109,6 +109,20 @@ export const promotionPricing = z.object({
   boostDurationHours: z.number().int().positive(),
   /** Permanent VIP standing for the event. */
   vipCoins: z.number().int().nonnegative(),
+  /**
+   * The three M22 sinks (phase 5), on the same terms as the two above: the
+   * server's current configuration, asked for rather than assumed, so the
+   * price the host is *shown* before confirming and the price they are
+   * *charged* cannot disagree.
+   *
+   * Zero is meaningful and means free — which is how the whole feature is
+   * rolled back — so a client must render "رایگان" rather than «۰ سکه».
+   */
+  eventCreateCoins: z.number().int().nonnegative(),
+  eventChannelSendCoins: z.number().int().nonnegative(),
+  eventTopInviteCoins: z.number().int().nonnegative(),
+  /** How many people one paid invitation reaches, at most. */
+  topInviteMaxRecipients: z.number().int().positive(),
 });
 export type PromotionPricing = z.infer<typeof promotionPricing>;
 

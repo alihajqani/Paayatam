@@ -8,6 +8,7 @@ import {
   type GenderPreference,
 } from '@payetam/shared';
 import { ApiError } from '@/api/client';
+import CostNotice from '@/components/CostNotice.vue';
 import MainButton from '@/components/MainButton.vue';
 import { isoToLocalInput, localInputToIso, nowAsLocalInput } from '@/format/datetime';
 import { toPersianDigits } from '@/format/fa';
@@ -64,6 +65,18 @@ const submitError = ref<string | null>(null);
 const fieldErrors = ref<Record<string, string>>({});
 
 const { provinces, cities, districts, provinceId, onProvinceChange } = useLocationPicker(cityId);
+
+/**
+ * What authoring costs and whether this host can pay (M22 phase 5).
+ *
+ * Read from the catalog rather than hardcoded: the price is an `app_setting` an
+ * admin can change at runtime, so a number compiled into this bundle would be
+ * wrong the first time anybody edits it — and the person who found out would be
+ * the host being charged something other than what they were shown.
+ */
+const createCost = computed(() => session.catalog?.promotion.eventCreateCoins ?? 0);
+const balance = computed(() => session.me?.coins.balance ?? null);
+const affordable = computed(() => balance.value === null || balance.value >= createCost.value);
 
 /**
  * The activity tags offered where this event is (M21).
@@ -499,6 +512,8 @@ onMounted(load);
 
     <div class="flex-1"></div>
 
-    <MainButton text="ثبت رویداد" :loading="loading" @click="submit" />
+    <CostNotice :cost="createCost" :balance="balance" label="هزینهٔ ثبت رویداد" class="mt-4" />
+
+    <MainButton text="ثبت رویداد" :loading="loading" :disabled="!affordable" @click="submit" />
   </main>
 </template>

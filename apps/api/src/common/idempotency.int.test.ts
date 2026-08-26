@@ -6,6 +6,7 @@ import { SessionService } from '@payetam/domain';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
   createTestPrisma,
+  grantCoins,
   resetDatabase,
   seedCatalog,
   type CatalogFixture,
@@ -80,6 +81,12 @@ async function signedInUser(): Promise<{ token: string; userId: string }> {
       },
     },
   });
+
+  // Creating an event costs coins from M22 (phase 5), and this user was written
+  // straight to the table rather than through onboarding — so the grant that
+  // funds a real account never ran. Enough for several events, because this
+  // suite is about the header rather than about affordability.
+  await grantCoins(prisma, user.id, 500);
 
   const tokens = await sessions.issue(user.publicId, 'PROFILE_COMPLETE');
   return { token: tokens.accessToken, userId: user.id };

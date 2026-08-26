@@ -15,6 +15,11 @@ export interface PromotionPricingSnapshot {
   boostCoins: number;
   boostDurationHours: number;
   vipCoins: number;
+  /** The three M22 sinks (phase 5). Zero means free. */
+  eventCreateCoins: number;
+  eventChannelSendCoins: number;
+  eventTopInviteCoins: number;
+  topInviteMaxRecipients: number;
 }
 
 export interface CatalogSnapshot {
@@ -129,15 +134,33 @@ export class CatalogService {
     };
   }
 
-  /** Public because the price is not a secret — it is what the buyer is agreeing to. */
+  /**
+   * Public because the price is not a secret — it is what the buyer is agreeing to.
+   *
+   * One `getNumbers` rather than seven `getInt`s: this is on the cold-open path
+   * for every session, and seven round trips to `app_setting` to render one form
+   * is six more than the data needs.
+   */
   async promotionPricing(): Promise<PromotionPricingSnapshot> {
-    const [boostCoins, boostDurationHours, vipCoins] = await Promise.all([
-      this.settings.getInt('economy.boost_coins'),
-      this.settings.getInt('economy.boost_duration_hours'),
-      this.settings.getInt('economy.vip_coins'),
+    const values = await this.settings.getNumbers([
+      'economy.boost_coins',
+      'economy.boost_duration_hours',
+      'economy.vip_coins',
+      'economy.event_create_coins',
+      'economy.event_channel_send_coins',
+      'economy.event_top_invite_coins',
+      'events.top_invite_max_recipients',
     ]);
 
-    return { boostCoins, boostDurationHours, vipCoins };
+    return {
+      boostCoins: values['economy.boost_coins'],
+      boostDurationHours: values['economy.boost_duration_hours'],
+      vipCoins: values['economy.vip_coins'],
+      eventCreateCoins: values['economy.event_create_coins'],
+      eventChannelSendCoins: values['economy.event_channel_send_coins'],
+      eventTopInviteCoins: values['economy.event_top_invite_coins'],
+      topInviteMaxRecipients: values['events.top_invite_max_recipients'],
+    };
   }
 
   /**
