@@ -394,6 +394,16 @@ export class ChatService {
             senderName: senderDisplayName(context.me),
             eventTitle: context.chat.event.title,
             recipientUserPublicId: context.counterpartUserPublicId,
+            /**
+             * Whether the recipient may share contact details from the bot yet
+             * (report 6).
+             *
+             * `shareContact` is OPEN-only (ADR-0009): before acceptance there is
+             * no meeting to arrange. The template renders the share button from
+             * this rather than always, because a button that answers «گفتگو باز
+             * نیست» is a control the product knew would fail before it drew it.
+             */
+            chatOpen: context.chat.status === 'OPEN',
           },
         },
         tx,

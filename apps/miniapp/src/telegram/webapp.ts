@@ -67,6 +67,20 @@ interface TelegramWebApp {
    * way to ask, and hardcoding one would be a second place to change it.
    */
   close(): void;
+  /**
+   * Opens a `t.me` link inside Telegram rather than in a browser tab.
+   *
+   * `close()` gets the user back to *whatever chat they opened the Mini App
+   * from*, which is the bot when they launched it from the bot and the channel
+   * when they tapped a post's button. Report 6's whole complaint is the second
+   * case: "go back to the bot and find the conversation" is not something to ask
+   * of somebody who arrived from a channel. This lands them in the bot chat
+   * whichever door they came in by.
+   *
+   * Optional in the type because older WebApp builds do not have it — the caller
+   * falls back to `close()`, which is right more often than it is wrong.
+   */
+  openTelegramLink?: (url: string) => void;
   disableVerticalSwipes?: () => void;
   onEvent(event: string, handler: () => void): void;
   showAlert(message: string): void;
@@ -171,6 +185,26 @@ export function initTelegram(): void {
   webApp.onEvent('themeChanged', () => {
     applyTheme();
   });
+}
+
+/**
+ * Take the user to the bot's chat, wherever they opened the app from (report 6).
+ *
+ * `openTelegramLink` when the client has it, `close()` otherwise. The fallback is
+ * not a degradation for most users: somebody who launched the Mini App from the
+ * bot is returned to the bot by closing it. It is only wrong for somebody who
+ * arrived from a channel post, and that is exactly who the link form is for.
+ *
+ * An empty `botUsername` — a deployment that never configured one — closes
+ * rather than opening `https://t.me/`, which is a link to nothing.
+ */
+export function openBotChat(botUsername: string): void {
+  const url = botUsername === '' ? null : `https://t.me/${botUsername}`;
+  if (url !== null && webApp?.openTelegramLink !== undefined) {
+    webApp.openTelegramLink(url);
+    return;
+  }
+  webApp?.close();
 }
 
 export function haptic(kind: 'success' | 'error' | 'selection'): void {

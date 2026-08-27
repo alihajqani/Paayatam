@@ -11,7 +11,7 @@ import StateBlock from '@/components/StateBlock.vue';
 import TrustBadge from '@/components/TrustBadge.vue';
 import { formatEventWhen, formatRelative } from '@/format/datetime';
 import { formatToman, toPersianDigits } from '@/format/fa';
-import { haptic, webApp } from '@/telegram/webapp';
+import { haptic, openBotChat } from '@/telegram/webapp';
 import { useEventsStore } from '@/stores/events';
 import { useParticipationStore } from '@/stores/participation';
 import { useSessionStore } from '@/stores/session';
@@ -39,6 +39,29 @@ const loadError = ref<string | null>(null);
 const joinError = ref<string | null>(null);
 const justJoined = ref<ParticipationView | null>(null);
 const reporting = ref(false);
+
+/**
+ * A first message to the host, sent with the request (report 6).
+ *
+ * ── Why it is on this screen and not a step after it ─────────────────────────
+ *
+ * The old flow was: tap join, read "your conversation is open in Telegram",
+ * close the app, find the bot, work out which of several conversations is this
+ * one, type. Four actions and a context switch between deciding to come and
+ * being able to say anything — and the host meanwhile holds a request from a
+ * stranger with no words attached, which is the decision they are worst equipped
+ * to make.
+ *
+ * Optional, always: an empty box sends nothing and the request is exactly what
+ * it was before. The placeholder suggests what is useful rather than demanding
+ * it.
+ */
+const note = ref('');
+/** Whether the greeting actually got through. It is best-effort; see the store. */
+const noteSent = ref(false);
+
+/** The bot's @username, so «گفت‌وگو در تلگرام» lands somewhere. */
+const botUsername = computed(() => session.catalog?.botUsername ?? '');
 
 const event = computed(() => events.detail);
 const mine = computed(() => justJoined.value ?? participation.liveFor(publicId.value));
@@ -86,6 +109,9 @@ async function load(): Promise<void> {
     // Needed to answer "have I already asked?" — and cheap, since the list is the
     // user's own participations rather than a per-event lookup.
     if (participation.mine.length === 0) await participation.loadMine();
+    // For `botUsername`, which the "open the conversation" button is built from.
+    // Cached in the session store, so this costs a request only on a cold start.
+    if (session.catalog === null) await session.loadCatalog().catch(() => undefined);
   } catch (cause) {
     loadError.value = cause instanceof ApiError ? cause.messageFa : 'این رویداد بارگذاری نشد.';
   }
@@ -93,18 +119,32 @@ async function load(): Promise<void> {
 
 async function act(): Promise<void> {
   if (mine.value !== null) {
-    // The conversation lives in the bot. Closing returns the user to it.
-    webApp?.close();
+    openConversation();
     return;
   }
   await join();
 }
 
+/**
+ * Into the conversation, in one tap (report 6).
+ *
+ * `openTelegramLink` where the client has it, `close()` otherwise. The old code
+ * only closed, which returns the user to *whatever chat they opened the app
+ * from* — the bot for somebody who launched it there, and the channel for
+ * somebody who tapped a post's button. The second case is precisely the person
+ * who was then told to go and find the bot themselves.
+ */
+function openConversation(): void {
+  openBotChat(botUsername.value);
+}
+
 async function join(): Promise<void> {
   joinError.value = null;
   try {
-    const result = await participation.join(publicId.value);
-    justJoined.value = result;
+    const result = await participation.join(publicId.value, note.value);
+    justJoined.value = result.participation;
+    noteSent.value = result.noteSent;
+    note.value = '';
     haptic('success');
     // The seat count moved for everyone, so the copy on screen is now stale.
     await events.loadEvent(publicId.value).catch(() => undefined);
@@ -215,11 +255,49 @@ onMounted(load);
             مهلت پاسخ میزبان: {{ formatRelative(mine.hostDeadlineAt) }}
           </p>
 
+          <p v-if="noteSent" class="text-tg-accent">پیام شما برای میزبان فرستاده شد.</p>
+
           <p class="text-tg-hint">
             گفت‌وگوی ناشناس شما با میزبان در تلگرام باز است — بدون آنکه هویت هیچ‌کدام مشخص باشد.
-            برای ادامه، به گفت‌وگو با ربات بازگردید.
           </p>
+
+          <!--
+            The one action that follows, as a button rather than an instruction
+            (report 6). "Go back to the conversation with the bot" is a sentence
+            asking the user to do navigation the app can do for them — and for
+            somebody who opened the Mini App from a channel post, it was asking
+            them to go somewhere they had never been.
+          -->
+          <button
+            type="button"
+            class="min-h-11 rounded-xl bg-tg-button px-4 text-sm text-tg-button-text"
+            @click="openConversation"
+          >
+            رفتن به گفت‌وگو در تلگرام
+          </button>
         </section>
+
+        <!--
+          One optional line to the host, sent with the request (report 6).
+
+          Hidden once the request is in: this is part of *asking*, and leaving an
+          empty box on the screen afterwards would suggest a second message can be
+          sent from here — it cannot, the conversation is in the bot.
+        -->
+        <label v-if="!isHost && !mine" class="flex flex-col gap-1">
+          <span class="text-sm text-tg-subtitle">پیامی برای میزبان (اختیاری)</span>
+          <textarea
+            v-model="note"
+            rows="2"
+            maxlength="500"
+            placeholder="مثلاً: سلام، دو نفریم و از قبل هم بازی رومیزی کار کرده‌ایم."
+            class="rounded-xl bg-tg-secondary-bg p-3 text-tg-text"
+          ></textarea>
+          <span class="text-xs text-tg-hint">
+            همراه با درخواست شما فرستاده می‌شود. شمارهٔ تماس و نام کاربری شما در پیام‌ها پنهان
+            می‌ماند.
+          </span>
+        </label>
 
         <p v-if="joinError" class="text-tg-destructive">{{ joinError }}</p>
 

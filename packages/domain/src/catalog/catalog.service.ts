@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { Prisma } from '@payetam/db';
+import { ENV } from '@payetam/platform';
+import type { Env } from '@payetam/config';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { SettingsService } from './settings.service';
 
@@ -33,6 +35,20 @@ export interface CatalogSnapshot {
   })[];
   interests: (NamedRef & { categoryId: string | null })[];
   promotion: PromotionPricingSnapshot;
+  /**
+   * The bot's @username, so the Mini App can send somebody into the conversation.
+   *
+   * Public by definition — it is already in every deep link the bot and the
+   * channel emit — and not a token: `TELEGRAM_BOT_TOKEN` is a different
+   * environment variable and nothing here reads it.
+   *
+   * Carried on the catalog rather than fetched separately for the reason
+   * everything else here is: it is small, it changes at deploy time and not
+   * otherwise, and the alternative is another round trip on a connection where
+   * round trips are the expensive part (ADR-0003). Empty string when the
+   * deployment has not configured one, which the client treats as "no link".
+   */
+  botUsername: string;
 }
 
 /** The place a user says they are, once it has been checked against the catalog. */
@@ -54,6 +70,8 @@ export class CatalogService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    /** For `TELEGRAM_BOT_USERNAME` alone — never the token. */
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -131,6 +149,7 @@ export class CatalogService {
       })),
       interests,
       promotion,
+      botUsername: this.env.TELEGRAM_BOT_USERNAME ?? '',
     };
   }
 

@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import type { Env } from '@payetam/config';
 import type { PrismaClient, PrismaService } from '@payetam/db';
 import {
   createTestPrisma,
@@ -17,7 +18,13 @@ import { SettingsService } from './settings.service';
 
 const prisma: PrismaClient = createTestPrisma();
 const service = prisma as unknown as PrismaService;
-const catalog = new CatalogService(service, new SettingsService(service));
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, new SettingsService(service), catalogEnv);
 
 let fixture: CatalogFixture;
 

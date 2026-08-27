@@ -52,14 +52,56 @@ export const useParticipationStore = defineStore('participation', () => {
     else mine.value = mine.value.map((existing, at) => (at === index ? participation : existing));
   }
 
-  async function join(eventPublicId: string): Promise<ParticipationView> {
+  /**
+   * Ask to join, and say hello in the same tap (report 6).
+   *
+   * ── Why the note is a second request and not a field ─────────────────────
+   *
+   * `POST /events/:id/join` takes no body by design — "everything that decides
+   * the outcome is on the server; there is no field here for a client to be
+   * wrong or dishonest about". A `note` on that request would put user text into
+   * the one endpoint whose contract is that it carries none, and would need the
+   * whole relay — the sanitizer, the contact masking, the cipher — reachable
+   * from inside the join transaction to handle it.
+   *
+   * So the note goes through the **relay that already exists**, immediately
+   * after, against the chat the join just created. Two requests, one user
+   * action, and the message is masked and encrypted by exactly the same code
+   * path as every other message in the conversation.
+   *
+   * ── Why a failed note does not fail the join ─────────────────────────────
+   *
+   * They are different outcomes and only one of them is scarce. The seat is
+   * taken and the host has been notified; losing the greeting to a dropped
+   * connection is a message the guest can retype in the bot, while rolling back
+   * the request would hand the seat to somebody else over a network blip. So the
+   * note is best-effort and the caller is told whether it arrived.
+   */
+  async function join(
+    eventPublicId: string,
+    note?: string,
+  ): Promise<{ participation: ParticipationView; noteSent: boolean }> {
     joining.value = true;
     try {
       const participation = await request<ParticipationView>(`/events/${eventPublicId}/join`, {
         method: 'POST',
       });
       remember(participation);
-      return participation;
+
+      const trimmed = note?.trim() ?? '';
+      if (trimmed === '' || participation.chatPublicId === null) {
+        return { participation, noteSent: false };
+      }
+
+      try {
+        await request(`/chats/${participation.chatPublicId}/messages`, {
+          method: 'POST',
+          body: { text: trimmed },
+        });
+        return { participation, noteSent: true };
+      } catch {
+        return { participation, noteSent: false };
+      }
     } finally {
       joining.value = false;
     }

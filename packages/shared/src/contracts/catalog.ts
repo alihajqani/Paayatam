@@ -132,6 +132,16 @@ export const catalogResponse = z.object({
   categories: z.array(categoryView),
   interests: z.array(interestView),
   promotion: promotionPricing,
+  /**
+   * The bot's @username, so a client can send somebody into the conversation
+   * with one tap instead of "close this and go find the bot" (report 6).
+   *
+   * Public by definition — it is already in every deep link the bot and the
+   * channel emit — and **not** a token. Empty when the deployment has not
+   * configured one, which a client renders as "no link" rather than as a broken
+   * `https://t.me/`.
+   */
+  botUsername: z.string(),
 });
 export type CatalogResponse = z.infer<typeof catalogResponse>;
 

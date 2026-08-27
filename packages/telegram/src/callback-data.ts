@@ -14,16 +14,29 @@
  * button.
  *
  * The single namespace is the plan's. `accept` and `reject` carry a **participant**
- * public id and `close` carries a **chat** public id — the host decides from inside
- * the conversation, which is why all three live under `chat:`.
+ * public id; `close`, `share` and `shareyes` carry a **chat** public id — the host
+ * decides from inside the conversation, which is why they all live under `chat:`.
+ *
+ * ── Why sharing contact details is two actions ──────────────────────────────
+ *
+ * `share` **asks**; `shareyes` **does**. Consent to disclose is the one decision
+ * in this product that must be deliberate — ADR-0009 — and a single tap on a
+ * button in a message that arrived unbidden is not deliberate enough for it. The
+ * Mini App answers this with a confirmation screen; the bot answers it with a
+ * second button and a sentence saying exactly what will happen, which is the same
+ * guarantee without sending the user to a different application to get it
+ * (report 6).
+ *
+ * `chat:shareyes:<uuid>` is 52 bytes, comfortably inside the 64 the encoder
+ * enforces.
  */
 
-export const CHAT_CALLBACK_ACTIONS = ['accept', 'reject', 'close'] as const;
+export const CHAT_CALLBACK_ACTIONS = ['accept', 'reject', 'close', 'share', 'shareyes'] as const;
 export type ChatCallbackAction = (typeof CHAT_CALLBACK_ACTIONS)[number];
 
 export interface ChatCallback {
   action: ChatCallbackAction;
-  /** A participant public id for accept/reject, a chat public id for close. */
+  /** A participant public id for accept/reject; a chat public id for the rest. */
   id: string;
 }
 

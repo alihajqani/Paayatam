@@ -79,13 +79,41 @@ export function chatKeyboard(
   chatPublicId: string,
   botUsername: string,
   deepLink?: string,
+  /**
+   * Whether the conversation has been accepted, and contact details may
+   * therefore be exchanged (report 6).
+   *
+   * Drawn from the payload rather than assumed, because `shareContact` is
+   * OPEN-only: offering the button in an anonymous chat would be a control the
+   * product already knows will answer «گفتگو باز نیست».
+   */
+  chatOpen = false,
 ): InlineKeyboard {
-  return [
+  const rows: InlineButton[][] = [
     [
       openAppButton('پاسخ در برنامه', botUsername, deepLink),
       { text: '🔒 بستن گفتگو', callbackData: encodeChatCallback('close', chatPublicId) },
     ],
   ];
+
+  /**
+   * Sharing contact details without leaving Telegram (report 6).
+   *
+   * The old route was: read the message in the bot, open the Mini App, find the
+   * conversation in a list, tap through a confirmation. This is the same
+   * confirmed decision — `share` asks and `shareyes` does — with the two taps in
+   * the place the conversation is actually happening.
+   *
+   * Its own row: it sits beside a destructive button, and a mis-tap here
+   * discloses something that cannot be undone.
+   */
+  if (chatOpen) {
+    rows.push([
+      { text: '🤝 اشتراک اطلاعات تماس', callbackData: encodeChatCallback('share', chatPublicId) },
+    ]);
+  }
+
+  return rows;
 }
 
 /** The plain "open the app" keyboard, for a message that is only an announcement. */

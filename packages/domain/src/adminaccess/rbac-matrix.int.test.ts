@@ -72,7 +72,13 @@ const cipher = new MessageCipher(env);
 // The matrix never authenticates, so Redis is never reached. A stub rather than a
 // live connection keeps this suite about authorisation and nothing else.
 const redis = { client: {} } as unknown as RedisService;
-const catalog = new CatalogService(service, settings);
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, settings, catalogEnv);
 // Only `APP_TIMEZONE` is read, and only by the 18+ check on a profile edit.
 const envForProfile: Env = { ...env, APP_TIMEZONE: 'Asia/Tehran' };
 

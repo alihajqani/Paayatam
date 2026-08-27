@@ -669,6 +669,119 @@ describe('callback_query', () => {
   });
 
   /**
+   * Sharing contact details from inside the bot (report 6).
+   *
+   * Two taps, and the first one **must not disclose anything**. That is the
+   * property this pair of tests exists for: consent to disclose is the one
+   * decision in this product that has to be unambiguous (ADR-0009), and the whole
+   * reason `share` and `shareyes` are separate actions is that a message arriving
+   * unbidden must not be one tap away from an irreversible disclosure.
+   *
+   * What it replaces is a trip to a different application for a confirmation that
+   * was always going to be a confirmation.
+   */
+  describe('sharing contact details', () => {
+    async function openChat(): Promise<{ chatPublicId: string; guestUserId: string }> {
+      const { eventPublicId, hostId } = await seedHostAndEvent();
+      const guestUserId = await seedGuest(GUEST_TELEGRAM_ID);
+      const joined = await participation.join(guestUserId, eventPublicId);
+      // Only an accepted conversation may exchange contact details.
+      await participation.accept(hostId, joined.publicId);
+
+      return { chatPublicId: joined.chatPublicId ?? '', guestUserId };
+    }
+
+    it('discloses nothing when the first button is tapped', async () => {
+      const { chatPublicId, guestUserId } = await openChat();
+
+      await post(
+        update({
+          callback_query: {
+            id: 'q-share',
+            from: sender(GUEST_TELEGRAM_ID),
+            data: `chat:share:${chatPublicId}`,
+          },
+        }),
+      );
+
+      const shared = await prisma.chatParticipant.count({
+        where: { userId: guestUserId, contactSharedAt: { not: null } },
+      });
+      expect(shared).toBe(0);
+    });
+
+    it('records the decision when the confirmation is tapped', async () => {
+      const { chatPublicId, guestUserId } = await openChat();
+
+      await post(
+        update({
+          callback_query: {
+            id: 'q-shareyes',
+            from: sender(GUEST_TELEGRAM_ID),
+            data: `chat:shareyes:${chatPublicId}`,
+          },
+        }),
+      );
+
+      const shared = await prisma.chatParticipant.count({
+        where: { userId: guestUserId, contactSharedAt: { not: null } },
+      });
+      expect(shared).toBe(1);
+    });
+
+    /**
+     * The bot reaches the same service the Mini App does, so it inherits the same
+     * idempotency: pressing the button twice is one decision, not two.
+     */
+    it('treats a second confirmation as the same decision', async () => {
+      const { chatPublicId, guestUserId } = await openChat();
+
+      for (const id of ['q-yes-1', 'q-yes-2']) {
+        await post(
+          update({
+            callback_query: {
+              id,
+              from: sender(GUEST_TELEGRAM_ID),
+              data: `chat:shareyes:${chatPublicId}`,
+            },
+          }),
+        );
+      }
+
+      const consents = await prisma.chatParticipant.findMany({
+        where: { userId: guestUserId },
+        select: { contactSharedAt: true },
+      });
+      expect(consents.filter((row) => row.contactSharedAt !== null)).toHaveLength(1);
+    });
+
+    /**
+     * `callback_data` is client input. A tap naming somebody else's conversation
+     * must be refused by the service, not by the button.
+     */
+    it('refuses a confirmation from somebody who is not in the conversation', async () => {
+      const { chatPublicId } = await openChat();
+      const stranger = 900_222_000;
+      await seedGuest(stranger);
+
+      await post(
+        update({
+          callback_query: {
+            id: 'q-stranger',
+            from: sender(stranger),
+            data: `chat:shareyes:${chatPublicId}`,
+          },
+        }),
+      );
+
+      const shared = await prisma.chatParticipant.count({
+        where: { contactSharedAt: { not: null } },
+      });
+      expect(shared).toBe(0);
+    });
+  });
+
+  /**
    * **The button carries no authority.**
    *
    * `callback_data` is client input, so a tap can name any public id; the refusal

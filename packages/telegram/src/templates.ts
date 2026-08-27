@@ -1,5 +1,5 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { isPublicId } from './callback-data';
+import { encodeChatCallback, isPublicId } from './callback-data';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
   chatKeyboard,
@@ -39,6 +39,8 @@ export const TEMPLATES = {
   CHAT_MESSAGE: 'chat.message',
   CHAT_MESSAGE_EDITED: 'chat.message_edited',
   CHAT_MESSAGE_DELETED: 'chat.message_deleted',
+  /** The «آیا مطمئنید؟» step before contact details are disclosed (report 6). */
+  CHAT_SHARE_CONFIRM: 'chat.share_confirm',
   REVIEW_REVEALED: 'review.revealed',
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
@@ -259,6 +261,48 @@ export function render(
         botUsername,
       );
 
+    /**
+     * The confirmation before contact details are shared (report 6).
+     *
+     * Two things have to be true of this message and both are load-bearing.
+     *
+     * It must **not overstate what happens**: agreeing discloses nothing by
+     * itself. The platform holds no phone number and will not surrender a
+     * Telegram handle — what changes is that the user's own messages stop being
+     * masked, so they can send their details themselves if they choose to. A
+     * message that said "your contact details will be shared" would be describing
+     * a thing the product does not do, and the user would act on it.
+     *
+     * And it must carry the button, because the whole point of this step is that
+     * the *decision* happens here rather than in another application. The
+     * conditional is the same one every other keyboard here has: a malformed
+     * payload degrades to a plain message rather than a button that confirms
+     * nothing.
+     */
+    case TEMPLATES.CHAT_SHARE_CONFIRM: {
+      const chat = id(payload, 'chatPublicId');
+      return {
+        text:
+          `<b>اشتراک اطلاعات تماس</b>\n\n` +
+          `با تأیید، از این پس شمارهٔ تماس یا نام کاربری‌تان در پیام‌های <i>خودتان</i> پنهان ` +
+          `نمی‌شود و می‌توانید آن را بفرستید.\n\n` +
+          `پایه‌تَم هیچ اطلاعاتی از شما را به طرف مقابل نمی‌دهد؛ تصمیم و متن پیام با خود شماست. ` +
+          `این کار برگشت‌پذیر نیست.`,
+        ...(chat !== null
+          ? {
+              keyboard: [
+                [
+                  {
+                    text: '✅ بله، تأیید می‌کنم',
+                    callbackData: encodeChatCallback('shareyes', chat),
+                  },
+                ],
+              ],
+            }
+          : {}),
+      };
+    }
+
     /** The sender deleted it. The replacement sentence comes from the domain (D10). */
     case TEMPLATES.CHAT_MESSAGE_DELETED:
       return relayed(
@@ -354,6 +398,21 @@ function relayed(text: string, payload: Payload, botUsername: string): RenderedM
   return {
     text,
     deepLink,
-    ...(chat !== null ? { keyboard: chatKeyboard(chat, botUsername, deepLink) } : {}),
+    ...(chat !== null
+      ? { keyboard: chatKeyboard(chat, botUsername, deepLink, bool(payload, 'chatOpen')) }
+      : {}),
   };
+}
+
+/**
+ * A boolean from a payload, defaulting to false.
+ *
+ * False for an absent key on purpose: a payload written by an older deploy has no
+ * `chatOpen`, and the safe reading of "we do not know whether this conversation
+ * is open" is to leave the contact-sharing button off. A button that is missing
+ * is a feature nobody noticed; a button that discloses somebody's details from a
+ * conversation that was never accepted is a privacy incident.
+ */
+function bool(payload: Payload, key: string): boolean {
+  return payload[key] === true;
 }

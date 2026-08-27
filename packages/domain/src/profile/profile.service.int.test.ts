@@ -35,7 +35,13 @@ const clock = new FakeClock(NOW);
 const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 
 const settings = new SettingsService(service);
-const catalog = new CatalogService(service, settings);
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, settings, catalogEnv);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const audit = new AuditService(service, clock);

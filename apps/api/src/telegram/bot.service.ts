@@ -127,7 +127,7 @@ export class BotService {
         return;
 
       case 'CALLBACK':
-        return this.onCallback(intent.from, intent.callbackQueryId, intent.data);
+        return this.onCallback(update, intent.from, intent.callbackQueryId, intent.data);
 
       default: {
         const user = await this.knownUser(intent.from);
@@ -274,7 +274,12 @@ export class BotService {
    * names a resource somebody does not own and is refused with the same Persian
    * sentence the API would return (T3.2) — the button carries no authority.
    */
-  private async onCallback(from: BotSender, callbackQueryId: string, data: string): Promise<void> {
+  private async onCallback(
+    update: ParsedUpdate,
+    from: BotSender,
+    callbackQueryId: string,
+    data: string,
+  ): Promise<void> {
     const user = await this.knownUser(from);
     if (user === null) {
       await this.answer(callbackQueryId, 'برای شروع /start را بفرستید.');
@@ -304,6 +309,44 @@ export class BotService {
         case 'close':
           await this.chats.close(user.id, callback.id);
           await this.answer(callbackQueryId, 'گفتگو بسته شد 🔒');
+          return;
+
+        /**
+         * «اشتراک اطلاعات تماس» — the *question*, not the act (report 6).
+         *
+         * Nothing is disclosed here. It sends a message spelling out exactly what
+         * agreeing does, with the button that does it, and that two-step shape is
+         * deliberate: consent to disclose is the one decision in this product
+         * that has to be unambiguous (ADR-0009), and a single tap on a button
+         * attached to a message that arrived unbidden is not.
+         *
+         * What this replaces is a trip to a different application — read the
+         * message in the bot, open the Mini App, find the conversation, confirm
+         * — for a decision that was always going to be a confirmation either way.
+         */
+        case 'share':
+          await this.reply(update.updateId, user.id, TEMPLATES.CHAT_SHARE_CONFIRM, {
+            chatPublicId: callback.id,
+          });
+          await this.answer(callbackQueryId, 'پیش از تأیید، توضیح را بخوانید.');
+          return;
+
+        /**
+         * The act itself.
+         *
+         * `ChatService.shareContact` is the authority and is idempotent, so a
+         * double tap is one decision. It refuses a chat that is not OPEN, which
+         * is why the button is only rendered on an accepted conversation — this
+         * is the second line of defence rather than the first.
+         *
+         * **It reveals nothing by itself**, and the confirmation says so: the
+         * platform holds no phone number and will not surrender a Telegram
+         * handle. What changes is that the sharer's own messages stop being
+         * masked, so they can send their details themselves.
+         */
+        case 'shareyes':
+          await this.chats.shareContact(user.id, callback.id);
+          await this.answer(callbackQueryId, 'ثبت شد 🤝 حالا می‌توانید اطلاعات تماس بفرستید.');
           return;
       }
     } catch (error) {
