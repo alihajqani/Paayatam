@@ -8,6 +8,7 @@ import MainButton from '@/components/MainButton.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import { birthYearOptions, toPersianDigits } from '@/format/fa';
 import { haptic } from '@/telegram/webapp';
+import { useInterestPicker } from '@/composables/useInterestPicker';
 import { useSessionStore } from '@/stores/session';
 
 /**
@@ -94,11 +95,19 @@ async function load(): Promise<void> {
   }
 }
 
+/**
+ * The cap, enforced where the user can see it (report 4).
+ *
+ * This was a local toggle that knew nothing about the limit, so a user could tick
+ * fifteen chips and be told by a 400 at submit time. The rule now lives in a
+ * composable both profile screens share and a unit test covers.
+ */
+const interestPicker = useInterestPicker(interestIds);
+
 function toggleInterest(id: string): void {
-  const index = interestIds.value.indexOf(id);
-  if (index === -1) interestIds.value.push(id);
-  else interestIds.value.splice(index, 1);
-  haptic('selection');
+  // A refused tap still gets a haptic, and a different one: silence would be
+  // indistinguishable from a tap that missed.
+  haptic(interestPicker.toggle(id) ? 'selection' : 'error');
 }
 
 function onCityChange(): void {
@@ -324,25 +333,41 @@ onMounted(load);
 
       <fieldset class="flex flex-col gap-2">
         <legend class="text-sm text-tg-subtitle">
-          علاقه‌مندی‌ها ({{ toPersianDigits(interestIds.length) }} از ۱۰)
+          علاقه‌مندی‌ها ({{ toPersianDigits(interestIds.length) }} از
+          {{ toPersianDigits(interestPicker.max) }})
         </legend>
         <div class="flex flex-wrap gap-2">
+          <!--
+            At the cap, everything unselected is `disabled` rather than merely
+            refused on tap (report 4). `aria-disabled` alongside it, so a screen
+            reader is told what the opacity says.
+          -->
           <button
             v-for="interest in interests"
             :key="interest.id"
             type="button"
-            class="min-h-11 rounded-full px-4 text-sm"
+            class="min-h-11 rounded-full px-4 text-sm disabled:opacity-40"
             :class="
-              interestIds.includes(interest.id)
+              interestPicker.isSelected(interest.id)
                 ? 'bg-tg-button text-tg-button-text'
                 : 'bg-tg-secondary-bg text-tg-text'
             "
-            :aria-pressed="interestIds.includes(interest.id)"
+            :aria-pressed="interestPicker.isSelected(interest.id)"
+            :disabled="interestPicker.isDisabled(interest.id)"
+            :aria-disabled="interestPicker.isDisabled(interest.id)"
             @click="toggleInterest(interest.id)"
           >
             {{ interest.nameFa }}
           </button>
         </div>
+        <span
+          v-if="interestPicker.notice.value"
+          class="text-sm"
+          :class="interestPicker.limitHit.value ? 'text-tg-destructive' : 'text-tg-hint'"
+          role="status"
+        >
+          {{ interestPicker.notice.value }}
+        </span>
         <span v-if="fieldErrors['interestIds']" class="text-sm text-tg-destructive">
           {{ fieldErrors['interestIds'] }}
         </span>

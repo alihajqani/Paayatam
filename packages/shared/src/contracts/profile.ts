@@ -13,6 +13,21 @@ export const gender = z.enum(['MALE', 'FEMALE', 'PREFER_NOT_SAY']);
 export type Gender = z.infer<typeof gender>;
 
 /**
+ * How many interests one profile may carry.
+ *
+ * A named constant rather than a literal in two schemas, because the number is
+ * also a **UI rule**: the picker has to stop offering the eleventh chip, and the
+ * count above it has to say «۱۰ از ۱۰». Before v0.3.1 the number lived in three
+ * places — `min(1).max(10)` twice here and «از ۱۰» twice in the Mini App — and the
+ * picker did not enforce it at all, so a user could tick fifteen and learn about
+ * the limit from a 400 after filling in the rest of the form.
+ *
+ * Exported, and the Mini App imports it: a cap the client cannot read is a cap the
+ * client will get wrong.
+ */
+export const MAX_PROFILE_INTERESTS = 10;
+
+/**
  * `birthYear` is a **Gregorian** year, and required even though the column is
  * nullable — the column allows null so M15 can anonymise a profile without
  * deleting it, not so a user can decline to answer and skip the 18+ gate
@@ -30,7 +45,7 @@ export const completeProfileRequest = z.object({
   cityId: z.uuid(),
   districtId: z.uuid().optional(),
   bio: z.string().trim().max(300).optional(),
-  interestIds: z.array(z.uuid()).min(1).max(10),
+  interestIds: z.array(z.uuid()).min(1).max(MAX_PROFILE_INTERESTS),
 });
 export type CompleteProfileRequest = z.infer<typeof completeProfileRequest>;
 
@@ -61,7 +76,7 @@ export const updateProfileRequest = z
     cityId: z.uuid().optional(),
     districtId: z.uuid().nullable().optional(),
     bio: z.string().trim().max(300).nullable().optional(),
-    interestIds: z.array(z.uuid()).min(1).max(10).optional(),
+    interestIds: z.array(z.uuid()).min(1).max(MAX_PROFILE_INTERESTS).optional(),
     /** Whether to stop receiving paid event invitations (phase 11). */
     inviteOptOut: z.boolean().optional(),
   })
