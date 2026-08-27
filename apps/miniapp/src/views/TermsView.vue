@@ -30,6 +30,15 @@ const session = useSessionStore();
 const loading = ref(false);
 const agreed = ref(false);
 const error = ref<string | null>(null);
+/**
+ * True once `load()` has settled, however it settled.
+ *
+ * Without it, "no policy has been published" and "the documents have not arrived
+ * yet" render the same skeleton — forever, on a deployment whose legal text is
+ * still in draft. Two states that look identical and mean different things is
+ * how a screen becomes a spinner nobody can get past (report 1).
+ */
+const loaded = ref(false);
 
 /** Nothing outstanding means this is a read, not a decision. */
 const readOnly = computed(
@@ -60,6 +69,8 @@ async function load(): Promise<void> {
     await session.loadMyPolicies();
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.messageFa : 'قوانین بارگذاری نشد.';
+  } finally {
+    loaded.value = true;
   }
 }
 
@@ -110,8 +121,28 @@ onMounted(load);
     </div>
 
     <!-- Skeleton, not a spinner: the shape of this screen is known in advance. -->
-    <div v-else-if="session.policies.length === 0" class="flex flex-col gap-2" aria-hidden="true">
+    <div
+      v-else-if="!loaded && session.policies.length === 0"
+      class="flex flex-col gap-2"
+      aria-hidden="true"
+    >
       <div v-for="n in 6" :key="n" class="h-4 rounded bg-tg-secondary-bg"></div>
+    </div>
+
+    <!--
+      Loaded, and there is nothing to show.
+
+      A deployment whose legal text is still in draft has no current version, and
+      `ConsentService.hasAcceptedCurrentPolicies` returns true for that state on
+      purpose — so nothing is blocked and this screen is a read with nothing in
+      it. Saying so is the difference between a product that is fine and a screen
+      that looks broken.
+    -->
+    <div v-else-if="session.policies.length === 0" class="flex flex-col gap-3">
+      <p class="text-tg-hint">هنوز نسخه‌ای از قوانین منتشر نشده است.</p>
+      <button type="button" class="min-h-11 self-start text-tg-link" @click="router.push('/home')">
+        بازگشت به خانه
+      </button>
     </div>
 
     <section

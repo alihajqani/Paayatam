@@ -25,6 +25,39 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 let accessToken: string | null = null;
 
+/**
+ * What to do when the server says the rules have changed under the user (report 1).
+ *
+ * ── The dead end this closes ─────────────────────────────────────────────────
+ *
+ * The terms screen, the acceptance endpoint and the router redirect all existed.
+ * What did not exist was any way to *find out* mid-session: `pendingPolicies` is
+ * loaded once at sign-in, so when an admin publishes a version while somebody is
+ * using the app, the server starts refusing writes with `POLICY_VERSION_STALE`
+ * and the client goes on believing nothing is outstanding. The user reads
+ * «قوانین به‌روزرسانی شده است. لطفاً نسخهٔ جدید را مطالعه و تأیید کنید» on a
+ * screen with no way to do either, and every subsequent tap says it again.
+ *
+ * ── Why it lives in the client and not in each view ──────────────────────────
+ *
+ * Because the refusal can come back from *any* gated write — creating an event,
+ * joining one, sending a message, buying reach — and a recovery implemented per
+ * screen is a recovery that is missing from the screen nobody thought about. One
+ * hook, registered once at start-up, covers every call that exists now and every
+ * one added later.
+ *
+ * The hook is invoked and then the error is **still thrown**: the caller has to
+ * see its request fail, because it did. This changes where the user ends up, not
+ * whether the request succeeded.
+ */
+type GateHandler = (code: 'POLICY_VERSION_STALE' | 'TERMS_NOT_ACCEPTED') => void;
+
+let onGateClosed: GateHandler | null = null;
+
+export function setGateHandler(handler: GateHandler | null): void {
+  onGateClosed = handler;
+}
+
 export function setAccessToken(token: string | null): void {
   accessToken = token;
   // A reply fetched under the previous token must never be handed to a caller
@@ -117,7 +150,14 @@ async function send<T>(path: string, options: RequestOptions): Promise<T> {
   }
 
   if (!response.ok) {
-    throw await toApiError(response);
+    const error = await toApiError(response);
+    // Fired before the throw, so the recovery is already under way by the time
+    // the caller renders its failure. The throw is unconditional: the request did
+    // fail, and swallowing it here would leave a screen showing stale success.
+    if (error.code === 'POLICY_VERSION_STALE' || error.code === 'TERMS_NOT_ACCEPTED') {
+      onGateClosed?.(error.code);
+    }
+    throw error;
   }
 
   return (await response.json()) as T;

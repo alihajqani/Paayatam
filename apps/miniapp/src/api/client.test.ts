@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, request, setAccessToken } from './client';
+import { ApiError, request, setAccessToken, setGateHandler } from './client';
 
 /**
  * The Mini App's client. The properties here are the ones that fail *silently*
@@ -26,6 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setGateHandler(null);
 });
 
 describe('every request', () => {
@@ -123,5 +124,86 @@ describe('in-flight deduplication', () => {
     await first;
     await second;
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The policy gate's recovery hook (report 1).
+ *
+ * The dead end this closes: an admin publishes a version mid-session, the server
+ * starts refusing gated writes with `POLICY_VERSION_STALE`, and the client — which
+ * loaded `pendingPolicies` once at sign-in — goes on believing nothing is
+ * outstanding. The user reads "please review and accept the new version" on a
+ * screen that offers neither, and every subsequent tap says it again.
+ *
+ * What is asserted here is the contract the recovery rests on, not the navigation
+ * itself: the hook fires on exactly the two codes that mean "the gate is closed",
+ * on nothing else, and the caller still sees its request fail.
+ */
+describe('the policy gate hook', () => {
+  function refusal(code: string, status = 403): Response {
+    return new Response(JSON.stringify({ error: { code, messageFa: '…' } }), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('fires when the server says the accepted version is stale', async () => {
+    const seen: string[] = [];
+    setGateHandler((code) => seen.push(code));
+    fetchMock.mockResolvedValueOnce(refusal('POLICY_VERSION_STALE'));
+
+    await expect(request('/events', { method: 'POST', body: {} })).rejects.toBeInstanceOf(ApiError);
+
+    expect(seen).toEqual(['POLICY_VERSION_STALE']);
+  });
+
+  it('fires for a user who has never accepted anything', async () => {
+    const seen: string[] = [];
+    setGateHandler((code) => seen.push(code));
+    fetchMock.mockResolvedValueOnce(refusal('TERMS_NOT_ACCEPTED'));
+
+    await expect(request('/me')).rejects.toBeInstanceOf(ApiError);
+
+    expect(seen).toEqual(['TERMS_NOT_ACCEPTED']);
+  });
+
+  /**
+   * The hook navigates, so firing it on the wrong refusal would throw a user off
+   * whatever they were doing for an unrelated reason.
+   */
+  it('does not fire on any other refusal', async () => {
+    const seen: string[] = [];
+    setGateHandler((code) => seen.push(code));
+    fetchMock
+      .mockResolvedValueOnce(refusal('CHANNEL_MEMBERSHIP_REQUIRED'))
+      .mockResolvedValueOnce(refusal('INSUFFICIENT_COINS', 409))
+      .mockResolvedValueOnce(refusal('RATE_LIMITED', 429));
+
+    for (const path of ['/a', '/b', '/c']) {
+      await expect(request(path)).rejects.toBeInstanceOf(ApiError);
+    }
+
+    expect(seen).toEqual([]);
+  });
+
+  /**
+   * The request really did fail. Swallowing it here would leave the screen that
+   * made the call rendering a success it never got.
+   */
+  it('still throws, so the caller sees its own failure', async () => {
+    setGateHandler(() => undefined);
+    fetchMock.mockResolvedValueOnce(refusal('POLICY_VERSION_STALE'));
+
+    await expect(request('/events', { method: 'POST', body: {} })).rejects.toMatchObject({
+      code: 'POLICY_VERSION_STALE',
+      status: 403,
+    });
+  });
+
+  it('is a no-op when nothing registered a handler', async () => {
+    fetchMock.mockResolvedValueOnce(refusal('POLICY_VERSION_STALE'));
+
+    await expect(request('/events', { method: 'POST', body: {} })).rejects.toBeInstanceOf(ApiError);
   });
 });

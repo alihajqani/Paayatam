@@ -139,6 +139,28 @@ onMounted(() => {
         <span class="font-medium">سکه‌ها، اعتماد و دعوت</span>
         <span class="text-tg-hint">›</span>
       </RouterLink>
+
+      <!--
+        A permanent way to the rules (report 1).
+
+        `/terms` has been re-openable since M22 and nothing linked to it, so the
+        only route to the document was being blocked by the gate — which is the
+        half of the report that is not about the gate at all: "a page to display
+        the current policy version" has to be reachable when nothing is wrong.
+      -->
+      <RouterLink
+        to="/terms"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">قوانین و شرایط استفاده</span>
+        <span
+          v-if="session.pendingPolicies.length > 0"
+          class="rounded-full bg-tg-destructive px-2 py-0.5 text-xs text-tg-button-text"
+        >
+          نیازمند تأیید
+        </span>
+        <span v-else class="text-tg-hint">›</span>
+      </RouterLink>
     </nav>
 
     <!--
