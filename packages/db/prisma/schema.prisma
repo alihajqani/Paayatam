@@ -1929,6 +1929,7 @@ model AdminUser {
   policiesDrafted   PolicyVersion[]     @relation("PolicyCreatedBy")
   policiesPublished PolicyVersion[]     @relation("PolicyPublishedBy")
   channelConfigs    EventChannelConfig[]
+  requiredChannels  RequiredChannel[]
 
   @@index([status])
   @@map("admin_user")
@@ -2479,4 +2480,58 @@ model EventChannelConfig {
   updatedBy AdminUser? @relation(fields: [updatedByAdminId], references: [id], onDelete: SetNull)
 
   @@map("event_channel_config")
+}
+
+/// A channel a user can be required to join before the product will let them act
+/// (v0.3.1).
+///
+/// ── Why this is a table and `EventChannelConfig` is not ────────────────────
+///
+/// v0.3.0 held the channel's public face on the settings singleton, which can
+/// describe exactly one channel. The requirement is now several, **in a stated
+/// order** — the order they are joined in and the order they are listed in — so
+/// the channels are rows and the singleton keeps only what is global: whether the
+/// requirement is on, which operations it covers, whether Telegram is asked.
+///
+/// The singleton's three per-channel columns are still there and are no longer
+/// read. Migration 0024 copied whatever they held into the first row of this
+/// table; dropping them would have been a destructive statement in a feature
+/// release.
+///
+/// **No secret is stored here.** `TELEGRAM_CHANNEL_ID` and the bot token stay
+/// environment variables, for the reason `EventChannelConfig` gives: a posting
+/// destination editable from a web session is one an attacker with a session can
+/// redirect.
+model RequiredChannel {
+  id String @id @default(uuid(7))
+
+  /// What the operator calls it, and what the user reads above the join button.
+  /// Not derived from the username — «کانال اصلی» is what a reader needs.
+  title String
+
+  /// What `getChatMember` is given: `@payetam` or `-1001234567890`. Null means
+  /// this channel cannot be verified, so every user passes it — which is the
+  /// honest state for a channel the bot is not an administrator of.
+  chatIdentifier String? @map("chat_identifier")
+  /// The public @username, without the `@`. Null for a private channel.
+  publicUsername String? @map("public_username")
+  /// Where the «عضویت» button goes. Normalised to `https://t.me/…` on write and
+  /// rejected otherwise — this is rendered as an `href` for every user.
+  inviteUrl      String? @map("invite_url")
+
+  /// Order of joining and of display. Sparse (10, 20, 30…) so inserting between
+  /// two channels does not rewrite every row after it.
+  sortOrder Int     @default(0) @map("sort_order")
+  /// Deactivated rather than deleted: a channel that stops being required is
+  /// usually required again later, and the audit trail reads better for it.
+  isActive  Boolean @default(true) @map("is_active")
+
+  updatedByAdminId String?  @map("updated_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy AdminUser? @relation(fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([isActive, sortOrder])
+  @@map("required_channel")
 }
