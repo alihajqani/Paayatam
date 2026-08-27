@@ -651,22 +651,23 @@ export class Processors implements OnModuleInit {
     const paid = await this.channel.findUnpostedPaid();
 
     for (const post of [...paid, ...(await this.channel.claimPending())]) {
-      const outcome = await this.telegram.postToChannel(
-        renderChannelPost({
-          kind: post.kind,
-          title: post.title,
-          categoryName: post.categoryName,
-          cityName: post.cityName,
-          districtName: post.districtName,
-          startsAt: post.startsAt,
-          capacity: post.capacity,
-          acceptedCount: post.acceptedCount,
-          costType: post.costType,
-          costAmount: post.costAmount,
-          eventPublicId: post.eventPublicId,
-          botUsername: this.telegram.botUsername,
-        }),
-      );
+      // Text and keyboard together, from one renderer: a post whose button linked
+      // to a different event than its body is the failure two call sites invite.
+      const rendered = renderChannelPost({
+        kind: post.kind,
+        title: post.title,
+        categoryName: post.categoryName,
+        cityName: post.cityName,
+        districtName: post.districtName,
+        startsAt: post.startsAt,
+        capacity: post.capacity,
+        acceptedCount: post.acceptedCount,
+        costType: post.costType,
+        costAmount: post.costAmount,
+        eventPublicId: post.eventPublicId,
+        botUsername: this.telegram.botUsername,
+      });
+      const outcome = await this.telegram.postToChannel(rendered.text, rendered.keyboard);
 
       if (outcome.kind === 'SENT') {
         await this.channel.markPosted(post.postId, outcome.messageId);

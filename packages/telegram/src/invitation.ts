@@ -1,3 +1,4 @@
+import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { escapeHtml, toPersianDigits } from './escape';
 
 /**
@@ -37,6 +38,11 @@ export function renderEventInvitation(content: EventInvitationContent): string {
 
   return [
     '✉️ یک دعوت‌نامه برای شما',
+    '',
+    // Above the event (report 8). This message is an *advertisement* somebody paid
+    // to put in a stranger's inbox, which makes it the place the disclaimer is
+    // least optional and the place it must not sit under the fold.
+    `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
     '',
     `<b>${escapeHtml(content.title)}</b>`,
     '',

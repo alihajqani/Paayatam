@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import type { ParticipationView } from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import ChannelGate from '@/components/ChannelGate.vue';
+import EventDisclaimer from '@/components/EventDisclaimer.vue';
 import MainButton from '@/components/MainButton.vue';
 import ReportDialog from '@/components/ReportDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
@@ -129,6 +130,13 @@ onMounted(load);
 
     <StateBlock :state="state" :error-text="loadError" :rows="4" @retry="load">
       <template v-if="event">
+        <!--
+          Above the event, which is where report 8 asks for it and where it is
+          actually read: this is the screen somebody decides on, so the full
+          sentence rather than the one-line form.
+        -->
+        <EventDisclaimer />
+
         <h1 class="text-xl font-bold leading-snug">{{ event.title }}</h1>
 
         <section class="flex flex-col gap-2 rounded-2xl bg-tg-secondary-bg p-4 text-sm">

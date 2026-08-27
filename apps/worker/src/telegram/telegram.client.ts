@@ -86,7 +86,7 @@ export class TelegramClient {
    * retry will not fix but which must be loud rather than silently marking
    * somebody undeliverable.
    */
-  async postToChannel(text: string): Promise<SendOutcome> {
+  async postToChannel(text: string, keyboard?: InlineKeyboard): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
     if (this.channelId === undefined || this.channelId === '') {
       return { kind: 'RETRY', reason: 'TELEGRAM_CHANNEL_ID is not configured' };
@@ -96,6 +96,11 @@ export class TelegramClient {
       const message = await this.bot.api.sendMessage(this.channelId, text, {
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
+        // The button that makes the channel interactive (report 7). Optional in
+        // the signature rather than required, so a caller with nothing to link to
+        // — there is none today — posts a plain message instead of an empty
+        // keyboard, which Telegram renders as a stray blank row.
+        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
       });
       return { kind: 'SENT', messageId: message.message_id };
     } catch (error) {

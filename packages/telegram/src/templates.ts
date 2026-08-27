@@ -1,3 +1,4 @@
+import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { isPublicId } from './callback-data';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
@@ -161,11 +162,20 @@ export function render(
         botUsername,
       );
 
+    /**
+     * The one notification where the disclaimer belongs (report 8).
+     *
+     * Not on every message about an event — a liability line under a chat relay
+     * is noise, and noise is how a disclaimer stops being read. This is the
+     * moment a real-world meeting with a stranger becomes real, which is the
+     * moment «احتیاط کنید» is actually advice rather than boilerplate.
+     */
     case TEMPLATES.PARTICIPATION_ACCEPTED:
       return opened(
         `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
-          `از این پس می‌توانید اطلاعات تماس را در گفتگو رد و بدل کنید.`,
+          `از این پس می‌توانید اطلاعات تماس را در گفتگو رد و بدل کنید.\n\n` +
+          `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
         `chats/${str(payload, 'chatPublicId')}`,
         botUsername,
       );
