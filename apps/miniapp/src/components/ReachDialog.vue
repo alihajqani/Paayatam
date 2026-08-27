@@ -9,14 +9,24 @@ import { useEventsStore } from '@/stores/events';
 import { useSessionStore } from '@/stores/session';
 
 /**
- * The two paid ways to reach people (M22 phases 5 and 11).
+ * Publishing an event: the only two ways, and both of them (report 5).
  *
- * A separate dialog from `PromotionDialog` rather than two more tabs inside it,
- * because the two screens answer different questions. That one sells *ranking* —
- * a window near the top of discovery, or a permanent badge — and the whole of it
- * is a price comparison. This one sells *reach*, and the invitation half needs a
- * step the other has no equivalent of: a preview that says how many people would
- * actually receive it before anybody is charged.
+ * ── Why this is now the whole of it ──────────────────────────────────────────
+ *
+ * There used to be a second dialog selling «برجسته‌سازی» and «ویژه (دائمی)» —
+ * a window near the top of discovery, and a permanent badge — both described as
+ * placements in a «کانال ویژه». This deployment has **one** channel, so that
+ * screen offered a paid choice between two things that were the same thing, in a
+ * place that does not exist. It is gone from the product; the endpoints behind it
+ * are untouched, so an event that already carries a badge keeps it.
+ *
+ * What is left is what the host actually decides between: fifteen coins to put
+ * the event in the channel, or ten to send it to the twenty people most likely to
+ * come. Two options, two prices, one screen.
+ *
+ * The invitation half needs a step the channel half has no equivalent of: a
+ * preview that says how many people would actually receive it before anybody is
+ * charged.
  *
  * ── Nothing here can charge by accident ──────────────────────────────────────
  *
@@ -143,7 +153,7 @@ onMounted(load);
 
     <template v-else>
       <div>
-        <h3 class="font-medium">رساندن رویداد به آدم‌های بیشتر</h3>
+        <h3 class="font-medium">انتشار رویداد</h3>
         <p class="text-sm text-tg-hint">
           دو راه، با دو هزینهٔ متفاوت. هیچ‌کدام تا وقتی تأیید نکنید انجام نمی‌شود.
         </p>
@@ -188,9 +198,9 @@ onMounted(load);
               <span class="text-sm">{{ formatCoins(pricing.eventTopInviteCoins) }}</span>
             </span>
             <span class="text-xs opacity-90">
-              دعوت‌نامه برای کسانی فرستاده می‌شود که بیشترین احتمال شرکت را دارند — بر پایهٔ شهر،
-              علاقه‌مندی‌ها و سابقهٔ شرکت در فعالیت‌های مشابه. کسانی که دریافت دعوت‌نامه را خاموش
-              کرده‌اند هرگز دعوت نمی‌شوند.
+              دعوت‌نامه فقط برای کسانی فرستاده می‌شود که <b>در همان شهر رویداد</b> هستند و بیشترین
+              احتمال شرکت را دارند — بر پایهٔ علاقه‌مندی‌ها و سابقهٔ شرکت در فعالیت‌های مشابه. کسانی
+              که دریافت دعوت‌نامه را خاموش کرده‌اند هرگز دعوت نمی‌شوند.
             </span>
           </button>
         </div>
@@ -217,6 +227,11 @@ onMounted(load);
                 </span>
               </p>
               <ul class="mt-1 space-y-0.5 text-xs text-tg-hint">
+                <!--
+                  Everybody selected is in the event's city from v0.3.1, so this
+                  count equals `selected`. It stays because the breakdown is what
+                  makes the other three lines legible as a *subset* of it.
+                -->
                 <li>{{ toPersianDigits(preview.reasons.sameCity) }} نفر در همین شهر</li>
                 <li>{{ toPersianDigits(preview.reasons.interestMatch) }} نفر با علاقهٔ مرتبط</li>
                 <li>

@@ -143,9 +143,49 @@ describe('the preview', () => {
 
     const preview = await invitations.preview(hostId, eventPublicId);
 
+    // One selected, and the Karaj profile is not it (report 5). Everybody who
+    // *can* be selected is in the event's city, so `sameCity` equals `selected`.
+    expect(preview.selected).toBe(1);
     expect(preview.reasons.sameCity).toBe(1);
     expect(preview.reasons.interestMatch).toBe(1);
     expect(JSON.stringify(preview)).not.toContain(hostId);
+  });
+
+  /**
+   * Report 5: an invitation is a message telling somebody to be at a specific
+   * place on a specific evening. Sending it to a person in another city is spam
+   * however well they match the category, so the city is a filter now rather than
+   * a term in the score.
+   */
+  describe('the city is a filter, not a preference', () => {
+    it('never invites somebody in another city, whatever else matches', async () => {
+      // A perfect match on every other axis, in the wrong city.
+      await profiledUser({ cityId: fixture.karajId, interestIds: [fixture.boardGamesId] });
+
+      const preview = await invitations.preview(hostId, eventPublicId);
+
+      expect(preview.selected).toBe(0);
+      expect(preview.blockedReason).toBe('NO_CANDIDATES');
+    });
+
+    it('invites somebody in the event’s city with no matching interest at all', async () => {
+      await profiledUser({ cityId: fixture.tehranId, interestIds: [] });
+
+      const preview = await invitations.preview(hostId, eventPublicId);
+
+      expect(preview.selected).toBe(1);
+    });
+
+    /** Nobody eligible costs nothing — the outcome the preview promised. */
+    it('charges nothing when the event’s city is empty', async () => {
+      await profiledUser({ cityId: fixture.karajId, interestIds: [fixture.boardGamesId] });
+
+      const result = await invitations.inviteTop(hostId, eventPublicId, 'city-filter-key');
+
+      expect(result.invited).toBe(0);
+      expect(result.charged).toBe(0);
+      await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_COINS);
+    });
   });
 
   it('says so when nobody qualifies', async () => {

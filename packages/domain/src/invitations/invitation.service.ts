@@ -445,10 +445,25 @@ export class InvitationService {
    *    block burns the rate budget every other message needs (ADR-0005).
    *  - **Anybody not `ACTIVE`.** A suspended account is not somebody to recruit.
    *
-   * The pool itself is "in this city **or** interested in this category", because
-   * a score with a city term needs candidates who fail it to have any ordering
-   * power — and because scoring the entire user base for every preview is not a
-   * query anybody should be waiting on.
+   * ── The pool is one city, and only one city (report 5) ────────────────────
+   *
+   * It used to be "in this city **or** interested in this category", so that the
+   * score's city term had candidates who failed it and therefore some ordering
+   * power. That is a defensible ranking argument and the wrong product: an
+   * invitation is a message telling somebody to come to a specific place on a
+   * specific evening, and sending it to a person four hundred kilometres away is
+   * spam however well they match the category.
+   *
+   * So the city is now a **filter** rather than a term. The consequence is stated
+   * rather than hidden: the `sameCity` bonus in `score.ts` fires for every
+   * candidate and so contributes nothing to the ordering — it is kept because the
+   * preview reports the reasons in aggregate, and a breakdown that stopped
+   * counting the city would read as though nobody was in it. The ranking is
+   * carried by the other terms, which is what was doing the work in practice.
+   *
+   * A host in a city with nobody in it gets zero recipients, is told so by the
+   * preview, and is charged nothing. That is the honest outcome and it is better
+   * than twenty invitations that cannot be accepted.
    */
   private async candidatePool(
     event: InvitableEvent,
@@ -469,13 +484,10 @@ export class InvitationService {
         deletedAt: null,
         onboardingState: 'PROFILE_COMPLETE',
         telegramAccount: { is: { botBlocked: false } },
-        profile: { is: { inviteOptOut: false } },
         invitationsReceived: { none: { eventId: event.id } },
         participations: { none: { eventId: event.id } },
-        OR: [
-          { profile: { is: { cityId: event.cityId } } },
-          { interests: { some: { interest: { categoryId: event.categoryId } } } },
-        ],
+        // The event's own city, and nothing wider. See the note above.
+        profile: { is: { inviteOptOut: false, cityId: event.cityId } },
       },
       orderBy: { id: 'desc' },
       take: CANDIDATE_POOL,

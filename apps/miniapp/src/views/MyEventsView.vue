@@ -7,16 +7,10 @@ import type {
   ParticipantStatus,
 } from '@payetam/shared';
 import { ApiError } from '@/api/client';
-import PromotionDialog from '@/components/PromotionDialog.vue';
 import ReachDialog from '@/components/ReachDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import TrustBadge from '@/components/TrustBadge.vue';
-import {
-  formatEventDate,
-  formatEventTime,
-  formatEventWhen,
-  formatRelative,
-} from '@/format/datetime';
+import { formatEventWhen, formatRelative } from '@/format/datetime';
 import { formatCoins, toPersianDigits } from '@/format/fa';
 import { haptic } from '@/telegram/webapp';
 import { useEventsStore } from '@/stores/events';
@@ -44,14 +38,15 @@ const actionError = ref<string | null>(null);
 const expanded = ref<string | null>(null);
 const deciding = ref<string | null>(null);
 
-/** Which event has the promotion dialog open. */
-const promoting = ref<string | null>(null);
 /**
- * The other paid dialog (M22 phases 5 and 11).
+ * Which event has the publish dialog open.
  *
- * Its own state rather than a mode on `promoting`, so opening one closes the
- * other: two purchase dialogs side by side on a phone is two «تأیید و پرداخت»
- * buttons within a thumb's width of each other.
+ * One dialog now, not two (report 5). `PromotionDialog` — the VIP-and-boost
+ * screen — is no longer reachable from anywhere: this deployment has one channel,
+ * so «کانال ویژه», «برجسته‌سازی» and «ویژه (دائمی)» described placements that do
+ * not exist, and a paid choice between two things that are the same thing is a
+ * screen that can only mislead. The endpoints behind it are untouched, so an
+ * event that already carries a badge keeps it and the ledger still explains it.
  */
 const reaching = ref<string | null>(null);
 const cancelling = ref<string | null>(null);
@@ -70,7 +65,7 @@ const createdPublicId = computed(() => String(route.query['created'] ?? ''));
  */
 const offerDismissed = ref(false);
 const showCreationOffer = computed(
-  () => createdPublicId.value !== '' && !offerDismissed.value && promoting.value === null,
+  () => createdPublicId.value !== '' && !offerDismissed.value && reaching.value === null,
 );
 
 const state = computed(() => {
@@ -157,7 +152,7 @@ async function decide(
  * `channelStatus` in particular is derived server-side from the `channel_post` rows,
  * so the only way to learn that the sweep has published is to ask again.
  */
-async function onPromoted(): Promise<void> {
+async function onPublished(): Promise<void> {
   await events.loadMyEvents().catch(() => undefined);
 }
 
@@ -229,14 +224,14 @@ onMounted(load);
       >
         <h2 class="font-medium">رویداد شما ساخته شد 🎉</h2>
         <p class="text-sm text-tg-hint">
-          می‌خواهید آن را در کانال ویژهٔ پایه‌تَم هم معرفی کنید تا افراد بیشتری ببینندش؟ این کار
-          اختیاری است.
+          می‌خواهید آن را در کانال پایه‌تَم منتشر کنید یا برای کسانی که بیشترین احتمال شرکت را دارند
+          بفرستید؟ این کار اختیاری است.
         </p>
         <div class="flex gap-2">
           <button
             type="button"
             class="min-h-11 flex-1 rounded-xl bg-tg-button text-sm text-tg-button-text"
-            @click="promoting = createdPublicId"
+            @click="reaching = createdPublicId"
           >
             دیدن گزینه‌ها
           </button>
@@ -300,23 +295,9 @@ onMounted(load);
               v-if="event.status === 'PUBLISHED'"
               type="button"
               class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm"
-              @click="
-                reaching = null;
-                promoting = promoting === event.publicId ? null : event.publicId;
-              "
+              @click="reaching = reaching === event.publicId ? null : event.publicId"
             >
-              معرفی در کانال ویژه
-            </button>
-            <button
-              v-if="event.status === 'PUBLISHED'"
-              type="button"
-              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm"
-              @click="
-                promoting = null;
-                reaching = reaching === event.publicId ? null : event.publicId;
-              "
-            >
-              رساندن به آدم‌های بیشتر
+              انتشار رویداد
             </button>
             <button
               v-if="event.status === 'PUBLISHED' || event.status === 'PENDING_MODERATION'"
@@ -385,40 +366,30 @@ onMounted(load);
           </div>
 
           <!--
-            What was bought, and where it has got to. Three states rather than a
-            claim of success: the channel post is produced by a sweep, so saying
-            "published" at purchase time would be a promise the product cannot keep.
+            Where the publication has got to. Two states rather than a claim of
+            success: the channel post is produced by a sweep, so saying "published"
+            at purchase time would be a promise the product cannot keep.
+
+            The VIP and boost lines are gone with the dialog that sold them
+            (report 5). An event that already carries either still has the flag in
+            the database and still ranks on it — nothing was migrated away — it is
+            simply no longer described to a host as a thing they can buy.
           -->
-          <div v-if="event.isVip || event.boostedUntil" class="flex flex-col gap-1 text-sm">
-            <p v-if="event.isVip" class="text-tg-hint"><b>ویژه</b> — این وضعیت دائمی است.</p>
-            <p v-if="event.boostedUntil" class="text-tg-hint">
-              برجسته تا {{ formatEventDate(event.boostedUntil) }}،
-              {{ formatEventTime(event.boostedUntil) }}
-              ({{ formatRelative(event.boostedUntil) }})
-            </p>
+          <div v-if="event.channelStatus !== 'NONE'" class="flex flex-col gap-1 text-sm">
             <p v-if="event.channelStatus === 'QUEUED'" class="text-tg-hint">
-              در نوبت انتشار در کانال ویژه — معمولاً چند دقیقه طول می‌کشد.
+              در نوبت انتشار در کانال — معمولاً چند دقیقه طول می‌کشد.
             </p>
             <p v-else-if="event.channelStatus === 'PUBLISHED'" class="text-tg-accent">
-              در کانال ویژه منتشر شد.
+              در کانال پایه‌تَم منتشر شد.
             </p>
           </div>
 
-          <!-- Buying a channel placement: prices, balance and the difference between
-               a window and a standing, all before anything is charged. -->
-          <PromotionDialog
-            v-if="promoting === event.publicId"
-            :event="event"
-            @done="onPromoted"
-            @dismiss="promoting = null"
-          />
-
-          <!-- Buying reach: a channel post, or invitations to the people most
-               likely to come. Both priced and previewed before anything moves. -->
+          <!-- Publishing: to the channel, or to the twenty most likely to come.
+               Both priced and previewed before anything moves (report 5). -->
           <ReachDialog
             v-if="reaching === event.publicId"
             :event="event"
-            @done="onPromoted"
+            @done="onPublished"
             @dismiss="reaching = null"
           />
 
