@@ -145,7 +145,11 @@ export const ErrorCode = {
    * button rather than a sentence about a channel it cannot name.
    */
   CHANNEL_MEMBERSHIP_REQUIRED: 'CHANNEL_MEMBERSHIP_REQUIRED',
-  /** Turning the requirement on with nowhere to send people is refused. */
+  /**
+   * A membership requirement with nothing behind it, refused from either end:
+   * turning it on with no reachable channel, or removing the last one while it
+   * is on. `details.reason` distinguishes them.
+   */
   CHANNEL_NOT_CONFIGURED: 'CHANNEL_NOT_CONFIGURED',
 
   // Catalog administration (M21)
@@ -261,10 +265,18 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   POLICY_CONFIRMATION_MISMATCH: 'شمارهٔ نسخه‌ای که وارد کردید با پیش‌نویس هم‌خوانی ندارد.',
   POLICY_IS_CURRENT: 'نسخهٔ جاری را نمی‌توان بایگانی کرد. ابتدا نسخهٔ تازه‌ای منتشر کنید.',
 
+  // Plural since v0.3.1: the requirement is a list, and «کانال پایه‌تَم» would be
+  // an instruction somebody cannot follow when they have joined one of three.
+  // Which ones are outstanding is in `details.channels`; this is the fallback the
+  // client renders when it has nothing better.
   CHANNEL_MEMBERSHIP_REQUIRED:
-    'برای انجام این کار، ابتدا در کانال پایه‌تَم عضو شوید و سپس دوباره تلاش کنید.',
+    'برای انجام این کار، ابتدا در کانال‌های پایه‌تَم عضو شوید و سپس دوباره تلاش کنید.',
+  // Two situations, one sentence, because both are the same mistake seen from
+  // different ends: a requirement with nothing behind it. `details.reason` says
+  // which — `NO_JOIN_LINK` or `LAST_ACTIVE_CHANNEL` — and the panel renders it.
   CHANNEL_NOT_CONFIGURED:
-    'پیوند عضویت کانال تنظیم نشده است. تا وقتی پیوندی وجود ندارد، اجباری کردن عضویت ممکن نیست.',
+    'برای اجباری کردن عضویت، دست‌کم یک کانال فعال با پیوند عضویت لازم است. ' +
+    'تا وقتی چنین کانالی وجود ندارد، این تنظیم ممکن نیست.',
 
   MESSAGE_FORMAT_INVALID: 'متن پیام برای تلگرام معتبر نیست. طول و قالب‌بندی را بررسی کنید.',
   MESSAGE_DRY_RUN:

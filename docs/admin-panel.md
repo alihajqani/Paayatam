@@ -134,7 +134,7 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | تنظیمات | `settings.manage` | Every policy number in `app_setting` |
 | تفریحات | `catalog.manage` | Activity tags and the places they belong to (M21) |
 | پیام‌ها | `message.send` | Telegram messages and broadcasts — see §9. A broadcast additionally needs `message.broadcast` |
-| کانال رویدادها | `channel.manage` | The events channel: where it is, its invite link, and whether membership is required — see §11 |
+| کانال‌های اجباری | `channel.manage` | The channels users must join, in order, and whether the requirement is on — see §11 |
 | شهرها و استان‌ها | `catalog.manage` | Provinces and cities: create, rename, reorder, activate — see §10 |
 | اسناد حقوقی | `policy.read` | Terms, privacy and rules. Editing a draft needs `policy.manage`, publishing needs `policy.publish`, and the acceptance log needs `policy.consent.read` — see §12 |
 
@@ -414,28 +414,76 @@ types.
 
 ---
 
-## 11. The events channel — «کانال رویدادها» (M22)
+## 11. Required channels — «کانال‌های اجباری» (M22, several channels in v0.3.1)
 
 Two independent things on one screen.
 
-**Where the channel is.** The chat identifier, the public username and the invite
-link. The link is validated and *rebuilt* on save: only `https://t.me/…` and
+**Which channels there are.** A list, in an order you set. Each row carries a
+title (what the *user* reads above the join button — «کانال اصلی پایه‌تم», not
+`@payetam_main`), a chat identifier, an optional public username and an invite
+link. «↑» and «↓» change the order, which is the order users are shown them in
+and asked to join them in.
+
+The link is validated and *rebuilt* on save: only `https://t.me/…` and
 `https://telegram.me/…` are accepted, and what gets stored is the scheme, the host
 and the path — any query string, fragment or embedded credentials are dropped
-rather than echoed back.
+rather than echoed back. That is a security control, not tidiness: this value
+becomes an `href` in a button every user sees.
 
 **Whether membership is required.** Off by default, and it stays off until
-somebody deliberately turns it on. When on, you choose which actions it gates
-(`EVENT_CREATE`, `EVENT_JOIN`, `EVENT_INVITE`); an empty list means the
-requirement is inert.
+somebody deliberately turns it on. When on, a user must be a member of **every
+active channel** — joining one of three is not enough — and you choose which
+actions the requirement gates. An empty list means the requirement is inert.
+
+### The five gated actions
+
+| Action | Enforced by |
+| --- | --- |
+| `APP_ACCESS` | The Mini App's router. The whole app is replaced by the join screen. |
+| `EVENT_CREATE` | `EventService.create` |
+| `EVENT_JOIN` | `ParticipationService.join` |
+| `EVENT_CHANNEL_SEND` | `EventService.publishToChannel` |
+| `EVENT_INVITE` | `InvitationService.inviteTop` |
+
+`APP_ACCESS` is the odd one and the panel says so under the checkbox. The other
+four name a server-enforced operation and no client can talk its way past them.
+`APP_ACCESS` has no single operation behind it — it means "do not let this person
+browse the Mini App at all", which is a navigation rule. It is deliberately *not*
+in `AuthGuard`: a gate over every authenticated route would also refuse `/me`,
+`/me/policies` and the membership check, which are the three calls the screen
+that clears the gate is built from, so switching it on would lock the product
+shut with no way back.
 
 ### The gate fails open, on purpose
 
 A user is refused only on an **authoritative** `NOT_MEMBER` from Telegram.
 Telegram being slow, rate-limiting us, returning an error, or the bot not being an
-admin of the channel all resolve to "let them through". A membership requirement
+admin of a channel all resolve to "let them through". A membership requirement
 that locks the product when Telegram has a bad afternoon is a worse outcome than
 one that occasionally lets a non-member create an event.
+
+With several channels this matters more, not less: the outcomes are combined by
+"does any channel *authoritatively* refuse", never by "did every channel say
+yes" — so one misconfigured channel in a list of four degrades that channel's
+check rather than emptying the product.
+
+### Two things the panel refuses outright
+
+- **Requiring membership with no channel to send anybody to.** The one warning
+  that is also an error, because it locks users out of a product with no way
+  forward on the screen.
+- **Removing the last active channel while the requirement is on.** That leaves a
+  gate with nothing behind it: the user is told to join something and shown no
+  button. Turn the requirement off first — the switch is one click away, and it
+  is the operator saying what they mean.
+
+### What is not here
+
+`TELEGRAM_CHANNEL_ID` and `TELEGRAM_BOT_TOKEN`. Both are environment variables:
+the bot's *posting* destination editable from a web session is a destination an
+attacker with a session can redirect, and a token in a form is a token in a
+browser's memory. This screen holds only what is public either way — usernames,
+invite links, titles.
 
 Every change to this screen is audited with the before and after.
 

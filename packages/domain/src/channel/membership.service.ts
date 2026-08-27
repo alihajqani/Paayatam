@@ -160,16 +160,21 @@ export class ChannelMembershipService {
       return {
         required: config.membershipRequired,
         requiredActions: config.requiredActions,
-        // The list is still returned when the gate does not apply: the Mini App
-        // renders "channels you can join" on a screen that is not blocking, and a
-        // client that had to ask a second endpoint for that would ask it always.
-        channels: channels.map((channel) => ({
-          id: channel.id,
-          title: channel.title,
-          joinUrl: channel.joinUrl,
-          status: 'MEMBER' as const,
-          allowed: true,
-        })),
+        /**
+         * **Empty, not "everybody is a member".**
+         *
+         * The obvious shortcut here is to return the configured channels with
+         * `status: 'MEMBER'`, and it is a lie: nothing was asked, so the honest
+         * answer about each channel is "not checked" — and there is no such
+         * member of `MembershipProbeResult`, deliberately, because every value in
+         * that union is something Telegram actually said. Reporting an
+         * unverified `MEMBER` would put a claim into a response that a later
+         * screen could render as «عضو هستید» for somebody who is not.
+         *
+         * A gate that does not apply has nothing to say about channels, so it
+         * says nothing.
+         */
+        channels: [],
         joinUrl: null,
         status: 'NOT_REQUIRED',
         allowed: true,

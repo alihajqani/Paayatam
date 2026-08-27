@@ -120,6 +120,29 @@ fi
 code="$(status_of "$APP_HOST" /some/client/route)"
 [[ "$code" == '200' ]] && pass "history-mode routing falls back to index.html" || bad "an unknown path → ${code} (expected 200)"
 
+# ── The legal documents (v0.3.1, report 1) ───────────────────────────────────
+#
+# `/api/v1/policies/current` is the one authenticated-product endpoint that is
+# deliberately `@Public()`: the terms have to be readable before anybody has a
+# reason to sign in. It is checked here because it is the endpoint the *whole of
+# report 1* rests on — a user refused with POLICY_VERSION_STALE is sent to a
+# screen that renders whatever this returns, so a 500 or a proxy rule that never
+# reached it turns the gate into the dead end this release exists to close.
+#
+# It is **not** asserted to be non-empty. A deployment whose legal text is still
+# in draft correctly returns `{"policies":[]}`, nothing is gated in that state,
+# and failing the deploy over it would be this check inventing a requirement.
+# What the count is, is *reported*, because "how many current policies does
+# production have?" is the question the deploy runbook asks first.
+body="$(fetch "$APP_HOST" /api/v1/policies/current 2> /dev/null || echo '')"
+if grep -q '"policies"' <<< "$body"; then
+    count="$(grep -o '"type"' <<< "$body" | wc -l | tr -d ' ')"
+    pass "/api/v1/policies/current answers — ${count} current document(s)"
+    [[ "$count" == '0' ]] && log "  note: no published policy. Nothing is gated; the terms screen says so."
+else
+    bad "/api/v1/policies/current returned ${body:-nothing} — the terms screen has nothing to render"
+fi
+
 # ── The closed endpoints ─────────────────────────────────────────────────────
 #
 # The single most valuable check here. `/metrics` publishes traffic volumes and

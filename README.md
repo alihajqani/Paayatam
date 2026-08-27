@@ -39,9 +39,15 @@ they can act again. Acceptance is append-only by database trigger.
 **Provinces and cities are managed from the panel** — created, renamed, reordered
 and deactivated, never deleted, because profiles and events point at them.
 
-**Channel membership can be required**, configurably and per action, and it fails
-open on every outcome except an authoritative refusal from Telegram — so an
-outage degrades the gate rather than the product. It is **off by default.**
+**Membership in several channels can be required**, configurably and per action,
+in an order the operator sets. A user must be in *every* active channel — joining
+one of three is not enough — and the gate fails open on every outcome except an
+authoritative refusal from Telegram, so an outage or one misconfigured channel
+degrades the gate rather than the product. It is **off by default.** The widest
+action, `APP_ACCESS`, replaces the whole Mini App with the join screen; it is
+enforced by the router rather than by `AuthGuard`, because a gate over every
+authenticated route would refuse the very calls the screen that clears it is
+built from.
 
 The worker now **goes looking for failures** rather than only reacting to them:
 a nightly ledger-drift sweep and an outbox-staleness check alert a separate
