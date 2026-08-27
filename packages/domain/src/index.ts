@@ -336,6 +336,7 @@ export {
   GATED_ACTIONS,
   normalizeChatIdentifier,
   normalizeInviteUrl,
+  normalizeTitle,
   normalizeUsername,
 } from './channel/channel-config.service';
 export type {
@@ -343,9 +344,11 @@ export type {
   ChannelConfigStatus,
   ChannelConfigWarning,
   GatedAction,
+  RequiredChannelRecord,
 } from './channel/channel-config.service';
 export { ChannelMembershipService, MEMBERSHIP_PROBE } from './channel/membership.service';
 export type {
+  ChannelMembershipState,
   MembershipProbe,
   MembershipProbeResult,
   MembershipState,

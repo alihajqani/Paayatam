@@ -1,7 +1,11 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import { AppError, ErrorCode } from '@payetam/shared';
-import { ChannelConfigService, type GatedAction } from './channel-config.service';
+import {
+  ChannelConfigService,
+  type GatedAction,
+  type RequiredChannelRecord,
+} from './channel-config.service';
 
 /**
  * What asking Telegram produced.
@@ -45,13 +49,45 @@ export interface MembershipProbe {
   invalidate?(chatIdentifier: string, telegramUserId: bigint): Promise<void>;
 }
 
+/** One channel, and where this user stands with it. */
+export interface ChannelMembershipState {
+  id: string;
+  title: string;
+  joinUrl: string | null;
+  status: MembershipProbeResult['kind'];
+  /** True when this particular channel is not standing in the user's way. */
+  allowed: boolean;
+}
+
 /** What the Mini App renders, and what the gate decided. */
 export interface MembershipState {
   required: boolean;
   /** Which operations are gated right now. Empty when nothing is. */
   requiredActions: GatedAction[];
-  /** Where to send somebody who has to join. Null when nothing is configured. */
+  /**
+   * Every required channel, **in join order**, with this user's standing in each.
+   *
+   * The order is the operator's — `required_channel.sort_order` — because the
+   * requirement states that the order of joining and of display matters. The
+   * client renders the list as given and must not sort it.
+   */
+  channels: ChannelMembershipState[];
+  /**
+   * Where to send somebody who has to join.
+   *
+   * The **first channel they have not joined**, so a one-button client still
+   * takes them somewhere useful, and so the `CHANNEL_MEMBERSHIP_REQUIRED` error
+   * detail keeps the shape it had when there was only one channel. Null when
+   * nothing is outstanding or nothing is configured.
+   */
   joinUrl: string | null;
+  /**
+   * The worst thing that happened, across every channel.
+   *
+   * `NOT_MEMBER` if any channel authoritatively refused; otherwise the first
+   * non-`MEMBER` outcome, so a degraded check is still visible to the screen;
+   * otherwise `MEMBER`. `NOT_REQUIRED` when the gate does not apply at all.
+   */
   status: MembershipProbeResult['kind'] | 'NOT_REQUIRED';
   /** True when the product will currently let this user through. */
   allowed: boolean;
@@ -60,7 +96,15 @@ export interface MembershipState {
 }
 
 /**
- * Requiring users to join the channel before they can do things (M22 phase 6).
+ * Requiring users to join the channels before they can do things.
+ *
+ * ── Every channel, and all of them ───────────────────────────────────────────
+ *
+ * v0.3.1: the requirement is a **list**. A user passes when no active channel
+ * refuses them, which is not the same as "passes the first one" — the whole point
+ * of several mandatory channels is that joining one is not enough. The check runs
+ * over the list in order and reports each channel separately, because the screen
+ * has to show which ones are still outstanding rather than a single red banner.
  *
  * ── Fail open, and say why ───────────────────────────────────────────────────
  *
@@ -75,11 +119,17 @@ export interface MembershipState {
  * somebody removed the bot from a channel", and nobody is watching at 3 a.m.
  * A misconfiguration is loud in the admin panel's status block instead.
  *
+ * With several channels this matters more, not less: one misconfigured channel in
+ * a list of four must not refuse everybody, so the outcomes are combined by
+ * "does any channel *authoritatively* refuse", never by "did every channel say
+ * yes".
+ *
  * ── Why the check is short-cached ────────────────────────────────────────────
  *
  * A user who joins and presses «بررسی دوباره» must see the change immediately, so
  * the cache is deliberately brief and the explicit re-check bypasses it. It exists
- * only so that opening five screens does not become five Telegram calls.
+ * only so that opening five screens does not become five Telegram calls — and
+ * with a list of channels it is what keeps one screen from becoming four.
  */
 @Injectable()
 export class ChannelMembershipService {
@@ -97,13 +147,11 @@ export class ChannelMembershipService {
    * screen and the refusal cannot disagree.
    */
   async stateFor(userId: string, action?: GatedAction): Promise<MembershipState> {
-    const config = await this.config.get();
-    const joinUrl =
-      config.inviteUrl ??
-      (config.publicUsername === null ? null : `https://t.me/${config.publicUsername}`);
+    const [config, channels] = await Promise.all([this.config.get(), this.config.activeChannels()]);
 
     const gated =
       config.membershipRequired &&
+      channels.length > 0 &&
       (action === undefined
         ? config.requiredActions.length > 0
         : config.requiredActions.includes(action));
@@ -112,46 +160,74 @@ export class ChannelMembershipService {
       return {
         required: config.membershipRequired,
         requiredActions: config.requiredActions,
-        joinUrl,
+        // The list is still returned when the gate does not apply: the Mini App
+        // renders "channels you can join" on a screen that is not blocking, and a
+        // client that had to ask a second endpoint for that would ask it always.
+        channels: channels.map((channel) => ({
+          id: channel.id,
+          title: channel.title,
+          joinUrl: channel.joinUrl,
+          status: 'MEMBER' as const,
+          allowed: true,
+        })),
+        joinUrl: null,
         status: 'NOT_REQUIRED',
         allowed: true,
         reason: null,
       };
     }
 
-    const result = await this.probeFor(userId, config.chatIdentifier, config.verifyViaTelegram);
+    const telegramUserId = config.verifyViaTelegram ? await this.telegramIdOf(userId) : null;
+
+    const results: ChannelMembershipState[] = [];
+    for (const channel of channels) {
+      const result = await this.probeFor(channel, telegramUserId, config.verifyViaTelegram);
+      results.push({
+        id: channel.id,
+        title: channel.title,
+        joinUrl: channel.joinUrl,
+        status: result.kind,
+        // Everything except an authoritative refusal lets the user through.
+        allowed: result.kind !== 'NOT_MEMBER',
+      });
+    }
+
+    const outstanding = results.filter((channel) => !channel.allowed);
+    const degraded = results.find((channel) => channel.status !== 'MEMBER');
 
     return {
       required: true,
       requiredActions: config.requiredActions,
-      joinUrl,
-      status: result.kind,
-      // Everything except an authoritative refusal lets the user through.
-      allowed: result.kind !== 'NOT_MEMBER',
-      reason: result.kind === 'MEMBER' ? null : result.kind,
+      channels: results,
+      joinUrl: outstanding[0]?.joinUrl ?? null,
+      status: outstanding.length > 0 ? 'NOT_MEMBER' : (degraded?.status ?? 'MEMBER'),
+      allowed: outstanding.length === 0,
+      reason: outstanding.length > 0 ? 'NOT_MEMBER' : (degraded?.status ?? null),
     };
   }
 
   /**
-   * Ask again, now — the «بررسی دوباره» button (M22 phase 6).
+   * Ask again, now — the «بررسی دوباره» button.
    *
-   * Drops the probe's cached answer first, which is the whole point: a user who
-   * has just joined must not be told for another two minutes that they have not.
+   * Drops the probe's cached answer **for every channel** first, which is the
+   * whole point: a user who has just joined three channels must not be told for
+   * another two minutes that they have joined none.
    *
    * The Telegram id is read and used **here**, inside the one service allowed to
    * (ADR-0009), and never reaches the controller — which is why this method exists
-   * rather than the route assembling the same three calls itself.
+   * rather than the route assembling the same calls itself.
    */
   async recheck(userId: string, action?: GatedAction): Promise<MembershipState> {
-    const config = await this.config.get();
+    if (this.probe?.invalidate !== undefined) {
+      const channels = await this.config.activeChannels();
+      const telegramUserId = await this.telegramIdOf(userId);
 
-    if (config.chatIdentifier !== null && this.probe?.invalidate !== undefined) {
-      const account = await this.prisma.telegramAccount.findUnique({
-        where: { userId },
-        select: { telegramUserId: true },
-      });
-      if (account !== null) {
-        await this.probe.invalidate(config.chatIdentifier, account.telegramUserId);
+      if (telegramUserId !== null) {
+        for (const channel of channels) {
+          if (channel.chatIdentifier !== null) {
+            await this.probe.invalidate(channel.chatIdentifier, telegramUserId);
+          }
+        }
       }
     }
 
@@ -173,20 +249,37 @@ export class ChannelMembershipService {
     throw new AppError(ErrorCode.CHANNEL_MEMBERSHIP_REQUIRED, {
       joinUrl: state.joinUrl,
       action,
+      // Which channels are outstanding, so the bot and the Mini App can list them
+      // from the refusal itself rather than making a second call to find out.
+      channels: state.channels
+        .filter((channel) => !channel.allowed)
+        .map((channel) => ({ title: channel.title, joinUrl: channel.joinUrl })),
     });
   }
 
   /**
-   * Ask Telegram, if there is anything to ask and anyone to ask it of.
+   * The caller's Telegram id, or null when there is not one.
    *
    * `telegram_account` is read here, which is one of the very few places outside
    * the identity module that may (ADR-0009): a membership check is by definition a
    * question about a Telegram account, and the id goes to the probe and nowhere
    * else — never into a response, a log line or a payload.
+   *
+   * Read **once** per check rather than once per channel, which is the difference
+   * between one query and four on the screen that lists them.
    */
+  private async telegramIdOf(userId: string): Promise<bigint | null> {
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { userId },
+      select: { telegramUserId: true },
+    });
+    return account?.telegramUserId ?? null;
+  }
+
+  /** Ask Telegram about one channel, if there is anything to ask and anyone to ask it of. */
   private async probeFor(
-    userId: string,
-    chatIdentifier: string | null,
+    channel: RequiredChannelRecord,
+    telegramUserId: bigint | null,
     verifyViaTelegram: boolean,
   ): Promise<MembershipProbeResult> {
     // Verification switched off: the requirement is advisory, the user is shown
@@ -194,15 +287,12 @@ export class ChannelMembershipService {
     // the bot is not an administrator of.
     if (!verifyViaTelegram) return { kind: 'MEMBER' };
 
-    if (chatIdentifier === null) return { kind: 'CHAT_UNAVAILABLE', reason: 'NOT_CONFIGURED' };
+    if (channel.chatIdentifier === null) {
+      return { kind: 'CHAT_UNAVAILABLE', reason: 'NOT_CONFIGURED' };
+    }
     if (this.probe === undefined) return { kind: 'UNKNOWN', reason: 'NO_PROBE' };
+    if (telegramUserId === null) return { kind: 'UNKNOWN', reason: 'NO_TELEGRAM_ACCOUNT' };
 
-    const account = await this.prisma.telegramAccount.findUnique({
-      where: { userId },
-      select: { telegramUserId: true },
-    });
-    if (account === null) return { kind: 'UNKNOWN', reason: 'NO_TELEGRAM_ACCOUNT' };
-
-    return this.probe.check(chatIdentifier, account.telegramUserId);
+    return this.probe.check(channel.chatIdentifier, telegramUserId);
   }
 }

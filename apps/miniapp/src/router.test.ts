@@ -22,6 +22,30 @@ describe('stepFor', () => {
     expect(stepFor(undefined)).toBe('/');
     expect(stepFor('SOMETHING_ELSE')).toBe('/');
   });
+
+  /**
+   * The channel gate (v0.3.1, report 3). It applies only after onboarding, for the
+   * same reason the policy gate does: a user still choosing a city has a screen of
+   * their own to be on.
+   */
+  it('holds a finished user at the channel gate when one is outstanding', () => {
+    expect(stepFor('PROFILE_COMPLETE', 0, true)).toBe('/join-channels');
+  });
+
+  /**
+   * Both gates closed at once. The terms win, and that ordering is deliberate:
+   * accepting the rules is a screen a user can always complete, while the channel
+   * check depends on Telegram answering — so starting at the one that can clear
+   * itself is the difference between two dead ends and one.
+   */
+  it('sends a user who owes both to the terms first', () => {
+    expect(stepFor('PROFILE_COMPLETE', 1, true)).toBe('/terms');
+  });
+
+  it('does not apply the channel gate mid-funnel', () => {
+    expect(stepFor('NEW', 0, true)).toBe('/terms');
+    expect(stepFor('TERMS_ACCEPTED', 0, true)).toBe('/profile');
+  });
 });
 
 describe('showsHomeButton', () => {
@@ -57,5 +81,15 @@ describe('showsHomeButton', () => {
 
   it('treats a route with no name as not a funnel screen', () => {
     expect(showsHomeButton(undefined, 'PROFILE_COMPLETE')).toBe(true);
+  });
+
+  /**
+   * The gate screen exists to have no way out of it, so the header — which is the
+   * way home — must not be drawn on it, nor anywhere else while it is closed.
+   */
+  it('never draws it while the channel gate is closed', () => {
+    expect(showsHomeButton('join-channels', 'PROFILE_COMPLETE', 0, true)).toBe(false);
+    expect(showsHomeButton('home', 'PROFILE_COMPLETE', 0, true)).toBe(false);
+    expect(showsHomeButton('discover', 'PROFILE_COMPLETE', 0, true)).toBe(false);
   });
 });

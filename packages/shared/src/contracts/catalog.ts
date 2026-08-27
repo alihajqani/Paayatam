@@ -137,13 +137,40 @@ export type CatalogResponse = z.infer<typeof catalogResponse>;
 
 // ── Channel membership (M22 phase 6) ─────────────────────────────────────────
 
+/**
+ * `APP_ACCESS` is the odd one out and the wire contract should say so.
+ *
+ * The other four name a server-enforced operation. `APP_ACCESS` names a
+ * *navigation* rule the Mini App's router enforces from
+ * `GET /me/channel-membership` — there is no single endpoint behind it, and
+ * putting one in `AuthGuard` would refuse the very calls the screen that clears
+ * the gate is built from. See `GATED_ACTIONS` in the domain for the full
+ * argument.
+ */
 export const gatedAction = z.enum([
+  'APP_ACCESS',
   'EVENT_CREATE',
   'EVENT_JOIN',
   'EVENT_CHANNEL_SEND',
   'EVENT_INVITE',
 ]);
 export type GatedActionView = z.infer<typeof gatedAction>;
+
+/**
+ * One required channel, and where the caller stands with it.
+ *
+ * No chat identifier: the client never needs it, and `-1001234567890` in a
+ * response is one more thing an allowlist has to keep out of a log (§3.6 layer 2).
+ */
+export const channelMembershipView = z.object({
+  id: z.string(),
+  /** What the user reads above the join button. Operator-authored. */
+  title: z.string(),
+  joinUrl: z.url().nullable(),
+  status: z.enum(['MEMBER', 'NOT_MEMBER', 'CHAT_UNAVAILABLE', 'BOT_CANNOT_VERIFY', 'UNKNOWN']),
+  allowed: z.boolean(),
+});
+export type ChannelMembershipView = z.infer<typeof channelMembershipView>;
 
 /**
  * Where this user stands with the channel requirement.
@@ -157,7 +184,17 @@ export type GatedActionView = z.infer<typeof gatedAction>;
 export const membershipStateResponse = z.object({
   required: z.boolean(),
   requiredActions: z.array(gatedAction),
-  /** Where the «عضویت» button goes. Null when nothing is configured. */
+  /**
+   * Every required channel, **in the order the operator set**.
+   *
+   * The client renders this list as given and must not sort it: the order of
+   * joining and of display is a product decision made in the admin panel.
+   */
+  channels: z.array(channelMembershipView),
+  /**
+   * The first channel the caller has not joined — so a one-button surface still
+   * takes them somewhere useful. Null when nothing is outstanding.
+   */
   joinUrl: z.url().nullable(),
   status: z.enum([
     'NOT_REQUIRED',

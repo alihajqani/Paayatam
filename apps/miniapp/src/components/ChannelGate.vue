@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { MembershipStateResponse } from '@payetam/shared';
-import { ApiError, request } from '@/api/client';
+import type { GatedActionView } from '@payetam/shared';
+import { ApiError } from '@/api/client';
+import ChannelList from '@/components/ChannelList.vue';
 import { haptic } from '@/telegram/webapp';
+import { useMembershipStore } from '@/stores/membership';
 
 /**
- * "Join the channel first" — the user's side of the requirement (M22 phase 6).
+ * "Join the channels first" — the user's side of the requirement, per operation.
  *
  * ── It never blocks anything by itself ───────────────────────────────────────
  *
@@ -14,21 +16,34 @@ import { haptic } from '@/telegram/webapp';
  * banner still gets `CHANNEL_MEMBERSHIP_REQUIRED`. This exists so the user is
  * told *before* they fill in a form, not instead of the check.
  *
+ * The app-wide version of the same requirement is `/join-channels`, which is a
+ * screen rather than a banner — a banner on a page full of other things to tap is
+ * not a block. This component stays for the four per-operation actions, where the
+ * rest of the screen is still legitimately usable.
+ *
  * ── Five states, five sentences ──────────────────────────────────────────────
  *
- * Three of the outcomes are **not the user's fault** — the channel is
- * misconfigured, the bot cannot see the member list, or Telegram did not answer —
- * and in all three the product lets them through. Showing «عضو نیستید» in those
- * cases would ask somebody to fix a problem they cannot see and do not have.
+ * Three of the outcomes are **not the user's fault** — a channel is misconfigured,
+ * the bot cannot see a member list, or Telegram did not answer — and in all three
+ * the product lets them through. Showing «عضو نیستید» in those cases would ask
+ * somebody to fix a problem they cannot see and do not have.
+ *
+ * ── Several channels ─────────────────────────────────────────────────────────
+ *
+ * The banner lists every channel still outstanding, in the operator's order,
+ * because "join the channel" is not an instruction somebody can follow when there
+ * are three and they have joined one.
  */
 const props = defineProps<{
   /** Rendered only when this action is gated. Omit to ask about the requirement as a whole. */
-  action?: 'EVENT_CREATE' | 'EVENT_JOIN' | 'EVENT_CHANNEL_SEND' | 'EVENT_INVITE';
+  action?: GatedActionView;
 }>();
 
-const state = ref<MembershipStateResponse | null>(null);
-const checking = ref(false);
+const membership = useMembershipStore();
+
 const error = ref<string | null>(null);
+
+const state = computed(() => membership.state);
 
 /** Only `NOT_MEMBER` is a wall. Everything else either passes or is advisory. */
 const blocking = computed(
@@ -51,29 +66,20 @@ const relevant = computed(() => {
 
 async function load(): Promise<void> {
   error.value = null;
-  try {
-    state.value = await request<MembershipStateResponse>('/me/channel-membership');
-  } catch (cause) {
-    // A failure here must not stop the screen it is embedded in. The server-side
-    // gate is the control; this is the explanation.
-    error.value = cause instanceof ApiError ? cause.messageFa : null;
-  }
+  // The store swallows its own failures and holds the answer for every component
+  // on the screen, so two gates mounting together is one request.
+  await membership.load();
 }
 
-/** Asks Telegram again, now — the server clears its cached answer first. */
+/** Asks Telegram again, now — the server clears its cached answer for every channel. */
 async function recheck(): Promise<void> {
-  if (checking.value) return;
-  checking.value = true;
+  if (membership.checking) return;
   error.value = null;
   try {
-    state.value = await request<MembershipStateResponse>('/me/channel-membership/check', {
-      method: 'POST',
-    });
-    haptic(state.value.allowed ? 'success' : 'error');
+    const next = await membership.recheck();
+    haptic(next.allowed ? 'success' : 'error');
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.messageFa : 'بررسی انجام نشد.';
-  } finally {
-    checking.value = false;
   }
 }
 
@@ -88,38 +94,24 @@ onMounted(load);
     role="status"
   >
     <template v-if="blocking">
-      <h3 class="font-medium">برای ادامه، در کانال پایه‌تَم عضو شوید</h3>
+      <h3 class="font-medium">برای ادامه، عضو کانال‌های زیر شوید</h3>
       <p class="text-tg-hint">
-        رویدادها در کانال پایه‌تَم منتشر می‌شوند. پس از عضویت، دکمهٔ «بررسی دوباره» را بزنید.
+        عضویت در همهٔ کانال‌ها لازم است. پس از عضویت، دکمهٔ «بررسی دوباره» را بزنید.
       </p>
 
-      <div class="flex flex-wrap gap-2">
-        <!--
-          `rel="noopener noreferrer"` because this leaves the Mini App. The URL
-          itself is validated server-side and rebuilt as `https://t.me/…`, so it
-          cannot be an arbitrary host however it was configured.
-        -->
-        <a
-          v-if="state?.joinUrl"
-          :href="state.joinUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="flex min-h-11 items-center rounded-xl bg-tg-button px-4 text-tg-button-text"
-        >
-          عضویت در کانال
-        </a>
-        <button
-          type="button"
-          class="min-h-11 rounded-xl bg-tg-bg px-4 disabled:opacity-50"
-          :disabled="checking"
-          @click="recheck"
-        >
-          {{ checking ? 'در حال بررسی…' : 'بررسی دوباره' }}
-        </button>
-      </div>
+      <ChannelList :channels="membership.outstanding" />
 
-      <p v-if="state?.joinUrl === null" class="text-tg-destructive">
-        پیوند کانال هنوز تنظیم نشده است. لطفاً کمی بعد دوباره تلاش کنید.
+      <button
+        type="button"
+        class="min-h-11 self-start rounded-xl bg-tg-bg px-4 disabled:opacity-50"
+        :disabled="membership.checking"
+        @click="recheck"
+      >
+        {{ membership.checking ? 'در حال بررسی…' : 'بررسی دوباره' }}
+      </button>
+
+      <p v-if="membership.outstanding.some((c) => c.joinUrl === null)" class="text-tg-destructive">
+        پیوند یکی از کانال‌ها هنوز تنظیم نشده است. لطفاً کمی بعد دوباره تلاش کنید.
       </p>
     </template>
 

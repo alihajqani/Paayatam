@@ -86,11 +86,25 @@ export class CatalogController {
   }
 }
 
-/** Field by field, never a spread (§3.6 layer 2). Nothing here names a chat id. */
+/**
+ * Field by field, never a spread (§3.6 layer 2). Nothing here names a chat id.
+ *
+ * `channels` carries a title and a join URL per channel and **not**
+ * `chatIdentifier`: the client has no use for `-1001234567890`, and a value in a
+ * response is a value in somebody's log.
+ */
 function toMembershipView(state: MembershipState): MembershipStateResponse {
   return {
     required: state.required,
     requiredActions: state.requiredActions,
+    // Order preserved from the server, which is the operator's order.
+    channels: state.channels.map((channel) => ({
+      id: channel.id,
+      title: channel.title,
+      joinUrl: channel.joinUrl,
+      status: channel.status,
+      allowed: channel.allowed,
+    })),
     joinUrl: state.joinUrl,
     status: state.status,
     allowed: state.allowed,

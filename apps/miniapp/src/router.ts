@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router';
+import { useMembershipStore } from '@/stores/membership';
 import { useSessionStore } from '@/stores/session';
 
 /**
@@ -12,6 +13,18 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'splash', component: () => import('@/views/SplashView.vue') },
     { path: '/terms', name: 'terms', component: () => import('@/views/TermsView.vue') },
+    {
+      /**
+       * The channel gate, when the requirement covers the whole app (v0.3.1).
+       *
+       * Outside `ONBOARDING_PATHS` and outside `FUNNEL_ROUTES` for different
+       * reasons: it is not a step somebody finishes once, and the header would be
+       * a way out of a screen that exists to have no way out.
+       */
+      path: '/join-channels',
+      name: 'join-channels',
+      component: () => import('@/views/JoinChannelsView.vue'),
+    },
     { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue') },
     {
       /**
@@ -65,10 +78,21 @@ const router = createRouter({
  * sent back to `/terms` and stays there until they do. Everything before that is
  * unchanged.
  */
-export function stepFor(state: string | undefined, pendingPolicies = 0): string {
+export function stepFor(
+  state: string | undefined,
+  pendingPolicies = 0,
+  channelBlocked = false,
+): string {
   if (state === 'NEW') return '/terms';
   if (state === 'TERMS_ACCEPTED') return '/profile';
-  if (state === 'PROFILE_COMPLETE') return pendingPolicies > 0 ? '/terms' : '/home';
+  if (state === 'PROFILE_COMPLETE') {
+    // The terms come first, deliberately. Both gates can be closed at once, and
+    // accepting the rules is the one a user can always complete — the channel
+    // check depends on Telegram answering, and being sent to a screen that cannot
+    // clear itself is the worse of the two dead ends to start in.
+    if (pendingPolicies > 0) return '/terms';
+    return channelBlocked ? '/join-channels' : '/home';
+  }
   return '/';
 }
 
@@ -89,8 +113,9 @@ export function showsHomeButton(
   routeName: string | undefined,
   state: string | undefined,
   pendingPolicies = 0,
+  channelBlocked = false,
 ): boolean {
-  if (stepFor(state, pendingPolicies) !== '/home') return false;
+  if (stepFor(state, pendingPolicies, channelBlocked) !== '/home') return false;
   return !FUNNEL_ROUTES.has(routeName ?? '');
 }
 
@@ -104,7 +129,7 @@ export function showsHomeButton(
  * home screen, which M22 made reachable. That screen is not a funnel step for
  * them, but it is still not a screen to hang a second navigation off.
  */
-const FUNNEL_ROUTES = new Set(['splash', 'terms', 'profile']);
+const FUNNEL_ROUTES = new Set(['splash', 'terms', 'profile', 'join-channels']);
 
 /**
  * Routes that only make sense while onboarding is unfinished.
@@ -116,6 +141,16 @@ const FUNNEL_ROUTES = new Set(['splash', 'terms', 'profile']);
  * acceptance and `/home` for everybody else.
  */
 const ONBOARDING_PATHS = new Set(['/profile']);
+
+/**
+ * Screens a blocked user may still reach.
+ *
+ * `/join-channels` because it is the gate itself, and `/terms` because a user can
+ * owe both at once and the rules must stay readable — a gate that hides the terms
+ * would make "read and accept the policies" unanswerable. Everything else is
+ * closed while any required channel is outstanding.
+ */
+const CHANNEL_GATE_EXEMPT = new Set(['/join-channels', '/terms']);
 
 /**
  * Sends the user to the step they are actually on — while they still have one.
@@ -136,12 +171,22 @@ router.beforeEach((to: RouteLocationNormalized) => {
   const session = useSessionStore();
   if (!session.ready) return '/';
 
-  const expected = stepFor(session.onboardingState, session.pendingPolicies.length);
+  const membership = useMembershipStore();
+  const channelBlocked = membership.blocksApp;
 
-  // Still in the funnel: exactly one screen is correct.
-  if (expected !== '/home') return to.path === expected ? true : expected;
+  const expected = stepFor(session.onboardingState, session.pendingPolicies.length, channelBlocked);
 
-  // Onboarding done: go anywhere except back into it.
+  // Still in the funnel, or held at the channel gate: exactly one screen is
+  // correct — except the handful the gate deliberately leaves open.
+  if (expected !== '/home') {
+    if (to.path === expected) return true;
+    if (expected === '/join-channels' && CHANNEL_GATE_EXEMPT.has(to.path)) return true;
+    return expected;
+  }
+
+  // Onboarding done and nothing outstanding: go anywhere except back into the
+  // funnel, and not to the gate screen a cleared user has no business seeing.
+  if (to.path === '/join-channels') return '/home';
   return ONBOARDING_PATHS.has(to.path) ? '/home' : true;
 });
 

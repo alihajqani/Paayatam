@@ -79,9 +79,22 @@ let scanPolicyId: string;
 let scanProvinceId: string;
 let scanCityId: string;
 let scanCampaignPublicId: string;
+let scanRequiredChannelId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
+
+/**
+ * The two channel handles this scan puts into the database itself.
+ *
+ * Named constants rather than literals at three call sites, because the
+ * redaction below has to match the fixtures exactly: a fixture renamed without
+ * its redaction becomes a scan that fails on its own test data, and a redaction
+ * left behind after a fixture is removed becomes one that forgives a string
+ * nothing produces.
+ */
+const SCAN_CHANNEL_FIXTURE = 'payetam_leak_scan';
+const SCAN_CHANNEL_CREATED = 'payetam_scan';
 
 /** Counters for the two endpoints whose payload may be presented only once. */
 let authAttempt = 0;
@@ -106,6 +119,15 @@ interface Endpoint {
    * and every admin read after that would be a 401 the scan mistook for coverage.
    */
   adminCookieFor?: () => string;
+  /**
+   * The CSRF token that pairs with `adminCookieFor`'s cookie.
+   *
+   * Separate rather than derived, because the token is **per session**: handing a
+   * different session's cookie without its own token is refused by `AdminGuard`,
+   * which is precisely the mistake that stopped this scan reaching any admin
+   * write for four milestones.
+   */
+  adminCsrfFor?: () => string;
   /**
    * Sent as JSON for the endpoints that read one.
    *
@@ -602,19 +624,36 @@ beforeAll(async () => {
   adminCookie = signedIn.sessionToken;
   adminCsrf = signedIn.csrfToken;
 
-  // Throwaway sessions for `logout`, which consumes the one it is handed. The
-  // CSRF token is shared because every one of these is the same account.
-  const disposableAdmin: string[] = [];
+  /**
+   * Throwaway sessions for `logout`, which consumes the one it is handed.
+   *
+   * **The CSRF token is per session, not per account**, and getting that wrong is
+   * how this scan spent four milestones not scanning a single admin write. The
+   * loop used to overwrite one shared `adminCsrf` on every iteration while
+   * `adminCookie` kept the *first* session — so `AdminGuard` compared a token
+   * belonging to session Z against a cookie belonging to session A and refused
+   * every POST, PUT, PATCH and DELETE on the admin API with
+   * `FORBIDDEN {reason: 'csrf'}`. The scan then dutifully searched those refusals
+   * for leaks and found none, which is exactly the shape of a security test that
+   * passes for the wrong reason.
+   *
+   * Pairing them is the fix: each session carries its own token, and `logout`
+   * takes the pair it is going to spend.
+   */
+  const disposableAdmin: { token: string; csrf: string }[] = [];
   for (let index = 0; index < LEAK_PATTERNS.length + 1; index += 1) {
     const extra = await adminAccess.login({
       email: 'leak-scan@payetam.test',
       password: adminPassword,
       totpCode: totpCode(base32Decode(created.totpSecret), Date.now()),
     });
-    disposableAdmin.push(extra.sessionToken);
-    adminCsrf = extra.csrfToken;
+    disposableAdmin.push({ token: extra.sessionToken, csrf: extra.csrfToken });
   }
-  adminCookie = disposableAdmin[0] ?? adminCookie;
+  const primary = disposableAdmin[0];
+  if (primary !== undefined) {
+    adminCookie = primary.token;
+    adminCsrf = primary.csrf;
+  }
   let logoutIndex = 1;
 
   /**
@@ -780,6 +819,27 @@ beforeAll(async () => {
       select: { publicId: true },
     })
   ).publicId;
+
+  /**
+   * A channel for the three routes that address one by id (v0.3.1).
+   *
+   * Written with Prisma rather than through the POST above, so the scan's own
+   * requests stay independent of each other: an assertion about `DELETE` should
+   * not fail because `POST` changed shape. `is_active` is true and the
+   * requirement is off, so deleting it at the end of the scan is permitted —
+   * `assertNotLastActive` only refuses while `membership_required` is on.
+   */
+  scanRequiredChannelId = (
+    await prisma.requiredChannel.create({
+      data: {
+        title: 'کانال ثابت پویش',
+        chatIdentifier: `@${SCAN_CHANNEL_FIXTURE}`,
+        inviteUrl: `https://t.me/${SCAN_CHANNEL_FIXTURE}`,
+        sortOrder: 10,
+      },
+      select: { id: true },
+    })
+  ).id;
 
   ENDPOINTS.push(
     { method: 'GET', url: `/api/v1/events/${eventPublicId}` },
@@ -1155,7 +1215,8 @@ beforeAll(async () => {
       method: 'POST',
       url: '/admin/v1/auth/logout',
       admin: true,
-      adminCookieFor: () => disposableAdmin[logoutIndex++] ?? 'already-spent',
+      adminCookieFor: () => disposableAdmin[logoutIndex]?.token ?? 'already-spent',
+      adminCsrfFor: () => disposableAdmin[logoutIndex++]?.csrf ?? 'already-spent',
     },
     /**
      * ── M22 ────────────────────────────────────────────────────────────────
@@ -1294,17 +1355,48 @@ beforeAll(async () => {
      */
     { method: 'GET', url: `/admin/v1/users/${hostPublicId}/telegram`, admin: true },
     /**
-     * Phase 6, the configuration half. The PUT writes a link, which is the value
-     * `normalizeInviteUrl` rebuilds — so this also asserts that what comes back
-     * is the normalised form and not the string that was sent.
+     * Phase 6, the configuration half. `membershipRequired` stays false
+     * throughout: the scan must not switch on a gate.
      */
     { method: 'GET', url: '/admin/v1/channel-config', admin: true },
     {
       method: 'PUT',
       url: '/admin/v1/channel-config',
       admin: true,
-      // `membershipRequired` stays false: the scan must not switch on a gate.
-      body: { inviteUrl: 'https://t.me/payetam_scan', membershipRequired: false },
+      body: { membershipRequired: false },
+    },
+    /**
+     * The channels themselves (v0.3.1). The POST writes a link, which is the
+     * value `normalizeInviteUrl` rebuilds — so this also asserts that what comes
+     * back is the normalised form and not the string that was sent.
+     *
+     * The three routes that address one by id use `scanRequiredChannelId`, a row
+     * written by the fixtures rather than by the POST above — so an assertion
+     * about `DELETE` cannot fail because `POST` changed shape.
+     */
+    {
+      method: 'POST',
+      url: '/admin/v1/channel-config/channels',
+      admin: true,
+      body: { title: 'کانال اسکن', inviteUrl: `https://t.me/${SCAN_CHANNEL_CREATED}` },
+    },
+    {
+      method: 'PUT',
+      url: '/admin/v1/channel-config/channels/order',
+      admin: true,
+      body: { ids: [scanRequiredChannelId] },
+    },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/channel-config/channels/${scanRequiredChannelId}`,
+      admin: true,
+      body: { title: 'کانال ثابت پویش (ویرایش‌شده)' },
+    },
+    // Last of the four, because it ends the row the two above address.
+    {
+      method: 'DELETE',
+      url: `/admin/v1/channel-config/channels/${scanRequiredChannelId}`,
+      admin: true,
     },
     // Phase 9.
     { method: 'GET', url: '/admin/v1/provinces', admin: true },
@@ -1360,7 +1452,7 @@ async function fetchBody(endpoint: Endpoint): Promise<string> {
       : endpoint.admin === true
         ? {
             cookie: `${ADMIN_SESSION_COOKIE}=${endpoint.adminCookieFor?.() ?? adminCookie}`,
-            'x-csrf-token': adminCsrf,
+            'x-csrf-token': endpoint.adminCsrfFor?.() ?? adminCsrf,
           }
         : { authorization: `Bearer ${accessToken}` };
 
@@ -1438,6 +1530,47 @@ const UNCOVERED_BY_DESIGN = /^POST \/telegram\/webhook\//;
 const IDENTITY_BY_DESIGN = /^GET \/admin\/v1\/users\/[^/]+\/telegram$/;
 const IDENTITY_PATTERNS = new Set(['the Telegram user id', 'an @username', 'a t.me link']);
 
+/**
+ * The routes that return a **channel's** public identity (v0.3.1).
+ *
+ * A required channel is described by a @username and a `t.me` join link, and both
+ * are meant to be read by every user — the join button is built from them. So the
+ * two handle-shaped patterns match these responses by design, and would match
+ * them however the product was written.
+ *
+ * The audit search is here for the same reason and it is the interesting one: an
+ * audit row records *what changed*, so a channel's configuration appears verbatim
+ * in the `before`/`after` payloads of `channel.required_channel_*`.
+ *
+ * ── Why this is not simply an exemption ──────────────────────────────────────
+ *
+ * Forgiving these routes outright would blind them to a **person's** handle, and
+ * `/admin/v1/audit/search` is exactly the route where one could appear: an audit
+ * payload is a free-form record of somebody's edit. So instead of skipping the
+ * check, the scan **redacts the two channel handles it created itself** and then
+ * runs the pattern normally. A channel's identity is forgiven; anybody else's
+ * still fails, on the same routes, with the same patterns.
+ */
+const CHANNEL_IDENTITY_BY_DESIGN =
+  /^(?:GET|PUT|POST|PATCH|DELETE) (?:\/admin\/v1\/channel-config(?:\/.*)?|\/admin\/v1\/audit\/search|\/api\/v1\/me\/channel-membership(?:\/check)?)$/;
+
+/**
+ * The channel handles this scan planted, removed from a body before it is scanned.
+ *
+ * Longest form first: redacting the bare username out of `https://t.me/<name>`
+ * would leave `t.me/` behind, which is itself one of the patterns.
+ */
+function withoutChannelIdentity(body: string): string {
+  let out = body;
+  for (const handle of [SCAN_CHANNEL_FIXTURE, SCAN_CHANNEL_CREATED]) {
+    out = out
+      .replaceAll(`https://t.me/${handle}`, 'CHANNEL_JOIN_LINK')
+      .replaceAll(`t.me/${handle}`, 'CHANNEL_JOIN_LINK')
+      .replaceAll(`@${handle}`, 'CHANNEL_HANDLE');
+  }
+  return out;
+}
+
 /** Does a listed URL reach this route pattern? Query strings do not count. */
 function reaches(pattern: string, url: string): boolean {
   const path = url.split('?')[0] ?? url;
@@ -1473,16 +1606,69 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
     const offenders: string[] = [];
 
     for (const endpoint of ENDPOINTS) {
-      const body = await fetchBody(endpoint);
-      const exempt =
-        IDENTITY_PATTERNS.has(name) &&
-        IDENTITY_BY_DESIGN.test(`${endpoint.method} ${endpoint.url.split('?')[0]}`);
+      const raw = await fetchBody(endpoint);
+      const route = `${endpoint.method} ${endpoint.url.split('?')[0]}`;
+
+      const exempt = IDENTITY_PATTERNS.has(name) && IDENTITY_BY_DESIGN.test(route);
+      // A channel's own handle is forgiven on the routes that describe channels;
+      // everything else in the same body is still scanned.
+      const body = CHANNEL_IDENTITY_BY_DESIGN.test(route) ? withoutChannelIdentity(raw) : raw;
+
       if (!exempt && pattern.test(body)) {
         offenders.push(`${endpoint.method} ${endpoint.url} → ${body.slice(0, 300)}`);
       }
     }
 
     expect(offenders).toEqual([]);
+  });
+
+  /**
+   * The channel redaction must actually be doing something, and must not be
+   * doing anything else.
+   *
+   * Two failure modes, both silent. A redaction that no longer matches its
+   * fixtures — a renamed channel — leaves the scan failing on its own test data,
+   * which somebody then "fixes" by widening it. A redaction that swallowed more
+   * than the channel handles would forgive a person's identity on the very route
+   * most likely to carry one. So this asserts the exact shape: the channel
+   * handles go, and a handle that is not a channel's stays.
+   */
+  it('redacts only the channel handles it planted', () => {
+    const body = JSON.stringify({
+      inviteUrl: `https://t.me/${SCAN_CHANNEL_FIXTURE}`,
+      chatIdentifier: `@${SCAN_CHANNEL_FIXTURE}`,
+      created: `https://t.me/${SCAN_CHANNEL_CREATED}`,
+      someone: `@${TELEGRAM_USERNAME}`,
+      someoneElse: `https://t.me/${TELEGRAM_USERNAME}`,
+    });
+
+    const redacted = withoutChannelIdentity(body);
+
+    expect(redacted).not.toContain(SCAN_CHANNEL_FIXTURE);
+    expect(redacted).not.toContain(SCAN_CHANNEL_CREATED);
+    // A person's handle and a person's link both survive, so the two patterns
+    // still catch them on exactly the routes this redaction applies to.
+    expect(redacted).toContain(`@${TELEGRAM_USERNAME}`);
+    for (const { name, pattern } of LEAK_PATTERNS) {
+      if (name === 'an @username' || name === 'a t.me link') {
+        expect(pattern.test(redacted), name).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * The routes the redaction applies to are routes that exist.
+   *
+   * A regex that matches nothing is an exemption that looks rigorous and forgives
+   * nothing; one that has drifted wider forgives everything.
+   */
+  it('applies the channel redaction to routes that are actually registered', () => {
+    const matched = [...registeredRoutes].filter((route) => CHANNEL_IDENTITY_BY_DESIGN.test(route));
+
+    expect(matched.length).toBeGreaterThan(0);
+    for (const route of matched) {
+      expect(route).toMatch(/channel-config|channel-membership|audit\/search/);
+    }
   });
 
   /**

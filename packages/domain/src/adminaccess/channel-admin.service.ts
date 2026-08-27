@@ -3,12 +3,13 @@ import {
   ChannelConfigService,
   type ChannelConfigStatus,
   type GatedAction,
+  type RequiredChannelRecord,
 } from '../channel/channel-config.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
 import { PERMISSIONS } from './permissions';
 
 /**
- * Configuring the event channel, from the panel (M22 phase 6).
+ * Configuring the required channels, from the panel.
  *
  * A thin permission layer over `ChannelConfigService`, exactly as
  * `MessagingAdminService` is over `MessagingService`: the rules about what a valid
@@ -17,7 +18,11 @@ import { PERMISSIONS } from './permissions';
  *
  * `channel.manage` is its own key rather than part of `settings.manage`, and the
  * reason is the blast radius: everything behind `settings.manage` retunes a number,
- * and this one switch can lock every user out of the product at once.
+ * and this one switch can lock every user out of the product at once. v0.3.1 makes
+ * that larger rather than smaller — the same permission now adds and removes the
+ * channels themselves — which is an argument for keeping the key separate, not for
+ * splitting it further: an operator who may switch the requirement on may
+ * necessarily also decide what it points at.
  */
 @Injectable()
 export class ChannelAdminService {
@@ -34,9 +39,6 @@ export class ChannelAdminService {
   async update(
     session: AdminSession,
     input: {
-      chatIdentifier?: string | null | undefined;
-      publicUsername?: string | null | undefined;
-      inviteUrl?: string | null | undefined;
       membershipRequired?: boolean | undefined;
       requiredActions?: GatedAction[] | undefined;
       verifyViaTelegram?: boolean | undefined;
@@ -46,5 +48,44 @@ export class ChannelAdminService {
     // The audit row is written by the domain service, which is the only code that
     // has seen both sides of the change inside one call.
     return this.config.update(session.adminUserId, input);
+  }
+
+  async createChannel(
+    session: AdminSession,
+    input: {
+      title: string;
+      chatIdentifier?: string | null | undefined;
+      publicUsername?: string | null | undefined;
+      inviteUrl?: string | null | undefined;
+      isActive?: boolean | undefined;
+    },
+  ): Promise<RequiredChannelRecord> {
+    this.access.assertPermission(session, PERMISSIONS.CHANNEL_MANAGE);
+    return this.config.createChannel(session.adminUserId, input);
+  }
+
+  async updateChannel(
+    session: AdminSession,
+    id: string,
+    input: {
+      title?: string | undefined;
+      chatIdentifier?: string | null | undefined;
+      publicUsername?: string | null | undefined;
+      inviteUrl?: string | null | undefined;
+      isActive?: boolean | undefined;
+    },
+  ): Promise<RequiredChannelRecord> {
+    this.access.assertPermission(session, PERMISSIONS.CHANNEL_MANAGE);
+    return this.config.updateChannel(session.adminUserId, id, input);
+  }
+
+  async deleteChannel(session: AdminSession, id: string): Promise<void> {
+    this.access.assertPermission(session, PERMISSIONS.CHANNEL_MANAGE);
+    await this.config.deleteChannel(session.adminUserId, id);
+  }
+
+  async reorderChannels(session: AdminSession, ids: string[]): Promise<RequiredChannelRecord[]> {
+    this.access.assertPermission(session, PERMISSIONS.CHANNEL_MANAGE);
+    return this.config.reorderChannels(session.adminUserId, ids);
   }
 }

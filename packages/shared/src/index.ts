@@ -1,6 +1,8 @@
 export { AppError, ErrorCode, ERROR_MESSAGES_FA, isAppError } from './errors';
 export type { ErrorBody } from './errors';
 
+export { EVENT_DISCLAIMER_FA, EVENT_DISCLAIMER_SHORT_FA } from './copy';
+
 export {
   telegramAuthRequest,
   refreshRequest,
@@ -32,6 +34,7 @@ export {
   promotionPricing,
   catalogResponse,
   gatedAction,
+  channelMembershipView,
   membershipStateResponse,
 } from './contracts/catalog';
 export type {
@@ -42,11 +45,13 @@ export type {
   PromotionPricing,
   CatalogResponse,
   GatedActionView,
+  ChannelMembershipView,
   MembershipStateResponse,
 } from './contracts/catalog';
 
 export {
   gender,
+  MAX_PROFILE_INTERESTS,
   completeProfileRequest,
   updateProfileRequest,
   adminUpdateProfileRequest,
@@ -303,8 +308,12 @@ export {
   policyConsentView,
   policyConsentQuery,
   policyConsentResponse,
+  requiredChannelView,
   channelConfigView,
   updateChannelConfigRequest,
+  createRequiredChannelRequest,
+  updateRequiredChannelRequest,
+  reorderRequiredChannelsRequest,
   messageAudience,
   previewMessageRequest,
   messagePreviewResponse,
@@ -417,7 +426,11 @@ export type {
   PolicyConsentView,
   PolicyConsentQuery,
   PolicyConsentResponse,
+  RequiredChannelView,
   ChannelConfigView,
+  CreateRequiredChannelRequest,
+  UpdateRequiredChannelRequest,
+  ReorderRequiredChannelsRequest,
   UpdateChannelConfigRequest,
   MessageAudienceRequest,
   PreviewMessageRequest,

@@ -30,6 +30,7 @@ import {
   ReferralAdminService,
   type AdminSession,
   type ChannelConfigStatus,
+  type RequiredChannelRecord,
   type CitySummary,
   type ConsentRecord,
   type MessageCampaignSummary,
@@ -78,6 +79,9 @@ import {
   createProvinceRequest,
   policyConsentQuery,
   updateChannelConfigRequest,
+  createRequiredChannelRequest,
+  updateRequiredChannelRequest,
+  reorderRequiredChannelsRequest,
   previewMessageRequest,
   reorderCitiesRequest,
   updateCityRequest,
@@ -89,6 +93,10 @@ import {
   type AdjustTrustRequest,
   type AdminCityListQuery,
   type ChannelConfigView,
+  type RequiredChannelView,
+  type CreateRequiredChannelRequest,
+  type UpdateRequiredChannelRequest,
+  type ReorderRequiredChannelsRequest,
   type UpdateChannelConfigRequest,
   type AdminCityListResponse,
   type AdminCityView,
@@ -1371,9 +1379,6 @@ export class AdminController {
   ): Promise<ChannelConfigView> {
     return toChannelConfigView(
       await this.channel.update(admin, {
-        ...(body.chatIdentifier !== undefined ? { chatIdentifier: body.chatIdentifier } : {}),
-        ...(body.publicUsername !== undefined ? { publicUsername: body.publicUsername } : {}),
-        ...(body.inviteUrl !== undefined ? { inviteUrl: body.inviteUrl } : {}),
         ...(body.membershipRequired !== undefined
           ? { membershipRequired: body.membershipRequired }
           : {}),
@@ -1383,6 +1388,79 @@ export class AdminController {
           : {}),
       }),
     );
+  }
+
+  /**
+   * Add a channel to the list users are required to join (v0.3.1).
+   *
+   * The invite link is validated and **rebuilt** server-side — `https://t.me/…`
+   * only, no query, no fragment — because this value becomes an `href` in a button
+   * every user sees, and an unvalidated one is a phishing link the product would be
+   * hosting.
+   *
+   * The whole configuration comes back rather than just the new row: adding a
+   * channel changes `warnings`, `hasJoinLink` and `canVerify`, and a panel that had
+   * to re-fetch to learn that would render a stale warning block in between.
+   */
+  @Post('channel-config/channels')
+  @HttpCode(HttpStatus.CREATED)
+  async createRequiredChannel(
+    @Body(new ZodValidationPipe(createRequiredChannelRequest)) body: CreateRequiredChannelRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.createChannel(admin, {
+      title: body.title,
+      ...(body.chatIdentifier !== undefined ? { chatIdentifier: body.chatIdentifier } : {}),
+      ...(body.publicUsername !== undefined ? { publicUsername: body.publicUsername } : {}),
+      ...(body.inviteUrl !== undefined ? { inviteUrl: body.inviteUrl } : {}),
+      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+    });
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /** Edit one. An absent key leaves the field alone; an explicit null clears it. */
+  @Patch('channel-config/channels/:id')
+  async updateRequiredChannel(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateRequiredChannelRequest)) body: UpdateRequiredChannelRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.updateChannel(admin, id, {
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      ...(body.chatIdentifier !== undefined ? { chatIdentifier: body.chatIdentifier } : {}),
+      ...(body.publicUsername !== undefined ? { publicUsername: body.publicUsername } : {}),
+      ...(body.inviteUrl !== undefined ? { inviteUrl: body.inviteUrl } : {}),
+      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+    });
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /**
+   * Remove one.
+   *
+   * Refused when it is the last active channel and the requirement is on: that
+   * combination is a gate with nothing behind it, which tells users to join
+   * something and shows them no button. Switching the requirement off first is one
+   * click away and is the operator saying what they mean.
+   */
+  @Delete('channel-config/channels/:id')
+  async deleteRequiredChannel(
+    @Param('id') id: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.deleteChannel(admin, id);
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /** The order of joining and of display, which the requirement states matters. */
+  @Put('channel-config/channels/order')
+  async reorderRequiredChannels(
+    @Body(new ZodValidationPipe(reorderRequiredChannelsRequest))
+    body: ReorderRequiredChannelsRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.reorderChannels(admin, body.ids);
+    return toChannelConfigView(await this.channel.get(admin));
   }
 
   // ── Geography (M22 phase 9) ────────────────────────────────────────────────
@@ -1908,15 +1986,35 @@ function toTelegramIdentityView(identity: TelegramIdentity): TelegramIdentityVie
 /** Field by field (§3.6 layer 2). Nothing here can carry a token. */
 function toChannelConfigView(config: ChannelConfigStatus): ChannelConfigView {
   return {
-    chatIdentifier: config.chatIdentifier,
-    publicUsername: config.publicUsername,
-    inviteUrl: config.inviteUrl,
     membershipRequired: config.membershipRequired,
     requiredActions: config.requiredActions,
     verifyViaTelegram: config.verifyViaTelegram,
     updatedAt: config.updatedAt.toISOString(),
+    channels: config.channels.map(toRequiredChannelView),
+    allChannels: config.allChannels.map(toRequiredChannelView),
     hasJoinLink: config.hasJoinLink,
     canVerify: config.canVerify,
     warnings: config.warnings,
+  };
+}
+
+/**
+ * One channel, field by field.
+ *
+ * `chatIdentifier` **is** projected here, unlike on the user-facing membership
+ * view: the operator typed it and has to be able to correct it, and this route is
+ * behind `channel.manage`. It is still not a secret — it is the same `@payetam`
+ * that appears in the channel's public URL.
+ */
+function toRequiredChannelView(channel: RequiredChannelRecord): RequiredChannelView {
+  return {
+    id: channel.id,
+    title: channel.title,
+    chatIdentifier: channel.chatIdentifier,
+    publicUsername: channel.publicUsername,
+    inviteUrl: channel.inviteUrl,
+    joinUrl: channel.joinUrl,
+    sortOrder: channel.sortOrder,
+    isActive: channel.isActive,
   };
 }

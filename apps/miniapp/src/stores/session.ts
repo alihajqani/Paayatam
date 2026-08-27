@@ -13,6 +13,7 @@ import type {
   UpdateProfileRequest,
 } from '@payetam/shared';
 import { request, setAccessToken } from '@/api/client';
+import { useMembershipStore } from '@/stores/membership';
 import { webApp } from '@/telegram/webapp';
 
 /**
@@ -88,6 +89,20 @@ export const useSessionStore = defineStore('session', () => {
     // Unconditional, unlike `/me`: `/me/policies` carries `@AllowPendingTerms`
     // precisely so a `NEW` user can be told what they are being asked to accept.
     await loadMyPolicies();
+
+    /**
+     * The channel requirement, loaded before `ready` flips (v0.3.1).
+     *
+     * The router reads `blocksApp` on the very first navigation, so this has to
+     * have settled by then — otherwise a blocked user gets one frame of the home
+     * screen before being bounced, which reads as a glitch rather than a gate.
+     *
+     * Only for a user who has finished onboarding: somebody still on the terms or
+     * the profile step has a screen of their own to be on, and asking Telegram
+     * about a channel is a round trip that would sit in front of it. `load()`
+     * swallows its own failures, so this cannot fail sign-in.
+     */
+    if (state === 'PROFILE_COMPLETE') await useMembershipStore().load();
   }
 
   /**

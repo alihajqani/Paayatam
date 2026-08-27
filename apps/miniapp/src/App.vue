@@ -3,10 +3,12 @@ import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import AppHeader from '@/components/AppHeader.vue';
 import { showsHomeButton } from '@/router';
+import { useMembershipStore } from '@/stores/membership';
 import { useSessionStore } from '@/stores/session';
 
 const route = useRoute();
 const session = useSessionStore();
+const membership = useMembershipStore();
 
 /**
  * The header is drawn only where `/home` is somewhere to go (M22 phase 10).
@@ -27,6 +29,7 @@ const showHeader = computed(
       route.name === undefined || route.name === null ? undefined : String(route.name),
       session.onboardingState,
       session.pendingPolicies.length,
+      membership.blocksApp,
     ),
 );
 </script>

@@ -1185,17 +1185,33 @@ export const activityTagSlug = z
  * attacker with a session can redirect, which is why the *posting* target stays
  * in the environment.
  */
-export const channelConfigView = z.object({
+export const requiredChannelView = z.object({
+  id: z.string(),
+  /** What the operator calls it and what the user reads above the join button. */
+  title: z.string(),
   chatIdentifier: z.string().nullable(),
   publicUsername: z.string().nullable(),
   inviteUrl: z.url().nullable(),
+  /** Derived: the invite link, else `https://t.me/<username>`, else null. */
+  joinUrl: z.url().nullable(),
+  /** Order of joining and of display. Sparse — 10, 20, 30… */
+  sortOrder: z.number().int(),
+  isActive: z.boolean(),
+});
+export type RequiredChannelView = z.infer<typeof requiredChannelView>;
+
+export const channelConfigView = z.object({
   membershipRequired: z.boolean(),
   requiredActions: z.array(gatedAction),
   verifyViaTelegram: z.boolean(),
   updatedAt: z.iso.datetime(),
-  /** There is somewhere to send a user who has to join. */
+  /** Active channels, in join order. What a user is actually asked for. */
+  channels: z.array(requiredChannelView),
+  /** Every channel including the deactivated ones. What the panel lists. */
+  allChannels: z.array(requiredChannelView),
+  /** There is at least one active channel and every one has somewhere to send a user. */
   hasJoinLink: z.boolean(),
-  /** There is an identifier the API can ask Telegram about. */
+  /** Every active channel carries an identifier the API can ask Telegram about. */
   canVerify: z.boolean(),
   /**
    * Reasons not to switch the requirement on, rendered **before** the switch.
@@ -1203,20 +1219,63 @@ export const channelConfigView = z.object({
    * Turning it on with a channel the bot cannot see locks out every user at once,
    * so the panel is required to say so first rather than afterwards.
    */
-  warnings: z.array(z.enum(['NO_JOIN_LINK', 'NO_CHAT_IDENTIFIER', 'NO_ACTIONS_SELECTED'])),
+  warnings: z.array(
+    z.enum(['NO_CHANNELS', 'NO_JOIN_LINK', 'NO_CHAT_IDENTIFIER', 'NO_ACTIONS_SELECTED']),
+  ),
 });
 export type ChannelConfigView = z.infer<typeof channelConfigView>;
 
+/**
+ * The global switches only.
+ *
+ * The channels themselves moved to their own endpoints in v0.3.1, because they
+ * are a list with an order rather than three fields on a settings object — and a
+ * PUT that carried both would make "add a channel" and "turn the requirement on"
+ * the same request, which is exactly the pair an operator wants to do separately.
+ */
 export const updateChannelConfigRequest = z.object({
-  chatIdentifier: z.string().trim().max(64).nullable().optional(),
-  publicUsername: z.string().trim().max(64).nullable().optional(),
-  /** Validated and rebuilt server-side: `https://t.me/…` only, no query, no fragment. */
-  inviteUrl: z.string().trim().max(300).nullable().optional(),
   membershipRequired: z.boolean().optional(),
   requiredActions: z.array(gatedAction).max(8).optional(),
   verifyViaTelegram: z.boolean().optional(),
 });
 export type UpdateChannelConfigRequest = z.infer<typeof updateChannelConfigRequest>;
+
+/** Adding a channel. At least one of `inviteUrl` / `publicUsername` is required. */
+export const createRequiredChannelRequest = z.object({
+  title: z.string().trim().min(2).max(60),
+  chatIdentifier: z.string().trim().max(64).nullable().optional(),
+  publicUsername: z.string().trim().max(64).nullable().optional(),
+  /** Validated and rebuilt server-side: `https://t.me/…` only, no query, no fragment. */
+  inviteUrl: z.string().trim().max(300).nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export type CreateRequiredChannelRequest = z.infer<typeof createRequiredChannelRequest>;
+
+/** Editing one. An absent key means "leave it alone"; an explicit null clears it. */
+export const updateRequiredChannelRequest = z
+  .object({
+    title: z.string().trim().min(2).max(60).optional(),
+    chatIdentifier: z.string().trim().max(64).nullable().optional(),
+    publicUsername: z.string().trim().max(64).nullable().optional(),
+    inviteUrl: z.string().trim().max(300).nullable().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, {
+    message: 'at least one field must be provided',
+  });
+export type UpdateRequiredChannelRequest = z.infer<typeof updateRequiredChannelRequest>;
+
+/**
+ * The whole order at once, as a list of ids.
+ *
+ * Rather than a move-up/move-down pair: the panel holds the list the operator is
+ * looking at, and sending it back is the one formulation that cannot produce an
+ * order neither side intended.
+ */
+export const reorderRequiredChannelsRequest = z.object({
+  ids: z.array(z.string()).min(1).max(20),
+});
+export type ReorderRequiredChannelsRequest = z.infer<typeof reorderRequiredChannelsRequest>;
 
 // ── Outbound messaging (M22 phases 4 and 12) ─────────────────────────────────
 
