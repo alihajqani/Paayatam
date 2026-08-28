@@ -94,6 +94,7 @@ model User {
   messageCampaigns    MessageCampaign[]
   messagesReceived    MessageRecipient[]
   invitationsReceived EventInvitation[]
+  conversation        ConversationState?
 
   @@index([status])
   @@index([createdAt])
@@ -2534,4 +2535,84 @@ model RequiredChannel {
 
   @@index([isActive, sortOrder])
   @@map("required_channel")
+}
+
+/// Which form a conversation is filling in (ADR-0017).
+///
+/// `ACCEPT_POLICIES` is first because it is the one that has to exist before the
+/// Mini App can be retired: consent gates every write in the product, and until
+/// the bot can take an acceptance, switching the Mini App off refuses everything
+/// for everybody.
+enum ConversationKind {
+  ACCEPT_POLICIES
+  COMPLETE_PROFILE
+  EDIT_PROFILE
+  CREATE_EVENT
+  EDIT_EVENT
+
+  @@map("conversation_kind")
+}
+
+/// A half-filled form, held between two Telegram updates (ADR-0017).
+///
+/// ── Why `user_id` is UNIQUE ────────────────────────────────────────────────
+///
+/// One wizard at a time, per person. A user holds exactly one Telegram
+/// conversation with the bot, so two simultaneous wizards would be two flows
+/// writing to the same screen — and every message the second one edited would
+/// destroy the first one's. The constraint is also what makes "whose draft is
+/// this?" answerable without an id in the button: the draft is looked up by the
+/// authenticated sender, so there is no identifier for a tamperer to swap.
+///
+/// ── Why the form data is encrypted ─────────────────────────────────────────
+///
+/// Most of what a draft holds becomes a public event. The description does not
+/// have to: it is the user's own words, written before they decided to publish
+/// them, and a draft that is abandoned is words they decided *not* to publish.
+/// Same key and same shape as `chat_message` (ADR-0009), so there is one story
+/// about encrypted columns rather than two.
+///
+/// ── `last_update_id` is the idempotency ────────────────────────────────────
+///
+/// Telegram retries any webhook call that did not answer 200, and a retried
+/// update must not advance a wizard twice — the second advance would skip a
+/// question. `update_id` is monotonic per bot, so an update whose id is not
+/// greater than this one has been seen: the step is re-rendered rather than
+/// advanced. This is the property ADR-0017 says replaces "the bot has no
+/// memory", and it is the whole of it.
+model ConversationState {
+  id     String           @id @default(uuid(7))
+  userId String           @unique @map("user_id")
+  kind   ConversationKind
+  /// The step key, owned by the wizard definition rather than by an enum here:
+  /// adding a step to a form is not a migration.
+  step   String
+
+  formDataCiphertext Bytes @map("form_data_ciphertext")
+  formDataNonce      Bytes @map("form_data_nonce")
+  keyVersion         Int   @map("key_version")
+
+  /// The message the wizard is drawn on, so the next step edits rather than
+  /// appends. Null until the first render, and again whenever an edit failed and
+  /// a fresh message had to be sent.
+  lastMessageId Int? @map("last_message_id")
+
+  /// What is being edited, for the wizards that edit something: an event public
+  /// id for EDIT_EVENT. Null for the ones that create.
+  targetPublicId String? @map("target_public_id")
+
+  /// The highest Telegram `update_id` that has advanced this conversation.
+  lastUpdateId BigInt @map("last_update_id")
+
+  /// Seven days out (ADR-0017 §3). Long enough that somebody who starts an event
+  /// on Friday can finish it on Monday, which the brief asked for explicitly.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("conversation_state")
 }
