@@ -18,6 +18,32 @@ export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export type { DigestInput } from './digest';
 export { BOT_COMMANDS, helpCommandLines } from './commands';
 export type { BotCommand } from './commands';
+
+// ── Conversation wizards (ADR-0017) ─────────────────────────────────────────
+export {
+  WIZARD_CONTROLS,
+  encodeWizardCallback,
+  isWizardControl,
+  parseWizardCallback,
+} from './wizard/callback';
+export type { WizardCallback, WizardControl } from './wizard/callback';
+export {
+  PERSIAN_WEEKDAYS,
+  addDays,
+  formatJalali,
+  isoDay,
+  jalaliMonthDays,
+  jalaliMonthName,
+  nextJalaliMonth,
+  parseIsoDay,
+  persianWeekday,
+  previousJalaliMonth,
+  tehranToday,
+  toJalali,
+} from './wizard/jalali';
+export type { JalaliDate } from './wizard/jalali';
+export { CHOICES_PER_PAGE, calendarKeyboard, choiceKeyboard, controlRow } from './wizard/keyboards';
+export type { Choice } from './wizard/keyboards';
 export { formatTehran } from './datetime';
 export type { EventInvitationContent } from './invitation';
 
