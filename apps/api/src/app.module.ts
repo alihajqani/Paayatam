@@ -6,6 +6,7 @@ import {
   CatalogModule,
   ChannelModule,
   ChatModule,
+  ConversationModule,
   DiscoveryModule,
   AdminAccessModule,
   EconomyModule,
@@ -85,6 +86,7 @@ import { VersionController } from './version/version.controller';
     DiscoveryModule,
     ParticipationModule,
     ChatModule,
+    ConversationModule,
     /**
      * For `ChannelConfigService` and `ChannelMembershipService` (M22 phase 6).
      *

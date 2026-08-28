@@ -135,6 +135,7 @@ function buildProcessors(): Processors {
     { counter: vi.fn(), observe: vi.fn() } as never,
     {} as never, // CoinService — the nightly reconciliation is not this suite
     alerts as never,
+    {} as never, // ConversationService — this suite never reaches a wizard
   );
 }
 

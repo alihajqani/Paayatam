@@ -25,6 +25,23 @@ export type SendOutcome =
   | { kind: 'RETRY'; reason: string };
 
 /**
+ * What came of redrawing a wizard's message (ADR-0017).
+ *
+ * `GONE` is the member that earns this its own type. It is not a failure and it
+ * is not retryable: the message the wizard lives on no longer exists — deleted,
+ * or older than the 48 hours Telegram permits an edit within — and the answer is
+ * to send a fresh one and record its id, which only the caller can do. Folding it
+ * into `RETRY` would retry an edit that can never succeed; folding it into
+ * `BLOCKED` would mark a present user as having blocked the bot.
+ */
+export type EditOutcome =
+  | { kind: 'EDITED' }
+  | { kind: 'GONE'; reason: string }
+  | { kind: 'BLOCKED'; reason: string }
+  | { kind: 'RATE_LIMITED'; reason: string; retryAfterSeconds: number | null }
+  | { kind: 'RETRY'; reason: string };
+
+/**
  * The one place in the product that calls Telegram (plan §3.2, invariant 11).
  *
  * Two behaviours matter more than the sending:
@@ -189,6 +206,56 @@ export class TelegramClient {
         `Could not answer a callback query: ${outcome.kind === 'SENT' ? 'unknown' : outcome.reason}`,
       );
       return false;
+    }
+  }
+
+  /**
+   * Redraw the message a conversation wizard lives on (ADR-0017).
+   *
+   * ── Why editing rather than sending ─────────────────────────────────────────
+   *
+   * A wizard is one message that changes, not a transcript that grows. Twelve
+   * steps as twelve messages buries the form under itself, and the form is what
+   * the user is trying to fill in.
+   *
+   * ── The two failures that are not failures ──────────────────────────────────
+   *
+   * **`message is not modified`** happens whenever a tap produces the identical
+   * screen — pressing the page number that is already showing, most obviously.
+   * Telegram calls it a 400; it means the screen is already correct, so it is
+   * reported as success rather than retried into a dead letter.
+   *
+   * **`message to edit not found`** means the user deleted it, or it aged past
+   * the 48 hours Telegram allows an edit within. Neither is recoverable by
+   * retrying, and both leave a live wizard with nowhere to draw — so this
+   * reports `GONE`, and the caller sends a fresh message and records its id. A
+   * wizard that dead-ends because somebody tidied their chat would be a form
+   * they cannot finish and cannot restart.
+   */
+  async editMessage(
+    chatId: bigint,
+    messageId: number,
+    text: string,
+    keyboard?: InlineKeyboard,
+  ): Promise<EditOutcome> {
+    if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
+
+    try {
+      await this.bot.api.editMessageText(Number(chatId), messageId, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
+      });
+      return { kind: 'EDITED' };
+    } catch (error) {
+      if (error instanceof GrammyError) {
+        if (/message is not modified/i.test(error.description)) return { kind: 'EDITED' };
+        if (/message to edit not found|message can't be edited/i.test(error.description)) {
+          return { kind: 'GONE', reason: error.description };
+        }
+      }
+      const outcome = classify(error);
+      return outcome.kind === 'SENT' ? { kind: 'EDITED' } : outcome;
     }
   }
 }

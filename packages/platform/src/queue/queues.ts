@@ -85,6 +85,22 @@ export const JOBS = {
    */
   BOT_CALLBACK_ANSWER: 'bot-callback-answer',
   /**
+   * Redraw the message a conversation wizard lives on (ADR-0017).
+   *
+   * On `telegram-send` for the same reason `BOT_CALLBACK_ANSWER` is:
+   * `editMessageText` is an outbound Telegram call, and invariant 11 puts every
+   * one of those in the worker behind the one global limiter. A wizard that
+   * edited inline from the API would also be the fastest way to exhaust the
+   * limiter, since it fires on *every* tap rather than once per notification.
+   *
+   * The payload carries a chat id, which nothing else on this queue does. That
+   * is unavoidable — `editMessageText` is addressed by `(chat_id, message_id)`
+   * and there is no indirection Telegram accepts instead — so it is the one
+   * place a Telegram identifier reaches Redis. It is bounded by the queue's own
+   * retention rather than stored, and it is never logged: see the processor.
+   */
+  BOT_EDIT_MESSAGE: 'bot-edit-message',
+  /**
    * One recipient of an admin campaign or a paid invitation (M22 phases 4 and 11).
    *
    * On `telegram-send` with everything else, so it shares the one global limiter:
@@ -105,6 +121,8 @@ export const JOBS = {
   CHANNEL_SYNC: 'channel-sync',
   /** The retention purge (§8): expired chats, notifications, outbox and audit rows. */
   RETENTION_PURGE: 'retention-purge',
+  /** Delete conversation drafts past their seven days (ADR-0017 §3). */
+  CONVERSATION_PURGE: 'conversation-purge',
   /**
    * Turn confirmed campaigns into individual send jobs (M22 phase 4).
    *

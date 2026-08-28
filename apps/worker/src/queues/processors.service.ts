@@ -4,6 +4,7 @@ import {
   ChannelService,
   ChatService,
   CoinService,
+  ConversationService,
   EventLifecycleService,
   InvitationService,
   MessagingService,
@@ -15,7 +16,7 @@ import {
   ReviewService,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
-import { TEMPLATES, render, renderChannelPost } from '@payetam/telegram';
+import { TEMPLATES, render, renderChannelPost, type InlineKeyboard } from '@payetam/telegram';
 import { TelegramLoggerService } from '../monitoring/telegram-logger.service';
 import { TelegramClient } from '../telegram/telegram.client';
 import { WorkerFactory } from './worker.factory';
@@ -88,6 +89,13 @@ export class Processors implements OnModuleInit {
     private readonly coins: CoinService,
     /** Alerts a person should act on: a stuck channel, a tripped breaker (M20). */
     private readonly alerts: TelegramLoggerService,
+    /**
+     * Bot conversation drafts (ADR-0017), for two things only: recording the
+     * message a wizard was redrawn onto when the old one was gone, and sweeping
+     * drafts past their seven days. The worker never *advances* a wizard — that
+     * is the API's, because it is the process the update arrives at.
+     */
+    private readonly conversations: ConversationService,
   ) {}
 
   /**
@@ -115,6 +123,7 @@ export class Processors implements OnModuleInit {
     // one limiter that exists for it (ADR-0005).
     this.workers.create(QUEUES.TELEGRAM_SEND, (job) => {
       if (job.name === JOBS.BOT_CALLBACK_ANSWER) return this.onCallbackAnswer(job);
+      if (job.name === JOBS.BOT_EDIT_MESSAGE) return this.onEditMessage(job);
       if (job.name === JOBS.CAMPAIGN_SEND) return this.onCampaignSend(job);
       return this.onSend(job);
     });
@@ -271,6 +280,63 @@ export class Processors implements OnModuleInit {
     if (data.callbackQueryId === undefined) return;
 
     await this.telegram.answerCallback(data.callbackQueryId, data.text ?? '');
+  }
+
+  /**
+   * Redraw the message a conversation wizard lives on (ADR-0017).
+   *
+   * ── Why the fallback is here and not in the client ──────────────────────────
+   *
+   * When the message is `GONE` — deleted by the user, or past the 48 hours
+   * Telegram allows an edit within — the wizard has nowhere to draw and the only
+   * recovery is a fresh message. That needs a second Telegram call *and* a write
+   * back to `conversation_state.last_message_id`, so it belongs to the processor
+   * that already has both. A wizard that dead-ends because somebody tidied their
+   * chat is a form they can neither finish nor restart.
+   *
+   * The chat id in this payload is the one Telegram identifier that reaches Redis
+   * (see `JOBS.BOT_EDIT_MESSAGE`). It is never logged: the messages below name the
+   * outcome and nothing else, which is invariant 7 applied to a log line rather
+   * than to a response body.
+   */
+  private async onEditMessage(job: Job): Promise<void> {
+    const data = job.data as {
+      chatId?: string;
+      messageId?: number;
+      userId?: string;
+      text?: string;
+      keyboard?: InlineKeyboard;
+    };
+    if (data.chatId === undefined || data.messageId === undefined || data.text === undefined) {
+      return;
+    }
+
+    const chatId = BigInt(data.chatId);
+    const outcome = await this.telegram.editMessage(
+      chatId,
+      data.messageId,
+      data.text,
+      data.keyboard,
+    );
+
+    if (outcome.kind === 'EDITED') return;
+
+    if (outcome.kind === 'GONE') {
+      const sent = await this.telegram.send(chatId, data.text, data.keyboard);
+      if (sent.kind === 'SENT' && data.userId !== undefined) {
+        await this.conversations.rememberMessage(data.userId, sent.messageId);
+      }
+      this.logger.log('A wizard message was gone; drew a new one');
+      return;
+    }
+
+    if (outcome.kind === 'BLOCKED') {
+      this.logger.log('A wizard message could not be redrawn: the bot is blocked');
+      return;
+    }
+
+    // RETRY and RATE_LIMITED: let BullMQ's backoff have it.
+    throw new Error(`Could not redraw a wizard message: ${outcome.reason}`);
   }
 
   /**

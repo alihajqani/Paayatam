@@ -50,6 +50,7 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     { counter: vi.fn(), observe: vi.fn() } as never,
     (overrides.coins ?? {}) as never,
     alerts as never,
+    {} as never, // ConversationService — this suite never reaches a wizard
   );
 }
 
