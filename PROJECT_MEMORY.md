@@ -208,7 +208,8 @@ is exactly what makes a redelivered Telegram update idempotent.
 3. **A reply is a row, not a fire-and-forget send** — deduped by a UNIQUE index on
    a key derived from Telegram's `update_id`.
 
-**Adding a read-only command** (the `/help`, `/balance` pattern, `feature/bot-commands`):
+**Adding a read-only command** (the `/help`, `/balance`, `/requests` pattern,
+`feature/bot-commands`):
 
 - add the key + render case in `packages/telegram/src/templates.ts`
 - dispatch it in `BotService.onCommand`
@@ -218,6 +219,15 @@ is exactly what makes a redelivered Telegram update idempotent.
   deduped notification row, and a service-level test asserts the call instead
 - the totality test over `Object.values(TEMPLATES)` in `escape.test.ts` picks up
   new templates automatically
+
+**Deep links.** Every «باز کردن برنامه» button is
+`https://t.me/<bot>?startapp=<target>`, built by `openAppButton`, which encodes
+`/` as `_` because Telegram allows no slash. The Mini App reads it back in
+`deepLinkTarget()` (`apps/miniapp/src/telegram/webapp.ts`) against a **fixed
+allowlist** — the payload is attacker-supplied, so a path would let a stranger
+choose which screen somebody else's app opens on. Adding a template with a new
+target means adding it to `DEEP_LINKS` too, or the button silently lands on the
+splash — which is what every one of them did until 2026-08-28.
 
 **Where the bot stops.** Single-turn, read-mostly work belongs in the bot; anything
 with a form belongs in the Mini App, and `/help` says so rather than failing
