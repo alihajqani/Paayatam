@@ -439,6 +439,15 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      /** Conversation drafts past their seven days (ADR-0017 §3). */
+      case JOBS.CONVERSATION_PURGE: {
+        const removed = await this.conversations.purgeExpired();
+        if (removed > 0) {
+          this.logger.log(`Conversation purge: removed ${String(removed)} expired draft(s)`);
+        }
+        return;
+      }
+
       /**
        * Does the ledger still add up? (M22 phase 7)
        *

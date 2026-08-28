@@ -215,6 +215,15 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    */
   { name: JOBS.RETENTION_PURGE, pattern: '0 4 * * *', tz: 'Asia/Tehran' },
   /**
+   * Conversation drafts, with the retention purge and for the same reason
+   * (ADR-0017 §3).
+   *
+   * Daily rather than hourly: a draft's deadline is seven days out, so the worst
+   * a day's granularity costs is a form living a few hours past it. Running it on
+   * a request instead would make one user pay for another's expired form.
+   */
+  { name: JOBS.CONVERSATION_PURGE, pattern: '15 4 * * *', tz: 'Asia/Tehran' },
+  /**
    * Half past four, after the purge.
    *
    * Deliberately *after* it: the purge deletes expired rows, and reconciling
