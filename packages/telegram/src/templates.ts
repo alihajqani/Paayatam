@@ -64,6 +64,8 @@ export const TEMPLATES = {
   BOT_HELP: 'bot.help',
   /** `/balance` — the coin balance, without opening anything. */
   BOT_BALANCE: 'bot.balance',
+  /** `/requests` — what the sender has asked to join, and where each one stands. */
+  BOT_REQUESTS: 'bot.requests',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -388,6 +390,7 @@ export function render(
       return opened(
         `<b>راهنما</b>\n\n` +
           `<b>/balance</b> — موجودی سکه‌های شما\n` +
+          `<b>/requests</b> — درخواست‌هایی که داده‌اید\n` +
           `<b>/start</b> — بازگشت به ابتدا\n\n` +
           `<b>گفتگوها</b>\n` +
           `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
@@ -409,6 +412,18 @@ export function render(
      */
     case TEMPLATES.BOT_BALANCE:
       return opened(`<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`, `wallet`, botUsername);
+
+    /**
+     * `/requests` — the digest, built by `formatMyRequests` and passed through.
+     *
+     * The body arrives already rendered for the reason `BOT_NOTICE`'s does: a
+     * payload holds scalars, and a list of events is not one. What is stored is
+     * the snapshot the sender asked for, which is also the honest thing to keep
+     * — re-rendering it six weeks later from live rows would answer a question
+     * nobody asked.
+     */
+    case TEMPLATES.BOT_REQUESTS:
+      return opened(str(payload, 'text'), `my-requests`, botUsername);
 
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:

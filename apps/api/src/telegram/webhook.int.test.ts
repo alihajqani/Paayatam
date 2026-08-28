@@ -406,6 +406,46 @@ describe('commands', () => {
     expect(replies[1]?.text).toContain('/help');
   });
 
+  it('answers /requests with nothing asked for yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/requests') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REQUESTS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز درخواستی نداده‌اید');
+  });
+
+  /**
+   * The point of the command: a list that names the events, because «در انتظار»
+   * three times over tells somebody nothing about which request is which.
+   */
+  it('names the event each request is for', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/requests') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REQUESTS },
+      select: { payload: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    const title = (
+      await prisma.event.findUniqueOrThrow({
+        where: { publicId: eventPublicId },
+        select: { title: true },
+      })
+    ).title;
+
+    expect(text).toContain(title);
+    expect(text).toContain('در انتظار پاسخ میزبان');
+  });
+
   /** A command is a command, not chat text: it is never relayed to a stranger. */
   it('does not relay a command into an open conversation', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));

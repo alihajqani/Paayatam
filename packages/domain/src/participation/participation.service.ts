@@ -40,6 +40,23 @@ export interface ParticipationDetail {
   chatPublicId: string | null;
 }
 
+/**
+ * A request as it appears in the requester's **own list**.
+ *
+ * Carries the event it is for, which `ParticipationDetail` deliberately does not:
+ * the three action paths (`join`, `accept`, `cancel`) return a single request to
+ * a caller who just named the event and has it on screen already, and loading a
+ * title to hand back to somebody who supplied it would be work for nobody.
+ *
+ * A **list** is the case where that stops being true. Without a title, three
+ * pending requests render as three identical «در انتظار» cards, and the only way
+ * to tell them apart is to open each one — which is what both surfaces did until
+ * this existed.
+ */
+export interface MyParticipation extends ParticipationDetail {
+  event: { publicId: string; title: string; startsAt: Date };
+}
+
 /** What the host sees about somebody who asked to join. */
 export interface ParticipantSummary {
   publicId: string;
@@ -594,15 +611,27 @@ export class ParticipationService {
     return new Map(rows.map((row) => [row.userId, row.score]));
   }
 
-  /** Everything this user has asked to join. */
-  async listMine(userId: string): Promise<ParticipationDetail[]> {
+  /** Everything this user has asked to join, each naming the event it is for. */
+  async listMine(userId: string): Promise<MyParticipation[]> {
     const rows = await this.prisma.eventParticipant.findMany({
       where: { userId },
       orderBy: { requestedAt: 'desc' },
-      include: { ...PARTICIPANT_CHAT, event: { select: { publicId: true } } },
+      include: {
+        ...PARTICIPANT_CHAT,
+        event: { select: { publicId: true, title: true, startsAt: true } },
+      },
     });
 
-    return Promise.all(rows.map((row) => this.toDetail(row, row.event.publicId, this.prisma)));
+    return Promise.all(
+      rows.map(async (row) => ({
+        ...(await this.toDetail(row, row.event.publicId, this.prisma)),
+        event: {
+          publicId: row.event.publicId,
+          title: row.event.title,
+          startsAt: row.event.startsAt,
+        },
+      })),
+    );
   }
 
   // ── waitlist promotion (ADR-0011, D8) ──────────────────────────────────────

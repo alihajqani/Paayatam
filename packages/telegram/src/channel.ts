@@ -1,4 +1,5 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
+import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 import { openAppButton, type InlineKeyboard } from './keyboards';
 
@@ -129,27 +130,4 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
       ],
     ],
   };
-}
-
-/**
- * The start time, in Tehran, in Persian digits.
- *
- * Formatted here rather than stored: the database holds UTC and the reader lives
- * in Tehran (D12, ADR-0008). Gregorian rather than Jalali because `Intl` has no
- * Persian calendar formatter available in every Node build, and a wrong date in a
- * public channel is worse than a Gregorian one — the Mini App renders Jalali,
- * where the conversion is done properly.
- */
-function formatTehran(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Tehran',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
-
-  return toPersianDigits(parts);
 }

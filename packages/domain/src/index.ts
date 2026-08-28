@@ -149,6 +149,7 @@ export {
 export { ParticipationService } from './participation/participation.service';
 export type {
   ParticipationDetail,
+  MyParticipation,
   ParticipantSummary,
   CancellationPreview,
 } from './participation/participation.service';

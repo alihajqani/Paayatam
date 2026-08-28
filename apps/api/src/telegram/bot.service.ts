@@ -18,6 +18,7 @@ import {
 import { AppError, ERROR_MESSAGES_FA, ErrorCode } from '@payetam/shared';
 import {
   TEMPLATES,
+  formatMyRequests,
   parseChatCallback,
   type BotInboundText,
   type BotSender,
@@ -182,6 +183,24 @@ export class BotService {
       case 'balance': {
         const balance = await this.coins.balanceOf(user.id);
         return this.reply(updateId, user.id, TEMPLATES.BOT_BALANCE, { balance });
+      }
+
+      /**
+       * The digest is rendered now and stored as text, not assembled at delivery.
+       * `formatMyRequests` lives in `@payetam/telegram` so the Persian stays with
+       * every other message body rather than growing here.
+       */
+      case 'requests': {
+        const mine = await this.participation.listMine(user.id);
+        const text = formatMyRequests(
+          mine.map((row) => ({
+            title: row.event.title,
+            startsAt: row.event.startsAt,
+            status: row.status,
+            waitlistRank: row.waitlistRank,
+          })),
+        );
+        return this.reply(updateId, user.id, TEMPLATES.BOT_REQUESTS, { text });
       }
 
       default:

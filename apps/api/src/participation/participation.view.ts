@@ -1,5 +1,9 @@
-import type { ParticipantSummary, ParticipationDetail } from '@payetam/domain';
-import type { ParticipantSummaryView, ParticipationView } from '@payetam/shared';
+import type { MyParticipation, ParticipantSummary, ParticipationDetail } from '@payetam/domain';
+import type {
+  MyParticipationView,
+  ParticipantSummaryView,
+  ParticipationView,
+} from '@payetam/shared';
 
 /**
  * Maps participation to the wire shape.
@@ -22,6 +26,24 @@ export function toParticipationView(participation: ParticipationDetail): Partici
     cancellationBucket: participation.cancellationBucket,
     waitlistRank: participation.waitlistRank,
     chatPublicId: participation.chatPublicId,
+  };
+}
+
+/**
+ * The requester's own list entry: the same fields, plus the event they name.
+ *
+ * Field by field like its base, and for the same reason — `event` is narrowed to
+ * three columns here rather than passed through, so adding a column to `event`
+ * cannot widen this response.
+ */
+export function toMyParticipationView(participation: MyParticipation): MyParticipationView {
+  return {
+    ...toParticipationView(participation),
+    event: {
+      publicId: participation.event.publicId,
+      title: participation.event.title,
+      startsAt: participation.event.startsAt.toISOString(),
+    },
   };
 }
 

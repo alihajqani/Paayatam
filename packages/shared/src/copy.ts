@@ -1,3 +1,5 @@
+import type { ParticipantStatus } from './contracts/participation';
+
 /**
  * Sentences the product says in more than one place.
  *
@@ -41,3 +43,27 @@ export const EVENT_DISCLAIMER_FA =
 /** The one-line form, for a channel post and anywhere else space is the constraint. */
 export const EVENT_DISCLAIMER_SHORT_FA =
   '⚠️ پایه‌تَم مسئولیتی در قبال این فعالیت ندارد؛ لطفاً احتیاط کنید.';
+
+/**
+ * What each participation status is called, in Persian.
+ *
+ * Lived in `MyRequestsView.vue` alone until the bot needed to say the same nine
+ * things. Two copies of this map is two products: a request that reads «نوبت
+ * انتظار» on one surface and «در صف» on the other is the same request described
+ * differently, and the person reading both is the same person.
+ *
+ * Total over `ParticipantStatus` by type rather than by convention, so adding a
+ * status to the enum fails the build here instead of rendering a raw
+ * `CANCELLED_BY_HOST` at somebody.
+ */
+export const PARTICIPANT_STATUS_FA: Record<ParticipantStatus, string> = {
+  PENDING: 'در انتظار پاسخ میزبان',
+  WAITLISTED: 'نوبت انتظار',
+  ACCEPTED: 'پذیرفته شد',
+  REJECTED: 'رد شد',
+  EXPIRED: 'مهلت میزبان گذشت',
+  CANCELLED_BY_PARTICIPANT: 'شما لغو کردید',
+  CANCELLED_BY_HOST: 'میزبان لغو کرد',
+  COMPLETED: 'برگزار شد',
+  NO_SHOW: 'غایب ثبت شد',
+};

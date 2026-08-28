@@ -1,4 +1,5 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
+import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 
 /**
@@ -61,26 +62,4 @@ export function renderEventInvitation(content: EventInvitationContent): string {
     // not want these should not have to go looking for how to stop them.
     '<i>اگر نمی‌خواهید دعوت‌نامه دریافت کنید، از بخش ویرایش پروفایل آن را خاموش کنید.</i>',
   ].join('\n');
-}
-
-/**
- * The start time, in Tehran, in Persian digits.
- *
- * The same choice `channel.ts` makes and for the same reason: the database holds
- * UTC, the reader lives in Tehran (ADR-0008), and Gregorian is used here because
- * `Intl` has no Persian calendar formatter in every Node build — a wrong date in a
- * message is worse than a Gregorian one, and the Mini App renders Jalali properly.
- */
-function formatTehran(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Tehran',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
-
-  return toPersianDigits(parts);
 }

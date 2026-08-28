@@ -1,7 +1,7 @@
 export { AppError, ErrorCode, ERROR_MESSAGES_FA, isAppError } from './errors';
 export type { ErrorBody } from './errors';
 
-export { EVENT_DISCLAIMER_FA, EVENT_DISCLAIMER_SHORT_FA } from './copy';
+export { EVENT_DISCLAIMER_FA, EVENT_DISCLAIMER_SHORT_FA, PARTICIPANT_STATUS_FA } from './copy';
 
 export {
   telegramAuthRequest,
@@ -118,6 +118,7 @@ export type {
   CancellationBucket,
   CancelParticipationRequest,
   ParticipationView,
+  MyParticipationView,
   MyParticipationsResponse,
   ParticipantSummaryView,
   EventParticipantsResponse,

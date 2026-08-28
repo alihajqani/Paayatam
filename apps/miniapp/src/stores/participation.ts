@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type {
   CancellationPreviewResponse,
+  MyParticipationView,
   MyParticipationsResponse,
   ParticipationView,
 } from '@payetam/shared';
@@ -16,14 +17,27 @@ import { request } from '@/api/client';
  * predicting it from `remainingCapacity`. Predicting it would be wrong exactly when
  * it matters: two people tapping join on the last seat.
  */
+/**
+ * A list entry as the store holds it.
+ *
+ * **`event` is optional here and required on the wire, and the gap is real rather
+ * than defensive.** `loadMine` gets the title from the server; an entry inserted
+ * optimistically from a join response carries only what that response returned,
+ * and inventing a title for it would be a lie the UI then renders. The one
+ * consumer that runs before a reload is `liveFor`, which needs `status` and
+ * `eventPublicId` — never a title — and the screen that shows titles calls
+ * `loadMine` on mount.
+ */
+type StoredParticipation = ParticipationView & Partial<Pick<MyParticipationView, 'event'>>;
+
 export const useParticipationStore = defineStore('participation', () => {
-  const mine = ref<ParticipationView[]>([]);
+  const mine = ref<StoredParticipation[]>([]);
   const loading = ref(false);
   const joining = ref(false);
 
   /** Indexed by event, so a detail screen can ask "have I already asked?" in O(1). */
   const byEvent = computed(() => {
-    const map = new Map<string, ParticipationView>();
+    const map = new Map<string, StoredParticipation>();
     for (const participation of mine.value) map.set(participation.eventPublicId, participation);
     return map;
   });
@@ -31,7 +45,7 @@ export const useParticipationStore = defineStore('participation', () => {
   /** The states in which a request is still alive and a second one is meaningless. */
   const LIVE_STATUSES = new Set(['PENDING', 'WAITLISTED', 'ACCEPTED']);
 
-  function liveFor(eventPublicId: string): ParticipationView | null {
+  function liveFor(eventPublicId: string): StoredParticipation | null {
     const existing = byEvent.value.get(eventPublicId);
     return existing && LIVE_STATUSES.has(existing.status) ? existing : null;
   }
@@ -46,10 +60,18 @@ export const useParticipationStore = defineStore('participation', () => {
     }
   }
 
+  /**
+   * Merge rather than replace, so an action response does not erase the title the
+   * list already loaded — `participation` has no `event` key, so the spread keeps
+   * the one that is there.
+   */
   function remember(participation: ParticipationView): void {
     const index = mine.value.findIndex((existing) => existing.publicId === participation.publicId);
     if (index === -1) mine.value = [participation, ...mine.value];
-    else mine.value = mine.value.map((existing, at) => (at === index ? participation : existing));
+    else
+      mine.value = mine.value.map((existing, at) =>
+        at === index ? { ...existing, ...participation } : existing,
+      );
   }
 
   /**
