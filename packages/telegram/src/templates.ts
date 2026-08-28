@@ -1,5 +1,6 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { encodeChatCallback, isPublicId } from './callback-data';
+import { helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
   chatKeyboard,
@@ -393,10 +394,7 @@ export function render(
     case TEMPLATES.BOT_HELP:
       return opened(
         `<b>راهنما</b>\n\n` +
-          `<b>/balance</b> — موجودی سکه‌های شما\n` +
-          `<b>/requests</b> — درخواست‌هایی که داده‌اید\n` +
-          `<b>/myevents</b> — رویدادهایی که ساخته‌اید\n` +
-          `<b>/chats</b> — گفتگوهای باز شما\n` +
+          `${helpCommandLines()}\n` +
           `<b>/start</b> — بازگشت به ابتدا\n\n` +
           `<b>گفتگوها</b>\n` +
           `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +

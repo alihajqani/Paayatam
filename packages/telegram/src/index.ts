@@ -12,6 +12,8 @@ export { formatMyChats } from './chats-digest';
 export type { MyChatLine } from './chats-digest';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export type { DigestInput } from './digest';
+export { BOT_COMMANDS, helpCommandLines } from './commands';
+export type { BotCommand } from './commands';
 export { formatTehran } from './datetime';
 export type { EventInvitationContent } from './invitation';
 

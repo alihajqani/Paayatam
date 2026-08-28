@@ -618,6 +618,28 @@ Check what Telegram thinks:
 The script never prints the secret path — it is a credential, and printing it
 puts it in your scrollback.
 
+### The command menu
+
+The webhook is what lets the bot *hear*; `setMyCommands` is what lets anybody
+*find* what to say. Without it Telegram's "/" autocomplete and the blue Menu
+button are empty, and every command is invisible unless the user has already
+read `/help` — which they could only find by guessing.
+
+```bash
+pnpm set-bot-commands            # publish what BOT_COMMANDS says
+pnpm set-bot-commands --info     # read back what Telegram currently has
+```
+
+Run it **once per bot**, and again whenever `BOT_COMMANDS` changes. It is not a
+per-deploy step: the list is global to the token rather than to a deployment, so
+two environments sharing a token would overwrite each other on every restart —
+which is why this is a script rather than something the API does at boot.
+
+The list comes from `packages/telegram/src/commands.ts`, the same array `/help`
+renders from, so the menu and the help text cannot disagree. Telegram validates
+the whole array and rejects **all** of it for one bad entry; `commands.test.ts`
+checks the shape before it ever gets there.
+
 ---
 
 ## 13. Deploying again
