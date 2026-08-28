@@ -259,6 +259,10 @@ FROM nginx:alpine AS web
 COPY docker/nginx.conf              /etc/nginx/nginx.conf
 COPY docker/sites-available/        /etc/nginx/sites-available/
 COPY docker/sites-enabled/          /etc/nginx/sites-enabled/
+# Both site files `include` these; without them `nginx -t` fails and the container
+# never starts. Production bind-mounts all four paths over the baked copies, which
+# is what hid the omission — the image alone could not run nginx.
+COPY docker/snippets/               /etc/nginx/snippets/
 
 COPY --from=build /app/apps/miniapp/dist /srv/www/miniapp
 COPY --from=build /app/apps/admin/dist   /srv/www/admin
