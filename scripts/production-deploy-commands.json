@@ -1,0 +1,67 @@
+{
+  "release": "v0.4.0",
+  "status": "PROPOSED — not executed",
+  "commit": "18fb67a",
+  "branch": "feature/bot-commands",
+  "summary": "Conversation wizards (ADR-0017): /create_event, /edit_event, /edit_profile, the consent gate and /terms. The bot's policy gate, which AuthGuard never applied to it.",
+  "verified_locally": {
+    "typecheck": "pass",
+    "lint": "pass",
+    "format": "pass",
+    "unit_component": "1309/1309 in 76 files",
+    "integration_real_postgres": "1363/1363 in 49 files",
+    "docker_targets": "api, worker, web all build",
+    "jalali_in_shipped_image": "fa-IR-u-ca-persian verified inside payetam/api"
+  },
+  "blocked_on_human_decision": [
+    "Merging feature/bot-commands to master",
+    "Retiring the Mini App in production (see mini_app_retirement below)",
+    "Running the deploy against a live server with real users"
+  ],
+  "commands": {
+    "1_merge": [
+      "git checkout master",
+      "git merge --no-ff feature/bot-commands -m 'v0.4.0 — conversation wizards and the bot consent gate'",
+      "git push origin master"
+    ],
+    "2_tag": [
+      "git tag -a v0.4.0 <merge-commit> -m 'v0.4.0 — conversation wizards, consent gate, /edit_event'",
+      "git push origin v0.4.0"
+    ],
+    "3_deploy": [
+      "ssh root@95.182.87.95 \"cd /srv/payetam && git fetch --tags\"",
+      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/deploy.sh v0.4.0 --no-pull\""
+    ],
+    "4_publish_command_menu": [
+      "ssh root@95.182.87.95 \"cd /srv/payetam && pnpm set-bot-commands\"",
+      "ssh root@95.182.87.95 \"cd /srv/payetam && pnpm set-bot-commands --info\""
+    ],
+    "5_verify": [
+      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/compose.sh ps\"",
+      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/smoke-tests.sh\"",
+      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/set-webhook.sh --info\""
+    ],
+    "6_rollback_if_needed": [
+      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/rollback.sh\"",
+      "ssh root@95.182.87.95 \"cd /srv/payetam && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env && ./scripts/compose.sh restart api\""
+    ]
+  },
+  "notes": {
+    "no_pull": "deploy.sh --no-pull builds images on the server from the checked-out tag rather than pulling from a registry, which is how v0.3.0 and v0.3.1 were deployed.",
+    "migration": "0025_conversation_state. Additive only — one enum, one table, two indexes. The previous release runs unchanged against the new schema, so the deploy is reversible without a down migration.",
+    "feature_flag": "ENABLE_CONVERSATION_WIZARD defaults on. Setting it to 0 and restarting the API reverts the bot to read-only without discarding drafts in flight. This is the fast lever; rollback.sh is the slow one.",
+    "command_menu": "setMyCommands is global to the bot token, not per deployment. Run it once after the deploy, not on every deploy.",
+    "backups": "conversation_state is covered by the existing dump; there is no table list to update."
+  },
+  "mini_app_retirement": {
+    "status": "NOT INCLUDED IN THIS RELEASE — two blockers found",
+    "blocker_1_vhost": "docker/sites-available/app.paayatam.online.conf serves the Mini App static files AND /api/, /telegram/webhook/ and /health from the same server block. Removing the block would take the bot offline. Retirement means deleting only the static locations (root, /assets/, = /index.html and the SPA fallback) and keeping every proxy_pass — a surgical edit, not a service removal.",
+    "blocker_2_deep_links": "20 templates render a «باز کردن برنامه» button built by openAppButton, plus the channel post and the invitation renderer. If the Mini App stops being served, every one of those buttons 404s. Retiring the app is therefore a code change across the template catalogue, not a config change.",
+    "recommended_order": [
+      "Ship v0.4.0 with the Mini App still served, so the wizards get real use while the app is still there as a fallback",
+      "Remove or repoint the openAppButton deep links in packages/telegram",
+      "Strip the static locations from the app vhost, keeping the API and webhook locations",
+      "Deploy that as a separate release, which is then rollback-able on its own"
+    ]
+  }
+}
