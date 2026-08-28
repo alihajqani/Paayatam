@@ -55,7 +55,7 @@ over the same services. That is what stops the bot and the Mini App from driftin
 apart — treat it as an invariant, not a preference.
 
 Scale: 51 Prisma models · 24 migrations · 15 API controllers · 42 domain services
-· 19 domain modules · 15 Mini App views · 1151 unit/component tests.
+· 19 domain modules · 15 Mini App views · 1195 unit/component tests.
 
 ## 4. The twelve invariants
 
@@ -107,12 +107,12 @@ below, re-verified after the bot-command work:
 | `pnpm -w typecheck` | PASS |
 | `eslint .` | PASS |
 | `prettier --check .` | PASS |
-| unit + miniapp + admin | **1151/1151** in 65 files (13 s) |
-| **integration** (real Postgres) | **1313/1313** in 48 files (30 min) |
+| unit + miniapp + admin | **1195/1195** in 68 files (16 s) |
+| **integration** (real Postgres) | **1330/1330** in 48 files (30 min) |
 | **Docker production build** | api, worker, web all built |
 | **nginx config validation** | syntax ok, test successful |
 
-**2420 tests green in total.** The integration run's `ERROR`/`WARN` log lines are
+**2525 tests green in total.** The integration run's `ERROR`/`WARN` log lines are
 negative-path assertions (an invalid blacklist regex, a refused Redis connection,
 a campaign paused on repeated rate limits), not failures.
 
