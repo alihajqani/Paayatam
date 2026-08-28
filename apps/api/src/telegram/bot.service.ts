@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { Env } from '@payetam/config';
 import {
   CatalogService,
   ChatService,
@@ -25,6 +26,7 @@ import {
   UserService,
 } from '@payetam/domain';
 import {
+  ENV,
   JOBS,
   QUEUES,
   QueueService,
@@ -118,6 +120,7 @@ export class BotService {
     private readonly reviews: ReviewService,
     private readonly conversations: ConversationService,
     private readonly catalog: CatalogService,
+    @Inject(ENV) private readonly env: Env,
     private readonly referrals: ReferralService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
@@ -387,6 +390,7 @@ export class BotService {
        */
       case 'create_event':
       case 'newevent': {
+        if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
         const outcome = await this.conversations.start(user.id, 'CREATE_EVENT', updateId);
         return this.drawWizard(updateId, user, outcome);
       }
@@ -397,6 +401,7 @@ export class BotService {
        * so this has to work before the Mini App can be switched off.
        */
       case 'edit_profile': {
+        if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
         const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
         return this.drawWizard(updateId, user, outcome);
       }
@@ -480,11 +485,13 @@ export class BotService {
      * warns about. `handle` returns null when there is no wizard, which is how
      * the two cases are told apart rather than guessed between.
      */
-    const wizard = await this.conversations.handle(user.id, updateId, {
-      kind: 'text',
-      value: message.text,
-    });
-    if (wizard !== null) return this.drawWizard(updateId, user, wizard);
+    if (this.env.ENABLE_CONVERSATION_WIZARD) {
+      const wizard = await this.conversations.handle(user.id, updateId, {
+        kind: 'text',
+        value: message.text,
+      });
+      if (wizard !== null) return this.drawWizard(updateId, user, wizard);
+    }
 
     // The same bucket the Mini App's send spends from, keyed on the same subject: a
     // limit enforced on one of two surfaces is not a limit (T12).
@@ -567,7 +574,7 @@ export class BotService {
      * answered as a stale button, which is what it is: the form it belonged to
      * has been submitted, cancelled, or swept.
      */
-    const wizardCallback = parseWizardCallback(data);
+    const wizardCallback = this.env.ENABLE_CONVERSATION_WIZARD ? parseWizardCallback(data) : null;
     if (wizardCallback !== null) {
       const input: WizardInput = {
         kind: 'callback',
@@ -657,6 +664,23 @@ export class BotService {
   }
 
   // ── conversation wizards (ADR-0017) ─────────────────────────────────────────
+
+  /**
+   * The wizards are switched off (`ENABLE_CONVERSATION_WIZARD=0`).
+   *
+   * The bot is read-only again, which is what it was for its whole life until
+   * ADR-0017 — so the honest answer is the one `/help` used to give: the form is
+   * in the app. Drafts already in `conversation_state` are untouched and resume
+   * if the flag goes back on, which is what makes turning it off something
+   * somebody will actually do during an incident.
+   */
+  private async wizardsOff(updateId: number, user: BotUser): Promise<void> {
+    await this.notice(
+      updateId,
+      user,
+      'این بخش موقتاً در دسترس نیست. فعلاً از برنامه استفاده کنید.',
+    );
+  }
 
   /**
    * Draw whatever the conversation store says comes next.

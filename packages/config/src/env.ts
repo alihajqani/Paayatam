@@ -180,6 +180,25 @@ export const envSchema = z
      */
     MONITORING_ENABLED: booleanFlag.default(true),
     /**
+     * Whether the bot's conversation wizards are open for business (ADR-0017).
+     *
+     * The rollback lever for the largest behavioural change the bot has had. Off,
+     * `/create_event` and `/edit_profile` answer with the sentence that names the
+     * Mini App, and the bot is read-only again — which is what it was for its
+     * whole life until this release.
+     *
+     * **It does not delete anything.** Drafts already in flight stay in
+     * `conversation_state` and resume when the flag goes back on, because a flag
+     * that discarded them would make turning it off destructive and therefore
+     * something nobody does in an incident. They expire on their own seven-day
+     * clock if the flag stays off.
+     *
+     * Defaults **on**: the flag exists to be turned off in a hurry, and a
+     * rollback lever that has to be switched on to have any effect is one that is
+     * discovered to be unset during the incident it was built for.
+     */
+    ENABLE_CONVERSATION_WIZARD: booleanFlag.default(true),
+    /**
      * The floor on what reaches Telegram.
      *
      * `warn` by default, so an informational line stays in the structured log
