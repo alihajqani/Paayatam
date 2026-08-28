@@ -190,7 +190,46 @@ Reach for these before writing a new one:
 | State transitions + audit | `packages/domain/src/state-machine.ts` |
 | Idempotency for paid actions | `Idempotency-Key`, see economy module |
 
-## 10. Open operational items
+## 10. The bot surface, and where it stops
+
+The bot is **deliberately stateless**. `packages/telegram/src/update.ts` classifies
+an update into five intents (`START`, `COMMAND`, `TEXT`, `EDITED_TEXT`,
+`UNSUPPORTED`, plus `BLOCK_CHANGED`/`CALLBACK`), and `BotService` holds no per-user
+conversation state at all. There is nowhere for a half-typed event to live — which
+is exactly what makes a redelivered Telegram update idempotent.
+
+`BotService` obeys three rules, all load-bearing:
+
+1. **It calls the same domain services the Mini App calls.** No rule about who may
+   accept a request lives in the bot. A rule enforced on one surface protects one
+   surface.
+2. **It never calls Telegram.** Every reply is a `notification` row plus an enqueue
+   (invariant 11). A direct send would also bypass the global rate limiter.
+3. **A reply is a row, not a fire-and-forget send** — deduped by a UNIQUE index on
+   a key derived from Telegram's `update_id`.
+
+**Adding a read-only command** (the `/help`, `/balance` pattern, `feature/bot-commands`):
+
+- add the key + render case in `packages/telegram/src/templates.ts`
+- dispatch it in `BotService.onCommand`
+- `update.ts` needs **no change** — it already parses any `/command` into
+  `{ kind: 'COMMAND', command }`
+- test through the webhook, not against the service: what matters is the one
+  deduped notification row, and a service-level test asserts the call instead
+- the totality test over `Object.values(TEMPLATES)` in `escape.test.ts` picks up
+  new templates automatically
+
+**Where the bot stops.** Single-turn, read-mostly work belongs in the bot; anything
+with a form belongs in the Mini App, and `/help` says so rather than failing
+silently. The form-heavy views are not stylistic preferences — `CreateEventView`
+alone is 16 fields with three dependent selects (province → city → district over
+1252 cities), two datetimes, and conditional validation (`costAmount` required for
+FIXED/APPROX and forbidden for FREE/SPLIT; `maxAge >= minAge`). Expressing that as
+a conversation means inventing a persisted multi-step wizard, which is a new
+architecture, not a refactor — and ADR-0003 froze the Vue + Telegram Design System
+choice.
+
+## 11. Open operational items
 
 From `.claude-work-checkpoint.md` §2 — none blocking, all worth knowing:
 
