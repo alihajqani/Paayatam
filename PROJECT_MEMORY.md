@@ -285,7 +285,24 @@ people who could tap it.
 
 **Where the bot stops.** Single-turn, read-mostly work belongs in the bot; anything
 with a form belongs in the Mini App, and `/help` says so rather than failing
-silently. The form-heavy views are not stylistic preferences — `CreateEventView`
+silently.
+
+Every read-mostly Mini App view now has a command: `DiscoverView` → `/discover`,
+`ChatsView` → `/chats`, `ReviewsView` → `/reviews` (the *pending* half — a
+received review keeps, a pending one expires), `ProfileView` → `/profile`,
+`WalletView` → `/balance`, `MyEventsView` → `/myevents`, `MyRequestsView` →
+`/requests`. What is left in the app is what has a form in it —
+`CreateEventView`, `EditEventView`, `EditProfileView`, `TermsView`,
+`JoinChannelsView` — plus the ranked and filterable half of discovery. That is
+the boundary, and it is where it is for the reason below, not because nobody got
+to those views.
+
+`/discover` is the shape to copy for a read command over a filtered list: it
+takes **no arguments**, deriving the one filter it uses (the city) from the
+caller's profile, and leaves the other thirteen to the Mini App behind the
+button. An argument would mean holding a half-built query between two updates.
+
+The form-heavy views are not stylistic preferences — `CreateEventView`
 alone is 16 fields with three dependent selects (province → city → district over
 1252 cities), two datetimes, and conditional validation (`costAmount` required for
 FIXED/APPROX and forbidden for FREE/SPLIT; `maxAge >= minAge`). Expressing that as
