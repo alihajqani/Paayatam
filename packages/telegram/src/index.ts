@@ -8,6 +8,10 @@ export { formatMyRequests } from './requests';
 export type { MyRequestLine } from './requests';
 export { formatMyEvents } from './events-digest';
 export type { MyEventLine } from './events-digest';
+export { formatMyChats } from './chats-digest';
+export type { MyChatLine } from './chats-digest';
+export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
+export type { DigestInput } from './digest';
 export { formatTehran } from './datetime';
 export type { EventInvitationContent } from './invitation';
 

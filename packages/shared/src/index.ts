@@ -2,6 +2,7 @@ export { AppError, ErrorCode, ERROR_MESSAGES_FA, isAppError } from './errors';
 export type { ErrorBody } from './errors';
 
 export {
+  CHAT_STATUS_FA,
   EVENT_DISCLAIMER_FA,
   EVENT_DISCLAIMER_SHORT_FA,
   EVENT_STATUS_FA,

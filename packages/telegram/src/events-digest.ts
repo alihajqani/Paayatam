@@ -1,5 +1,6 @@
 import { EVENT_STATUS_FA, type EventStatus } from '@payetam/shared';
 import { formatTehran } from './datetime';
+import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
 
 /** One line of the host's digest: the event, when it is, and how full it is. */
@@ -23,11 +24,7 @@ export interface MyEventLine {
  * because a notification payload holds scalars.
  */
 export function formatMyEvents(lines: readonly MyEventLine[]): string {
-  if (lines.length === 0) {
-    return `<b>رویدادهای شما</b>\n\n` + `هنوز رویدادی نساخته‌اید.`;
-  }
-
-  const rendered = lines.map((line) => {
+  const entries = lines.map((line) => {
     const seats = `${toPersianDigits(String(line.acceptedCount))} از ${toPersianDigits(
       String(line.capacity),
     )}`;
@@ -39,5 +36,9 @@ export function formatMyEvents(lines: readonly MyEventLine[]): string {
     );
   });
 
-  return `<b>رویدادهای شما</b>\n\n${rendered.join('\n\n')}`;
+  return buildDigest({
+    title: 'رویدادهای شما',
+    empty: 'هنوز رویدادی نساخته‌اید.',
+    entries,
+  });
 }

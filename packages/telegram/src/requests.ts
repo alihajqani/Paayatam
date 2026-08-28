@@ -1,5 +1,6 @@
 import { PARTICIPANT_STATUS_GUEST_FA, type ParticipantStatus } from '@payetam/shared';
 import { formatTehran } from './datetime';
+import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
 
 /** One line of the digest: the event, when it is, and where the request stands. */
@@ -28,11 +29,7 @@ export interface MyRequestLine {
  * HTML-parse-mode message.
  */
 export function formatMyRequests(lines: readonly MyRequestLine[]): string {
-  if (lines.length === 0) {
-    return `<b>درخواست‌های شما</b>\n\n` + `هنوز درخواستی نداده‌اید. از «دیدن رویدادها» شروع کنید.`;
-  }
-
-  const rendered = lines.map((line) => {
+  const entries = lines.map((line) => {
     const rank =
       line.status === 'WAITLISTED' && line.waitlistRank !== null
         ? ` (نفر ${toPersianDigits(String(line.waitlistRank))})`
@@ -45,5 +42,9 @@ export function formatMyRequests(lines: readonly MyRequestLine[]): string {
     );
   });
 
-  return `<b>درخواست‌های شما</b>\n\n${rendered.join('\n\n')}`;
+  return buildDigest({
+    title: 'درخواست‌های شما',
+    empty: 'هنوز درخواستی نداده‌اید. از «دیدن رویدادها» شروع کنید.',
+    entries,
+  });
 }

@@ -68,6 +68,8 @@ export const TEMPLATES = {
   BOT_REQUESTS: 'bot.requests',
   /** `/myevents` — what the sender is hosting, and how full each one is. */
   BOT_MY_EVENTS: 'bot.my_events',
+  /** `/chats` — which conversations are open, and who is waiting for a reply. */
+  BOT_CHATS: 'bot.chats',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -394,10 +396,12 @@ export function render(
           `<b>/balance</b> — موجودی سکه‌های شما\n` +
           `<b>/requests</b> — درخواست‌هایی که داده‌اید\n` +
           `<b>/myevents</b> — رویدادهایی که ساخته‌اید\n` +
+          `<b>/chats</b> — گفتگوهای باز شما\n` +
           `<b>/start</b> — بازگشت به ابتدا\n\n` +
           `<b>گفتگوها</b>\n` +
           `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
-          `اگر فقط یک گفتگوی باز دارید، نوشتن پیام کافی است.\n\n` +
+          `اگر فقط یک گفتگوی باز دارید، نوشتن پیام کافی است. ` +
+          `برای دیدن اینکه چه گفتگوهایی باز است، /chats را بفرستید.\n\n` +
           `<b>درخواست‌ها</b>\n` +
           `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
           `لازم نیست چیزی را باز کنید.\n\n` +
@@ -431,6 +435,17 @@ export function render(
     /** `/myevents` — the host's digest, built by `formatMyEvents`. */
     case TEMPLATES.BOT_MY_EVENTS:
       return opened(str(payload, 'text'), `my-events`, botUsername);
+
+    /**
+     * `/chats` — the conversation digest, built by `formatMyChats`.
+     *
+     * `chats` is already in the Mini App's `DEEP_LINKS` allowlist, so the button
+     * lands on the conversation list rather than the splash. Adding a template
+     * whose target is *not* in that allowlist is the failure this pairing exists
+     * to prevent — see `deepLinkTarget()`.
+     */
+    case TEMPLATES.BOT_CHATS:
+      return opened(str(payload, 'text'), `chats`, botUsername);
 
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { CHAT_STATUS_FA } from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import ReportDialog from '@/components/ReportDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
@@ -41,12 +42,6 @@ const state = computed(() => {
   if (chats.chats.length === 0) return 'empty' as const;
   return 'ready' as const;
 });
-
-const STATUS_FA: Record<string, string> = {
-  OPEN: 'باز',
-  CLOSED: 'بسته‌شده',
-  EXPIRED: 'منقضی',
-};
 
 async function load(): Promise<void> {
   error.value = null;
@@ -164,7 +159,7 @@ onMounted(load);
           <!-- Said once per row, next to the name it is about (ADR-0014). -->
           <p class="text-xs text-tg-hint">{{ CHAT_NAME_DISCLOSURE_FA }}</p>
           <p class="text-xs text-tg-hint">
-            {{ STATUS_FA[chat.status] ?? chat.status }}
+            {{ CHAT_STATUS_FA[chat.status] }}
             <template v-if="chat.lastMessageAt">
               · آخرین پیام {{ formatRelative(chat.lastMessageAt) }}
             </template>

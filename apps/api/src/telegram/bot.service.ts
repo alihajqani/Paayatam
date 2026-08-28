@@ -19,6 +19,7 @@ import {
 import { AppError, ERROR_MESSAGES_FA, ErrorCode } from '@payetam/shared';
 import {
   TEMPLATES,
+  formatMyChats,
   formatMyEvents,
   formatMyRequests,
   parseChatCallback,
@@ -218,6 +219,32 @@ export class BotService {
           })),
         );
         return this.reply(updateId, user.id, TEMPLATES.BOT_MY_EVENTS, { text });
+      }
+
+      /**
+       * `/chats` — the other half of the advice `ambiguityAdvice` already gives.
+       *
+       * The relay tells somebody with two live chats to press *reply* on the
+       * message from the person they mean. That assumed they could see which
+       * conversations were open and find a message from each — and the only way
+       * to find out was to open the Mini App, which is the trip the bot exists
+       * to save.
+       *
+       * `listForUser` is the same read `ChatsView` performs, sorted by the same
+       * recency, so the two surfaces answer this question identically rather
+       * than similarly.
+       */
+      case 'chats': {
+        const mine = await this.chats.listForUser(user.id);
+        const text = formatMyChats(
+          mine.map((chat) => ({
+            counterpartName: chat.counterpartName,
+            eventTitle: chat.eventTitle,
+            status: chat.status,
+            unreadCount: chat.unreadCount,
+          })),
+        );
+        return this.reply(updateId, user.id, TEMPLATES.BOT_CHATS, { text });
       }
 
       default:
@@ -514,7 +541,7 @@ export class BotService {
 
     return live.length === 0
       ? 'گفتگوی بازی ندارید. از برنامه یک فعالیت انتخاب کنید و درخواست پیوستن بفرستید.'
-      : 'چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است.';
+      : 'چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. برای دیدن فهرست گفتگوها /chats را بفرستید.';
   }
 }
 

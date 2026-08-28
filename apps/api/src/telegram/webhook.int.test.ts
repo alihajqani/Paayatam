@@ -477,6 +477,67 @@ describe('commands', () => {
     expect(String((row.payload as Record<string, unknown>)['text'])).toContain(event.title);
   });
 
+  it('answers /chats with nothing open yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/chats') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CHATS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('گفتگوی بازی ندارید');
+  });
+
+  /**
+   * The command's reason for existing: `ambiguityAdvice` tells somebody with two
+   * live chats to reply to the right message, which assumed they could see which
+   * conversations those were without opening the Mini App.
+   */
+  it('names the counterpart and the event for each open conversation', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/chats') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CHATS },
+      select: { payload: true },
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { title: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    expect(text).toContain(event.title);
+    // The host's display name, which ADR-0014 already discloses on both surfaces.
+    expect(text).toContain('میزبان');
+  });
+
+  /**
+   * A live conversation is `ANONYMOUS` until contact is shared, and that is the
+   * status most rows carry. It must read as Persian, not as the enum.
+   */
+  it('renders an anonymous conversation in Persian, not as ANONYMOUS', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/chats') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CHATS },
+      select: { payload: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    expect(text).toContain('ناشناس');
+    expect(text).not.toContain('ANONYMOUS');
+  });
+
   /** A command is a command, not chat text: it is never relayed to a stranger. */
   it('does not relay a command into an open conversation', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));

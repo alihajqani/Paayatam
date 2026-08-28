@@ -1,3 +1,4 @@
+import type { ChatStatus } from './contracts/chat';
 import type { EventStatus } from './contracts/events';
 import type { ParticipantStatus } from './contracts/participation';
 
@@ -108,4 +109,34 @@ export const EVENT_STATUS_FA: Record<EventStatus, string> = {
   COMPLETED: 'برگزار شده',
   EXPIRED: 'منقضی',
   DELETED: 'حذف شده',
+};
+
+/**
+ * Every chat status, in Persian.
+ *
+ * One map, like `EVENT_STATUS_FA` and unlike the two participant maps: a
+ * conversation's status is a fact about the conversation rather than a
+ * relationship between the two people in it, so «ناشناس» reads the same to the
+ * host and to the guest. What differs between them — who may still write, whose
+ * contact details are out — is carried by `contactShared` beside it, not by this
+ * label.
+ *
+ * ── Why it is `Record<ChatStatus, string>` ───────────────────────────────────
+ *
+ * `ChatsView` held a `Record<string, string>` with three keys — `OPEN`,
+ * `CLOSED`, `EXPIRED` — and fell back to `?? chat.status`. Two of the four real
+ * statuses were missing and the third key is not a `ChatStatus` at all, so a
+ * Persian RTL screen rendered the Latin word `ANONYMOUS` for what is the *usual*
+ * state of a live conversation, and `BLOCKED` for the one place a clear sentence
+ * matters most. `listForUser` filters by nothing, so both were reachable by
+ * anybody with an open chat.
+ *
+ * Typing it over the enum is the fix that stays fixed: a fifth status fails the
+ * build here instead of appearing untranslated at a user.
+ */
+export const CHAT_STATUS_FA: Record<ChatStatus, string> = {
+  ANONYMOUS: 'ناشناس',
+  OPEN: 'باز',
+  CLOSED: 'بسته‌شده',
+  BLOCKED: 'مسدود',
 };
