@@ -132,6 +132,36 @@ export class NotificationService {
    * Returns null for a reply to something that is not a relayed message — a
    * welcome, a review reminder, or a message the user wrote themselves.
    */
+  /**
+   * Where to reach a user on Telegram, for a send that is not a notification.
+   *
+   * ── Why this is here and not in the job payload ─────────────────────────────
+   *
+   * A wizard redraw (ADR-0017) is addressed by `(chat_id, message_id)`, and the
+   * obvious shortcut is to put the chat id in the job. That would make Redis the
+   * one place outside `identity` holding a `telegram_user_id`, which invariant 7
+   * exists to prevent — and it would be the only such place, so nothing else
+   * would ever remind anybody it was there.
+   *
+   * Instead the job carries the internal `user_id` and the worker resolves it
+   * here at delivery, which is exactly what `load` already does for every
+   * notification. Same rule, same module, one resolution path.
+   *
+   * `botBlocked` comes back with it because the caller must not send to somebody
+   * who has blocked the bot: retrying burns rate budget other users need.
+   */
+  async telegramTargetFor(
+    userId: string,
+  ): Promise<{ telegramUserId: bigint; botBlocked: boolean } | null> {
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { userId },
+      select: { telegramUserId: true, botBlocked: true },
+    });
+    return account === null
+      ? null
+      : { telegramUserId: account.telegramUserId, botBlocked: account.botBlocked };
+  }
+
   async chatOfDeliveredMessage(userId: string, telegramMessageId: number): Promise<string | null> {
     const row = await this.prisma.notification.findFirst({
       where: { userId, telegramMessageId },

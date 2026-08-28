@@ -1258,3 +1258,149 @@ async function internalIdOf(telegramUserId: number): Promise<string> {
   });
   return account.userId;
 }
+
+/**
+ * `/create_event`, from the first question to a row in `event` (ADR-0017).
+ *
+ * The end-to-end test the brief asked for, and it is written through the webhook
+ * rather than against `ConversationService` on purpose: what is being checked is
+ * that a *Telegram update* reaches the wizard, that its buttons decode, that the
+ * assembled form satisfies the same contract the API uses, and that an event
+ * comes out the other end. A service-level test would prove none of the wiring.
+ */
+describe('POST /telegram/:secret — creating an event in the chat', () => {
+  /**
+   * The shared fixture's cities have no province, because nothing needed one
+   * until the wizard asked. Added here rather than in `seedCatalog` so no other
+   * suite's expectations move.
+   */
+  async function seedProvince(): Promise<string> {
+    const province = await prisma.province.create({
+      data: { slug: 'tehran-province', nameFa: 'تهران', isActive: true },
+    });
+    await prisma.city.update({
+      where: { id: fixture.tehranId },
+      data: { provinceId: province.id },
+    });
+    return province.id;
+  }
+
+  /** The next `update_id`, so every step is a distinct update as Telegram sends them. */
+  let sequence = 5000;
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  it('walks the core path and creates the event', async () => {
+    const provinceId = await seedProvince();
+    const hostId = await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    // Creating an event costs `economy.event_create_coins` (M22 phase 5), charged
+    // inside the same transaction. The wizard does not change that, and a host
+    // who cannot afford it is refused here exactly as they would be in the app.
+    await prisma.coinAccount.upsert({
+      where: { userId: hostId },
+      create: { userId: hostId, balance: 100 },
+      update: { balance: 100 },
+    });
+
+    await type(HOST_TELEGRAM_ID, '/create_event');
+    await type(HOST_TELEGRAM_ID, 'کوهنوردی صبح جمعه');
+    await type(HOST_TELEGRAM_ID, 'از دربند تا شیرپلا، صبح زود راه می‌افتیم.');
+    await tap(HOST_TELEGRAM_ID, `wz:cat:${fixture.categoryId}`);
+    await tap(HOST_TELEGRAM_ID, `wz:prov:${provinceId}`);
+    await tap(HOST_TELEGRAM_ID, `wz:city:${fixture.tehranId}`);
+    await tap(HOST_TELEGRAM_ID, 'wz:skip:');
+
+    // Far enough ahead that the calendar would have offered it.
+    const day = new Date(Date.now() + 21 * 86_400_000).toISOString().slice(0, 10);
+    await tap(HOST_TELEGRAM_ID, `wz:day:${day}`);
+    await tap(HOST_TELEGRAM_ID, 'wz:hour:18');
+    await tap(HOST_TELEGRAM_ID, 'wz:dur:3');
+    await tap(HOST_TELEGRAM_ID, 'wz:cap:6');
+    await tap(HOST_TELEGRAM_ID, 'wz:cost:FREE');
+
+    // Everything required is answered: the summary is showing, and «ثبت» commits.
+    await tap(HOST_TELEGRAM_ID, 'wz:confirm:');
+
+    const event = await prisma.event.findFirstOrThrow({
+      where: { hostUserId: hostId },
+      select: { title: true, capacity: true, costType: true, cityId: true, startsAt: true },
+    });
+    expect(event.title).toBe('کوهنوردی صبح جمعه');
+    expect(event.capacity).toBe(6);
+    expect(event.costType).toBe('FREE');
+    expect(event.cityId).toBe(fixture.tehranId);
+
+    // 18:00 Tehran is 14:30 UTC. The wizard commits an instant, not a wall clock.
+    expect(event.startsAt.toISOString()).toContain('T14:30:00');
+
+    // The draft is gone: a submitted form is not a form in progress.
+    expect(await prisma.conversationState.count({ where: { userId: hostId } })).toBe(0);
+  });
+
+  /** A refusal holds the step; it does not advance past the question. */
+  it('refuses a title that is too short and stays on the step', async () => {
+    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await type(HOST_TELEGRAM_ID, '/create_event');
+    await type(HOST_TELEGRAM_ID, 'ab');
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.step).toBe('title');
+  });
+
+  /**
+   * The ordering that matters most in the whole wiring: text typed into an open
+   * wizard is an *answer*, never a message relayed to a stranger.
+   */
+  it('does not relay wizard text into an open chat', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await type(GUEST_TELEGRAM_ID, 'این نام فعالیت است، نه پیام');
+
+    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
+  });
+
+  /** Telegram retries any webhook call that did not answer 200. */
+  it('does not advance twice on a redelivered update', async () => {
+    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await type(HOST_TELEGRAM_ID, '/create_event');
+
+    const replayed = update({
+      update_id: 9001,
+      message: textMessage(sender(HOST_TELEGRAM_ID), 'کوهنوردی صبح جمعه'),
+    });
+    await post(replayed);
+    await post(replayed);
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    // One advance, not two: still on the description, not past it.
+    expect(state.step).toBe('desc');
+  });
+
+  it('closes the form on «انصراف»', async () => {
+    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await type(HOST_TELEGRAM_ID, '/create_event');
+    await tap(HOST_TELEGRAM_ID, 'wz:cancel:');
+
+    expect(await prisma.conversationState.count()).toBe(0);
+  });
+});

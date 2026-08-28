@@ -77,6 +77,21 @@ export const TEMPLATES = {
   BOT_DISCOVER: 'bot.discover',
   /** `/reviews` — the reviews the sender still owes, and when they expire. */
   BOT_REVIEWS: 'bot.reviews',
+  /**
+   * A conversation wizard's screen (ADR-0017).
+   *
+   * A passthrough, like `BOT_NOTICE`: the body and the keyboard are built by
+   * `renderStep` and `renderSummary`, which know the step. A template per step
+   * would be a second copy of the wizard definition, and the copy is the one
+   * that falls behind.
+   *
+   * Only the **first** screen is a notification. Every screen after it is an
+   * `editMessageText` job on the same message, which is what makes a wizard a
+   * screen rather than a transcript.
+   */
+  BOT_WIZARD: 'bot.wizard',
+  /** The event exists. Said once, with the way to open it. */
+  BOT_EVENT_CREATED: 'bot.event_created',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -499,6 +514,30 @@ export function render(
         botUsername,
       );
 
+    /**
+     * A wizard screen. The keyboard arrives already built, as JSON.
+     *
+     * Parsed rather than reconstructed because `renderStep` has already decided
+     * the layout — which page of cities, which month, whether «بازگشت» applies —
+     * and none of that is recoverable from a payload of scalars. A malformed one
+     * degrades to a message with no buttons rather than throwing inside `render`,
+     * which would fail the send job and then every retry of it.
+     */
+    case TEMPLATES.BOT_WIZARD: {
+      const keyboard = parseKeyboard(payload);
+      return { text: str(payload, 'text'), ...(keyboard !== undefined ? { keyboard } : {}) };
+    }
+
+    /** The event exists, and here is the way to it. */
+    case TEMPLATES.BOT_EVENT_CREATED:
+      return opened(
+        `<b>فعالیت ثبت شد</b> ✅\n\n` +
+          `«${str(payload, 'title')}» ساخته شد. ` +
+          `از «رویدادهای من» می‌توانید درخواست‌ها را ببینید و پاسخ بدهید.`,
+        `my-events`,
+        botUsername,
+      );
+
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:
       return { text: str(payload, 'text') };
@@ -528,6 +567,26 @@ export function render(
  * pending requests for every event the caller hosts.
  */
 const HOST_DECISION_SCREEN = 'my-events';
+
+/**
+ * A keyboard a caller already built, carried through the payload as JSON.
+ *
+ * Undefined on anything unreadable. A notification payload is jsonb and this is
+ * the one template whose buttons are not derivable from its scalars, so the
+ * choice is between carrying them and rebuilding the wizard's layout decisions
+ * inside the renderer — which would be the wizard, twice.
+ */
+function parseKeyboard(payload: Payload): InlineKeyboard | undefined {
+  const raw = payload['keyboard'];
+  if (typeof raw !== 'string') return undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as InlineKeyboard) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** A message whose only action is "open the app". */
 function opened(text: string, deepLink: string, botUsername: string): RenderedMessage {

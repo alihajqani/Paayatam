@@ -294,26 +294,28 @@ export class Processors implements OnModuleInit {
    * that already has both. A wizard that dead-ends because somebody tidied their
    * chat is a form they can neither finish nor restart.
    *
-   * The chat id in this payload is the one Telegram identifier that reaches Redis
-   * (see `JOBS.BOT_EDIT_MESSAGE`). It is never logged: the messages below name the
-   * outcome and nothing else, which is invariant 7 applied to a log line rather
-   * than to a response body.
+   * The payload carries the internal `user_id`; the chat id is resolved here, so
+   * no Telegram identifier is ever written to Redis (invariant 7). Nothing below
+   * logs one either — the messages name an outcome and nothing else.
    */
   private async onEditMessage(job: Job): Promise<void> {
     const data = job.data as {
-      chatId?: string;
       messageId?: number;
       userId?: string;
       text?: string;
       keyboard?: InlineKeyboard;
     };
-    if (data.chatId === undefined || data.messageId === undefined || data.text === undefined) {
+    if (data.userId === undefined || data.messageId === undefined || data.text === undefined) {
       return;
     }
 
-    const chatId = BigInt(data.chatId);
+    const target = await this.notifications.telegramTargetFor(data.userId);
+    // No account, or the bot is blocked: there is nobody to redraw for, and
+    // retrying would burn rate budget other users' notifications need.
+    if (target === null || target.botBlocked) return;
+
     const outcome = await this.telegram.editMessage(
-      chatId,
+      target.telegramUserId,
       data.messageId,
       data.text,
       data.keyboard,
@@ -322,8 +324,8 @@ export class Processors implements OnModuleInit {
     if (outcome.kind === 'EDITED') return;
 
     if (outcome.kind === 'GONE') {
-      const sent = await this.telegram.send(chatId, data.text, data.keyboard);
-      if (sent.kind === 'SENT' && data.userId !== undefined) {
+      const sent = await this.telegram.send(target.telegramUserId, data.text, data.keyboard);
+      if (sent.kind === 'SENT') {
         await this.conversations.rememberMessage(data.userId, sent.messageId);
       }
       this.logger.log('A wizard message was gone; drew a new one');

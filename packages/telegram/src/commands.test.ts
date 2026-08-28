@@ -26,7 +26,7 @@ function dispatchedCommands(): Set<string> {
   );
   const body = source.slice(source.indexOf('private async onCommand'));
   const end = body.indexOf('private async onStart');
-  return new Set([...body.slice(0, end).matchAll(/case '([a-z]+)':/g)].map((m) => m[1] as string));
+  return new Set([...body.slice(0, end).matchAll(/case '([a-z_]+)':/g)].map((m) => m[1] as string));
 }
 
 describe('BOT_COMMANDS', () => {

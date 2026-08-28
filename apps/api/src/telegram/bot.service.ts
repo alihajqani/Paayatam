@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  CatalogService,
   ChatService,
   CoinService,
+  ConversationService,
   DiscoveryService,
   EventService,
   NotificationService,
@@ -9,6 +11,14 @@ import {
   ProfileService,
   ReferralService,
   ReviewService,
+  asCreateEventForm,
+  categoryChoice,
+  zonedTimeToUtc,
+  type CreateEventInput,
+  type ConversationOutcome,
+  type CreateEventForm,
+  type WizardDeps,
+  type WizardInput,
   TrustService,
   UserService,
 } from '@payetam/domain';
@@ -24,14 +34,24 @@ import { AppError, ERROR_MESSAGES_FA, ErrorCode } from '@payetam/shared';
 import {
   TEMPLATES,
   formatDiscovered,
+  formatJalali,
   formatMyChats,
   formatPendingReviews,
   formatMyEvents,
   formatMyRequests,
   parseChatCallback,
+  isoDay,
+  parseIsoDay,
+  parseWizardCallback,
+  renderStep,
+  renderSummary,
+  tehranToday,
+  toPersianDigits,
   type BotInboundText,
   type BotSender,
   type ParsedUpdate,
+  type SummaryLine,
+  type WizardScreen,
 } from '@payetam/telegram';
 
 /**
@@ -94,6 +114,8 @@ export class BotService {
     private readonly profiles: ProfileService,
     private readonly trust: TrustService,
     private readonly reviews: ReviewService,
+    private readonly conversations: ConversationService,
+    private readonly catalog: CatalogService,
     private readonly referrals: ReferralService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
@@ -353,6 +375,25 @@ export class BotService {
         return this.reply(updateId, user.id, TEMPLATES.BOT_REVIEWS, { text });
       }
 
+      /**
+       * `/create_event` — the form that used to require the Mini App (ADR-0017).
+       *
+       * Starting *replaces* whatever was in progress rather than refusing:
+       * somebody who types this half-way through another form has said what they
+       * want, and «شما در حال انجام کار دیگری هستید» is the product arguing about
+       * a form only they can see.
+       */
+      case 'create_event':
+      case 'newevent': {
+        const outcome = await this.conversations.start(user.id, 'CREATE_EVENT', updateId);
+        return this.drawWizard(updateId, user, outcome);
+      }
+
+      case 'cancel': {
+        await this.conversations.clear(user.id);
+        return this.notice(updateId, user, 'لغو شد.');
+      }
+
       default:
         return this.notice(
           updateId,
@@ -417,6 +458,22 @@ export class BotService {
     message: BotInboundText,
     replyToMessageId: number | null,
   ): Promise<void> {
+    /**
+     * A form in progress claims the message first (ADR-0017).
+     *
+     * This is the one ordering that matters in the whole wiring. Text typed while
+     * a wizard is open is an *answer*, and relaying it into an anonymous chat
+     * instead would send somebody's event description to a stranger — the single
+     * worst thing this relay can do, and exactly what `onText`'s own comment
+     * warns about. `handle` returns null when there is no wizard, which is how
+     * the two cases are told apart rather than guessed between.
+     */
+    const wizard = await this.conversations.handle(user.id, updateId, {
+      kind: 'text',
+      value: message.text,
+    });
+    if (wizard !== null) return this.drawWizard(updateId, user, wizard);
+
     // The same bucket the Mini App's send spends from, keyed on the same subject: a
     // limit enforced on one of two surfaces is not a limit (T12).
     const verdict = await this.limiter.consume('CHAT_SEND', user.publicId, RATE_LIMITS.CHAT_SEND);
@@ -489,6 +546,35 @@ export class BotService {
       return;
     }
 
+    /**
+     * A wizard button, tried first (ADR-0017).
+     *
+     * The two protocols share this handler and are told apart by prefix —
+     * `wz:` versus `chat:` — so neither parser sees the other's data. A wizard
+     * tap that arrives with no conversation open falls through to `null` and is
+     * answered as a stale button, which is what it is: the form it belonged to
+     * has been submitted, cancelled, or swept.
+     */
+    const wizardCallback = parseWizardCallback(data);
+    if (wizardCallback !== null) {
+      const input: WizardInput = {
+        kind: 'callback',
+        action: wizardCallback.action,
+        value: wizardCallback.value,
+      };
+      const outcome = await this.conversations.handle(user.id, update.updateId, input);
+      if (outcome === null) {
+        await this.answer(callbackQueryId, 'این فرم دیگر باز نیست.');
+        return;
+      }
+
+      // Answered before the redraw so the spinner stops promptly; the redraw is
+      // a second job and Telegram does not pair them.
+      await this.answer(callbackQueryId, '');
+      await this.drawWizard(update.updateId, user, outcome, wizardCallback);
+      return;
+    }
+
     const callback = parseChatCallback(data);
     if (callback === null) {
       // An old build's button, or a tampered one. Indistinguishable to the person
@@ -556,6 +642,207 @@ export class BotService {
       if (!(error instanceof AppError)) throw error;
       await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
     }
+  }
+
+  // ── conversation wizards (ADR-0017) ─────────────────────────────────────────
+
+  /**
+   * Draw whatever the conversation store says comes next.
+   *
+   * ── One message, edited ─────────────────────────────────────────────────────
+   *
+   * A wizard lives on a single message. The first screen is a notification like
+   * every other reply — a row plus an enqueue, so it is deduped and rate-limited
+   * with everything else — and each screen after it is an `editMessageText` job.
+   * `lastMessageId` is what makes the second addressable, and it is recorded by
+   * the worker when the message is actually sent, not guessed here.
+   *
+   * Until the first screen has been delivered there is no id to edit, so the
+   * fallback is another notification. That is the honest behaviour rather than a
+   * bug: a user tapping faster than the queue drains gets a second message, not a
+   * lost step.
+   */
+  private async drawWizard(
+    updateId: number,
+    user: BotUser,
+    outcome: ConversationOutcome,
+    callback?: { action: string; value: string },
+  ): Promise<void> {
+    switch (outcome.kind) {
+      case 'cancelled':
+        return this.notice(updateId, user, 'فرم بسته شد. هر وقت خواستید /create_event را بفرستید.');
+
+      case 'submit':
+        return this.submitWizard(updateId, user, outcome.snapshot.form);
+
+      case 'summary': {
+        const form = asCreateEventForm(outcome.snapshot.form);
+        const screen = renderSummary(await this.summaryLines(form), form.wantsDetails !== true);
+        return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+      }
+
+      case 'redelivery':
+      case 'step': {
+        if (outcome.kind === 'redelivery') {
+          // Nothing advanced; there is nothing new to draw. Redrawing the same
+          // screen would be a second identical edit, which Telegram calls a 400.
+          return;
+        }
+
+        const step = outcome.step;
+        const choices =
+          step.load === undefined ? [] : await step.load(outcome.snapshot.form, this.wizardDeps());
+
+        /**
+         * `page` and `goto` carry where the *view* should be, not what was
+         * answered — a page of cities, a month of the calendar. They are read off
+         * the tap rather than stored, because they describe a screen rather than
+         * a decision, and a stored one would survive a step it does not belong to.
+         */
+        const page = callback?.action === 'page' ? Number.parseInt(callback.value, 10) || 0 : 0;
+        const anchor = callback?.action === 'goto' ? parseIsoDay(callback.value) : null;
+        const earliest = tehranToday(new Date());
+
+        const screen = renderStep({
+          prompt: step.prompt(outcome.snapshot.form),
+          ui: step.ui,
+          stepKey: step.key,
+          choices,
+          page,
+          anchor: anchor ?? earliest,
+          earliest,
+          ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+          position: outcome.position,
+          total: outcome.total,
+          canGoBack: outcome.position > 1,
+          optional: step.optional === true,
+        });
+        return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+      }
+    }
+  }
+
+  /** Edit the wizard's message, or send the first one. */
+  private async paint(
+    updateId: number,
+    user: BotUser,
+    lastMessageId: number | null,
+    screen: WizardScreen,
+  ): Promise<void> {
+    if (lastMessageId === null) {
+      await this.reply(updateId, user.id, TEMPLATES.BOT_WIZARD, {
+        text: screen.text,
+        keyboard: JSON.stringify(screen.keyboard),
+      });
+      return;
+    }
+
+    await this.queues.enqueue(
+      QUEUES.TELEGRAM_SEND,
+      JOBS.BOT_EDIT_MESSAGE,
+      // One redraw per update: a redelivered update produces the same id and
+      // BullMQ absorbs the second.
+      jobId('wizard', `${String(updateId)}:${String(lastMessageId)}`),
+      {
+        userId: user.id,
+        messageId: lastMessageId,
+        text: screen.text,
+        keyboard: screen.keyboard,
+      },
+    );
+  }
+
+  /**
+   * Create the event the form describes.
+   *
+   * `EventService.create` is the authority and `createEventRequest` is the
+   * schema — the same two the API uses. Nothing here decides what an event may
+   * be; if the assembled form is refused, the refusal is the one the Mini App
+   * would have shown, and the draft is **kept** so the user can correct it
+   * rather than retyping sixteen answers.
+   */
+  private async submitWizard(
+    updateId: number,
+    user: BotUser,
+    raw: Record<string, unknown>,
+  ): Promise<void> {
+    const form = asCreateEventForm(raw);
+    const request = toCreateEventRequest(form);
+    if (request === null) {
+      await this.notice(updateId, user, 'فرم کامل نیست. با «ویرایش» آن را تکمیل کنید.');
+      return;
+    }
+
+    try {
+      const created = await this.events.create(user.id, request);
+      await this.conversations.clear(user.id);
+      await this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_CREATED, {
+        title: form.title ?? '',
+        eventPublicId: created.publicId,
+      });
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      // The draft survives on purpose: a refusal the user can fix is not a reason
+      // to make them start again.
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+  }
+
+  /** What the wizard's `choice` steps load, resolved against the live catalog. */
+  private wizardDeps(): WizardDeps {
+    const snapshot = () => this.catalog.snapshot();
+    return {
+      categories: async () =>
+        (await snapshot()).categories.map((category) =>
+          categoryChoice(category.id, category.nameFa, category.allowsCustomLabel),
+        ),
+      provinces: async () =>
+        (await snapshot()).provinces.map((province) => ({
+          value: province.id,
+          label: province.nameFa,
+        })),
+      citiesOf: async (provinceId) =>
+        (await snapshot()).cities
+          .filter((city) => city.provinceId === provinceId)
+          .map((city) => ({ value: city.id, label: city.nameFa })),
+      districtsOf: async (cityId) =>
+        (await snapshot()).cities
+          .find((city) => city.id === cityId)
+          ?.districts.map((district) => ({ value: district.id, label: district.nameFa })) ?? [],
+    };
+  }
+
+  /** The summary, in the order the questions were asked. */
+  private async summaryLines(form: CreateEventForm): Promise<SummaryLine[]> {
+    const catalog = await this.catalog.snapshot();
+    const city = catalog.cities.find((candidate) => candidate.id === form.cityId);
+    const category = catalog.categories.find((candidate) => candidate.id === form.categoryId);
+    const day = form.day === undefined ? null : parseIsoDay(form.day);
+
+    const lines: SummaryLine[] = [
+      { label: 'نام', value: form.title ?? '—' },
+      { label: 'دسته', value: form.customCategoryLabel ?? category?.nameFa ?? '—' },
+      { label: 'شهر', value: city?.nameFa ?? '—' },
+      {
+        label: 'زمان',
+        value:
+          day === null
+            ? '—'
+            : `${formatJalali(day)} — ساعت ${toPersianDigits(String(form.hour ?? 0))}`,
+      },
+      { label: 'ظرفیت', value: toPersianDigits(String(form.capacity ?? 0)) },
+      { label: 'هزینه', value: costSummary(form) },
+    ];
+
+    if (form.minAge !== undefined || form.maxAge !== undefined) {
+      lines.push({
+        label: 'سن',
+        value: `${toPersianDigits(String(form.minAge ?? 18))} تا ${toPersianDigits(
+          String(form.maxAge ?? 120),
+        )}`,
+      });
+    }
+    return lines;
   }
 
   // ── replying ────────────────────────────────────────────────────────────────
@@ -662,6 +949,15 @@ export class BotService {
 const DISCOVER_LIMIT = 5;
 
 /**
+ * The zone every wall-clock answer in a wizard is read in.
+ *
+ * A literal rather than `env.APP_TIMEZONE`, for the same reason `formatTehran`
+ * is: the product is Tehran-local by policy (D12, ADR-0008), and a configurable
+ * zone here would let a deploy silently move every event a host has scheduled.
+ */
+const TEHRAN = 'Asia/Tehran';
+
+/**
  * `/start ref_ABCD2345` and `/start ABCD2345` are the same invitation.
  *
  * A prefix is what a link generator naturally adds. `normalizeCode` in the domain
@@ -670,4 +966,75 @@ const DISCOVER_LIMIT = 5;
  */
 function stripReferralPrefix(payload: string): string {
   return payload.replace(/^ref[_-]/i, '');
+}
+
+/**
+ * The assembled form, as the contract wants it — or null when it is not finished.
+ *
+ * Null rather than a partial: `EventService.create` takes a `CreateEventRequest`
+ * and every field below is one the schema requires. A form reaching here
+ * incomplete means a step was skipped that should not have been, and inventing a
+ * default for it would publish an event nobody described.
+ *
+ * `startsAt` and `endsAt` are built here because this is where the two halves
+ * meet: the day came from a calendar button and the hour from a list, and the
+ * database stores the UTC instant they name (ADR-0008).
+ */
+function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
+  const day = form.day === undefined ? null : parseIsoDay(form.day);
+  if (
+    form.title === undefined ||
+    form.description === undefined ||
+    form.categoryId === undefined ||
+    form.cityId === undefined ||
+    form.capacity === undefined ||
+    form.costType === undefined ||
+    form.hour === undefined ||
+    day === null
+  ) {
+    return null;
+  }
+
+  const parts = isoDay(day)
+    .split('-')
+    .map((part: string) => Number.parseInt(part, 10)) as [number, number, number];
+  const startsAt = zonedTimeToUtc(parts[0], parts[1], parts[2], form.hour, 0, TEHRAN);
+  const endsAt = new Date(startsAt.getTime() + (form.durationHours ?? 2) * 3_600_000);
+
+  return {
+    title: form.title,
+    description: form.description,
+    categoryId: form.categoryId,
+    cityId: form.cityId,
+    startsAt,
+    endsAt,
+    capacity: form.capacity,
+    costType: form.costType,
+    ...(form.customCategoryLabel !== undefined
+      ? { customCategoryLabel: form.customCategoryLabel }
+      : {}),
+    ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
+    ...(form.costAmount !== undefined ? { costAmount: form.costAmount } : {}),
+    ...(form.costNote !== undefined ? { costNote: form.costNote } : {}),
+    ...(form.rules !== undefined ? { rules: form.rules } : {}),
+    ...(form.genderPreference !== undefined ? { genderPreference: form.genderPreference } : {}),
+    ...(form.minAge !== undefined ? { minAge: form.minAge } : {}),
+    ...(form.maxAge !== undefined ? { maxAge: form.maxAge } : {}),
+    ...(form.externalLink !== undefined ? { externalLink: form.externalLink } : {}),
+  };
+}
+
+/** «رایگان» / «۵۰٬۰۰۰ تومان» / «دنگی», for the summary. */
+function costSummary(form: CreateEventForm): string {
+  switch (form.costType) {
+    case 'FREE':
+      return 'رایگان';
+    case 'SPLIT':
+      return 'دنگی';
+    case 'FIXED':
+    case 'APPROX':
+      return `${toPersianDigits(String(form.costAmount ?? 0))} تومان`;
+    default:
+      return '—';
+  }
 }

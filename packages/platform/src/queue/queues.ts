@@ -93,11 +93,13 @@ export const JOBS = {
    * edited inline from the API would also be the fastest way to exhaust the
    * limiter, since it fires on *every* tap rather than once per notification.
    *
-   * The payload carries a chat id, which nothing else on this queue does. That
-   * is unavoidable — `editMessageText` is addressed by `(chat_id, message_id)`
-   * and there is no indirection Telegram accepts instead — so it is the one
-   * place a Telegram identifier reaches Redis. It is bounded by the queue's own
-   * retention rather than stored, and it is never logged: see the processor.
+   * The payload carries the **internal** `user_id`, not a chat id. Telegram
+   * addresses an edit by `(chat_id, message_id)`, so the shortcut is to put the
+   * chat id in the job — and that would make Redis the one place outside
+   * `identity` holding a `telegram_user_id`, which invariant 7 exists to
+   * prevent. The worker resolves it at delivery through
+   * `NotificationService.telegramTargetFor`, which is what every notification
+   * already does. Same rule, same module, one resolution path.
    */
   BOT_EDIT_MESSAGE: 'bot-edit-message',
   /**
