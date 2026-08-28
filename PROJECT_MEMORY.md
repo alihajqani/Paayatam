@@ -194,7 +194,22 @@ suite was green through all of them.
     output was read before committing. `docs/production-deployment-todo.md` and
     `.claude-work-checkpoint.md` are untracked **on purpose**. Stage by path, and
     read `git status` before every commit.
-11. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
+11. **The integration suite runs `dist`, not your edits.** The `integration`
+    vitest project has no alias for `@payetam/*`, so they resolve through
+    `node_modules` to each package's `dist`. Edit a package and run the
+    integration tests without building and **you are testing the previous
+    build** — which cost a long debugging session chasing a routing bug that had
+    already been fixed in source. `pnpm -w typecheck` runs `tsc -b` and therefore
+    builds; running it before the integration suite is what makes the suite
+    honest. The unit project has the same shape for `@payetam/shared`.
+12. **After a prefill, "the form has a value" stops meaning "the user chose
+    it".** `EDIT_EVENT` fills the draft from the event so the summary can show
+    it, and skipping the time steps then wrote the time *back* — moving an event
+    at 22:45 to 22:00, because the wizard offers whole hours. Any edit wizard that
+    prefills needs `touchedFields`, which the machine maintains. The general
+    shape: **a default that is indistinguishable from an answer will eventually
+    be saved as one.**
+13. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
    why migrations 0022 and 0023 are separate files. They are not rolled back by a
    later failure — additive-only, so a partial apply is safe, but the runbook
    must say so.
@@ -301,22 +316,52 @@ where hand-written implementations get leap years wrong — is never needed. The
 week starts on **شنبه**; a grid starting Monday puts every date under the wrong
 heading, which looks like styling and is a wrong date.
 
+### The four wizards
+
+| Kind | Command | Shape |
+|---|---|---|
+| `CREATE_EVENT` | `/create_event` | eleven steps, then a summary; the optional nine are behind «افزودن جزئیات بیشتر» |
+| `EDIT_PROFILE` | `/edit_profile` | six steps, every one skippable |
+| `EDIT_EVENT` | `/edit_event` | `pick`, then the create wizard's own steps with `optional` set |
+| `ACCEPT_POLICIES` | opened by the gate, or `/terms` | one step, not cancellable |
+
+`EDIT_EVENT` reuses `createEventWizard.steps` rather than redefining them, and a
+test asserts the two lists stay equal. A second copy of sixteen validators is the
+thing that arrangement exists to prevent.
+
+### The consent gate
+
+**`AuthGuard` does not run for the bot.** The policy gate is declared per route
+with `@RequiresCurrentPolicies()`, and `BotService` calls domain services
+directly — so every bot write bypassed it from M13 until ADR-0017: chat relays,
+participation decisions, contact sharing. `BotService.mayWrite` is the gate on
+this surface, and it is called by **every** write path.
+
+It returns a boolean rather than throwing, because the answer to "you have not
+accepted" is a *screen*: the consent wizard opens where the refused action would
+have happened.
+
+**The channel requirement is a check, not a wizard step.** An operator can switch
+it on next week or add a channel, so nobody ever finishes it — which is exactly
+why the Mini App declares `/join-channels` outside `ONBOARDING_PATHS`.
+
 ### What is still in the Mini App
 
-`CreateEventView` → `/create_event` and `EditProfileView` → `/edit_profile` have
-moved. **`EditEventView`, `TermsView` and `JoinChannelsView` have not.**
+`JoinChannelsView` is the last user-facing screen with no bot equivalent, and it
+does not need one: the gate renders as a message with a URL button per channel.
 
-`TermsView` is the one that blocks the retirement, and ADR-0017 leads with it:
-`AuthGuard` turns an unaccepted policy into `POLICY_VERSION_STALE`, and
-acceptance is `POST /onboarding/consent`, reachable only from the Mini App. Turn
-the Mini App off before the bot can take an acceptance and **every gated write
-refuses, for every user** — the shape of trap 2 below, which would have bricked
-v0.3.0. The order is: consent → profile → event creation → *then* retire.
+**The Mini App can now be retired**, in this order and no other: the bot takes
+consent (`ACCEPT_POLICIES`), completes profiles (`/edit_profile`), and creates
+and edits events. Turning it off before the bot could take an acceptance would
+have refused **every gated write for every user** — the shape of trap 2 below,
+which would have bricked v0.3.0.
+
+`apps/admin` is unaffected and stays. ADR-0003 still governs it.
 
 ### The read-only commands
 
 `/start`, `/help`, `/discover`, `/balance`, `/requests`, `/myevents`, `/chats`,
-`/reviews`, `/profile`. The list lives in `packages/telegram/src/commands.ts`,
+`/reviews`, `/profile`, `/terms`. The list lives in `packages/telegram/src/commands.ts`,
 `commands.test.ts` asserts it advertises only commands the dispatch switch
 handles, and `pnpm set-bot-commands` publishes it to Telegram's menu. Until that
 script existed `setMyCommands` had never been called, so the "/" autocomplete was

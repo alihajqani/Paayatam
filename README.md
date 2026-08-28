@@ -498,9 +498,15 @@ for `/help`, and for the test that keeps both honest.
 | `/chats` | Which conversations are open, and who is waiting |
 | `/reviews` | Reviews you still owe, and when they expire |
 | `/profile` | Your profile — and the only place your own Trust Score is shown |
+| `/terms` | The policies — the gate if you owe one, what you signed if you don't |
 | `/create_event` | **Wizard.** Builds a full event in the chat (ADR-0017) |
+| `/edit_event` | **Wizard.** Changes an event you host |
 | `/edit_profile` | **Wizard.** Changes any part of your profile |
 | `/cancel` | Closes an open wizard |
+
+Every write goes through the consent gate first. A user who owes a policy
+acceptance gets the gate *where the action would have happened*, one button from
+being able to continue — the bot never simply refuses.
 
 ### Publishing the command menu
 

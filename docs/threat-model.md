@@ -253,6 +253,13 @@ the form is submitted or cancelled. The brief asked for both "delete after 24 ho
 | C2 | Text typed during an open wizard, if read by the chat relay first, would deliver a user's event description to a stranger | The wizard is asked first and the relay runs only when there is no wizard; pinned by an integration test that types into a wizard while an open chat exists |
 | C3 | A redelivered update would advance a wizard twice, skipping a question | `last_update_id` — see ADR-0017 and trap 8 |
 
+### Findings, second pass (the consent gate)
+
+| # | Finding | Resolution |
+|---|---|---|
+| C4 | **The bot bypassed the policy gate entirely.** `@RequiresCurrentPolicies()` is a route decorator read by `AuthGuard`, and the bot does not pass through `AuthGuard` — so relaying a chat message, accepting or rejecting a request, and sharing contact details were all possible without a current acceptance. Present since M13; the wizards widened it to event creation | Fixed. `BotService.mayWrite` gates every write path and opens the consent wizard in place of the refused action. Integration tests cover the relay, the wizards and a redelivered acceptance |
+| C5 | A policy published *while* a user is mid-acceptance | The screen reads `currentPolicies()` live rather than snapshotting into the draft, so the document shown is the document accepted. A draft that carried the text would let somebody agree to a superseded version |
+
 ### Added to §4
 
 | # | Risk | Rationale |
