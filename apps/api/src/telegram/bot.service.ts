@@ -5,7 +5,9 @@ import {
   EventService,
   NotificationService,
   ParticipationService,
+  ProfileService,
   ReferralService,
+  TrustService,
   UserService,
 } from '@payetam/domain';
 import {
@@ -84,6 +86,8 @@ export class BotService {
     private readonly coins: CoinService,
     private readonly events: EventService,
     private readonly participation: ParticipationService,
+    private readonly profiles: ProfileService,
+    private readonly trust: TrustService,
     private readonly referrals: ReferralService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
@@ -245,6 +249,36 @@ export class BotService {
           })),
         );
         return this.reply(updateId, user.id, TEMPLATES.BOT_CHATS, { text });
+      }
+
+      /**
+       * `/profile` — and the only place a user can see their own Trust Score.
+       *
+       * `GET /me/trust` has existed since M18, but no Mini App view renders the
+       * caller's own score: `TrustBadge` is for reading *somebody else's*, on the
+       * event page and in a host's queue. So this is not a shortcut to a screen —
+       * it is the first surface that answers "what is my score?" at all.
+       *
+       * A profile that has never been completed has no row, which is a state
+       * `/start` leaves somebody in until they finish onboarding. Saying where to
+       * finish beats rendering a card of empty fields.
+       */
+      case 'profile': {
+        const profile = await this.profiles.find(user.id);
+        if (profile === null) {
+          return this.notice(
+            updateId,
+            user,
+            'هنوز نمایه‌ای نساخته‌اید. برای تکمیل نمایه برنامه را باز کنید.',
+          );
+        }
+
+        const trustScore = await this.trust.scoreOf(user.id);
+        return this.reply(updateId, user.id, TEMPLATES.BOT_PROFILE, {
+          displayName: profile.displayName,
+          cityName: profile.city.nameFa,
+          trustScore,
+        });
       }
 
       default:

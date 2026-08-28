@@ -538,6 +538,44 @@ describe('commands', () => {
     expect(text).not.toContain('ANONYMOUS');
   });
 
+  /**
+   * The first surface in the product that shows a user their own Trust Score.
+   * `GET /me/trust` has existed since M18; no Mini App view renders it.
+   */
+  it('answers /profile with the name, the city and the trust score', async () => {
+    await seedHostAndEvent();
+
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/profile') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_PROFILE },
+      select: { payload: true },
+    });
+
+    const payload = row.payload as Record<string, unknown>;
+    expect(payload['displayName']).toBe('میزبان');
+    expect(typeof payload['cityName']).toBe('string');
+    expect(typeof payload['trustScore']).toBe('number');
+  });
+
+  /** A card of empty fields is worse than a sentence saying where to fill them in. */
+  it('sends somebody with no profile to the app rather than an empty card', async () => {
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/profile') }));
+
+    expect(await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_PROFILE } })).toBe(
+      0,
+    );
+    const notice = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_NOTICE },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect((notice.payload as Record<string, unknown>)['text']).toContain(
+      'هنوز نمایه‌ای نساخته‌اید',
+    );
+  });
+
   /** A command is a command, not chat text: it is never relayed to a stranger. */
   it('does not relay a command into an open conversation', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));

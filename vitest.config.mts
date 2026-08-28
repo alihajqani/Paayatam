@@ -52,6 +52,17 @@ export default defineConfig({
             '@payetam/shared': fileURLToPath(
               new URL('./packages/shared/src/index.ts', import.meta.url),
             ),
+            /**
+             * The Mini App does not import this at runtime — it is a browser
+             * program and `@payetam/telegram` is the bot's message catalogue.
+             * It is aliased for one test: `deep-links.test.ts`, which checks
+             * every notification button's target against `DEEP_LINKS`. Pointed
+             * at source for the same reason `@payetam/shared` is — a guard that
+             * reads yesterday's templates guards yesterday's buttons.
+             */
+            '@payetam/telegram': fileURLToPath(
+              new URL('./packages/telegram/src/index.ts', import.meta.url),
+            ),
           },
         },
         test: {

@@ -232,7 +232,7 @@ export function initTelegram(): void {
  * destinations cannot name a resource, so the worst a forged link achieves is a
  * screen the user could have reached from the home page.
  */
-const DEEP_LINKS: Record<string, string> = {
+export const DEEP_LINKS: Record<string, string> = {
   home: '/home',
   wallet: '/wallet',
   discover: '/discover',
@@ -241,6 +241,16 @@ const DEEP_LINKS: Record<string, string> = {
   'reviews/pending': '/reviews',
   'my-requests': '/my-requests',
   'my-events': '/my-events',
+  /**
+   * `/profile/edit`, not `/profile`.
+   *
+   * `/profile` is the onboarding step and is in `ONBOARDING_PATHS`, so the router
+   * sends a *finished* user straight back to `/home` — a deep link to it would
+   * bounce for everybody who has completed onboarding, which is everybody who
+   * could have tapped the button. `/profile/edit` is the product screen, declared
+   * outside the funnel for exactly this reason.
+   */
+  'profile/edit': '/profile/edit',
 };
 
 export function deepLinkTarget(): string | null {

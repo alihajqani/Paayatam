@@ -5,7 +5,7 @@ knowledge — it points at where the knowledge already lives.** The repo carries
 ~600 KB of maintained documentation; duplicating any of it here would only give
 it a second place to go stale.
 
-Last verified against `feature/v0.3.1-product-fixes` on 2026-08-28.
+Last verified against `feature/bot-commands` on 2026-08-28.
 
 ---
 
@@ -55,7 +55,7 @@ over the same services. That is what stops the bot and the Mini App from driftin
 apart — treat it as an invariant, not a preference.
 
 Scale: 51 Prisma models · 24 migrations · 15 API controllers · 42 domain services
-· 19 domain modules · 15 Mini App views · 1107 unit/component tests.
+· 19 domain modules · 15 Mini App views · 1151 unit/component tests.
 
 ## 4. The twelve invariants
 
@@ -99,15 +99,15 @@ pnpm --filter @payetam/miniapp build && pnpm --filter @payetam/admin build
 `make help` lists the full development loop. `make dev` brings up the whole
 stack; `make tunnel` + `make webhook` is how you test inside real Telegram.
 
-**Fully green as of 2026-08-28 on `feature/v0.3.1-product-fixes`** — including
-the three checks the v0.3.0 checkpoint had deferred and never run:
+**Fully green as of 2026-08-28 on `feature/bot-commands`** — the v0.3.1 baseline
+below, re-verified after the bot-command work:
 
 | Check | Result |
 |---|---|
 | `pnpm -w typecheck` | PASS |
 | `eslint .` | PASS |
 | `prettier --check .` | PASS |
-| unit + miniapp + admin | **1107/1107** in 59 files (12 s) |
+| unit + miniapp + admin | **1151/1151** in 65 files (13 s) |
 | **integration** (real Postgres) | **1313/1313** in 48 files (30 min) |
 | **Docker production build** | api, worker, web all built |
 | **nginx config validation** | syntax ok, test successful |
@@ -154,7 +154,27 @@ suite was green through all of them.
    never have become healthy. Fixed 2026-08-28 by adding the fourth `COPY`. The
    general shape: **a runtime mount that overrides baked config will mask a broken
    image until the one deploy that does not mount it.**
-6. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
+6. **An unbounded list becomes a message that can never be sent.** `/requests`
+   and `/myevents` rendered every row `listMine` / `listOwned` returned, and
+   neither read has a meaningful cap (`listMine` and `listForUser` take no `take`
+   at all). Past Telegram's 4096 characters `sendMessage` returns
+   `400 Bad Request: message is too long` — and `classify()` reads a bare 400 as
+   `RETRY`, so the message would have been retried until it dead-lettered, for a
+   user who simply never heard back. Every bot digest now goes through
+   `buildDigest`, which caps by entries *and* by length and says how many it did
+   not show. The general shape: **anything rendered into a Telegram message needs
+   a ceiling at the point of rendering**, because the transport's rejection is
+   permanent and looks retryable.
+7. **A partial `Record<string, string>` with a `??` fallback renders the enum.**
+   `ChatsView`'s `STATUS_FA` had three keys — one of which, `EXPIRED`, is not a
+   `ChatStatus` — and fell back to `?? chat.status`. `listForUser` filters by
+   nothing, so a Persian RTL screen showed the Latin word `ANONYMOUS` for what is
+   the *usual* state of a live conversation. Typed `Record<Enum, string>` in
+   `@payetam/shared` is the fix that stays fixed: a new status fails the build
+   instead of appearing untranslated at a user. **A fallback that renders the raw
+   value is how a missing translation stops being a build error and becomes a
+   feature nobody notices.**
+8. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
    why migrations 0022 and 0023 are separate files. They are not rolled back by a
    later failure — additive-only, so a partial apply is safe, but the runbook
    must say so.
@@ -189,6 +209,8 @@ Reach for these before writing a new one:
 | Rate limiting, encryption, clock | `packages/platform/src/` |
 | State transitions + audit | `packages/domain/src/state-machine.ts` |
 | Idempotency for paid actions | `Idempotency-Key`, see economy module |
+| Bot digests, capped to Telegram's message limit | `packages/telegram/src/digest.ts` |
+| The bot's command list — menu, `/help`, dispatch | `packages/telegram/src/commands.ts` |
 
 ## 10. The bot surface, and where it stops
 
@@ -208,12 +230,19 @@ is exactly what makes a redelivered Telegram update idempotent.
 3. **A reply is a row, not a fire-and-forget send** — deduped by a UNIQUE index on
    a key derived from Telegram's `update_id`.
 
-The commands today are `/start`, `/help`, `/balance`, `/requests`, `/myevents`.
+The commands today are `/start`, `/help`, `/balance`, `/requests`, `/myevents`,
+`/chats`.
 
 **Adding a read-only command** (`feature/bot-commands`):
 
 - add the key + render case in `packages/telegram/src/templates.ts`
 - dispatch it in `BotService.onCommand`
+- add it to `BOT_COMMANDS` in `packages/telegram/src/commands.ts` — that is what
+  `/help` renders from *and* what Telegram's menu is published from, and
+  `commands.test.ts` fails if the list advertises something the switch does not
+  dispatch
+- run `pnpm set-bot-commands` against the bot afterwards, or the menu keeps
+  advertising the old list
 - `update.ts` needs **no change** — it already parses any `/command` into
   `{ kind: 'COMMAND', command }`
 - test through the webhook, not against the service: what matters is the one

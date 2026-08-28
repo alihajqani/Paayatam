@@ -71,6 +71,8 @@ export const TEMPLATES = {
   BOT_MY_EVENTS: 'bot.my_events',
   /** `/chats` — which conversations are open, and who is waiting for a reply. */
   BOT_CHATS: 'bot.chats',
+  /** `/profile` — who the product thinks you are, including your Trust Score. */
+  BOT_PROFILE: 'bot.profile',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -154,7 +156,7 @@ export function render(
      */
     case TEMPLATES.PARTICIPATION_REQUESTED_HOST: {
       const participant = id(payload, 'participantPublicId');
-      const deepLink = `participants/${participant ?? ''}`;
+      const deepLink = HOST_DECISION_SCREEN;
       return {
         text:
           `<b>درخواست تازه</b>\n\n` +
@@ -213,7 +215,7 @@ export function render(
     /** D8: and so does the host, in the same domain event — decision buttons included. */
     case TEMPLATES.WAITLIST_PROMOTED_HOST: {
       const participant = id(payload, 'participantPublicId');
-      const deepLink = `participants/${participant ?? ''}`;
+      const deepLink = HOST_DECISION_SCREEN;
       return {
         text:
           `یک درخواست از لیست انتظار به «${str(payload, 'eventTitle')}» منتقل شد و ` +
@@ -445,6 +447,34 @@ export function render(
     case TEMPLATES.BOT_CHATS:
       return opened(str(payload, 'text'), `chats`, botUsername);
 
+    /**
+     * `/profile` — and the only place in the product that shows you your own
+     * Trust Score.
+     *
+     * `GET /me/trust` has existed since M18 and `TrustBadge` renders *other*
+     * people's scores on two screens, but no Mini App view has ever shown the
+     * caller theirs. ADR-0007's «a score nobody can account for is a score
+     * nobody can appeal» is hard to act on when you cannot see the number.
+     *
+     * Rendered as a number without the `TrustBadge` fallback, and that is
+     * correct rather than an oversight: `scoreOf` returns the configured
+     * starting score for an account with no ledger row, so there is no `null`
+     * to stand in for. «تازه‌وارد» exists because *somebody else's* score can be
+     * genuinely unknown — your own never is.
+     *
+     * The button opens `profile/edit`, because `/profile` is an onboarding step
+     * the router bounces a finished user away from.
+     */
+    case TEMPLATES.BOT_PROFILE:
+      return opened(
+        `<b>نمایه شما</b>\n\n` +
+          `${str(payload, 'displayName')}\n` +
+          `📍 ${str(payload, 'cityName')}\n` +
+          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰`,
+        `profile/edit`,
+        botUsername,
+      );
+
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:
       return { text: str(payload, 'text') };
@@ -453,6 +483,27 @@ export function render(
       return null;
   }
 }
+
+/**
+ * Where a host goes to decide on a request.
+ *
+ * It was `participants/<id>`, and **there has never been a `/participants`
+ * route.** `deepLinkTarget()` resolves a start param against a fixed allowlist
+ * and returns null for anything else, so the «باز کردن برنامه» button on the two
+ * notifications a host most needs to act on — a new join request, and a waitlist
+ * promotion — silently opened the splash screen. A request expires in
+ * twenty-four hours (D9); a button that goes nowhere is how it expires.
+ *
+ * These two escaped the 2026-08-28 sweep because they build their target inline
+ * rather than through `opened()`, so they did not look like the others.
+ * `deep-links.test.ts` now checks every template against the allowlist, which is
+ * what found them.
+ *
+ * The participant id is dropped rather than relocated: no route reads it, and
+ * `MyEventsView` — which is where accept and reject actually live — lists the
+ * pending requests for every event the caller hosts.
+ */
+const HOST_DECISION_SCREEN = 'my-events';
 
 /** A message whose only action is "open the app". */
 function opened(text: string, deepLink: string, botUsername: string): RenderedMessage {
