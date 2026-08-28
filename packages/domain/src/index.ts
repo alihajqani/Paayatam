@@ -166,6 +166,37 @@ export { REDACTION_PLACEHOLDER, sanitizeInbound } from './chat/sanitizer';
 export type { Redaction, RedactionKind, SanitizeOptions, SanitizedMessage } from './chat/sanitizer';
 export type { InboundTextMessage, MessageEntity } from './chat/inbound-message';
 export { CURRENT_KEY_VERSION, MessageCipher } from './chat/message-cipher';
+
+// ── Conversation wizards (ADR-0017) ─────────────────────────────────────────
+export { ConversationModule } from './conversation/conversation.module';
+export {
+  ConversationService,
+  DRAFT_TTL_DAYS,
+  asCreateEventForm,
+} from './conversation/conversation.service';
+export type {
+  ConversationOutcome,
+  ConversationSnapshot,
+} from './conversation/conversation.service';
+export {
+  apply,
+  firstStep,
+  nextStep,
+  previousStep,
+  progressOf,
+  stepByKey,
+} from './conversation/wizard';
+export type {
+  FormPatch,
+  StepResult,
+  StepUi,
+  WizardDefinition,
+  WizardDeps,
+  WizardInput,
+  WizardStep,
+} from './conversation/wizard';
+export { categoryChoice, createEventWizard } from './conversation/wizards/create-event';
+export type { CreateEventForm } from './conversation/wizards/create-event';
 export type { EncryptedBody } from './chat/message-cipher';
 export {
   CHAT_ANONYMOUS_INTRO,
