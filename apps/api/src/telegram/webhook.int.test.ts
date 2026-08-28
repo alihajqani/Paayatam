@@ -613,6 +613,18 @@ describe('commands', () => {
     ).toBe(0);
   });
 
+  it('answers /reviews with nothing owed yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/reviews') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REVIEWS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('نظر منتظری ندارید');
+  });
+
   /** A command is a command, not chat text: it is never relayed to a stranger. */
   it('does not relay a command into an open conversation', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));

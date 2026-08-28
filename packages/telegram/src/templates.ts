@@ -75,6 +75,8 @@ export const TEMPLATES = {
   BOT_PROFILE: 'bot.profile',
   /** `/discover` — what is on in the sender's city, without opening anything. */
   BOT_DISCOVER: 'bot.discover',
+  /** `/reviews` — the reviews the sender still owes, and when they expire. */
+  BOT_REVIEWS: 'bot.reviews',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -475,6 +477,16 @@ export function render(
      */
     case TEMPLATES.BOT_DISCOVER:
       return opened(str(payload, 'text'), `discover`, botUsername);
+
+    /**
+     * `/reviews` — the pending digest, built by `formatPendingReviews`.
+     *
+     * `reviews/pending` was already on the allowlist, put there for
+     * `REVIEW_WINDOW_OPEN`; it resolves to `/reviews`, which is the screen with
+     * the form on it.
+     */
+    case TEMPLATES.BOT_REVIEWS:
+      return opened(str(payload, 'text'), `reviews/pending`, botUsername);
 
     case TEMPLATES.BOT_PROFILE:
       return opened(

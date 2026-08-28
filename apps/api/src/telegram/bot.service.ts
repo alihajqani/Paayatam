@@ -8,6 +8,7 @@ import {
   ParticipationService,
   ProfileService,
   ReferralService,
+  ReviewService,
   TrustService,
   UserService,
 } from '@payetam/domain';
@@ -24,6 +25,7 @@ import {
   TEMPLATES,
   formatDiscovered,
   formatMyChats,
+  formatPendingReviews,
   formatMyEvents,
   formatMyRequests,
   parseChatCallback,
@@ -91,6 +93,7 @@ export class BotService {
     private readonly participation: ParticipationService,
     private readonly profiles: ProfileService,
     private readonly trust: TrustService,
+    private readonly reviews: ReviewService,
     private readonly referrals: ReferralService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
@@ -327,6 +330,27 @@ export class BotService {
           })),
         );
         return this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, { text });
+      }
+
+      /**
+       * `/reviews` — what the sender still owes, and by when.
+       *
+       * The deadline is the reason this is worth a command: a pending review
+       * *expires*, `settleExpired` closes the pair, and the counterpart simply
+       * never gets one. Received reviews are a fact that keeps and stay in
+       * `ReviewsView`, which is a page somebody visits deliberately rather than
+       * an answer to "what do I owe?".
+       */
+      case 'reviews': {
+        const pending = await this.reviews.listPending(user.id);
+        const text = formatPendingReviews(
+          pending.map((row) => ({
+            revieweeDisplayName: row.revieweeDisplayName,
+            eventTitle: row.eventTitle,
+            deadlineAt: row.deadlineAt,
+          })),
+        );
+        return this.reply(updateId, user.id, TEMPLATES.BOT_REVIEWS, { text });
       }
 
       default:
