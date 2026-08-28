@@ -10,6 +10,8 @@ export { formatMyEvents } from './events-digest';
 export type { MyEventLine } from './events-digest';
 export { formatMyChats } from './chats-digest';
 export type { MyChatLine } from './chats-digest';
+export { formatDiscovered } from './discover-digest';
+export type { DiscoverLine } from './discover-digest';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export type { DigestInput } from './digest';
 export { BOT_COMMANDS, helpCommandLines } from './commands';

@@ -73,6 +73,8 @@ export const TEMPLATES = {
   BOT_CHATS: 'bot.chats',
   /** `/profile` — who the product thinks you are, including your Trust Score. */
   BOT_PROFILE: 'bot.profile',
+  /** `/discover` — what is on in the sender's city, without opening anything. */
+  BOT_DISCOVER: 'bot.discover',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -465,6 +467,15 @@ export function render(
      * The button opens `profile/edit`, because `/profile` is an onboarding step
      * the router bounces a finished user away from.
      */
+    /**
+     * `/discover` — the digest, built by `formatDiscovered`, disclaimer included.
+     *
+     * The button opens `discover`, where the fourteen filters this command
+     * deliberately does not ask about actually live.
+     */
+    case TEMPLATES.BOT_DISCOVER:
+      return opened(str(payload, 'text'), `discover`, botUsername);
+
     case TEMPLATES.BOT_PROFILE:
       return opened(
         `<b>نمایه شما</b>\n\n` +

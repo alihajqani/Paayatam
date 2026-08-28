@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
 import { ChatService, ParticipationService, normalize } from '@payetam/domain';
+import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { TEMPLATES } from '@payetam/telegram';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
@@ -574,6 +575,42 @@ describe('commands', () => {
     expect((notice.payload as Record<string, unknown>)['text']).toContain(
       'هنوز نمایه‌ای نساخته‌اید',
     );
+  });
+
+  /**
+   * The product's core question, answered without opening anything. The city is
+   * the sender's own, which is what makes the command single-turn.
+   */
+  it('answers /discover with activities in the sender’s city', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/discover') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+      select: { payload: true },
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { title: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    expect(text).toContain(event.title);
+    // The liability statement, over every list that has anything in it.
+    expect(text).toContain(EVENT_DISCLAIMER_SHORT_FA);
+  });
+
+  /** No profile means no city, and «فعالیتی پیدا نشد» would be a false answer. */
+  it('asks for a profile before answering /discover without one', async () => {
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/discover') }));
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_DISCOVER } }),
+    ).toBe(0);
   });
 
   /** A command is a command, not chat text: it is never relayed to a stranger. */

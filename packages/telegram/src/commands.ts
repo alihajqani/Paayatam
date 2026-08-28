@@ -36,6 +36,7 @@ export interface BotCommand {
 
 export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'help', description: 'راهنمای کار با ربات' },
+  { command: 'discover', description: 'فعالیت‌های نزدیک شما' },
   { command: 'balance', description: 'موجودی سکه‌های شما' },
   { command: 'requests', description: 'درخواست‌هایی که داده‌اید' },
   { command: 'myevents', description: 'رویدادهایی که ساخته‌اید' },

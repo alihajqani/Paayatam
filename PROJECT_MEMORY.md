@@ -269,6 +269,20 @@ choose which screen somebody else's app opens on. Adding a template with a new
 target means adding it to `DEEP_LINKS` too, or the button silently lands on the
 splash — which is what every one of them did until 2026-08-28.
 
+**Now pinned by `apps/miniapp/src/telegram/deep-links.test.ts`**, which renders
+every template in `TEMPLATES` and asserts its target is on the allowlist. It
+immediately found two the sweep had missed: `participation.requested.host` and
+`waitlist.promoted.host` both pointed at `participants/<id>`, and there has
+never been a `/participants` route — so the button on the two notifications a
+host most needs to act on opened the splash. Both now point at `my-events`.
+They were missed because they build their target inline rather than through
+`opened()`, so they did not look like the others.
+
+`profile/edit` rather than `profile` is deliberate for a neighbouring reason:
+`/profile` is an onboarding step in `ONBOARDING_PATHS`, so the router bounces a
+*finished* user from it to `/home`. A deep link there fails for exactly the
+people who could tap it.
+
 **Where the bot stops.** Single-turn, read-mostly work belongs in the bot; anything
 with a form belongs in the Mini App, and `/help` says so rather than failing
 silently. The form-heavy views are not stylistic preferences — `CreateEventView`

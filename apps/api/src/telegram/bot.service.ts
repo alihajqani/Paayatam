@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   ChatService,
   CoinService,
+  DiscoveryService,
   EventService,
   NotificationService,
   ParticipationService,
@@ -21,6 +22,7 @@ import {
 import { AppError, ERROR_MESSAGES_FA, ErrorCode } from '@payetam/shared';
 import {
   TEMPLATES,
+  formatDiscovered,
   formatMyChats,
   formatMyEvents,
   formatMyRequests,
@@ -85,6 +87,7 @@ export class BotService {
     private readonly chats: ChatService,
     private readonly coins: CoinService,
     private readonly events: EventService,
+    private readonly discovery: DiscoveryService,
     private readonly participation: ParticipationService,
     private readonly profiles: ProfileService,
     private readonly trust: TrustService,
@@ -279,6 +282,51 @@ export class BotService {
           cityName: profile.city.nameFa,
           trustScore,
         });
+      }
+
+      /**
+       * `/discover` — the product's core question, answered without opening it.
+       *
+       * The city comes from the sender's own profile, which is what makes this
+       * single-turn: `DiscoveryQuery` has fourteen filters and asking for even
+       * one would mean holding a half-built query between two updates. The
+       * ranking, the capacity filter and the visibility rules are all
+       * `DiscoveryService`'s — the bot chooses no events, it only renders the
+       * ones the same search the Mini App runs returns.
+       *
+       * Somebody with no profile has no city, and «فعالیتی پیدا نشد» would be a
+       * false answer to a question that was never asked properly.
+       */
+      case 'discover': {
+        const profile = await this.profiles.find(user.id);
+        if (profile === null) {
+          return this.notice(
+            updateId,
+            user,
+            'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را در برنامه کامل کنید.',
+          );
+        }
+
+        const page = await this.discovery.search(user.id, {
+          cityId: profile.city.id,
+          hasCapacity: true,
+          limit: DISCOVER_LIMIT,
+        });
+        const text = formatDiscovered(
+          page.events.map((event) => ({
+            title: event.title,
+            categoryName: event.customCategoryLabel ?? event.categoryNameFa,
+            where:
+              event.districtNameFa === null
+                ? event.cityNameFa
+                : `${event.cityNameFa} — ${event.districtNameFa}`,
+            startsAt: event.startsAt,
+            // Subtracted here because the domain row carries the two counts and
+            // only the wire contract precomputes the difference.
+            remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
+          })),
+        );
+        return this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, { text });
       }
 
       default:
@@ -578,6 +626,16 @@ export class BotService {
       : 'چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. برای دیدن فهرست گفتگوها /chats را بفرستید.';
   }
 }
+
+/**
+ * How many activities `/discover` renders.
+ *
+ * Well under `buildDigest`'s own ceiling, and deliberately so: this is a *taste*
+ * of what is on, not the catalogue. Twenty results in a Telegram message is a
+ * wall somebody scrolls past; five is a reason to open the app, which is where
+ * the filters and the join button are.
+ */
+const DISCOVER_LIMIT = 5;
 
 /**
  * `/start ref_ABCD2345` and `/start ABCD2345` are the same invitation.
