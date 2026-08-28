@@ -15,6 +15,7 @@ import {
   type WizardStep,
 } from './wizard';
 import { createEventWizard, type CreateEventForm } from './wizards/create-event';
+import { editProfileWizard } from './wizards/edit-profile';
 
 /** How long a half-filled form survives (ADR-0017 §3). */
 export const DRAFT_TTL_DAYS = 7;
@@ -22,6 +23,7 @@ export const DRAFT_TTL_DAYS = 7;
 /** Every wizard the bot knows, by the enum the row stores. */
 const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, unknown>>>> = {
   CREATE_EVENT: createEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  EDIT_PROFILE: editProfileWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
 
 export interface ConversationSnapshot {

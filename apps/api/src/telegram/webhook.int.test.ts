@@ -1404,3 +1404,71 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
     expect(await prisma.conversationState.count()).toBe(0);
   });
 });
+
+/**
+ * `/edit_profile` — the wizard ADR-0017 puts on the critical path.
+ *
+ * A user who cannot complete a profile cannot do anything, so this has to work
+ * before the Mini App can be switched off.
+ */
+describe('POST /telegram/:secret — editing a profile in the chat', () => {
+  let sequence = 7000;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  it('changes only the fields that were answered', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID, 'نام قدیمی');
+    const before = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
+
+    await type(GUEST_TELEGRAM_ID, '/edit_profile');
+    await type(GUEST_TELEGRAM_ID, 'نام تازه');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // birth year
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // province
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // city
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // bio
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const after = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
+    expect(after.displayName).toBe('نام تازه');
+    // A skipped step means "leave this alone", not "clear it".
+    expect(after.birthYear).toBe(before.birthYear);
+    expect(after.cityId).toBe(before.cityId);
+  });
+
+  /**
+   * The mistake this product will actually see: a Persian speaker types their
+   * Jalali birth year. The refusal has to name the conversion, or they retype
+   * the same number.
+   */
+  it('explains the Jalali year rather than only refusing it', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID, 'نام');
+
+    await type(GUEST_TELEGRAM_ID, '/edit_profile');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // name
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
+    await type(GUEST_TELEGRAM_ID, '۱۳۷۰');
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    // Held on the same step rather than advanced past a value it refused.
+    expect(state.step).toBe('birth');
+  });
+});

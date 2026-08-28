@@ -197,6 +197,12 @@ export type {
 } from './conversation/wizard';
 export { categoryChoice, createEventWizard } from './conversation/wizards/create-event';
 export type { CreateEventForm } from './conversation/wizards/create-event';
+export {
+  GENDER_CHOICES,
+  editProfileWizard,
+  genderLabel,
+} from './conversation/wizards/edit-profile';
+export type { EditProfileForm } from './conversation/wizards/edit-profile';
 export type { EncryptedBody } from './chat/message-cipher';
 export {
   CHAT_ANONYMOUS_INTRO,

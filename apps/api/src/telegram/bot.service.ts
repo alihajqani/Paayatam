@@ -13,8 +13,10 @@ import {
   ReviewService,
   asCreateEventForm,
   categoryChoice,
+  genderLabel,
   zonedTimeToUtc,
   type CreateEventInput,
+  type EditProfileForm,
   type ConversationOutcome,
   type CreateEventForm,
   type WizardDeps,
@@ -389,6 +391,16 @@ export class BotService {
         return this.drawWizard(updateId, user, outcome);
       }
 
+      /**
+       * `/edit_profile` — the second wizard, and the one ADR-0017 puts on the
+       * critical path: a user who cannot complete a profile cannot do anything,
+       * so this has to work before the Mini App can be switched off.
+       */
+      case 'edit_profile': {
+        const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+        return this.drawWizard(updateId, user, outcome);
+      }
+
       case 'cancel': {
         await this.conversations.clear(user.id);
         return this.notice(updateId, user, 'لغو شد.');
@@ -673,9 +685,16 @@ export class BotService {
         return this.notice(updateId, user, 'فرم بسته شد. هر وقت خواستید /create_event را بفرستید.');
 
       case 'submit':
-        return this.submitWizard(updateId, user, outcome.snapshot.form);
+        return outcome.snapshot.kind === 'EDIT_PROFILE'
+          ? this.submitProfile(updateId, user, outcome.snapshot.form)
+          : this.submitWizard(updateId, user, outcome.snapshot.form);
 
       case 'summary': {
+        if (outcome.snapshot.kind === 'EDIT_PROFILE') {
+          const profile = outcome.snapshot.form as EditProfileForm;
+          const screen = renderSummary(await this.profileSummaryLines(profile), false);
+          return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+        }
         const form = asCreateEventForm(outcome.snapshot.form);
         const screen = renderSummary(await this.summaryLines(form), form.wantsDetails !== true);
         return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
@@ -786,6 +805,64 @@ export class BotService {
       // to make them start again.
       await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
     }
+  }
+
+  /**
+   * Save the profile edits.
+   *
+   * **Only the keys the user answered are sent.** `UpdateProfileInput` takes a
+   * partial, and a skipped step means "leave this alone" — building a full input
+   * with defaults would quietly overwrite a bio somebody chose not to touch.
+   * `ProfileService.update` is the authority, and it is the same call the Mini
+   * App's edit screen makes.
+   */
+  private async submitProfile(
+    updateId: number,
+    user: BotUser,
+    raw: Record<string, unknown>,
+  ): Promise<void> {
+    const form = raw as EditProfileForm;
+
+    try {
+      await this.profiles.update(
+        user.id,
+        {
+          ...(form.displayName !== undefined ? { displayName: form.displayName } : {}),
+          ...(form.gender !== undefined ? { gender: form.gender } : {}),
+          ...(form.birthYear !== undefined ? { birthYear: form.birthYear } : {}),
+          ...(form.cityId !== undefined ? { cityId: form.cityId } : {}),
+          ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
+          ...(form.bio !== undefined ? { bio: form.bio } : {}),
+        },
+        { kind: 'USER' },
+      );
+      await this.conversations.clear(user.id);
+      await this.notice(updateId, user, 'نمایه شما به‌روز شد ✅');
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      // The draft survives, for the reason it survives a refused event.
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+  }
+
+  /** The profile summary — only what was actually changed. */
+  private async profileSummaryLines(form: EditProfileForm): Promise<SummaryLine[]> {
+    const catalog = await this.catalog.snapshot();
+    const city = catalog.cities.find((candidate) => candidate.id === form.cityId);
+
+    const lines: SummaryLine[] = [];
+    if (form.displayName !== undefined) lines.push({ label: 'نام', value: form.displayName });
+    if (form.gender !== undefined) {
+      lines.push({ label: 'جنسیت', value: genderLabel(form.gender) });
+    }
+    if (form.birthYear !== undefined) {
+      lines.push({ label: 'سال تولد', value: toPersianDigits(String(form.birthYear)) });
+    }
+    if (city !== undefined) lines.push({ label: 'شهر', value: city.nameFa });
+    if (form.bio !== undefined) lines.push({ label: 'معرفی', value: form.bio });
+
+    // Everything skipped: the summary would be a heading over nothing.
+    return lines.length > 0 ? lines : [{ label: 'تغییری ثبت نشد', value: 'همهٔ مرحله‌ها رد شدند' }];
   }
 
   /** What the wizard's `choice` steps load, resolved against the live catalog. */

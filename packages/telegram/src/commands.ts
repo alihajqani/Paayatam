@@ -44,6 +44,7 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'chats', description: 'گفتگوهای باز شما' },
   { command: 'reviews', description: 'نظرهایی که هنوز ننوشته‌اید' },
   { command: 'profile', description: 'نمایه و امتیاز اعتماد شما' },
+  { command: 'edit_profile', description: 'ویرایش نمایه' },
 ] as const;
 
 /**
