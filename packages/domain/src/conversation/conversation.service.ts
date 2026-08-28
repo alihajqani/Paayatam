@@ -16,7 +16,22 @@ import {
 } from './wizard';
 import { createEventWizard, type CreateEventForm } from './wizards/create-event';
 import { acceptPoliciesWizard } from './wizards/accept-policies';
+import { editEventWizard } from './wizards/edit-event';
 import { editProfileWizard } from './wizards/edit-profile';
+
+/**
+ * Where the machine records which fields the user answered.
+ *
+ * Underscored because it shares a namespace with the wizard's own fields and is
+ * not one of them: nothing in a `WizardStep` reads or writes it.
+ */
+export const TOUCHED_KEY = '_touched';
+
+/** Which of a form's fields the user actually answered, as opposed to inherited. */
+export function touchedFields(form: Record<string, unknown>): Set<string> {
+  const raw = form[TOUCHED_KEY];
+  return new Set(Array.isArray(raw) ? (raw as string[]) : []);
+}
 
 /** How long a half-filled form survives (ADR-0017 §3). */
 export const DRAFT_TTL_DAYS = 7;
@@ -26,6 +41,7 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
   CREATE_EVENT: createEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
   EDIT_PROFILE: editProfileWizard as unknown as WizardDefinition<Record<string, unknown>>,
   ACCEPT_POLICIES: acceptPoliciesWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  EDIT_EVENT: editEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
 
 export interface ConversationSnapshot {
@@ -218,7 +234,30 @@ export class ConversationService {
       return { kind: 'step', step, snapshot, error: result.error, position, total };
     }
 
-    const form = { ...snapshot.form, ...result.patch };
+    /**
+     * Which fields the user has actually answered, as opposed to which the form
+     * happens to hold.
+     *
+     * ── Why an edit wizard cannot work without this ─────────────────────────
+     *
+     * `EDIT_EVENT` **prefills** the draft from the event, so "the form has a
+     * value" stops meaning "the user chose it". Without a record of what was
+     * answered, skipping the time steps still writes the time back — and because
+     * the wizard offers whole hours only, an event at 22:45 silently moves to
+     * 22:00. «رد کردن» must mean *leave this as it is*, and this is what makes it
+     * true.
+     *
+     * It lives on the form rather than in a column because it is exactly as
+     * ephemeral as the form is, and it is written by the machine rather than by
+     * a step so no wizard has to remember to maintain it.
+     */
+    const touched = new Set([
+      ...(Array.isArray(snapshot.form[TOUCHED_KEY])
+        ? (snapshot.form[TOUCHED_KEY] as string[])
+        : []),
+      ...Object.keys(result.patch),
+    ]);
+    const form = { ...snapshot.form, ...result.patch, [TOUCHED_KEY]: [...touched] };
     const following = nextStep(definition, step.key, form);
 
     if (following === null) {
@@ -233,11 +272,60 @@ export class ConversationService {
     return { kind: 'step', step: following, snapshot: moved, position, total };
   }
 
+  /**
+   * Merge values into the open draft that a step could not have fetched.
+   *
+   * ── Why this exists ─────────────────────────────────────────────────────────
+   *
+   * A step's `accept` is a pure function, which is what makes it testable without
+   * a database — and what stops it loading anything. `EDIT_EVENT` needs exactly
+   * that: once the host picks which event, the form has to be **prefilled** with
+   * what that event currently says, or the summary would offer to replace every
+   * field with nothing.
+   *
+   * So the caller does the load and hands the result here. The alternative — an
+   * async `accept` — would make every step in every wizard able to reach the
+   * database to serve the one that has to, and the purity is worth more than the
+   * symmetry.
+   *
+   * It does **not** touch `last_update_id`: this is not an update being applied,
+   * it is the same update's work finishing.
+   */
+  async patchForm(
+    userId: string,
+    patch: Record<string, unknown>,
+  ): Promise<ConversationSnapshot | null> {
+    const row = await this.prisma.conversationState.findUnique({ where: { userId } });
+    if (row === null) return null;
+
+    const snapshot = this.toSnapshot(row);
+    const merged: ConversationSnapshot = { ...snapshot, form: { ...snapshot.form, ...patch } };
+    const body = this.cipher.encrypt(JSON.stringify(merged.form));
+
+    await this.prisma.conversationState.update({
+      where: { userId },
+      data: {
+        formDataCiphertext: new Uint8Array(body.ciphertext),
+        formDataNonce: new Uint8Array(body.nonce),
+        keyVersion: body.keyVersion,
+      },
+    });
+    return merged;
+  }
+
   /** Record which message the wizard is drawn on, so the next step edits it. */
   async rememberMessage(userId: string, telegramMessageId: number): Promise<void> {
     await this.prisma.conversationState.updateMany({
       where: { userId },
       data: { lastMessageId: telegramMessageId },
+    });
+  }
+
+  /** Record what is being edited, once the picking step has answered. */
+  async rememberTarget(userId: string, targetPublicId: string): Promise<void> {
+    await this.prisma.conversationState.updateMany({
+      where: { userId },
+      data: { targetPublicId },
     });
   }
 
