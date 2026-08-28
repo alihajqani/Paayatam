@@ -52,6 +52,15 @@ interface HapticFeedback {
 
 interface TelegramWebApp {
   initData: string;
+  /**
+   * The unsigned half of the launch payload.
+   *
+   * **Unsigned, and therefore only ever used for navigation.** `initData` is what
+   * the server verifies; nothing here is evidence of anything. `start_param` is
+   * the `?startapp=` value the notification button carried, and the worst a
+   * forged one can do is open a screen the user could have tapped to anyway.
+   */
+  initDataUnsafe?: { start_param?: string };
   colorScheme: 'light' | 'dark';
   themeParams: ThemeParams;
   viewportStableHeight?: number;
@@ -198,6 +207,49 @@ export function initTelegram(): void {
  * An empty `botUsername` — a deployment that never configured one — closes
  * rather than opening `https://t.me/`, which is a link to nothing.
  */
+/**
+ * Where a `?startapp=` deep link wants to land, as a route path.
+ *
+ * ── What was broken ──────────────────────────────────────────────────────────
+ *
+ * Every «باز کردن برنامه» button in every notification has carried a payload
+ * since M13 — `openAppButton` builds `https://t.me/<bot>?startapp=<target>` and
+ * the templates pass `home`, `wallet`, `my-requests`, `reviews/pending`. Nothing
+ * ever read it back. Telegram delivers it as `initDataUnsafe.start_param`, the
+ * Mini App never looked, and so **every one of those buttons opened the splash**
+ * and left the user to navigate to the thing the message was about. The review
+ * reminder is the clearest loss: it names a pending review and then lands two
+ * taps away from it.
+ *
+ * `openAppButton` encodes `/` as `_`, because Telegram restricts `startapp` to
+ * `A-Za-z0-9_-`. This reverses that.
+ *
+ * ── Why an allowlist rather than a path ──────────────────────────────────────
+ *
+ * The payload is attacker-supplied — anyone can send anyone a `?startapp=`
+ * link. Treating it as a route would let a stranger choose which screen someone
+ * else's app opens on, including `/events/<id>/edit`. A fixed set of
+ * destinations cannot name a resource, so the worst a forged link achieves is a
+ * screen the user could have reached from the home page.
+ */
+const DEEP_LINKS: Record<string, string> = {
+  home: '/home',
+  wallet: '/wallet',
+  discover: '/discover',
+  chats: '/chats',
+  reviews: '/reviews',
+  'reviews/pending': '/reviews',
+  'my-requests': '/my-requests',
+  'my-events': '/my-events',
+};
+
+export function deepLinkTarget(): string | null {
+  const raw = webApp?.initDataUnsafe?.start_param;
+  if (raw === undefined || raw === '') return null;
+
+  return DEEP_LINKS[raw.replaceAll('_', '/')] ?? null;
+}
+
 export function openBotChat(botUsername: string): void {
   const url = botUsername === '' ? null : `https://t.me/${botUsername}`;
   if (url !== null && webApp?.openTelegramLink !== undefined) {

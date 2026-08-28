@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { ApiError } from '@/api/client';
 import { useSessionStore } from '@/stores/session';
 import { stepFor } from '@/router';
-import { isAvailable } from '@/telegram/webapp';
+import { deepLinkTarget, isAvailable } from '@/telegram/webapp';
 
 /**
  * Signs in and routes to whichever onboarding step the user is on.
@@ -31,7 +31,20 @@ async function start(): Promise<void> {
     // `session.onboardingState`, not `session.me`: a NEW user has no `me` yet,
     // because `/me` is behind the terms gate — and `stepFor(undefined)` routes back
     // to this very screen, which is a silent hang rather than an error.
-    await router.replace(stepFor(session.onboardingState, session.pendingPolicies.length));
+    const step = stepFor(session.onboardingState, session.pendingPolicies.length);
+
+    /**
+     * The `?startapp=` target, honoured only once the funnel is finished.
+     *
+     * **The order matters and it is this way round on purpose.** A deep link is
+     * somebody's notification button, not an exemption: a user who still owes a
+     * profile or an acceptance goes to that step, and the guard would bounce them
+     * there anyway — but bouncing after a navigation makes the app flash the
+     * wrong screen first. Asking `stepFor` first means the link is simply ignored
+     * while it cannot apply.
+     */
+    const target = step === '/home' ? deepLinkTarget() : null;
+    await router.replace(target ?? step);
   } catch (cause) {
     error.value =
       cause instanceof ApiError ? cause.messageFa : 'ورود انجام نشد. لطفاً دوباره تلاش کنید.';
