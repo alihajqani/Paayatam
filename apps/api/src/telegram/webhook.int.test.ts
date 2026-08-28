@@ -342,6 +342,80 @@ describe('/start', () => {
 });
 
 /**
+ * The read-only commands.
+ *
+ * Every one of these answers something the Mini App also answers, and the point
+ * is the round trip it removes: checking a balance was previously open the app,
+ * wait for the home screen, read one number.
+ *
+ * They are asserted through the webhook rather than against `BotService`, because
+ * what matters is that a command produces exactly one deduped `notification` row
+ * — the same delivery path as every other message — and a unit test on the
+ * service would assert the call and not the row.
+ */
+describe('commands', () => {
+  it('answers /help with the capability list', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/help') }));
+
+    expect(await replyTo(HOST_TELEGRAM_ID)).toEqual([
+      { templateKey: TEMPLATES.BOT_WELCOME, text: '' },
+      { templateKey: TEMPLATES.BOT_HELP, text: '' },
+    ]);
+  });
+
+  /** No coin account yet is a zero balance, not an error — accounts are lazy. */
+  it('answers /balance with zero for an account that has never moved', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/balance') }));
+
+    const rows = await prisma.notification.findMany({
+      where: { templateKey: TEMPLATES.BOT_BALANCE },
+      select: { payload: true },
+    });
+
+    expect(rows).toHaveLength(1);
+    expect((rows[0]?.payload as Record<string, unknown>)['balance']).toBe(0);
+  });
+
+  it('reports the balance the ledger actually holds', async () => {
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await prisma.coinAccount.create({ data: { userId: guestId, balance: 42 } });
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/balance') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_BALANCE },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['balance']).toBe(42);
+  });
+
+  /**
+   * The unknown-command reply used to send people back to `/start`, which told
+   * them nothing they had not already read. It names `/help` now.
+   */
+  it('points an unknown command at /help rather than at /start', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/nonsense') }));
+
+    const replies = await replyTo(HOST_TELEGRAM_ID);
+    expect(replies).toHaveLength(2);
+    expect(replies[1]?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
+    expect(replies[1]?.text).toContain('/help');
+  });
+
+  /** A command is a command, not chat text: it is never relayed to a stranger. */
+  it('does not relay a command into an open conversation', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/help') }));
+
+    expect(await prisma.chatMessage.count()).toBe(0);
+  });
+});
+
+/**
  * The relay: a message typed into the bot's DM, delivered into a conversation.
  *
  * This is M8's release gate reduced to what an automated test can reach. The gate

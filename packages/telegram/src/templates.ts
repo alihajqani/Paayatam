@@ -60,6 +60,10 @@ export const TEMPLATES = {
    * exists — and the copy is the one that would fall behind.
    */
   BOT_NOTICE: 'bot.notice',
+  /** `/help` — what the bot can do, for somebody who has only ever seen `/start`. */
+  BOT_HELP: 'bot.help',
+  /** `/balance` — the coin balance, without opening anything. */
+  BOT_BALANCE: 'bot.balance',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -370,6 +374,41 @@ export function render(
         `home`,
         botUsername,
       );
+
+    /**
+     * `/help` — the only place the bot's own capabilities are written down.
+     *
+     * Until this existed every command except `/start` answered «این فرمان را
+     * نمی‌شناسم», which told somebody what the bot could *not* do and nothing at
+     * all about what it could. The three behaviours listed are the ones that are
+     * invisible: that a reply routes to the right conversation, that the buttons
+     * carry the decision, and that plain text works when only one chat is open.
+     */
+    case TEMPLATES.BOT_HELP:
+      return opened(
+        `<b>راهنما</b>\n\n` +
+          `<b>/balance</b> — موجودی سکه‌های شما\n` +
+          `<b>/start</b> — بازگشت به ابتدا\n\n` +
+          `<b>گفتگوها</b>\n` +
+          `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
+          `اگر فقط یک گفتگوی باز دارید، نوشتن پیام کافی است.\n\n` +
+          `<b>درخواست‌ها</b>\n` +
+          `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
+          `لازم نیست چیزی را باز کنید.\n\n` +
+          `بقیهٔ کارها — ساختن رویداد، جستجو، ویرایش نمایه — در برنامه انجام می‌شود.`,
+        `home`,
+        botUsername,
+      );
+
+    /**
+     * `/balance` — a number somebody checks often, and previously could only see by
+     * opening the Mini App and waiting for the home screen to load.
+     *
+     * The button still offers the wallet, because the balance answers "how many"
+     * and the ledger answers "why", and only one of those fits in a line.
+     */
+    case TEMPLATES.BOT_BALANCE:
+      return opened(`<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`, `wallet`, botUsername);
 
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:

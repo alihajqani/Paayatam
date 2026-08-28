@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   ChatService,
+  CoinService,
   NotificationService,
   ParticipationService,
   ReferralService,
@@ -76,6 +77,7 @@ export class BotService {
   constructor(
     private readonly users: UserService,
     private readonly chats: ChatService,
+    private readonly coins: CoinService,
     private readonly participation: ParticipationService,
     private readonly referrals: ReferralService,
     private readonly notifications: NotificationService,
@@ -149,13 +151,45 @@ export class BotService {
             );
 
           case 'COMMAND':
-            return this.notice(
-              update.updateId,
-              user,
-              'این فرمان را نمی‌شناسم. برای شروع /start را بفرستید.',
-            );
+            return this.onCommand(update.updateId, user, intent.command);
         }
       }
+    }
+  }
+
+  /**
+   * A recognised `/command`.
+   *
+   * **Read-only and single-turn, and that is the boundary rather than a stage.**
+   * The bot answers a question whose answer is one number or one paragraph; a
+   * command that needed several turns would need per-user conversation state,
+   * and this handler deliberately holds none — there is nowhere for a half-typed
+   * event to live, which is what keeps a redelivered update idempotent.
+   *
+   * Everything with a form in it stays in the Mini App. `/help` says so plainly,
+   * because a bot that silently cannot do something is worse than one that says
+   * where the thing is done.
+   *
+   * An unknown command now points at `/help` rather than at `/start`. Sending
+   * somebody back to the welcome message told them nothing they had not already
+   * read.
+   */
+  private async onCommand(updateId: number, user: BotUser, command: string): Promise<void> {
+    switch (command.toLowerCase()) {
+      case 'help':
+        return this.reply(updateId, user.id, TEMPLATES.BOT_HELP, {});
+
+      case 'balance': {
+        const balance = await this.coins.balanceOf(user.id);
+        return this.reply(updateId, user.id, TEMPLATES.BOT_BALANCE, { balance });
+      }
+
+      default:
+        return this.notice(
+          updateId,
+          user,
+          'این فرمان را نمی‌شناسم. برای دیدن فهرست فرمان‌ها /help را بفرستید.',
+        );
     }
   }
 
