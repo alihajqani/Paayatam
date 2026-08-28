@@ -56,8 +56,8 @@ no HTTP framework and no grammY.** `apps/api` and `apps/worker` are thin adapter
 over the same services. That is what stops the bot and the Mini App from drifting
 apart — treat it as an invariant, not a preference.
 
-Scale: 51 Prisma models · 24 migrations · 15 API controllers · 42 domain services
-· 19 domain modules · 15 Mini App views · 1195 unit/component tests.
+Scale: 52 Prisma models · 25 migrations · 15 API controllers · 42 domain services
+· 20 domain modules · 15 Mini App views · 1288 unit/component tests.
 
 ## 4. The twelve invariants
 
@@ -109,12 +109,12 @@ below, re-verified after the bot-command work:
 | `pnpm -w typecheck` | PASS |
 | `eslint .` | PASS |
 | `prettier --check .` | PASS |
-| unit + miniapp + admin | **1195/1195** in 68 files (16 s) |
-| **integration** (real Postgres) | **1330/1330** in 48 files (30 min) |
+| unit + miniapp + admin | **1288/1288** in 74 files (14 s) |
+| **integration** (real Postgres) | **1353/1353** in 49 files (32 min) |
 | **Docker production build** | api, worker, web all built |
 | **nginx config validation** | syntax ok, test successful |
 
-**2525 tests green in total.** The integration run's `ERROR`/`WARN` log lines are
+**2641 tests green in total.** The integration run's `ERROR`/`WARN` log lines are
 negative-path assertions (an invalid blacklist regex, a refused Redis connection,
 a campaign paused on repeated rate limits), not failures.
 
