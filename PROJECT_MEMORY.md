@@ -208,8 +208,9 @@ is exactly what makes a redelivered Telegram update idempotent.
 3. **A reply is a row, not a fire-and-forget send** — deduped by a UNIQUE index on
    a key derived from Telegram's `update_id`.
 
-**Adding a read-only command** (the `/help`, `/balance`, `/requests` pattern,
-`feature/bot-commands`):
+The commands today are `/start`, `/help`, `/balance`, `/requests`, `/myevents`.
+
+**Adding a read-only command** (`feature/bot-commands`):
 
 - add the key + render case in `packages/telegram/src/templates.ts`
 - dispatch it in `BotService.onCommand`
@@ -219,6 +220,16 @@ is exactly what makes a redelivered Telegram update idempotent.
   deduped notification row, and a service-level test asserts the call instead
 - the totality test over `Object.values(TEMPLATES)` in `escape.test.ts` picks up
   new templates automatically
+
+**Persian status labels are per-perspective, not per-enum.**
+`PARTICIPANT_STATUS_GUEST_FA` and `PARTICIPANT_STATUS_HOST_FA` in
+`@payetam/shared` describe the *same nine statuses* differently, because the
+difference is «شما»: `PENDING` is «در انتظار پاسخ میزبان» to the requester and
+«در انتظار پاسخ شما» to the host; `CANCELLED_BY_HOST` is «میزبان لغو کرد» to one
+and «شما لغو کردید» to the other. Seven of the nine differ. **Do not collapse
+them** — it looks like duplication and is not. `EVENT_STATUS_FA` is one map,
+because an event's status is a fact about the event rather than a relationship
+between two people.
 
 **Deep links.** Every «باز کردن برنامه» button is
 `https://t.me/<bot>?startapp=<target>`, built by `openAppButton`, which encodes
