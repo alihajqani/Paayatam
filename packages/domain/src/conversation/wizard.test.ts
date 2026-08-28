@@ -22,7 +22,7 @@ function step(key: string, over: Partial<WizardStep<Form>> = {}): WizardStep<For
     key,
     ui: 'text',
     prompt: () => key,
-    accept: (input) => ({ ok: true, patch: { [key]: input.value } as Partial<Form> }),
+    accept: (input) => ({ ok: true, patch: { [key]: input.value } }),
     ...over,
   };
 }
