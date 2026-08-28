@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  PARTICIPANT_STATUS_FA,
+  PARTICIPANT_STATUS_GUEST_FA,
   type CancellationPreviewResponse,
   type ParticipantStatus,
 } from '@payetam/shared';
@@ -118,7 +118,9 @@ onMounted(load);
           <p v-if="item.event" class="font-medium">{{ item.event.title }}</p>
 
           <div class="flex items-baseline justify-between gap-2">
-            <span class="text-sm">{{ PARTICIPANT_STATUS_FA[item.status] ?? item.status }}</span>
+            <span class="text-sm">{{
+              PARTICIPANT_STATUS_GUEST_FA[item.status] ?? item.status
+            }}</span>
             <span v-if="item.waitlistRank" class="text-xs text-tg-hint">
               نفر {{ toPersianDigits(item.waitlistRank) }}
             </span>

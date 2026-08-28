@@ -1,7 +1,13 @@
 export { AppError, ErrorCode, ERROR_MESSAGES_FA, isAppError } from './errors';
 export type { ErrorBody } from './errors';
 
-export { EVENT_DISCLAIMER_FA, EVENT_DISCLAIMER_SHORT_FA, PARTICIPANT_STATUS_FA } from './copy';
+export {
+  EVENT_DISCLAIMER_FA,
+  EVENT_DISCLAIMER_SHORT_FA,
+  EVENT_STATUS_FA,
+  PARTICIPANT_STATUS_GUEST_FA,
+  PARTICIPANT_STATUS_HOST_FA,
+} from './copy';
 
 export {
   telegramAuthRequest,

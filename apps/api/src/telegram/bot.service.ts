@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   ChatService,
   CoinService,
+  EventService,
   NotificationService,
   ParticipationService,
   ReferralService,
@@ -18,6 +19,7 @@ import {
 import { AppError, ERROR_MESSAGES_FA, ErrorCode } from '@payetam/shared';
 import {
   TEMPLATES,
+  formatMyEvents,
   formatMyRequests,
   parseChatCallback,
   type BotInboundText,
@@ -79,6 +81,7 @@ export class BotService {
     private readonly users: UserService,
     private readonly chats: ChatService,
     private readonly coins: CoinService,
+    private readonly events: EventService,
     private readonly participation: ParticipationService,
     private readonly referrals: ReferralService,
     private readonly notifications: NotificationService,
@@ -201,6 +204,20 @@ export class BotService {
           })),
         );
         return this.reply(updateId, user.id, TEMPLATES.BOT_REQUESTS, { text });
+      }
+
+      case 'myevents': {
+        const owned = await this.events.listOwned(user.id);
+        const text = formatMyEvents(
+          owned.map((event) => ({
+            title: event.title,
+            startsAt: event.startsAt,
+            status: event.status,
+            acceptedCount: event.acceptedCount,
+            capacity: event.capacity,
+          })),
+        );
+        return this.reply(updateId, user.id, TEMPLATES.BOT_MY_EVENTS, { text });
       }
 
       default:

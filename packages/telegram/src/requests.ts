@@ -1,4 +1,4 @@
-import { PARTICIPANT_STATUS_FA, type ParticipantStatus } from '@payetam/shared';
+import { PARTICIPANT_STATUS_GUEST_FA, type ParticipantStatus } from '@payetam/shared';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 
@@ -41,7 +41,7 @@ export function formatMyRequests(lines: readonly MyRequestLine[]): string {
     return (
       `• <b>${escapeHtml(line.title)}</b>\n` +
       `  🗓 ${formatTehran(line.startsAt)}\n` +
-      `  ${PARTICIPANT_STATUS_FA[line.status]}${rank}`
+      `  ${PARTICIPANT_STATUS_GUEST_FA[line.status]}${rank}`
     );
   });
 

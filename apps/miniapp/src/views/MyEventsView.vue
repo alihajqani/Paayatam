@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type {
-  EventStatus,
-  HostCancellationPreviewResponse,
-  ParticipantStatus,
+import {
+  EVENT_STATUS_FA,
+  PARTICIPANT_STATUS_HOST_FA,
+  type HostCancellationPreviewResponse,
 } from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import ReachDialog from '@/components/ReachDialog.vue';
@@ -74,33 +74,6 @@ const state = computed(() => {
   if (events.myEvents.length === 0) return 'empty' as const;
   return 'ready' as const;
 });
-
-/** Exhaustive over `EventStatus`, for the same reason. */
-const STATUS_FA: Record<EventStatus, string> = {
-  DRAFT: 'پیش‌نویس',
-  PENDING_MODERATION: 'در انتظار بررسی',
-  PUBLISHED: 'منتشرشده',
-  HIDDEN: 'پنهان',
-  REJECTED: 'رد شده',
-  CANCELLED_BY_HOST: 'لغو شده',
-  ONGOING: 'در حال برگزاری',
-  COMPLETED: 'برگزار شده',
-  EXPIRED: 'منقضی',
-  DELETED: 'حذف شده',
-};
-
-/** Exhaustive over the enum, so a new status cannot reach a user in English. */
-const PARTICIPANT_STATUS_FA: Record<ParticipantStatus, string> = {
-  PENDING: 'در انتظار پاسخ شما',
-  WAITLISTED: 'نوبت انتظار',
-  ACCEPTED: 'پذیرفته‌شده',
-  REJECTED: 'رد شده',
-  EXPIRED: 'مهلت پاسخ گذشت',
-  CANCELLED_BY_PARTICIPANT: 'خودش لغو کرد',
-  CANCELLED_BY_HOST: 'شما لغو کردید',
-  COMPLETED: 'برگزار شد',
-  NO_SHOW: 'غایب',
-};
 
 async function load(): Promise<void> {
   loadError.value = null;
@@ -255,7 +228,7 @@ onMounted(load);
           <div class="flex items-start justify-between gap-2">
             <h2 class="flex-1 font-medium leading-snug">{{ event.title }}</h2>
             <span class="rounded-full bg-tg-bg px-2 py-0.5 text-xs">
-              {{ STATUS_FA[event.status] ?? event.status }}
+              {{ EVENT_STATUS_FA[event.status] ?? event.status }}
             </span>
           </div>
 
@@ -326,7 +299,7 @@ onMounted(load);
               <div class="flex items-baseline justify-between gap-2">
                 <span class="font-medium">{{ person.displayName }}</span>
                 <span class="text-xs text-tg-hint">
-                  {{ PARTICIPANT_STATUS_FA[person.status] ?? person.status }}
+                  {{ PARTICIPANT_STATUS_HOST_FA[person.status] ?? person.status }}
                   <template v-if="person.waitlistRank">
                     ({{ toPersianDigits(person.waitlistRank) }})
                   </template>

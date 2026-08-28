@@ -6,6 +6,8 @@ export type { ChannelPostContent, RenderedChannelPost } from './channel';
 export { renderEventInvitation } from './invitation';
 export { formatMyRequests } from './requests';
 export type { MyRequestLine } from './requests';
+export { formatMyEvents } from './events-digest';
+export type { MyEventLine } from './events-digest';
 export { formatTehran } from './datetime';
 export type { EventInvitationContent } from './invitation';
 

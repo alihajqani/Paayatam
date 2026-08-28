@@ -66,6 +66,8 @@ export const TEMPLATES = {
   BOT_BALANCE: 'bot.balance',
   /** `/requests` — what the sender has asked to join, and where each one stands. */
   BOT_REQUESTS: 'bot.requests',
+  /** `/myevents` — what the sender is hosting, and how full each one is. */
+  BOT_MY_EVENTS: 'bot.my_events',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -391,6 +393,7 @@ export function render(
         `<b>راهنما</b>\n\n` +
           `<b>/balance</b> — موجودی سکه‌های شما\n` +
           `<b>/requests</b> — درخواست‌هایی که داده‌اید\n` +
+          `<b>/myevents</b> — رویدادهایی که ساخته‌اید\n` +
           `<b>/start</b> — بازگشت به ابتدا\n\n` +
           `<b>گفتگوها</b>\n` +
           `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
@@ -424,6 +427,10 @@ export function render(
      */
     case TEMPLATES.BOT_REQUESTS:
       return opened(str(payload, 'text'), `my-requests`, botUsername);
+
+    /** `/myevents` — the host's digest, built by `formatMyEvents`. */
+    case TEMPLATES.BOT_MY_EVENTS:
+      return opened(str(payload, 'text'), `my-events`, botUsername);
 
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:

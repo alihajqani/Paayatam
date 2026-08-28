@@ -446,6 +446,37 @@ describe('commands', () => {
     expect(text).toContain('در انتظار پاسخ میزبان');
   });
 
+  it('answers /myevents with nothing hosted yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/myevents') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_MY_EVENTS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز رویدادی نساخته‌اید');
+  });
+
+  /** The seats are the point: "do I still need people" without opening anything. */
+  it('names the event and how full it is', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/myevents') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_MY_EVENTS },
+      select: { payload: true },
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { title: true },
+    });
+
+    expect(String((row.payload as Record<string, unknown>)['text'])).toContain(event.title);
+  });
+
   /** A command is a command, not chat text: it is never relayed to a stranger. */
   it('does not relay a command into an open conversation', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
