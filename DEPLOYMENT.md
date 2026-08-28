@@ -618,6 +618,26 @@ Check what Telegram thinks:
 The script never prints the secret path — it is a credential, and printing it
 puts it in your scrollback.
 
+### Migration 0025 and the conversation store
+
+ADR-0017 adds `conversation_state`, which holds a user's half-filled bot form.
+Nothing about the deploy changes — the migration is additive, so the previous
+release runs unchanged against the new schema — but two operational facts are
+worth knowing:
+
+- **It is in the daily backup already.** `backup.sh` dumps the whole database;
+  there is no table list to add to. A restore brings drafts back with everything
+  else, and a draft older than seven days is swept on the next run regardless.
+- **The sweep is `CONVERSATION_PURGE`, daily at 04:15 Tehran**, just after the
+  retention purge. If the worker is down, drafts simply live longer; nothing
+  else depends on the sweep having run.
+
+The table is small — one row per user *currently filling in a form* — and
+`form_data_ciphertext` is encrypted under `CHAT_ENCRYPTION_KEY`. **A restore into
+an environment with a different key cannot read existing drafts**; they are
+discarded on read and the user starts their form again, which is why this is a
+note rather than a warning.
+
 ### The command menu
 
 The webhook is what lets the bot *hear*; `setMyCommands` is what lets anybody

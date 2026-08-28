@@ -25,7 +25,7 @@ Docker Compose, live in production at `v0.3.0`.
 |---|---|
 | What exists today, every route/table/flow | `docs/project-review.md` (52 K) |
 | The master plan, frozen decisions, milestones | `docs/implementation-plan.md` (174 K) |
-| Why a decision is what it is | `docs/adr/` (17 ADRs, index in `README.md`) |
+| Why a decision is what it is | `docs/adr/` (18 ADRs, index in `README.md`) |
 | Setup, ports, testing inside Telegram | `README.md` §Local Development |
 | Bare VPS → verified deploy | `DEPLOYMENT.md` (33 K) |
 | Attack surface + accepted risks | `docs/threat-model.md`, `SECURITY.md` |
@@ -43,8 +43,10 @@ never an edit in passing.
 ```
 apps/      api · worker · miniapp · admin
 packages/  db · domain · platform · telegram · shared · config
+           domain/conversation — bot wizards (ADR-0017)
+           telegram/wizard     — their keyboards, calendar, renderer
 docker/    Dockerfiles, nginx vhosts, compose
-docs/      plan, 17 ADRs, threat model, glossary, brand
+docs/      plan, 18 ADRs, threat model, glossary, brand
 test/      integration harness (real Postgres)
 tools/     seeds, backup/restore, admin bootstrap
 ```
@@ -174,7 +176,25 @@ suite was green through all of them.
    instead of appearing untranslated at a user. **A fallback that renders the raw
    value is how a missing translation stops being a build error and becomes a
    feature nobody notices.**
-8. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
+8. **A wizard that advances on a redelivered update skips a question.** Telegram
+   retries any webhook call that did not answer 200, and the bot's old
+   idempotency was *architectural* — it held no state, so there was nothing to
+   advance twice. `conversation_state` removed that guarantee and
+   `last_update_id` replaces it. Any new code path that mutates a draft must go
+   through `ConversationService.handle`, which checks it. **A refused answer must
+   consume its update too**, or the same complaint is shown twice.
+9. **Reading text before checking for an open wizard sends it to a stranger.**
+   `BotService.onText` handles two things through one channel: answers to a form,
+   and messages relayed into an anonymous chat. The wizard is asked first and the
+   relay only runs when there is no wizard. Reversed, an event description is
+   delivered to somebody the user has never met — which `onText`'s own comment
+   calls the worst thing this relay can do.
+10. **`git add -A` swept up a deliberately-untracked file — again.** It happened
+    a second time while staging the wizard work, caught only because the status
+    output was read before committing. `docs/production-deployment-todo.md` and
+    `.claude-work-checkpoint.md` are untracked **on purpose**. Stage by path, and
+    read `git status` before every commit.
+11. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
    why migrations 0022 and 0023 are separate files. They are not rolled back by a
    later failure — additive-only, so a partial apply is safe, but the runbook
    must say so.
@@ -211,104 +231,109 @@ Reach for these before writing a new one:
 | Idempotency for paid actions | `Idempotency-Key`, see economy module |
 | Bot digests, capped to Telegram's message limit | `packages/telegram/src/digest.ts` |
 | The bot's command list — menu, `/help`, dispatch | `packages/telegram/src/commands.ts` |
+| Multi-step bot forms: steps, validation, persistence | `packages/domain/src/conversation/` |
+| Their keyboards, Jalali calendar and screens | `packages/telegram/src/wizard/` |
 
-## 10. The bot surface, and where it stops
+## 10. Conversation wizards, and the state the bot now keeps
 
-The bot is **deliberately stateless**. `packages/telegram/src/update.ts` classifies
-an update into five intents (`START`, `COMMAND`, `TEXT`, `EDITED_TEXT`,
-`UNSUPPORTED`, plus `BLOCK_CHANGED`/`CALLBACK`), and `BotService` holds no per-user
-conversation state at all. There is nowhere for a half-typed event to live — which
-is exactly what makes a redelivered Telegram update idempotent.
+**The bot was stateless and is not any more.** ADR-0017 reversed the position
+this section used to record — *single-turn work in the bot, forms in the Mini
+App* — because the product owner decided to retire the Mini App and move the
+forms into the chat. Read the ADR before touching any of it; what follows is the
+map, not the argument.
 
-`BotService` obeys three rules, all load-bearing:
+### The two halves
 
-1. **It calls the same domain services the Mini App calls.** No rule about who may
-   accept a request lives in the bot. A rule enforced on one surface protects one
-   surface.
-2. **It never calls Telegram.** Every reply is a `notification` row plus an enqueue
-   (invariant 11). A direct send would also bypass the global rate limiter.
-3. **A reply is a row, not a fire-and-forget send** — deduped by a UNIQUE index on
-   a key derived from Telegram's `update_id`.
+`packages/telegram/src/wizard/` is **pure presentation**: the `wz:` callback
+codec, the Jalali calendar, the paged choice keyboard, and `renderStep` /
+`renderSummary`. No database, no services.
 
-The commands today are `/start`, `/help`, `/balance`, `/requests`, `/myevents`,
-`/chats`.
+`packages/domain/src/conversation/` is the **machine**: `wizard.ts` holds
+`apply`, `nextStep`, `previousStep` and `progressOf`, all pure functions over a
+form; `conversation.service.ts` holds persistence, idempotency and the walk;
+`wizards/` holds one file per form.
 
-**Adding a read-only command** (`feature/bot-commands`):
+### Adding a wizard
 
-- add the key + render case in `packages/telegram/src/templates.ts`
-- dispatch it in `BotService.onCommand`
-- add it to `BOT_COMMANDS` in `packages/telegram/src/commands.ts` — that is what
-  `/help` renders from *and* what Telegram's menu is published from, and
-  `commands.test.ts` fails if the list advertises something the switch does not
-  dispatch
-- run `pnpm set-bot-commands` against the bot afterwards, or the menu keeps
-  advertising the old list
-- `update.ts` needs **no change** — it already parses any `/command` into
-  `{ kind: 'COMMAND', command }`
-- test through the webhook, not against the service: what matters is the one
-  deduped notification row, and a service-level test asserts the call instead
-- the totality test over `Object.values(TEMPLATES)` in `escape.test.ts` picks up
-  new templates automatically
+- write `wizards/<name>.ts`: a list of `WizardStep`s and an `empty()`
+- register it in `WIZARDS` in `conversation.service.ts`, keyed by the
+  `ConversationKind` enum member (a new member is a migration)
+- dispatch a command for it in `BotService.onCommand`, add it to `BOT_COMMANDS`
+- handle its `submit` in `drawWizard` — that is where the *thing* gets created,
+  by the same domain service the API calls
+
+### The five things that are load-bearing
+
+1. **`last_update_id` is the idempotency.** Telegram retries any webhook call
+   that did not answer 200. An update not greater than the stored one is a
+   redelivery: **re-render, never advance.** Advancing twice skips a question and
+   leaves somebody looking at the answer to one they were never asked. A
+   *refused* answer consumes its update too, or the complaint appears twice.
+2. **`conversation_state.user_id` is UNIQUE, and that is the authorisation
+   model.** A wizard callback carries a step and a value and *no draft id*; the
+   draft is found by the authenticated sender. "Can user A advance user B's
+   wizard?" is answered by there being nothing in the button that names B.
+3. **A wizard is one message, edited.** `lastMessageId` addresses it, and the
+   redraw is a `BOT_EDIT_MESSAGE` job — invariant 11 has no exception for
+   wizards. The payload carries the internal `user_id`, never a chat id; the
+   worker resolves the Telegram id through `NotificationService.telegramTargetFor`
+   at delivery, exactly as notifications do.
+4. **Text typed while a wizard is open is an answer, not a chat message.**
+   `BotService.onText` asks `conversations.handle` *first* and only relays when
+   it returns null. Get this backwards and an event description goes to a
+   stranger.
+5. **Conditional fields are `when`, not a refusal.** The cost-amount step is
+   *asked* only for FIXED and APPROX, and `nextStep` re-evaluates on every move —
+   so «رایگان» after «مبلغ مشخص» removes the step even though it was visited. The
+   stale amount is cleared in the same patch, which is why `FormPatch` is a mapped
+   type and not `Partial` (under `exactOptionalPropertyTypes` only the former can
+   express *clearing* a field).
+
+### Dates are Jalali now
+
+`packages/telegram/src/wizard/jalali.ts` renders the Persian calendar through
+ICU. `datetime.ts` still renders Gregorian and its comment explains why — *the
+Mini App renders Jalali* — which stopped being true. `node:22-alpine` carries
+full ICU; this was verified **inside the image**, not on the host.
+
+The grid is walked in Gregorian and labelled in Jalali, so Jalali→Gregorian —
+where hand-written implementations get leap years wrong — is never needed. The
+week starts on **شنبه**; a grid starting Monday puts every date under the wrong
+heading, which looks like styling and is a wrong date.
+
+### What is still in the Mini App
+
+`CreateEventView` → `/create_event` and `EditProfileView` → `/edit_profile` have
+moved. **`EditEventView`, `TermsView` and `JoinChannelsView` have not.**
+
+`TermsView` is the one that blocks the retirement, and ADR-0017 leads with it:
+`AuthGuard` turns an unaccepted policy into `POLICY_VERSION_STALE`, and
+acceptance is `POST /onboarding/consent`, reachable only from the Mini App. Turn
+the Mini App off before the bot can take an acceptance and **every gated write
+refuses, for every user** — the shape of trap 2 below, which would have bricked
+v0.3.0. The order is: consent → profile → event creation → *then* retire.
+
+### The read-only commands
+
+`/start`, `/help`, `/discover`, `/balance`, `/requests`, `/myevents`, `/chats`,
+`/reviews`, `/profile`. The list lives in `packages/telegram/src/commands.ts`,
+`commands.test.ts` asserts it advertises only commands the dispatch switch
+handles, and `pnpm set-bot-commands` publishes it to Telegram's menu. Until that
+script existed `setMyCommands` had never been called, so the "/" autocomplete was
+empty and every command was invisible.
 
 **Persian status labels are per-perspective, not per-enum.**
 `PARTICIPANT_STATUS_GUEST_FA` and `PARTICIPANT_STATUS_HOST_FA` in
 `@payetam/shared` describe the *same nine statuses* differently, because the
-difference is «شما»: `PENDING` is «در انتظار پاسخ میزبان» to the requester and
-«در انتظار پاسخ شما» to the host; `CANCELLED_BY_HOST` is «میزبان لغو کرد» to one
-and «شما لغو کردید» to the other. Seven of the nine differ. **Do not collapse
-them** — it looks like duplication and is not. `EVENT_STATUS_FA` is one map,
-because an event's status is a fact about the event rather than a relationship
-between two people.
+difference is «شما». Seven of the nine differ. **Do not collapse them.**
+`EVENT_STATUS_FA` and `CHAT_STATUS_FA` are single maps, because a status there is
+a fact about the thing rather than a relationship between two people.
 
 **Deep links.** Every «باز کردن برنامه» button is
-`https://t.me/<bot>?startapp=<target>`, built by `openAppButton`, which encodes
-`/` as `_` because Telegram allows no slash. The Mini App reads it back in
-`deepLinkTarget()` (`apps/miniapp/src/telegram/webapp.ts`) against a **fixed
-allowlist** — the payload is attacker-supplied, so a path would let a stranger
-choose which screen somebody else's app opens on. Adding a template with a new
-target means adding it to `DEEP_LINKS` too, or the button silently lands on the
-splash — which is what every one of them did until 2026-08-28.
-
-**Now pinned by `apps/miniapp/src/telegram/deep-links.test.ts`**, which renders
-every template in `TEMPLATES` and asserts its target is on the allowlist. It
-immediately found two the sweep had missed: `participation.requested.host` and
-`waitlist.promoted.host` both pointed at `participants/<id>`, and there has
-never been a `/participants` route — so the button on the two notifications a
-host most needs to act on opened the splash. Both now point at `my-events`.
-They were missed because they build their target inline rather than through
-`opened()`, so they did not look like the others.
-
-`profile/edit` rather than `profile` is deliberate for a neighbouring reason:
-`/profile` is an onboarding step in `ONBOARDING_PATHS`, so the router bounces a
-*finished* user from it to `/home`. A deep link there fails for exactly the
-people who could tap it.
-
-**Where the bot stops.** Single-turn, read-mostly work belongs in the bot; anything
-with a form belongs in the Mini App, and `/help` says so rather than failing
-silently.
-
-Every read-mostly Mini App view now has a command: `DiscoverView` → `/discover`,
-`ChatsView` → `/chats`, `ReviewsView` → `/reviews` (the *pending* half — a
-received review keeps, a pending one expires), `ProfileView` → `/profile`,
-`WalletView` → `/balance`, `MyEventsView` → `/myevents`, `MyRequestsView` →
-`/requests`. What is left in the app is what has a form in it —
-`CreateEventView`, `EditEventView`, `EditProfileView`, `TermsView`,
-`JoinChannelsView` — plus the ranked and filterable half of discovery. That is
-the boundary, and it is where it is for the reason below, not because nobody got
-to those views.
-
-`/discover` is the shape to copy for a read command over a filtered list: it
-takes **no arguments**, deriving the one filter it uses (the city) from the
-caller's profile, and leaves the other thirteen to the Mini App behind the
-button. An argument would mean holding a half-built query between two updates.
-
-The form-heavy views are not stylistic preferences — `CreateEventView`
-alone is 16 fields with three dependent selects (province → city → district over
-1252 cities), two datetimes, and conditional validation (`costAmount` required for
-FIXED/APPROX and forbidden for FREE/SPLIT; `maxAge >= minAge`). Expressing that as
-a conversation means inventing a persisted multi-step wizard, which is a new
-architecture, not a refactor — and ADR-0003 froze the Vue + Telegram Design System
-choice.
+`https://t.me/<bot>?startapp=<target>`, resolved against a fixed allowlist in
+`deepLinkTarget()` — the payload is attacker-supplied. Pinned by
+`apps/miniapp/src/telegram/deep-links.test.ts`, which renders every template and
+checks its target. It found two that had never worked.
 
 ## 11. Open operational items
 

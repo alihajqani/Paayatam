@@ -198,6 +198,42 @@ describe('purgeExpired', () => {
   });
 });
 
+describe('one user cannot reach another’s draft', () => {
+  /**
+   * The security property ADR-0017 and the threat model both claim, asserted
+   * rather than argued. A wizard callback carries a step and a value and no
+   * draft id, so the only way to advance a draft is to *be* the account it
+   * belongs to — this drives two conversations side by side and checks neither
+   * moves the other.
+   */
+  it('keeps two conversations independent', async () => {
+    const other = await createUser(prisma);
+
+    await conversations.start(userId, 'CREATE_EVENT', 1);
+    await conversations.start(other, 'CREATE_EVENT', 2);
+
+    await conversations.handle(userId, 3, { kind: 'text', value: 'فعالیت اول' });
+
+    expect(await conversations.current(other)).toMatchObject({ step: 'title', form: {} });
+    const mine = asCreateEventForm((await conversations.current(userId))!.form);
+    expect(mine.title).toBe('فعالیت اول');
+  });
+
+  /** Each conversation carries its own idempotency high-water mark. */
+  it('does not let one user’s update id silence another’s', async () => {
+    const other = await createUser(prisma);
+
+    await conversations.start(userId, 'CREATE_EVENT', 100);
+    await conversations.start(other, 'CREATE_EVENT', 1);
+
+    // An update id far below the *other* user's, but new for this one.
+    const outcome = await conversations.handle(other, 2, { kind: 'text', value: 'فعالیت دوم' });
+
+    expect(outcome?.kind).toBe('step');
+    expect(await conversations.current(other)).toMatchObject({ step: 'desc' });
+  });
+});
+
 describe('one wizard per user', () => {
   /** The UNIQUE index is the authorisation model, not only tidiness. */
   it('is enforced by the database', async () => {

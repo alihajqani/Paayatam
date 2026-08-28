@@ -136,6 +136,7 @@ including two delivery bugs that sat behind a green test suite for four mileston
 | [`docs/threat-model.md`](docs/threat-model.md) | Assets, adversaries, controls, and **explicitly accepted risks** |
 | [`docs/activities-and-places.md`](docs/activities-and-places.md) | **Adding an activity tag or a city.** Panel vs. seed file, slug rules, the «سایر» flag |
 | [`docs/glossary-fa.md`](docs/glossary-fa.md) | Persian ↔ English terms, error messages, typography rules |
+| [`PROJECT_MEMORY.md`](PROJECT_MEMORY.md) §10 | **The bot's conversation wizards** — how a multi-step form works, and the five things that are load-bearing |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | **Putting it on a server.** Step by step, from a bare VPS to a verified deploy |
 | [`SECURITY.md`](SECURITY.md) | What the production stack exposes, what protects it, and what is accepted |
 
@@ -477,6 +478,60 @@ will not touch a process it did not start.
 **Do not run the Nest apps under `tsx`.** esbuild does not emit `emitDecoratorMetadata`, so dependency
 injection silently yields `undefined` and the app fails at request time rather than at startup. See
 [ADR-0013](docs/adr/0013-typescript-build-and-dev-loop.md).
+
+---
+
+## The bot
+
+Nine read-only commands and two conversation wizards. The list lives in
+`packages/telegram/src/commands.ts` and is the single source for Telegram's menu,
+for `/help`, and for the test that keeps both honest.
+
+| Command | What it does |
+|---|---|
+| `/start` | Creates the account. The only command that may. Takes a referral code |
+| `/help` | What the bot can do, and what still needs the app |
+| `/discover` | Activities in your city, from your profile — no arguments |
+| `/balance` | Coin balance |
+| `/requests` | What you have asked to join, and where each stands |
+| `/myevents` | What you are hosting, and how full each is |
+| `/chats` | Which conversations are open, and who is waiting |
+| `/reviews` | Reviews you still owe, and when they expire |
+| `/profile` | Your profile — and the only place your own Trust Score is shown |
+| `/create_event` | **Wizard.** Builds a full event in the chat (ADR-0017) |
+| `/edit_profile` | **Wizard.** Changes any part of your profile |
+| `/cancel` | Closes an open wizard |
+
+### Publishing the command menu
+
+```bash
+pnpm set-bot-commands            # publish what BOT_COMMANDS says
+pnpm set-bot-commands --info     # read back what Telegram has
+```
+
+Once per bot, and again whenever `BOT_COMMANDS` changes. Not a per-deploy step —
+the list is global to the token, so two environments sharing one would overwrite
+each other on every restart. See `DEPLOYMENT.md` §12.
+
+### Testing a wizard by hand
+
+```bash
+make dev            # the whole stack
+make tunnel         # a public URL for the webhook
+make webhook        # point Telegram at it
+```
+
+Then message the bot. A wizard lives on **one message that is edited in place**,
+so watch that message change rather than expecting new ones. If it stops
+updating, the likely cause is the `telegram-send` queue rather than the wizard:
+check the worker's log for `BOT_EDIT_MESSAGE`.
+
+`/cancel` clears a stuck form. So does starting another one — `/create_event`
+replaces whatever was in progress rather than refusing.
+
+**A draft lives seven days** and is swept at 04:15 Tehran. To see one, look at
+`conversation_state`; the form itself is encrypted, so `step` and `updated_at`
+are what is readable without the key.
 
 ---
 

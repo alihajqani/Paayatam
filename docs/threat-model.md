@@ -211,6 +211,54 @@ the panel). This is that review.
 | R11 | **The two brand marks are copies, and nothing enforces that they stay equal** | The panel and the Mini App are separate nginx vhosts with separate roots, and Vite's `publicDir` is one directory per app. `docs/brand.md` §3 lists every path and §4 is the checklist; a drifted logo is cosmetic, which is why this is accepted rather than automated |
 | R12 | **Publishing a legal version asks every user to re-accept, and it is one button** | The control is a typed-back version number rather than a checkbox, and the act is audited and irreversible-forward (a correction is the next version). The residual risk is an operator publishing a draft they meant to keep editing |
 
+## 4b. ADR-0017 review — conversation state as a new attack surface
+
+The bot now stores a half-filled form per user (`conversation_state`). That is a new data type, which
+is a review trigger under §6, so it is reviewed here rather than at the next incident.
+
+### The question worth asking
+
+**Can user A read or advance user B's conversation?** No, and the reason is structural rather than a
+check somebody remembered to write:
+
+- A wizard's `callback_data` is `wz:<action>:<value>`. It carries a step and a value and **no draft
+  id**, so there is no identifier for a tampered button to swap.
+- The draft is looked up by `user_id`, which comes from the authenticated Telegram sender resolved by
+  `knownUser`, and `conversation_state.user_id` is UNIQUE.
+- Therefore reaching another user's draft requires *being* that Telegram account, which is the same
+  bar as reading their notifications. There is no narrower path.
+
+This is stronger than decoding an id and then checking ownership — the check people forget to write —
+and it is asserted in `conversation.service.int.test.ts`, which drives two users' wizards side by side.
+
+### What the draft holds, and for how long
+
+An event's title, description, city, date, capacity and price — the fields of something the user is
+about to publish — or a profile's display name, birth year and bio. It holds **no `telegram_user_id`,
+no phone number and no message body**, so the anonymity boundary (A1, A2) is untouched.
+
+It is encrypted at rest under `CHAT_ENCRYPTION_KEY`, the same key and the same three columns as
+`chat_message`. `MessageCipher` therefore has a third consumer; `ChatModule`'s comment enumerates
+them, and that list is how «who can decrypt with this key?» stays answerable from module files.
+
+Retention is **seven days**, swept daily by `CONVERSATION_PURGE`, and the draft is deleted the moment
+the form is submitted or cancelled. The brief asked for both "delete after 24 hours" and "resume after
+24 hours"; ADR-0017 §3 records why resume won.
+
+### Findings
+
+| # | Finding | Resolution |
+|---|---|---|
+| C1 | The redraw job would have put a Telegram chat id in Redis — the only copy outside `identity`, and the only one nothing would remind anybody about | Fixed before merge. The job carries the internal `user_id` and the worker resolves the chat id at delivery through `NotificationService.telegramTargetFor`, as every notification already does |
+| C2 | Text typed during an open wizard, if read by the chat relay first, would deliver a user's event description to a stranger | The wizard is asked first and the relay runs only when there is no wizard; pinned by an integration test that types into a wizard while an open chat exists |
+| C3 | A redelivered update would advance a wizard twice, skipping a question | `last_update_id` — see ADR-0017 and trap 8 |
+
+### Added to §4
+
+| # | Risk | Rationale |
+|---|---|---|
+| R13 | **A draft survives a refused submission** | When `EventService.create` refuses (insufficient coins, a blacklisted term), the draft is kept so the user can correct one field rather than retype fifteen answers. The residual risk is that abandoned near-complete drafts live up to seven days holding text the user decided not to publish. Accepted: the alternative costs every refused user their whole form, and the retention sweep bounds it |
+
 ## 5. Legal questions requiring human review
 
 Flags for a person with local legal knowledge. **Not legal advice.**
@@ -222,6 +270,9 @@ Flags for a person with local legal knowledge. **Not legal advice.**
 5. What a data-subject deletion request must actually delete, and within what period (built in M15).
 6. Whether relaying user messages through a bot, and automated channel posting, comply with the **current**
    Telegram Bot API terms.
+6a. Whether storing a half-filled form for seven days (ADR-0017) needs to be named in the privacy
+   policy, and whether a data-subject deletion request must reach `conversation_state` — it is deleted
+   by cascade with the account today, which is believed sufficient but is not a legal opinion.
 7. The mandatory escalation path for illegal content, including CSAM, before chat goes public.
 
 ---
