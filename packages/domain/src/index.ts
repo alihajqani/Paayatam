@@ -88,7 +88,7 @@ export type {
 } from './profile/profile.service';
 export { ProfileModule } from './profile/profile.module';
 
-export { gregorianYearIn as gregorianYearInZone, startOfDayIn } from './time';
+export { gregorianYearIn as gregorianYearInZone, startOfDayIn, zonedTimeToUtc } from './time';
 
 export { assertTransition, canTransition, terminalStates } from './state-machine';
 export type { TransitionTable } from './state-machine';
