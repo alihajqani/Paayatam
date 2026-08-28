@@ -35,7 +35,19 @@ const MAX_BYTES = 64;
  * One namespace because they arrive through one `callback_query`, and splitting
  * them would mean two parsers agreeing on a prefix.
  */
-export const WIZARD_CONTROLS = ['back', 'skip', 'cancel', 'confirm', 'goto', 'page'] as const;
+export const WIZARD_CONTROLS = [
+  'back',
+  'skip',
+  'cancel',
+  'confirm',
+  'goto',
+  'page',
+  /** The consent gate's two verbs: «می‌پذیرم» and «بررسی دوباره». */
+  'agree',
+  'recheck',
+  /** «افزودن جزئیات بیشتر» on a summary. */
+  'details',
+] as const;
 export type WizardControl = (typeof WIZARD_CONTROLS)[number];
 
 export interface WizardCallback {

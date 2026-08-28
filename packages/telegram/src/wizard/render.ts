@@ -29,6 +29,15 @@ export interface StepScreenInput {
   total: number;
   canGoBack: boolean;
   optional: boolean;
+  /** «انصراف», offered unless the step is a gate. Default true. */
+  cancellable?: boolean;
+  /**
+   * Extra buttons above the controls, for a `confirm` step.
+   *
+   * The consent screen needs «می‌پذیرم» and a link to the full text, and neither
+   * is a choice from a list — so the caller builds them and this renders them.
+   */
+  actions?: readonly (readonly InlineButton[])[];
 }
 
 /**
@@ -60,7 +69,7 @@ export function renderStep(input: StepScreenInput): WizardScreen {
   const trailer = controlRow({
     back: input.canGoBack,
     skip: input.optional,
-    cancel: true,
+    cancel: input.cancellable !== false,
   });
 
   switch (input.ui) {
@@ -78,6 +87,18 @@ export function renderStep(input: StepScreenInput): WizardScreen {
         keyboard: calendarKeyboard(input.stepKey, anchor, input.earliest ?? anchor, trailer),
       };
     }
+
+    /**
+     * A `confirm` step draws whatever the caller built — an «می‌پذیرم», a row of
+     * channel links — above the usual controls. It has no options of its own, so
+     * without `actions` it is a message with a back button, which is what a
+     * caller that forgot them deserves to see.
+     */
+    case 'confirm':
+      return {
+        text,
+        keyboard: [...(input.actions ?? []), ...(trailer.length > 0 ? [trailer] : [])],
+      };
 
     /**
      * A text step still carries its controls. Without them «بازگشت» would be

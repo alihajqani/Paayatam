@@ -2,7 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Env } from '@payetam/config';
 import {
   CatalogService,
+  ChannelMembershipService,
   ChatService,
+  ConsentService,
   CoinService,
   ConversationService,
   DiscoveryService,
@@ -39,6 +41,7 @@ import {
   TEMPLATES,
   formatDiscovered,
   formatJalali,
+  formatTehran,
   formatMyChats,
   formatPendingReviews,
   formatMyEvents,
@@ -46,6 +49,7 @@ import {
   parseChatCallback,
   isoDay,
   parseIsoDay,
+  encodeWizardCallback,
   parseWizardCallback,
   renderStep,
   renderSummary,
@@ -120,6 +124,8 @@ export class BotService {
     private readonly reviews: ReviewService,
     private readonly conversations: ConversationService,
     private readonly catalog: CatalogService,
+    private readonly consent: ConsentService,
+    private readonly membership: ChannelMembershipService,
     @Inject(ENV) private readonly env: Env,
     private readonly referrals: ReferralService,
     private readonly notifications: NotificationService,
@@ -391,6 +397,7 @@ export class BotService {
       case 'create_event':
       case 'newevent': {
         if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+        if (!(await this.mayWrite(updateId, user))) return;
         const outcome = await this.conversations.start(user.id, 'CREATE_EVENT', updateId);
         return this.drawWizard(updateId, user, outcome);
       }
@@ -402,8 +409,41 @@ export class BotService {
        */
       case 'edit_profile': {
         if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+        if (!(await this.mayWrite(updateId, user))) return;
         const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
         return this.drawWizard(updateId, user, outcome);
+      }
+
+      /**
+       * `/terms` — `TermsView`, as a message.
+       *
+       * Two audiences and two answers. Somebody who **owes** an acceptance gets
+       * the consent gate, which is the screen that can clear it — pointing them
+       * at a read-only summary would be showing them the document and no way to
+       * agree to it. Somebody who is **up to date** gets what they accepted and
+       * when, which is the question a person asks about terms they have already
+       * signed.
+       */
+      case 'terms': {
+        if (!(await this.consent.hasAcceptedCurrentPolicies(user.id))) {
+          const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
+          return this.drawWizard(updateId, user, outcome);
+        }
+
+        const standing = await this.consent.standingFor(user.id);
+        const accepted = standing.accepted
+          .map(
+            (entry) =>
+              `• <b>${entry.policy.titleFa ?? entry.policy.label}</b>\n  ${formatTehran(
+                entry.acceptedAt,
+              )}`,
+          )
+          .join('\n');
+
+        return this.reply(updateId, user.id, TEMPLATES.BOT_TERMS_STANDING, {
+          text:
+            accepted === '' ? 'سندی ثبت نشده است.' : `<b>قوانینی که پذیرفته‌اید</b>\n\n${accepted}`,
+        });
       }
 
       case 'cancel': {
@@ -492,6 +532,11 @@ export class BotService {
       });
       if (wizard !== null) return this.drawWizard(updateId, user, wizard);
     }
+
+    // Relaying a message is a write, and the policy gate applies to it exactly as
+    // it applies to `POST /chats/:id/messages`. This bypassed the gate from M13
+    // until ADR-0017; see `mayWrite`.
+    if (!(await this.mayWrite(updateId, user))) return;
 
     // The same bucket the Mini App's send spends from, keyed on the same subject: a
     // limit enforced on one of two surfaces is not a limit (T12).
@@ -602,6 +647,15 @@ export class BotService {
       return;
     }
 
+    // Accepting, rejecting, closing and sharing are all writes, and all of them
+    // bypassed the policy gate before ADR-0017. The toast says where the user has
+    // been sent, because a button that silently opens a different screen is worse
+    // than one that explains itself.
+    if (!(await this.mayWrite(update.updateId, user))) {
+      await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+      return;
+    }
+
     try {
       switch (callback.action) {
         case 'accept':
@@ -663,6 +717,38 @@ export class BotService {
     }
   }
 
+  // ── the consent gate ────────────────────────────────────────────────────────
+
+  /**
+   * May this user write anything?
+   *
+   * ── The hole this closes ────────────────────────────────────────────────────
+   *
+   * The policy gate has always lived in `AuthGuard`, applied per route with
+   * `@RequiresCurrentPolicies()`. **The bot never passes through `AuthGuard`** —
+   * `BotService` calls domain services directly — so every write the bot could
+   * already do bypassed it: relaying a chat message, accepting or rejecting a
+   * request, sharing contact details. ADR-0017 widened that to creating events
+   * and editing profiles, which is what made it worth finding.
+   *
+   * `BotService`'s own doc comment says a rule enforced on one surface protects
+   * one surface. This is that rule, on this surface.
+   *
+   * ── Why it returns a boolean instead of throwing ────────────────────────────
+   *
+   * Because the answer to "you have not accepted the terms" is not a refusal, it
+   * is **a screen**: the consent wizard opens where the refused action would have
+   * happened, and the user is one button from being able to do it. Throwing would
+   * make every caller translate an error code back into that flow.
+   */
+  private async mayWrite(updateId: number, user: BotUser): Promise<boolean> {
+    if (await this.consent.hasAcceptedCurrentPolicies(user.id)) return true;
+
+    const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
+    await this.drawWizard(updateId, user, outcome);
+    return false;
+  }
+
   // ── conversation wizards (ADR-0017) ─────────────────────────────────────────
 
   /**
@@ -709,11 +795,24 @@ export class BotService {
         return this.notice(updateId, user, 'فرم بسته شد. هر وقت خواستید /create_event را بفرستید.');
 
       case 'submit':
-        return outcome.snapshot.kind === 'EDIT_PROFILE'
-          ? this.submitProfile(updateId, user, outcome.snapshot.form)
-          : this.submitWizard(updateId, user, outcome.snapshot.form);
+        switch (outcome.snapshot.kind) {
+          case 'ACCEPT_POLICIES':
+            return this.finishConsent(updateId, user);
+          case 'EDIT_PROFILE':
+            return this.submitProfile(updateId, user, outcome.snapshot.form);
+          default:
+            return this.submitWizard(updateId, user, outcome.snapshot.form);
+        }
 
       case 'summary': {
+        /**
+         * The consent gate has nothing to review: it collects one decision, and
+         * the decision *is* the submission. Falling through to a summary screen
+         * would show somebody a «بازبینی نهایی» of a form with no fields.
+         */
+        if (outcome.snapshot.kind === 'ACCEPT_POLICIES') {
+          return this.finishConsent(updateId, user);
+        }
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;
           const screen = renderSummary(await this.profileSummaryLines(profile), false);
@@ -733,6 +832,14 @@ export class BotService {
         }
 
         const step = outcome.step;
+
+        // The consent gate draws itself: its buttons are an acceptance and a set
+        // of channel links, neither of which is a choice from a list.
+        if (outcome.snapshot.kind === 'ACCEPT_POLICIES') {
+          const screen = await this.consentScreen(outcome);
+          return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+        }
+
         const choices =
           step.load === undefined ? [] : await step.load(outcome.snapshot.form, this.wizardDeps());
 
@@ -763,6 +870,136 @@ export class BotService {
         return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
       }
     }
+  }
+
+  /**
+   * The consent gate's two screens.
+   *
+   * **The policy text is not stored in the draft.** It is read here, live, so a
+   * version published while somebody is mid-acceptance is the one they are shown
+   * and the one they accept — a snapshot in `form_data` would let a user agree to
+   * a document that had been superseded while they read it.
+   */
+  /**
+   * The consent screen.
+   *
+   * **The policy text is not stored in the draft.** It is read here, live, so a
+   * version published while somebody is mid-acceptance is the one they are shown
+   * and the one they accept — a snapshot in `form_data` would let a user agree to
+   * a document that had been superseded while they read it.
+   */
+  private async consentScreen(
+    outcome: Extract<ConversationOutcome, { kind: 'step' }>,
+  ): Promise<WizardScreen> {
+    const pending = await this.consent.currentPolicies();
+    const summary = pending
+      .map((policy) => {
+        const title = policy.titleFa ?? policy.label;
+        const body = policy.changeSummaryFa ?? policy.summaryFa ?? '';
+        // Plain text, not markup: `renderStep` escapes the prompt it is handed,
+        // so a `<b>` built here reaches the user as `&lt;b&gt;`. The heading is
+        // the renderer's job; this supplies the words.
+        return body === '' ? `• ${title}` : `• ${title}\n  ${body}`;
+      })
+      .join('\n');
+
+    return renderStep({
+      prompt: `${outcome.step.prompt({})}\n\n${summary}`,
+      ui: 'confirm',
+      stepKey: outcome.step.key,
+      actions: [
+        [
+          {
+            text: '✅ می‌پذیرم',
+            callbackData: encodeWizardCallback({ action: 'agree', value: '' }),
+          },
+        ],
+      ],
+      position: outcome.position,
+      total: outcome.total,
+      canGoBack: false,
+      optional: false,
+      cancellable: false,
+      ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+    });
+  }
+
+  /**
+   * Write the acceptance, then decide whether the channel gate still stands.
+   *
+   * `ConsentService.acceptPolicies` is the authority and the same call
+   * `POST /onboarding/consent` makes — idempotent by a unique constraint, so a
+   * double tap is one acceptance. The context it records names the bot rather
+   * than an IP address, because there is no request here and inventing one would
+   * put a fiction in a consent record.
+   */
+  private async finishConsent(updateId: number, user: BotUser): Promise<void> {
+    const policies = await this.consent.currentPolicies();
+
+    try {
+      await this.consent.acceptPolicies(
+        user.id,
+        policies.map((policy) => policy.id),
+        { appVersion: 'bot' },
+      );
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return;
+    }
+
+    await this.conversations.clear(user.id);
+
+    /**
+     * The channel requirement, checked *after* the acceptance rather than before.
+     *
+     * Two gates, cleared in this order deliberately: a user who has accepted the
+     * terms but not joined a channel has made progress that must not be lost if
+     * the probe fails. It is a **check, not a step** — an operator can switch the
+     * requirement on next week or add a channel, so nobody ever "finishes" it,
+     * which is exactly why the Mini App declares `/join-channels` outside
+     * `ONBOARDING_PATHS`.
+     *
+     * The gate fails open on everything except an authoritative NOT_MEMBER
+     * (`PROJECT_MEMORY` §8): a Telegram outage degrades the gate rather than the
+     * product.
+     */
+    if (await this.channelsBlock(updateId, user)) return;
+
+    await this.reply(updateId, user.id, TEMPLATES.BOT_CONSENT_ACCEPTED, {});
+  }
+
+  /**
+   * Show the channel-join screen when the requirement stands, and say whether it
+   * did.
+   *
+   * A message with links rather than a wizard step, for the reason
+   * `finishConsent` gives. Returns true when the user was stopped, so callers
+   * read as `if (await this.channelsBlock(...)) return;`.
+   */
+  private async channelsBlock(updateId: number, user: BotUser): Promise<boolean> {
+    const state = await this.membership.stateFor(user.id);
+    if (!state.required) return false;
+
+    const missing = state.channels.filter((channel) => !channel.allowed);
+    if (missing.length === 0) return false;
+
+    const buttons = missing
+      .filter((channel) => channel.joinUrl !== null)
+      .map((channel) => [{ text: `عضویت در ${channel.title}`, url: channel.joinUrl as string }]);
+
+    if (buttons.length === 0) {
+      // Configured as required but with no join link — the operator's mistake,
+      // and `ChannelConfigStatus` warns about it. Say what is true rather than
+      // showing an empty keyboard.
+      await this.notice(updateId, user, 'برای ادامه باید در کانال‌های اعلام‌شده عضو باشید.');
+      return true;
+    }
+
+    await this.reply(updateId, user.id, TEMPLATES.BOT_CHANNEL_GATE, {
+      keyboard: JSON.stringify(buttons),
+    });
+    return true;
   }
 
   /** Edit the wizard's message, or send the first one. */

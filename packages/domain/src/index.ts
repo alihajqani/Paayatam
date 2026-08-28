@@ -195,6 +195,8 @@ export type {
   WizardInput,
   WizardStep,
 } from './conversation/wizard';
+export { acceptPoliciesWizard } from './conversation/wizards/accept-policies';
+export type { AcceptPoliciesForm } from './conversation/wizards/accept-policies';
 export { categoryChoice, createEventWizard } from './conversation/wizards/create-event';
 export type { CreateEventForm } from './conversation/wizards/create-event';
 export {

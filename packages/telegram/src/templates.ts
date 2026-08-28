@@ -92,6 +92,12 @@ export const TEMPLATES = {
   BOT_WIZARD: 'bot.wizard',
   /** The event exists. Said once, with the way to open it. */
   BOT_EVENT_CREATED: 'bot.event_created',
+  /** The policies are accepted and the gate is clear (ADR-0017). */
+  BOT_CONSENT_ACCEPTED: 'bot.consent_accepted',
+  /** The channel requirement stands, with a button per channel to join. */
+  BOT_CHANNEL_GATE: 'bot.channel_gate',
+  /** `/terms` for somebody already up to date: what they accepted, and when. */
+  BOT_TERMS_STANDING: 'bot.terms_standing',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -106,6 +112,24 @@ export interface RenderedMessage {
 }
 
 type Payload = Record<string, unknown>;
+
+/**
+ * A body that is **already** HTML, passed through unescaped.
+ *
+ * Exactly one caller: `BOT_WIZARD`, whose text comes from `renderStep`, which
+ * emits its own `<b>`/`<i>` and has already escaped every user-supplied value it
+ * interpolated — a prompt, a validation message, a title somebody typed. Running
+ * `escapeHtml` over that a second time turns the wizard's own markup into visible
+ * `&lt;i&gt;`, which is what it did until this existed.
+ *
+ * **The contract is one-directional and narrow:** a template may use this only
+ * when the value was produced by this package's own renderer. Anything that
+ * originates with a user goes through `str`.
+ */
+function raw(payload: Payload, key: string): string {
+  const value = payload[key];
+  return typeof value === 'string' ? value : '';
+}
 
 function str(payload: Payload, key: string): string {
   const value = payload[key];
@@ -525,8 +549,55 @@ export function render(
      */
     case TEMPLATES.BOT_WIZARD: {
       const keyboard = parseKeyboard(payload);
-      return { text: str(payload, 'text'), ...(keyboard !== undefined ? { keyboard } : {}) };
+      // `raw`, not `str`: see the note on `raw`. `renderStep` has already escaped
+      // everything inside this that came from a user.
+      return { text: raw(payload, 'text'), ...(keyboard !== undefined ? { keyboard } : {}) };
     }
+
+    /**
+     * The gate is clear.
+     *
+     * It names what just became possible rather than saying «متشکریم»: somebody
+     * who has just been stopped by a gate wants to know they can proceed, and
+     * which commands are the way in.
+     */
+    case TEMPLATES.BOT_CONSENT_ACCEPTED:
+      return opened(
+        `<b>ثبت شد</b> ✅\n\n` +
+          `حالا می‌توانید از پایه‌تم استفاده کنید:\n` +
+          `<b>/discover</b> — دیدن فعالیت‌های نزدیک\n` +
+          `<b>/create_event</b> — ساختن فعالیت تازه`,
+        `home`,
+        botUsername,
+      );
+
+    /**
+     * The channel requirement, with a **button** per channel.
+     *
+     * Buttons rather than links in the body, because a `<a href>` inside a
+     * notice would have to survive `escapeHtml` — and the template that carries
+     * arbitrary sentences must keep escaping them. A URL button carries the link
+     * outside the text entirely, which is both safer and a larger tap target.
+     */
+    case TEMPLATES.BOT_CHANNEL_GATE: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text:
+          `<b>عضویت در کانال</b>\n\n` + `برای ادامه، در کانال‌های زیر عضو شوید و دوباره تلاش کنید.`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    /**
+     * `/terms`, for somebody who owes nothing.
+     *
+     * `raw`-free: the body is built from policy titles, which are operator text
+     * from `policy_version`, and `str` escapes it. That is the right choice even
+     * though an operator is not an attacker — a title with an ampersand in it
+     * should render, not break the message.
+     */
+    case TEMPLATES.BOT_TERMS_STANDING:
+      return opened(str(payload, 'text'), `home`, botUsername);
 
     /** The event exists, and here is the way to it. */
     case TEMPLATES.BOT_EVENT_CREATED:

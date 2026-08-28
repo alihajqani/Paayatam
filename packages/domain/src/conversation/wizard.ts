@@ -79,6 +79,15 @@ export interface WizardStep<F> {
   when?(form: F): boolean;
   /** Answerable with «رد کردن», leaving the field unset. */
   optional?: boolean;
+  /**
+   * Whether «انصراف» is offered. Default true.
+   *
+   * False for the consent wizard and nothing else so far: that one *is* the
+   * gate, so cancelling would return the user to a bot that refuses everything
+   * with no way back except a command they would have to guess. Every other
+   * wizard is optional and must be escapable.
+   */
+  cancellable?: boolean;
   accept(input: WizardInput, form: F): StepResult<F>;
 }
 

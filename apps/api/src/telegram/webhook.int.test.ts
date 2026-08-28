@@ -1472,3 +1472,154 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
     expect(state.step).toBe('birth');
   });
 });
+
+/**
+ * The consent gate, on the surface that never had one (ADR-0017).
+ *
+ * The policy gate has always lived in `AuthGuard`, applied per route. **The bot
+ * does not pass through `AuthGuard`** — `BotService` calls domain services
+ * directly — so every write the bot could do bypassed it: relaying a chat
+ * message, accepting a request, sharing contact details. That hole predates the
+ * wizards; the wizards are what made it worth finding.
+ */
+describe('POST /telegram/:secret — the consent gate', () => {
+  let sequence = 8000;
+
+  async function publish(type: 'TERMS' | 'PRIVACY', version: number): Promise<string> {
+    await prisma.policyVersion.updateMany({
+      where: { type, isCurrent: true },
+      data: { isCurrent: false },
+    });
+    const row = await prisma.policyVersion.create({
+      data: {
+        type,
+        version,
+        status: 'PUBLISHED',
+        isCurrent: true,
+        titleFa: type === 'TERMS' ? 'قوانین' : 'حریم خصوصی',
+        summaryFa: 'خلاصهٔ سند',
+        contentMd: '# سند',
+      },
+      select: { id: true },
+    });
+    return row.id;
+  }
+
+  async function requirePolicies(): Promise<void> {
+    await publish('TERMS', 1);
+    await publish('PRIVACY', 1);
+  }
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  it('opens the consent gate instead of the wizard, when policies are owed', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+
+    const state = await prisma.conversationState.findUniqueOrThrow({ where: { userId } });
+    expect(state.kind).toBe('ACCEPT_POLICIES');
+    expect(state.step).toBe('review');
+  });
+
+  it('accepts the policies and clears the gate', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await tap(GUEST_TELEGRAM_ID, 'wz:agree:');
+    expect(await prisma.consent.count({ where: { userId } })).toBe(2);
+    // The gate is over: no conversation is left open.
+    expect(await prisma.conversationState.count({ where: { userId } })).toBe(0);
+  });
+
+  /** A gate has nothing to mistype and nothing to skip. */
+  it('does not advance on anything but «می‌پذیرم»', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await type(GUEST_TELEGRAM_ID, 'باشه');
+
+    expect(await prisma.consent.count({ where: { userId } })).toBe(0);
+    expect(await prisma.conversationState.findUniqueOrThrow({ where: { userId } })).toMatchObject({
+      step: 'review',
+    });
+  });
+
+  /**
+   * The hole this closes, stated as a test. Relaying a message is a write, and
+   * `POST /chats/:id/messages` has carried `@RequiresCurrentPolicies()` since
+   * M22 — the bot's relay never did.
+   */
+  it('refuses to relay a chat message from somebody who owes an acceptance', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+    // Published *after* the join, so the user is mid-conversation and now owes.
+    await requirePolicies();
+
+    await type(GUEST_TELEGRAM_ID, 'سلام');
+
+    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: guestId } }),
+    ).toMatchObject({ kind: 'ACCEPT_POLICIES' });
+  });
+
+  /** A redelivered «می‌پذیرم» is one acceptance, not two. */
+  it('writes one consent row for a redelivered tap', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+
+    const agree = update({
+      update_id: 8500,
+      callback_query: {
+        id: 'cb-agree',
+        from: sender(GUEST_TELEGRAM_ID),
+        message: { message_id: 1, chat: { id: GUEST_TELEGRAM_ID, type: 'private' } },
+        data: 'wz:agree:',
+      },
+    });
+    await post(agree);
+    await post(agree);
+
+    expect(await prisma.consent.count({ where: { userId } })).toBe(2); // TERMS + PRIVACY, once each
+  });
+
+  /** `/terms` for somebody up to date reports what they signed and when. */
+  it('reports standing on /terms once accepted', async () => {
+    await requirePolicies();
+    await seedGuest(GUEST_TELEGRAM_ID);
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await tap(GUEST_TELEGRAM_ID, 'wz:agree:');
+
+    await type(GUEST_TELEGRAM_ID, '/terms');
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_TERMS_STANDING },
+      select: { payload: true },
+    });
+    expect(String((row.payload as Record<string, unknown>)['text'])).toContain('قوانین');
+  });
+});
