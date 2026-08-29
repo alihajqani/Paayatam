@@ -23,8 +23,16 @@ export interface DiscoverLine {
  * filters and `DiscoverView` renders all of them; asking for any of them here
  * would mean holding a half-built query between two updates, which is the
  * per-user conversation state `BotService` deliberately has none of. The bot
- * answers the common question — "what is on near me?" — and the button opens the
- * screen where the other thirteen filters live.
+ * answers the common question — "what is on near me?" — and the other thirteen
+ * filters remain a gap rather than a link to somewhere else.
+ *
+ * ── Why the entries are numbered ────────────────────────────────────────────
+ *
+ * Because they are now actionable. Each event carries a «پیوستن» button, and a
+ * keyboard cannot fit an event title — «۱ پیوستن» is short enough for a button
+ * and unambiguous next to a numbered list. Without the numbers the buttons would
+ * be five identical labels under five different events, which is a mis-tap that
+ * sends a join request to the wrong stranger.
  *
  * ── The disclaimer ───────────────────────────────────────────────────────────
  *
@@ -36,7 +44,7 @@ export interface DiscoverLine {
  * not break.
  */
 export function formatDiscovered(lines: readonly DiscoverLine[]): string {
-  const entries = lines.map((line) => {
+  const entries = lines.map((line, index) => {
     /**
      * «۳ جای خالی» is the number somebody scanning a list actually decides on.
      * A full event is not silently rendered as zero: `hasCapacity` filters those
@@ -48,7 +56,7 @@ export function formatDiscovered(lines: readonly DiscoverLine[]): string {
         : 'ظرفیت تکمیل';
 
     return (
-      `• <b>${escapeHtml(line.title)}</b>\n` +
+      `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.title)}</b>\n` +
       `  🗂 ${escapeHtml(line.categoryName)}\n` +
       `  📍 ${escapeHtml(line.where)}\n` +
       `  🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)} · 👥 ${seats}`

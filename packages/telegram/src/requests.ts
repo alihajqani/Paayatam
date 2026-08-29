@@ -27,16 +27,21 @@ export interface MyRequestLine {
  *
  * `escapeHtml` on the title because it is a stranger's words rendered into an
  * HTML-parse-mode message.
+ *
+ * Numbered because the live ones carry a «لغو» button, and a button cannot hold
+ * an event title — «۲ لغو» next to a numbered list is unambiguous where five
+ * identical labels would not be. Standing down from the wrong activity is not a
+ * mis-tap anybody wants to make.
  */
 export function formatMyRequests(lines: readonly MyRequestLine[]): string {
-  const entries = lines.map((line) => {
+  const entries = lines.map((line, index) => {
     const rank =
       line.status === 'WAITLISTED' && line.waitlistRank !== null
         ? ` (نفر ${toPersianDigits(String(line.waitlistRank))})`
         : '';
 
     return (
-      `• <b>${escapeHtml(line.title)}</b>\n` +
+      `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.title)}</b>\n` +
       `  🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)}\n` +
       `  ${PARTICIPANT_STATUS_GUEST_FA[line.status]}${rank}`
     );

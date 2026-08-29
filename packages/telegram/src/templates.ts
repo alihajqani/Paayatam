@@ -471,8 +471,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * — re-rendering it six weeks later from live rows would answer a question
      * nobody asked.
      */
-    case TEMPLATES.BOT_REQUESTS:
-      return opened(prerendered(payload), `my-requests`);
+    case TEMPLATES.BOT_REQUESTS: {
+      // «لغو» per live request, numbered to match. Built by the caller, which is
+      // the only place the participant public ids are.
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `my-requests`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /** `/myevents` — the host's digest, built by `formatMyEvents`. */
     case TEMPLATES.BOT_MY_EVENTS:
@@ -516,9 +524,20 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * deliberately does not ask about actually live. There is no button on it
      * any more — see `opened()` — which makes those filters app-only in
      * practice, and is the open question in the retirement plan's §7.
+     *
+     * **The keyboard is what makes the list actionable.** One «پیوستن» per
+     * numbered event, built by the caller because only it holds the public ids;
+     * a digest with no buttons was a catalogue you could read and not act on,
+     * which is what discovery had been since the open-app button went.
      */
-    case TEMPLATES.BOT_DISCOVER:
-      return opened(prerendered(payload), `discover`);
+    case TEMPLATES.BOT_DISCOVER: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `discover`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /**
      * `/reviews` — the pending digest, built by `formatPendingReviews`.

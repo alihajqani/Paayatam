@@ -55,6 +55,9 @@ import {
   formatMyEvents,
   formatMyRequests,
   parseChatCallback,
+  parseEventCallback,
+  encodeEventCallback,
+  isPublicId,
   isoDay,
   parseIsoDay,
   encodeWizardCallback,
@@ -65,6 +68,7 @@ import {
   toPersianDigits,
   type BotInboundText,
   type BotSender,
+  type EventCallback,
   type ParsedUpdate,
   type SummaryLine,
   type WizardScreen,
@@ -255,7 +259,32 @@ export class BotService {
             waitlistRank: row.waitlistRank,
           })),
         );
-        return this.reply(updateId, user.id, TEMPLATES.BOT_REQUESTS, { text });
+        /**
+         * «لغو» on the requests that can still be stood down from.
+         *
+         * PENDING and WAITLISTED only: `cancel` refuses anything else, and a
+         * button that exists to be refused is worse than no button. ACCEPTED is
+         * deliberately not cancellable from here — standing somebody up after
+         * they have counted on you is a conversation, and `/chats` is where it
+         * happens.
+         */
+        const cancellable = mine.filter(
+          (row) =>
+            (row.status === 'PENDING' || row.status === 'WAITLISTED') && isPublicId(row.publicId),
+        );
+        const buttons = cancellable.map((row) => ({
+          text: `${toPersianDigits(String(mine.indexOf(row) + 1))} لغو`,
+          callbackData: encodeEventCallback('cancel', row.publicId),
+        }));
+        const rows: { text: string; callbackData: string }[][] = [];
+        for (let index = 0; index < buttons.length; index += 2) {
+          rows.push(buttons.slice(index, index + 2));
+        }
+
+        return this.reply(updateId, user.id, TEMPLATES.BOT_REQUESTS, {
+          text,
+          ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+        });
       }
 
       case 'myevents': {
@@ -378,7 +407,33 @@ export class BotService {
             remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
           })),
         );
-        return this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, { text });
+        /**
+         * A «پیوستن» button per event, numbered to match the digest.
+         *
+         * Built here because only the handler holds the public ids — the
+         * formatter takes a view model deliberately free of them, so a digest
+         * cannot leak an id into its text. Two per row: the labels are short and
+         * a five-row column of identical-width buttons is harder to hit than a
+         * grid.
+         *
+         * `isPublicId` guards each one rather than trusting the row: a malformed
+         * id would make `encodeEventCallback` throw *inside* `render`, and a
+         * renderer that throws fails the send job and every retry of it.
+         */
+        const joinable = page.events.filter((event) => isPublicId(event.publicId));
+        const buttons = joinable.map((event, index) => ({
+          text: `${toPersianDigits(String(index + 1))} پیوستن`,
+          callbackData: encodeEventCallback('join', event.publicId),
+        }));
+        const rows: { text: string; callbackData: string }[][] = [];
+        for (let index = 0; index < buttons.length; index += 2) {
+          rows.push(buttons.slice(index, index + 2));
+        }
+
+        return this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, {
+          text,
+          ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+        });
       }
 
       /**
@@ -736,6 +791,23 @@ export class BotService {
       return;
     }
 
+    /**
+     * An event button: joining from `/discover`, or cancelling from `/requests`.
+     *
+     * Tried before `chat:` and told apart by prefix, exactly as the wizard is.
+     * Both are writes and both go through `mayWrite` below for the reason every
+     * other button does — the bot does not pass through `AuthGuard`, so the
+     * policy gate is applied here or nowhere.
+     */
+    const eventCallback = parseEventCallback(data);
+    if (eventCallback !== null) {
+      if (!(await this.mayWrite(update.updateId, user))) {
+        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        return;
+      }
+      return this.onEventCallback(update.updateId, user, callbackQueryId, eventCallback);
+    }
+
     const callback = parseChatCallback(data);
     if (callback === null) {
       // An old build's button, or a tampered one. Indistinguishable to the person
@@ -811,6 +883,80 @@ export class BotService {
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+    }
+  }
+
+  /**
+   * Joining an activity, and standing down from one — the half of the product
+   * the bot could not do.
+   *
+   * ── Why this is the gap that mattered ───────────────────────────────────────
+   *
+   * `/discover` has listed events since M13 and offered no way to act on one.
+   * The bot could *host* an activity end to end — create it, see the requests,
+   * accept or reject, chat — and a guest could see activities and not ask to
+   * join one. The step between those was `POST /events/:id/join`, reachable only
+   * from `EventDetailView`, and v0.4.6 removed the last button that opened it.
+   *
+   * ── The toast says which of the two happened ────────────────────────────────
+   *
+   * `join` returns PENDING when there is a seat and WAITLISTED when there is
+   * not, and the difference is the whole answer: one is "the host is deciding",
+   * the other is "you are in a queue". A single «ثبت شد» would leave somebody on
+   * a waitlist believing a host was about to reply.
+   *
+   * Nothing else is sent from here. The host's notification is the outbox's, and
+   * a second message to the person who just pressed the button would be the
+   * product telling them what they had done.
+   */
+  private async onEventCallback(
+    updateId: number,
+    user: BotUser,
+    callbackQueryId: string,
+    callback: EventCallback,
+  ): Promise<void> {
+    try {
+      switch (callback.action) {
+        case 'join': {
+          const participation = await this.participation.join(user.id, callback.id);
+          await this.answer(
+            callbackQueryId,
+            participation.status === 'WAITLISTED'
+              ? 'در لیست انتظار ثبت شدید ⏳'
+              : 'درخواست شما فرستاده شد ✅ منتظر پاسخ میزبان بمانید.',
+          );
+          return;
+        }
+
+        case 'cancel':
+          await this.participation.cancel(user.id, callback.id);
+          await this.answer(callbackQueryId, 'درخواست شما لغو شد');
+          return;
+      }
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      /**
+       * The refusal is a **toast**, not a notification row.
+       *
+       * «ظرفیت تکمیل است» and «قبلاً درخواست داده‌اید» are answers to a tap, and
+       * a tap that is answered twice — once as a toast and once as a message
+       * that stays in the chat — reads as two different failures. The ones that
+       * need to persist are the ones somebody else caused, and those arrive
+       * through the outbox.
+       *
+       * Truncated by `answerCallback` at Telegram's 200 characters; every
+       * sentence in `ERROR_MESSAGES_FA` is far inside that.
+       */
+      await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+      // A refusal the user can act on gets a message too, because a toast is
+      // gone in three seconds and «نمایه‌تان را کامل کنید» is an instruction.
+      if (error.code === ErrorCode.PROFILE_INCOMPLETE) {
+        await this.notice(
+          updateId,
+          user,
+          'برای پیوستن به فعالیت‌ها نخست نمایه‌تان را کامل کنید — /edit_profile',
+        );
+      }
     }
   }
 

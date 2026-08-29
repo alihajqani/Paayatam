@@ -1416,6 +1416,113 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
 });
 
 /**
+ * Joining an activity from the bot — the half of the product it could not do.
+ *
+ * `/discover` listed events from M13 and offered no way to act on one, so a
+ * guest could see activities and not ask to join. `POST /events/:publicId/join`
+ * was reachable only from `EventDetailView`, and v0.4.6 removed the last button
+ * that opened it.
+ */
+describe('POST /telegram/:secret — joining and standing down', () => {
+  let sequence = 9000;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  /** The keyboard the digest went out with, as the worker would render it. */
+  function keyboardOf(payload: unknown): { text: string; callbackData: string }[][] {
+    const raw = (payload as Record<string, unknown>)['keyboard'];
+    return typeof raw === 'string'
+      ? (JSON.parse(raw) as { text: string; callbackData: string }[][])
+      : [];
+  }
+
+  it('offers a join button on every discovered event, and joining works', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/discover');
+
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const buttons = keyboardOf(digest.payload).flat();
+    expect(buttons.length).toBeGreaterThan(0);
+    // The id in the button is the event's, and nothing else is in it.
+    expect(buttons[0]?.callbackData).toBe(`ev:join:${eventPublicId}`);
+
+    await tap(GUEST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
+
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { userId: guestId },
+      select: { status: true, publicId: true },
+    });
+    expect(participant.status).toBe('PENDING');
+  });
+
+  /** A tampered id names an event the service declines. Authorisation is not in the button. */
+  it('refuses a join for an event that does not exist', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, 'ev:join:00000000-0000-4000-8000-000000000000');
+
+    expect(await prisma.eventParticipant.count()).toBe(0);
+  });
+
+  /** The host cannot join their own activity, and the toast says so rather than throwing. */
+  it('refuses the host joining their own event', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await tap(HOST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
+
+    expect(await prisma.eventParticipant.count()).toBe(0);
+  });
+
+  it('offers «لغو» on a live request, and cancelling works', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await type(GUEST_TELEGRAM_ID, '/requests');
+
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REQUESTS },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const buttons = keyboardOf(digest.payload).flat();
+    expect(buttons).toHaveLength(1);
+
+    await tap(GUEST_TELEGRAM_ID, buttons[0]?.callbackData ?? '');
+
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { userId: guestId },
+      select: { status: true },
+    });
+    expect(participant.status).toBe('CANCELLED_BY_PARTICIPANT');
+  });
+});
+
+/**
  * `/edit_profile` — the wizard ADR-0017 puts on the critical path.
  *
  * A user who cannot complete a profile cannot do anything, so this has to work
