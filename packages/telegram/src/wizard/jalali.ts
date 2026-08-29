@@ -148,6 +148,17 @@ export function persianWeekday(date: Date): number {
 /** شنبه … جمعه, in grid order. */
 export const PERSIAN_WEEKDAYS = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'] as const;
 
+/** «۱۲:۰۰» — the wall-clock time in Tehran, in Persian digits. */
+export function formatJalaliTime(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Tehran',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+  return toPersianDigits(parts);
+}
+
 /** `2026-09-06` — what a day button carries, and what the step parses back. */
 export function isoDay(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {

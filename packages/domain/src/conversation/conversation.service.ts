@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ConversationKind } from '@payetam/db';
 import { PrismaService } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
+import { isWizardControl } from '@payetam/telegram';
 import { MessageCipher } from '../chat/message-cipher';
 import {
   apply,
@@ -222,6 +223,40 @@ export class ConversationService {
       await this.save(userId, moved, updateId);
       const { position, total } = progressOf(definition, opened.key, form);
       return { kind: 'step', step: opened, snapshot: moved, position, total };
+    }
+
+    /**
+     * A tap from a keyboard the conversation has moved past.
+     *
+     * ── Why this needs handling at all ──────────────────────────────────────
+     *
+     * A wizard callback names the step it was built for. Normally that is the
+     * step the conversation is on — the keyboard is edited in place, so there is
+     * only ever one. But an old message can still be on screen: the user
+     * scrolled up, or an edit failed and a fresh message was sent, or they
+     * pressed twice before the redraw landed.
+     *
+     * Handing that to the current step produces a refusal *about the wrong
+     * field*: tapping «رایگان» from an old cost keyboard while the wizard sits on
+     * the title step answers «نام فعالیت را بنویسید و بفرستید», which is
+     * bewildering. Production did exactly this, and it read as «the Free button
+     * is broken».
+     *
+     * So a mismatched step key **re-renders** instead. The update is consumed —
+     * it is a real update and must not be replayed — and the user sees where
+     * they actually are.
+     */
+    if (
+      input.kind === 'callback' &&
+      input.action !== undefined &&
+      // A control verb belongs to no particular step — «می‌پذیرم» and «رد کردن»
+      // are answers wherever they are offered.
+      !isWizardControl(input.action) &&
+      input.action !== step.key
+    ) {
+      await this.save(userId, snapshot, updateId);
+      const { position, total } = progressOf(definition, step.key, snapshot.form);
+      return { kind: 'step', step, snapshot, position, total };
     }
 
     const result = apply(step, input, snapshot.form);

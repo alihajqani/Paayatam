@@ -233,3 +233,84 @@ describe('the flow as a whole', () => {
     ]);
   });
 });
+
+describe('digits, in every system a Persian keyboard produces', () => {
+  /**
+   * Three reach this product: ASCII, Persian `۰-۹` (U+06F0) and Arabic-Indic
+   * `٠-٩` (U+0660). iOS emits the second, several Android keyboards the third.
+   * Handling only Persian — which this did — refuses a number the user can see
+   * on their own screen.
+   */
+  it('accepts ASCII, Persian and Arabic-Indic digits alike', () => {
+    expect(accept('cap', '12')).toEqual({ ok: true, patch: { capacity: 12 } });
+    expect(accept('cap', '۱۲')).toEqual({ ok: true, patch: { capacity: 12 } });
+    expect(accept('cap', '١٢')).toEqual({ ok: true, patch: { capacity: 12 } });
+  });
+
+  /** «۵۰,۰۰۰» and «۵۰٬۰۰۰» are how a price is written by hand. */
+  it('accepts thousands separators of either kind', () => {
+    expect(accept('amount', '۵۰,۰۰۰', { costType: 'FIXED' })).toEqual({
+      ok: true,
+      patch: { costAmount: 50_000 },
+    });
+    expect(accept('amount', '۵۰٬۰۰۰', { costType: 'FIXED' })).toEqual({
+      ok: true,
+      patch: { costAmount: 50_000 },
+    });
+  });
+});
+
+describe('hours', () => {
+  /**
+   * This offered fourteen "plausible" slots, so an event at 23:00 or 06:00 could
+   * not be expressed at all — and nothing said the gap was a choice.
+   */
+  it('offers all twenty-four', async () => {
+    const step = stepByKey(createEventWizard, 'hour');
+    const choices = await step!.load!({}, {} as never);
+
+    expect(choices).toHaveLength(24);
+    expect(choices.map((c) => c.value)).toContain('0');
+    expect(choices.map((c) => c.value)).toContain('23');
+  });
+});
+
+describe('duration', () => {
+  it('accepts a number of hours', () => {
+    expect(accept('dur', '3')).toEqual({ ok: true, patch: { durationHours: 3 } });
+    expect(accept('dur', '۳ ساعت')).toEqual({ ok: true, patch: { durationHours: 3 } });
+  });
+
+  /** «تمام روز» is how an all-day outing is said; «۱۲ ساعت» is not. */
+  it('accepts a named duration', () => {
+    expect(accept('dur', 'تمام روز')).toEqual({ ok: true, patch: { durationHours: 12 } });
+    expect(accept('dur', 'all day')).toEqual({ ok: true, patch: { durationHours: 12 } });
+    expect(accept('dur', 'نیم روز')).toEqual({ ok: true, patch: { durationHours: 4 } });
+  });
+
+  it('reads days as days', () => {
+    expect(accept('dur', '۲ روز')).toEqual({ ok: true, patch: { durationHours: 24 } });
+  });
+
+  it('refuses something with no duration in it', () => {
+    expect(accept('dur', 'زیاد').ok).toBe(false);
+  });
+});
+
+describe('cost', () => {
+  /**
+   * Production reported «Free shows an error asking for an amount». The tap was
+   * landing on a different step, but the clearing is what makes FREE safe
+   * regardless: the contract refuses a costAmount on a free event.
+   */
+  it('carries no amount for FREE or SPLIT', () => {
+    expect(accept('cost', 'FREE', { costAmount: 99 }, 'callback')).toEqual({
+      ok: true,
+      patch: { costType: 'FREE', costAmount: undefined },
+    });
+    expect(accept('cost', 'SPLIT', { costAmount: 99 }, 'callback')).toEqual({
+      ok: true,
+      patch: { costType: 'SPLIT', costAmount: undefined },
+    });
+  });
+});

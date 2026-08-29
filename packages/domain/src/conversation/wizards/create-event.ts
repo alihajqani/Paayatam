@@ -106,9 +106,30 @@ function text(input: WizardInput, min: number, max: number, what: string): TextR
   return { ok: true, value };
 }
 
+/**
+ * Every digit a Persian keyboard can produce, folded to ASCII.
+ *
+ * Three systems reach this product, not one: ASCII, **Persian** `۰-۹`
+ * (U+06F0…) and **Arabic-Indic** `٠-٩` (U+0660…). iOS Persian keyboards emit
+ * the second, several Android keyboards emit the third, and a user pasting from
+ * a website can produce either. Handling only Persian — which this did — refuses
+ * a number the user can see perfectly well on their own screen.
+ *
+ * `packages/shared`'s `unifyDigits` does this for search and moderation; this is
+ * the same rule at the wizard boundary, kept local because the domain must not
+ * depend on the normalizer's whole pipeline for one character class.
+ */
+export function toAsciiDigits(value: string): string {
+  return value
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+
 /** An integer from typed text or a tapped button, within bounds. */
 function integer(input: WizardInput, min: number, max: number, what: string): number | string {
-  const raw = input.value.trim().replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+  // Thousands separators, both kinds, because «۵۰,۰۰۰» and «۵۰٬۰۰۰» are how a
+  // price is written by hand.
+  const raw = toAsciiDigits(input.value.trim()).replace(/[,٬\s]/g, '');
   if (!/^\d{1,9}$/.test(raw)) return `${what} را با عدد بنویسید.`;
 
   const value = Number.parseInt(raw, 10);
@@ -139,9 +160,62 @@ const GENDER_FA: Record<GenderPreference, string> = {
   FEMALE_ONLY: 'فقط بانوان',
 };
 
-/** Slots a gathering plausibly starts at. Twenty-four buttons is a wall. */
-const HOURS = [8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22] as const;
+/**
+ * Every hour of the day.
+ *
+ * This was fourteen "plausible" slots, and production found the hole: an event
+ * at 23:00 or 06:00 could not be expressed at all, and there was no hint that
+ * the missing hours were a choice rather than a bug. Twenty-four buttons at four
+ * to a row is six rows — the same height the calendar already occupies, and
+ * nobody has to wonder where midnight went.
+ */
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const DURATIONS = [1, 2, 3, 4, 6, 8] as const;
+
+/**
+ * Durations people name rather than count.
+ *
+ * «تمام روز» is the one that matters: an all-day outing is a normal thing to
+ * host and «۱۲ ساعت» is not how anybody says it. The values are hours because
+ * that is what `endsAt` is built from — the naming is presentation, the storage
+ * is not.
+ */
+const NAMED_DURATIONS: readonly { readonly words: readonly string[]; readonly hours: number }[] = [
+  { words: ['نیم روز', 'نیم‌روز', 'half day'], hours: 4 },
+  {
+    words: ['یک روز', 'تمام روز', 'تمام‌روز', 'کل روز', 'all day', 'one day', 'full day'],
+    hours: 12,
+  },
+  { words: ['یک ساعت', 'one hour'], hours: 1 },
+  { words: ['دو ساعت'], hours: 2 },
+  { words: ['سه ساعت'], hours: 3 },
+];
+
+/**
+ * A duration, from a button, a number, or words.
+ *
+ * Three shapes because all three arrive: `4` from a button, «۳ ساعت» typed with
+ * the unit, and «تمام روز» typed as a phrase. Returning the hours keeps the
+ * storage a number regardless of how it was said.
+ */
+function durationHours(input: WizardInput): number | string {
+  const raw = toAsciiDigits(input.value.trim().toLowerCase());
+
+  const named = NAMED_DURATIONS.find((entry) => entry.words.some((word) => raw.includes(word)));
+  if (named !== undefined) return named.hours;
+
+  const digits = /(\d{1,3})/.exec(raw);
+  if (digits === null) {
+    return 'مدت را به ساعت بنویسید — برای نمونه «۳ ساعت» یا «تمام روز».';
+  }
+
+  const hours = Number.parseInt(digits[1] ?? '', 10);
+  // Days, when somebody writes «۲ روز».
+  const inDays = /روز|day/.test(raw);
+  const total = inDays ? hours * 12 : hours;
+  if (total < 1 || total > 24) return 'مدت باید بین ۱ تا ۲۴ ساعت باشد.';
+  return total;
+}
 const CAPACITIES = [2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 50] as const;
 
 const steps: WizardStep<CreateEventForm>[] = [
@@ -253,13 +327,17 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'dur',
     ui: 'choice',
-    prompt: () => 'چند ساعت طول می‌کشد؟',
+    prompt: () => 'چقدر طول می‌کشد؟ یکی را بزنید یا بنویسید — «۳ ساعت»، «تمام روز».',
     load: () =>
-      Promise.resolve(
-        DURATIONS.map((hours) => ({ value: String(hours), label: `${String(hours)} ساعت` })),
-      ),
+      Promise.resolve([
+        ...DURATIONS.map((hours) => ({
+          value: String(hours),
+          label: `${toPersianDigits(String(hours))} ساعت`,
+        })),
+        { value: '12', label: 'تمام روز' },
+      ]),
     accept: (input) => {
-      const value = integer(input, 1, 24, 'مدت');
+      const value = durationHours(input);
       if (typeof value === 'string') return { ok: false, error: value };
       return { ok: true, patch: { durationHours: value } };
     },
@@ -284,6 +362,10 @@ const steps: WizardStep<CreateEventForm>[] = [
     accept: (input) => {
       const type = COST_TYPES.find((candidate) => candidate === input.value);
       if (type === undefined) return { ok: false, error: 'یکی از گزینه‌ها را انتخاب کنید.' };
+      // FREE and SPLIT carry no amount, and the contract refuses one on them.
+      if (type === 'FREE' || type === 'SPLIT') {
+        return { ok: true, patch: { costType: type, costAmount: undefined } };
+      }
       // Clearing the amount is what makes «رایگان» after «مبلغ مشخص» valid: the
       // contract refuses a costAmount on a FREE event, and a stale one would be
       // rejected by the server after the user thought they had fixed it.

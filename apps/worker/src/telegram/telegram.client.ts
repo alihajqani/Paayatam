@@ -4,7 +4,7 @@ import type { InlineKeyboardButton } from 'grammy/types';
 import { autoRetry } from '@grammyjs/auto-retry';
 import type { Env } from '@payetam/config';
 import { ENV } from '@payetam/platform';
-import type { InlineKeyboard } from '@payetam/telegram';
+import type { InlineKeyboard, ReplyKeyboard } from '@payetam/telegram';
 
 /** What a send attempt produced, classified so the caller can decide what to do. */
 export type SendOutcome =
@@ -164,15 +164,38 @@ export class TelegramClient {
     chatId: bigint,
     text: string,
     keyboard?: InlineKeyboard,
-    options: { parseMode?: 'HTML' | undefined } = { parseMode: 'HTML' },
+    options: { parseMode?: 'HTML' | undefined; menu?: ReplyKeyboard | undefined } = {
+      parseMode: 'HTML',
+    },
   ): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
+
+    /**
+     * A message carries **either** an inline keyboard or the persistent menu.
+     *
+     * `reply_markup` is one field, so Telegram cannot be given both at once. The
+     * inline keyboard wins wherever there is one, because it is the thing the
+     * message is asking about; the menu is re-attached by the next message that
+     * has no buttons of its own, and it persists on the client in between.
+     */
+    const markup =
+      keyboard !== undefined
+        ? { reply_markup: toReplyMarkup(keyboard) }
+        : options.menu !== undefined
+          ? {
+              reply_markup: {
+                keyboard: options.menu.map((row) => row.map((button) => ({ text: button.text }))),
+                resize_keyboard: true,
+                is_persistent: true,
+              },
+            }
+          : {};
 
     try {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
         ...(options.parseMode !== undefined ? { parse_mode: options.parseMode } : {}),
         link_preview_options: { is_disabled: true },
-        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
+        ...markup,
       });
       return { kind: 'SENT', messageId: message.message_id };
     } catch (error) {

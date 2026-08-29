@@ -1,6 +1,6 @@
-import { formatTehran } from './datetime';
 import { buildDigest } from './digest';
 import { escapeHtml } from './escape';
+import { formatJalali } from './wizard/jalali';
 
 /** One line: who is owed a review, for what, and by when. */
 export interface PendingReviewLine {
@@ -36,7 +36,7 @@ export function formatPendingReviews(lines: readonly PendingReviewLine[]): strin
     (line) =>
       `• <b>${escapeHtml(line.revieweeDisplayName)}</b>\n` +
       `  🎟 ${escapeHtml(line.eventTitle)}\n` +
-      `  ⏳ تا ${formatTehran(line.deadlineAt)}`,
+      `  ⏳ تا ${formatJalali(line.deadlineAt)}`,
   );
 
   return buildDigest({

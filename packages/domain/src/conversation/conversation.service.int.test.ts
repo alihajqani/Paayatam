@@ -255,3 +255,78 @@ describe('one wizard per user', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('a tap from a keyboard the wizard has moved past', () => {
+  /**
+   * Production's most confusing symptom, reported as «the Free button is
+   * broken». Every step used to send a *new* message, so the chat filled with
+   * old keyboards; tapping one sent a callback for a step long since left, and
+   * the current step refused it with a message about an entirely different
+   * field — «رایگان» answering «نام فعالیت را بنویسید».
+   */
+  it('re-renders the current step instead of refusing', async () => {
+    await conversations.start(userId, 'CREATE_EVENT', 1);
+
+    // The wizard is on `title`; this is a tap from a cost keyboard.
+    const outcome = await conversations.handle(userId, 2, {
+      kind: 'callback',
+      action: 'cost',
+      value: 'FREE',
+    });
+
+    expect(outcome?.kind).toBe('step');
+    if (outcome?.kind === 'step') {
+      expect(outcome.step.key).toBe('title');
+      // No complaint: the user did nothing wrong.
+      expect(outcome.error).toBeUndefined();
+    }
+  });
+
+  /** It is still a real update and must not be replayable. */
+  it('consumes the update', async () => {
+    await conversations.start(userId, 'CREATE_EVENT', 1);
+    await conversations.handle(userId, 2, { kind: 'callback', action: 'cost', value: 'FREE' });
+
+    expect(
+      (await conversations.handle(userId, 2, { kind: 'callback', action: 'cost', value: 'FREE' }))
+        ?.kind,
+    ).toBe('redelivery');
+  });
+
+  /** A control verb belongs to no step — «می‌پذیرم» is an answer wherever offered. */
+  it('does not mistake a control for a stale tap', async () => {
+    await conversations.start(userId, 'ACCEPT_POLICIES', 1);
+
+    const outcome = await conversations.handle(userId, 2, {
+      kind: 'callback',
+      action: 'agree',
+      value: '',
+    });
+
+    expect(outcome?.kind).toBe('summary');
+  });
+});
+
+describe('rememberMessage', () => {
+  /**
+   * The field that makes a wizard a screen. Nothing set it in v0.4.0 — only the
+   * worker's GONE fallback did — so it stayed null and `paint` sent a new
+   * message every step.
+   */
+  it('records the message the wizard is drawn on', async () => {
+    await conversations.start(userId, 'CREATE_EVENT', 1);
+    expect((await conversations.current(userId))?.lastMessageId).toBeNull();
+
+    await conversations.rememberMessage(userId, 4242);
+
+    expect((await conversations.current(userId))?.lastMessageId).toBe(4242);
+  });
+
+  it('survives the next step', async () => {
+    await conversations.start(userId, 'CREATE_EVENT', 1);
+    await conversations.rememberMessage(userId, 4242);
+    await conversations.handle(userId, 2, { kind: 'text', value: 'کوهنوردی درکه' });
+
+    expect((await conversations.current(userId))?.lastMessageId).toBe(4242);
+  });
+});

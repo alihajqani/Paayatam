@@ -46,6 +46,8 @@ import {
   TEMPLATES,
   formatDiscovered,
   formatJalali,
+  formatPolicies,
+  menuCommandFor,
   formatTehran,
   formatMyChats,
   formatPendingReviews,
@@ -547,6 +549,22 @@ export class BotService {
     replyToMessageId: number | null,
   ): Promise<void> {
     /**
+     * A tap on the persistent menu is a command, not a message.
+     *
+     * A reply-keyboard button sends its **label** as ordinary text, so «🎟
+     * فعالیت‌های من» arrives here indistinguishable from something somebody
+     * typed. Without this it would be handed to the wizard as an answer, or —
+     * worse — relayed into an anonymous chat, and a stranger would receive a
+     * menu label.
+     *
+     * Checked before the wizard for that reason: the menu is how somebody
+     * *leaves* a form they no longer want, and a wizard that swallowed its own
+     * escape hatch would be a trap.
+     */
+    const menuCommand = menuCommandFor(message.text);
+    if (menuCommand !== null) return this.onCommand(updateId, user, menuCommand);
+
+    /**
      * A form in progress claims the message first (ADR-0017).
      *
      * This is the one ordering that matters in the whole wiring. Text typed while
@@ -963,19 +981,27 @@ export class BotService {
     outcome: Extract<ConversationOutcome, { kind: 'step' }>,
   ): Promise<WizardScreen> {
     const pending = await this.consent.currentPolicies();
-    const summary = pending
-      .map((policy) => {
-        const title = policy.titleFa ?? policy.label;
-        const body = policy.changeSummaryFa ?? policy.summaryFa ?? '';
-        // Plain text, not markup: `renderStep` escapes the prompt it is handed,
-        // so a `<b>` built here reaches the user as `&lt;b&gt;`. The heading is
-        // the renderer's job; this supplies the words.
-        return body === '' ? `• ${title}` : `• ${title}\n  ${body}`;
-      })
-      .join('\n');
+    /**
+     * The documents themselves, not their titles.
+     *
+     * The first version of this screen printed «TERMS v1 — قوانین استفاده از
+     * پایه‌تَم» and an «می‌پذیرم» button, which is a label rather than something
+     * anybody can agree to. `formatPolicies` renders the stored Markdown, and it
+     * is passed through `prompt` — which `renderStep` escapes — so it is
+     * assembled *after* that as pre-rendered HTML, the same arrangement
+     * `BOT_WIZARD` already uses.
+     */
+    const documents = formatPolicies(
+      pending.map((policy) => ({
+        // `title_fa` is empty on the deployed rows; `label` is «TERMS v1».
+        title: policy.titleFa !== null && policy.titleFa !== '' ? policy.titleFa : policy.label,
+        summary: policy.changeSummaryFa ?? policy.summaryFa,
+        contentMd: policy.contentMd,
+      })),
+    );
 
-    return renderStep({
-      prompt: `${outcome.step.prompt({})}\n\n${summary}`,
+    const screen = renderStep({
+      prompt: outcome.step.prompt({}),
       ui: 'confirm',
       stepKey: outcome.step.key,
       actions: [
@@ -993,6 +1019,10 @@ export class BotService {
       cancellable: false,
       ...(outcome.error !== undefined ? { error: outcome.error } : {}),
     });
+
+    // Appended after `renderStep` because the documents are already HTML and the
+    // renderer escapes what it is given.
+    return { ...screen, text: `${screen.text}\n\n${documents}` };
   }
 
   /**
@@ -1311,21 +1341,58 @@ export class BotService {
     const category = catalog.categories.find((candidate) => candidate.id === form.categoryId);
     const day = form.day === undefined ? null : parseIsoDay(form.day);
 
+    const district = city?.districts.find((candidate) => candidate.id === form.districtId);
+    const where =
+      city === undefined
+        ? '—'
+        : district === undefined
+          ? city.nameFa
+          : `${city.nameFa} — ${district.nameFa}`;
+
+    /**
+     * Everything the wizard has collected, whether or not it was asked on the
+     * fast path.
+     *
+     * Production found this printing six fields and omitting the age range until
+     * a *second* review screen — so a host who set one could not see it on the
+     * screen with the «ثبت» button on it. A review that shows some of what is
+     * about to be published is worse than none: it teaches people the list is
+     * complete.
+     *
+     * Optional fields appear only when answered, which is different: an absent
+     * row means «not set», and a «—» beside every unset field would bury the six
+     * that matter.
+     */
     const lines: SummaryLine[] = [
       { label: 'نام', value: form.title ?? '—' },
       { label: 'دسته', value: form.customCategoryLabel ?? category?.nameFa ?? '—' },
-      { label: 'شهر', value: city?.nameFa ?? '—' },
+      { label: 'مکان', value: where },
       {
         label: 'زمان',
         value:
           day === null
             ? '—'
-            : `${formatJalali(day)} — ساعت ${toPersianDigits(String(form.hour ?? 0))}`,
+            : `${formatJalali(day)} — ساعت ${toPersianDigits(
+                String(form.hour ?? 0).padStart(2, '0'),
+              )}:۰۰`,
       },
-      { label: 'ظرفیت', value: toPersianDigits(String(form.capacity ?? 0)) },
+      {
+        label: 'مدت',
+        value:
+          form.durationHours === undefined
+            ? '—'
+            : `${toPersianDigits(String(form.durationHours))} ساعت`,
+      },
+      { label: 'ظرفیت', value: `${toPersianDigits(String(form.capacity ?? 0))} نفر` },
       { label: 'هزینه', value: costSummary(form) },
     ];
 
+    if (form.genderPreference !== undefined) {
+      lines.push({
+        label: 'برای',
+        value: form.genderPreference === 'MALE_ONLY' ? 'فقط آقایان' : 'فقط بانوان',
+      });
+    }
     if (form.minAge !== undefined || form.maxAge !== undefined) {
       lines.push({
         label: 'سن',
@@ -1334,6 +1401,22 @@ export class BotService {
         )}`,
       });
     }
+    if (form.rules !== undefined) lines.push({ label: 'قواعد', value: form.rules });
+    if (form.externalLink !== undefined) lines.push({ label: 'لینک', value: form.externalLink });
+
+    /**
+     * The description is last and trimmed.
+     *
+     * It is up to 2000 characters and the summary shares one message with a
+     * keyboard; printing it whole would push the «ثبت» button off a phone
+     * screen. Enough to recognise what you wrote, not enough to re-read it.
+     */
+    if (form.description !== undefined) {
+      const text =
+        form.description.length > 160 ? `${form.description.slice(0, 159)}…` : form.description;
+      lines.push({ label: 'توضیح', value: text });
+    }
+
     return lines;
   }
 

@@ -16,7 +16,13 @@ import {
   ReviewService,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
-import { TEMPLATES, render, renderChannelPost, type InlineKeyboard } from '@payetam/telegram';
+import {
+  TEMPLATES,
+  menuKeyboard,
+  render,
+  renderChannelPost,
+  type InlineKeyboard,
+} from '@payetam/telegram';
 import { TelegramLoggerService } from '../monitoring/telegram-logger.service';
 import { TelegramClient } from '../telegram/telegram.client';
 import { WorkerFactory } from './worker.factory';
@@ -207,15 +213,42 @@ export class Processors implements OnModuleInit {
       return;
     }
 
+    /**
+     * The persistent menu rides along on any message with no inline keyboard.
+     *
+     * `reply_markup` holds one thing, so a message that already has buttons
+     * cannot also carry the menu — but the menu persists on the client once sent,
+     * so it only has to be attached often enough to survive a client that has
+     * never seen it. Every notice, digest and confirmation qualifies.
+     */
     const outcome = await this.telegram.send(
       notification.telegramUserId,
       message.text,
       message.keyboard,
+      { parseMode: 'HTML', menu: message.keyboard === undefined ? menuKeyboard() : undefined },
     );
 
     switch (outcome.kind) {
       case 'SENT':
         await this.notifications.markSent(notification.id, outcome.messageId);
+        /**
+         * The message a wizard now lives on (ADR-0017).
+         *
+         * **Without this a wizard is a transcript, not a screen.** `paint` edits
+         * `conversation_state.last_message_id` when it is set and sends a fresh
+         * message when it is null — and nothing set it, so it stayed null and
+         * every step sent a new message. In production that filled the chat with
+         * old keyboards, and tapping one of those sent a callback for a step the
+         * user had long since left, which the current step then refused with a
+         * message about the wrong field entirely.
+         *
+         * It is recorded here rather than by the API because the message id does
+         * not exist until Telegram has accepted the send, and this is the only
+         * place that holds it.
+         */
+        if (notification.templateKey === TEMPLATES.BOT_WIZARD) {
+          await this.conversations.rememberMessage(notification.userId, outcome.messageId);
+        }
         return;
 
       case 'BLOCKED':

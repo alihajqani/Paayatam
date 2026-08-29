@@ -1,7 +1,7 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { formatTehran } from './datetime';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
+import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
 /** One line of the discovery digest: what it is, when, and whether there is room. */
 export interface DiscoverLine {
@@ -51,7 +51,7 @@ export function formatDiscovered(lines: readonly DiscoverLine[]): string {
       `• <b>${escapeHtml(line.title)}</b>\n` +
       `  🗂 ${escapeHtml(line.categoryName)}\n` +
       `  📍 ${escapeHtml(line.where)}\n` +
-      `  🗓 ${formatTehran(line.startsAt)} · 👥 ${seats}`
+      `  🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)} · 👥 ${seats}`
     );
   });
 

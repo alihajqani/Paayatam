@@ -120,3 +120,70 @@ export function chatKeyboard(
 export function openAppKeyboard(botUsername: string, deepLink?: string): InlineKeyboard {
   return [[openAppButton('باز کردن برنامه', botUsername, deepLink)]];
 }
+
+/**
+ * A button on the persistent keyboard below the text box.
+ *
+ * A `ReplyKeyboard`, not an inline one. The difference is the whole point:
+ * inline buttons belong to *a message* and scroll away with it, while this sits
+ * under the compose box until it is replaced. That is what makes it a menu
+ * rather than a prompt.
+ */
+export interface ReplyButton {
+  text: string;
+}
+
+/** Rows of reply buttons, as Telegram lays them out. */
+export type ReplyKeyboard = readonly (readonly ReplyButton[])[];
+
+/**
+ * What the bottom keyboard offers.
+ *
+ * ── Why these five ──────────────────────────────────────────────────────────
+ *
+ * The bot answers twelve commands and this shows five, because a menu that
+ * lists everything is a menu nobody reads. These are the ones with a *verb* —
+ * things somebody opens the bot intending to do — and the rest stay discoverable
+ * through the "/" menu and `/help`.
+ *
+ * ── Why the labels are not the commands ─────────────────────────────────────
+ *
+ * A reply-keyboard tap sends its label as an ordinary text message, so «ساختن
+ * فعالیت» arrives as that text and not as `/create_event`. `BotService` maps
+ * them back — see `MENU_COMMANDS`. Labelling the buttons `/create_event` would
+ * work and would put slash-commands in the chat transcript, which is exactly the
+ * awkwardness this keyboard exists to remove.
+ *
+ * The mapping is here rather than in the bot so the label and the command it
+ * stands for cannot drift into two files.
+ */
+export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
+  ['➕ ساختن فعالیت', 'create_event'],
+  ['🔎 دیدن فعالیت‌ها', 'discover'],
+  ['🎟 فعالیت‌های من', 'myevents'],
+  ['📨 درخواست‌های من', 'requests'],
+  ['💬 گفتگوها', 'chats'],
+]);
+
+/**
+ * The persistent menu, two rows.
+ *
+ * `is_persistent` keeps it open rather than collapsing to an icon the moment
+ * something else is sent; `resize_keyboard` stops Telegram giving five buttons
+ * the height of a full phone keyboard.
+ */
+export function menuKeyboard(): ReplyKeyboard {
+  const labels = [...MENU_COMMANDS.keys()];
+  return [labels.slice(0, 2).map((text) => ({ text })), labels.slice(2).map((text) => ({ text }))];
+}
+
+/**
+ * Whether a plain text message is a menu tap rather than something to relay.
+ *
+ * Returns the command it stands for, or null. The distinction matters: a menu
+ * label reaching `onText` would otherwise be relayed into an anonymous chat, and
+ * the other party would receive «🎟 فعالیت‌های من» from a stranger.
+ */
+export function menuCommandFor(text: string): string | null {
+  return MENU_COMMANDS.get(text.trim()) ?? null;
+}

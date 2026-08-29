@@ -1,7 +1,7 @@
 import { PARTICIPANT_STATUS_GUEST_FA, type ParticipantStatus } from '@payetam/shared';
-import { formatTehran } from './datetime';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
+import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
 /** One line of the digest: the event, when it is, and where the request stands. */
 export interface MyRequestLine {
@@ -37,7 +37,7 @@ export function formatMyRequests(lines: readonly MyRequestLine[]): string {
 
     return (
       `• <b>${escapeHtml(line.title)}</b>\n` +
-      `  🗓 ${formatTehran(line.startsAt)}\n` +
+      `  🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)}\n` +
       `  ${PARTICIPANT_STATUS_GUEST_FA[line.status]}${rank}`
     );
   });
