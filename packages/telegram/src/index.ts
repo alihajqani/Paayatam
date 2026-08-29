@@ -17,7 +17,8 @@ export type { PendingReviewLine } from './reviews-digest';
 export { MENU_COMMANDS, menuCommandFor, menuKeyboard } from './keyboards';
 export type { ReplyButton, ReplyKeyboard } from './keyboards';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
-export { formatPolicies } from './policies';
+export { formatPolicies, formatStanding } from './policies';
+export type { AcceptedPolicy } from './policies';
 export type { PolicyDocument } from './policies';
 export type { DigestInput } from './digest';
 export { BOT_COMMANDS, helpCommandLines } from './commands';
@@ -71,5 +72,5 @@ export {
 } from './callback-data';
 export type { ChatCallback, ChatCallbackAction } from './callback-data';
 
-export { chatKeyboard, hostDecisionKeyboard, openAppButton, openAppKeyboard } from './keyboards';
+export { chatKeyboard, hostDecisionKeyboard, openAppButton } from './keyboards';
 export type { InlineButton, InlineKeyboard } from './keyboards';

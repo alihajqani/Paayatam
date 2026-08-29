@@ -233,6 +233,31 @@ export class TelegramClient {
   }
 
   /**
+   * Take one of the user's own messages out of the chat.
+   *
+   * Used after a wizard has read a typed answer: the form absorbed «تهران», and
+   * leaving the word above the form is what turned a screen back into a
+   * transcript.
+   *
+   * **Every failure is success here.** Telegram refuses to delete anything older
+   * than 48 hours, refuses when the bot is not allowed to, and 400s when the
+   * message is already gone — and the goal is «this is not in the chat», which
+   * every one of those satisfies or cannot be talked out of. Retrying would burn
+   * rate budget somebody's notification needs to say nothing new, so this returns
+   * a boolean nobody has to act on rather than throwing.
+   */
+  async deleteMessage(chatId: bigint, messageId: number): Promise<boolean> {
+    if (!this.bot) return false;
+
+    try {
+      await this.bot.api.deleteMessage(Number(chatId), messageId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Redraw the message a conversation wizard lives on (ADR-0017).
    *
    * ── Why editing rather than sending ─────────────────────────────────────────

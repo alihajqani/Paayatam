@@ -40,6 +40,22 @@ describe('the job ids BotService builds', () => {
   });
 
   /**
+   * Deleting the user's own answer once the wizard has read it.
+   *
+   * Keyed on the **user and** the message. Telegram numbers messages per chat,
+   * so two people's `message_id` collide routinely — an id built from the number
+   * alone would let BullMQ absorb the second person's deletion as a duplicate,
+   * and their answers would stay in the chat for no reason anybody could see.
+   */
+  it('accepts the tidy id, and keeps two users apart', () => {
+    const first = jobId('tidy', '0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e6f', String(MESSAGE_ID));
+    const second = jobId('tidy', '0199bb22-3c4d-7e5f-9a01-2b3c4d5e6f70', String(MESSAGE_ID));
+
+    expect(first).not.toBe(second);
+    expect(first).toBe('tidy-0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e6f-489');
+  });
+
+  /**
    * The shape that shipped. Kept as a test so the next person who reaches for a
    * separator sees why the parts are separate arguments.
    */

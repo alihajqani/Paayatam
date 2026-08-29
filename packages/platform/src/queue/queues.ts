@@ -103,6 +103,27 @@ export const JOBS = {
    */
   BOT_EDIT_MESSAGE: 'bot-edit-message',
   /**
+   * Take the user's own message out of the chat once a wizard has read it.
+   *
+   * A wizard is one message that changes (ADR-0017) — but only the *bot's* half
+   * of it was. Every answer the user typed stayed above it, so filling in a
+   * profile left a column of «۲۵», «تهران», «کوهنوردی» sitting over a form that
+   * had already absorbed all three. The form looked tidy and the chat did not.
+   *
+   * On `telegram-send` for the reason `BOT_EDIT_MESSAGE` is: `deleteMessage` is
+   * an outbound Telegram call, and invariant 11 puts every one of those in the
+   * worker behind the one global limiter.
+   *
+   * The payload carries the **internal** `user_id` and Telegram's `message_id`,
+   * never a chat id — resolved at delivery through
+   * `NotificationService.telegramTargetFor`, exactly as an edit is, so Redis
+   * never holds a `telegram_user_id` (invariant 7).
+   *
+   * Failure is nothing to retry: Telegram refuses to delete a message older than
+   * 48 hours, and one that is already gone is the outcome we wanted.
+   */
+  BOT_DELETE_MESSAGE: 'bot-delete-message',
+  /**
    * One recipient of an admin campaign or a paid invitation (M22 phases 4 and 11).
    *
    * On `telegram-send` with everything else, so it shares the one global limiter:

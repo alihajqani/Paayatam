@@ -2,12 +2,7 @@ import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { encodeChatCallback, isPublicId } from './callback-data';
 import { helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
-import {
-  chatKeyboard,
-  hostDecisionKeyboard,
-  openAppKeyboard,
-  type InlineKeyboard,
-} from './keyboards';
+import { chatKeyboard, hostDecisionKeyboard, type InlineKeyboard } from './keyboards';
 
 /**
  * Every Persian message the bot sends (plan §3.2).
@@ -116,19 +111,41 @@ type Payload = Record<string, unknown>;
 /**
  * A body that is **already** HTML, passed through unescaped.
  *
- * Exactly one caller: `BOT_WIZARD`, whose text comes from `renderStep`, which
- * emits its own `<b>`/`<i>` and has already escaped every user-supplied value it
- * interpolated — a prompt, a validation message, a title somebody typed. Running
- * `escapeHtml` over that a second time turns the wizard's own markup into visible
- * `&lt;i&gt;`, which is what it did until this existed.
+ * Two callers. `BOT_WIZARD`, whose text comes from `renderStep`; and
+ * `prerendered`, for the six digest bodies the formatters in this package build.
+ * Both emit their own `<b>`/`<i>` and both have already escaped every
+ * user-supplied value they interpolated — a prompt, an event title, a stranger's
+ * display name. Running `escapeHtml` over that a second time turns their markup
+ * into visible `&lt;i&gt;`, which is what it did until this existed.
  *
  * **The contract is one-directional and narrow:** a template may use this only
- * when the value was produced by this package's own renderer. Anything that
- * originates with a user goes through `str`.
+ * when the value was produced by this package's own renderer, and only when that
+ * renderer has a test proving it escapes. Anything that originates with a user
+ * goes through `str`.
  */
 function raw(payload: Payload, key: string): string {
   const value = payload[key];
   return typeof value === 'string' ? value : '';
+}
+
+/**
+ * A body that was rendered as HTML before it was ever put in a payload.
+ *
+ * `formatMyEvents`, `formatMyRequests`, `formatMyChats`, `formatDiscovered`,
+ * `formatPendingReviews` and `formatStanding` all build `<b>`-marked lists and
+ * all call `escapeHtml` on every value they interpolate. Passing their output
+ * through `str` escaped it a **second** time, so the tags survived as text and
+ * `/myevents` answered with a literal `<b>سفر شمال</b>` — five commands and
+ * `/terms` reading like a view-source of themselves.
+ *
+ * `raw` under a name that says which invariant is carrying the safety: the
+ * escaping happened at the formatter, one interpolation at a time, which is the
+ * only place that can tell a stranger's event title from the markup around it.
+ * Anything reaching this that was *not* built by one of those formatters is a
+ * bug in its caller, not something a second `escapeHtml` here would fix.
+ */
+function prerendered(payload: Payload): string {
+  return raw(payload, 'text');
 }
 
 function str(payload: Payload, key: string): string {
@@ -180,15 +197,11 @@ function id(payload: Payload, key: string): string | null {
  * skipped and retried after the rollout, not crash the worker and stall the whole
  * queue behind it.
  *
- * `botUsername` is required rather than defaulted: it is what every button's link
- * is built from, and a default would turn a missing configuration value into a
- * keyboard full of links to somebody else's bot.
+ * It no longer takes a bot username. Every button built from one was an
+ * "open the app" link, and those are gone — see `opened()`. What is left is
+ * callback data, which addresses a row in our own database and needs no host.
  */
-export function render(
-  templateKey: string,
-  payload: Payload,
-  botUsername: string,
-): RenderedMessage | null {
+export function render(templateKey: string, payload: Payload): RenderedMessage | null {
   switch (templateKey) {
     /**
      * The one notification with something to *decide*, so it carries the decision.
@@ -206,9 +219,7 @@ export function render(
           `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.\n` +
           `می‌توانید پیش از تصمیم‌گیری با او گفتگو کنید.`,
         deepLink,
-        ...(participant !== null
-          ? { keyboard: hostDecisionKeyboard(participant, botUsername, deepLink) }
-          : {}),
+        ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };
     }
 
@@ -217,7 +228,6 @@ export function render(
         `درخواست شما برای «${str(payload, 'eventTitle')}» ثبت شد.\n` +
           `تا زمان تصمیم میزبان می‌توانید در گفتگو سؤال بپرسید.`,
         `chats/${str(payload, 'chatPublicId')}`,
-        botUsername,
       );
 
     /**
@@ -235,7 +245,6 @@ export function render(
           `از این پس می‌توانید اطلاعات تماس را در گفتگو رد و بدل کنید.\n\n` +
           `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
         `chats/${str(payload, 'chatPublicId')}`,
-        botUsername,
       );
 
     case TEMPLATES.PARTICIPATION_REJECTED:
@@ -252,7 +261,6 @@ export function render(
           `درخواست شما برای «${str(payload, 'eventTitle')}» از لیست انتظار خارج شد و ` +
           `اکنون در انتظار تصمیم میزبان است.`,
         `chats/${str(payload, 'chatPublicId')}`,
-        botUsername,
       );
 
     /** D8: and so does the host, in the same domain event — decision buttons included. */
@@ -264,9 +272,7 @@ export function render(
           `یک درخواست از لیست انتظار به «${str(payload, 'eventTitle')}» منتقل شد و ` +
           `منتظر تصمیم شماست.`,
         deepLink,
-        ...(participant !== null
-          ? { keyboard: hostDecisionKeyboard(participant, botUsername, deepLink) }
-          : {}),
+        ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };
     }
 
@@ -294,11 +300,7 @@ export function render(
      * ADR-0009's invariant 7 protects and it is untouched.
      */
     case TEMPLATES.CHAT_MESSAGE:
-      return relayed(
-        `<b>${chatHeading(payload)}:</b>\n${str(payload, 'text')}`,
-        payload,
-        botUsername,
-      );
+      return relayed(`<b>${chatHeading(payload)}:</b>\n${str(payload, 'text')}`, payload);
 
     /**
      * The sender edited what they had said (D10).
@@ -314,7 +316,6 @@ export function render(
       return relayed(
         `<b>${chatHeading(payload)}</b> <i>(ویرایش شد)</i>:\n${str(payload, 'text')}`,
         payload,
-        botUsername,
       );
 
     /**
@@ -364,7 +365,6 @@ export function render(
       return relayed(
         `<b>${chatHeading(payload)}</b>\n<i>${str(payload, 'replacementText')}</i>`,
         payload,
-        botUsername,
       );
 
     case TEMPLATES.REVIEW_WINDOW_OPEN:
@@ -373,7 +373,6 @@ export function render(
           `می‌توانید تا ${num(payload, 'daysLeft')} روز آینده بازخورد خود را درباره ` +
           `«${str(payload, 'eventTitle')}» ثبت کنید.`,
         `reviews/pending`,
-        botUsername,
       );
 
     /** D7: both sides learn at the same instant, which is why one event fans out. */
@@ -382,7 +381,6 @@ export function render(
         `<b>بازخوردها منتشر شد</b>\n\n` +
           `بازخورد «${str(payload, 'eventTitle')}» اکنون قابل مشاهده است.`,
         `reviews/pending`,
-        botUsername,
       );
 
     case TEMPLATES.NO_SHOW_RECORDED:
@@ -415,7 +413,6 @@ export function render(
           `تا زمانی که خودتان نخواهید، نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ ` +
           `گفتگو با نام مستعار انجام می‌شود.`,
         `home`,
-        botUsername,
       );
 
     /** `/start <code>`: the invite worked, and what it is worth is stated plainly. */
@@ -424,7 +421,6 @@ export function render(
         `<b>کد دعوت ثبت شد</b> ✅\n\n` +
           `پس از شرکت در نخستین فعالیت، ${num(payload, 'pendingCoins')} سکه به حساب شما اضافه می‌شود.`,
         `home`,
-        botUsername,
       );
 
     /**
@@ -451,18 +447,19 @@ export function render(
           `بقیهٔ کارها — ساختن رویداد، جستجوی پیشرفته، ویرایش نمایه، نوشتن نظر — ` +
           `در برنامه انجام می‌شود.`,
         `home`,
-        botUsername,
       );
 
     /**
      * `/balance` — a number somebody checks often, and previously could only see by
      * opening the Mini App and waiting for the home screen to load.
      *
-     * The button still offers the wallet, because the balance answers "how many"
-     * and the ledger answers "why", and only one of those fits in a line.
+     * `wallet` stays as the deep link although no button spends it: the balance
+     * answers "how many" and the ledger answers "why", and the ledger still has
+     * no bot command. See the retirement plan's §3 — that is the outstanding
+     * work, not this line.
      */
     case TEMPLATES.BOT_BALANCE:
-      return opened(`<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`, `wallet`, botUsername);
+      return opened(`<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`, `wallet`);
 
     /**
      * `/requests` — the digest, built by `formatMyRequests` and passed through.
@@ -474,22 +471,23 @@ export function render(
      * nobody asked.
      */
     case TEMPLATES.BOT_REQUESTS:
-      return opened(str(payload, 'text'), `my-requests`, botUsername);
+      return opened(prerendered(payload), `my-requests`);
 
     /** `/myevents` — the host's digest, built by `formatMyEvents`. */
     case TEMPLATES.BOT_MY_EVENTS:
-      return opened(str(payload, 'text'), `my-events`, botUsername);
+      return opened(prerendered(payload), `my-events`);
 
     /**
      * `/chats` — the conversation digest, built by `formatMyChats`.
      *
-     * `chats` is already in the Mini App's `DEEP_LINKS` allowlist, so the button
-     * lands on the conversation list rather than the splash. Adding a template
-     * whose target is *not* in that allowlist is the failure this pairing exists
-     * to prevent — see `deepLinkTarget()`.
+     * `chats` is on the Mini App's `DEEP_LINKS` allowlist, and stays named here
+     * even though nothing renders it as a button any more: `deep-links.test.ts`
+     * checks every template's target against that allowlist, and a template
+     * pointing at a route that does not exist is the failure that pairing exists
+     * to catch — see `deepLinkTarget()`.
      */
     case TEMPLATES.BOT_CHATS:
-      return opened(str(payload, 'text'), `chats`, botUsername);
+      return opened(prerendered(payload), `chats`);
 
     /**
      * `/profile` — and the only place in the product that shows you your own
@@ -506,17 +504,20 @@ export function render(
      * to stand in for. «تازه‌وارد» exists because *somebody else's* score can be
      * genuinely unknown — your own never is.
      *
-     * The button opens `profile/edit`, because `/profile` is an onboarding step
-     * the router bounces a finished user away from.
+     * The deep link names `profile/edit` rather than `profile`, because
+     * `/profile` is an onboarding step the router bounces a finished user away
+     * from. `/edit_profile` is the bot's own answer to the same question.
      */
     /**
      * `/discover` — the digest, built by `formatDiscovered`, disclaimer included.
      *
-     * The button opens `discover`, where the fourteen filters this command
-     * deliberately does not ask about actually live.
+     * The deep link names `discover`, where the fourteen filters this command
+     * deliberately does not ask about actually live. There is no button on it
+     * any more — see `opened()` — which makes those filters app-only in
+     * practice, and is the open question in the retirement plan's §7.
      */
     case TEMPLATES.BOT_DISCOVER:
-      return opened(str(payload, 'text'), `discover`, botUsername);
+      return opened(prerendered(payload), `discover`);
 
     /**
      * `/reviews` — the pending digest, built by `formatPendingReviews`.
@@ -526,7 +527,7 @@ export function render(
      * the form on it.
      */
     case TEMPLATES.BOT_REVIEWS:
-      return opened(str(payload, 'text'), `reviews/pending`, botUsername);
+      return opened(prerendered(payload), `reviews/pending`);
 
     case TEMPLATES.BOT_PROFILE:
       return opened(
@@ -535,7 +536,6 @@ export function render(
           `📍 ${str(payload, 'cityName')}\n` +
           `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰`,
         `profile/edit`,
-        botUsername,
       );
 
     /**
@@ -568,7 +568,6 @@ export function render(
           `<b>/discover</b> — دیدن فعالیت‌های نزدیک\n` +
           `<b>/create_event</b> — ساختن فعالیت تازه`,
         `home`,
-        botUsername,
       );
 
     /**
@@ -597,7 +596,7 @@ export function render(
      * should render, not break the message.
      */
     case TEMPLATES.BOT_TERMS_STANDING:
-      return opened(str(payload, 'text'), `home`, botUsername);
+      return opened(prerendered(payload), `home`);
 
     /** The event exists, and here is the way to it. */
     case TEMPLATES.BOT_EVENT_CREATED:
@@ -606,7 +605,6 @@ export function render(
           `«${str(payload, 'title')}» ساخته شد. ` +
           `از «رویدادهای من» می‌توانید درخواست‌ها را ببینید و پاسخ بدهید.`,
         `my-events`,
-        botUsername,
       );
 
     /** Whatever the bot has to say about a request it could not carry out. */
@@ -632,6 +630,10 @@ export function render(
  * rather than through `opened()`, so they did not look like the others.
  * `deep-links.test.ts` now checks every template against the allowlist, which is
  * what found them.
+ *
+ * The button itself is gone now, and the target is kept anyway: the allowlist
+ * check is what would notice a template pointing somewhere that does not exist,
+ * and it is worth more standing than a field nobody renders is worth deleting.
  *
  * The participant id is dropped rather than relocated: no route reads it, and
  * `MyEventsView` — which is where accept and reject actually live — lists the
@@ -659,27 +661,49 @@ function parseKeyboard(payload: Payload): InlineKeyboard | undefined {
   }
 }
 
-/** A message whose only action is "open the app". */
-function opened(text: string, deepLink: string, botUsername: string): RenderedMessage {
-  return { text, deepLink, keyboard: openAppKeyboard(botUsername, deepLink) };
+/**
+ * A message that used to carry an "open the app" button, and no longer does.
+ *
+ * ── Why the button is gone ──────────────────────────────────────────────────
+ *
+ * It was under **almost every message the bot sends**, which is what made it
+ * noise: a notification about a request, a balance, a digest and a welcome all
+ * ended in the same «باز کردن برنامه», so the one place it was the actual next
+ * step read like the twenty places it was not.
+ *
+ * It cost more than attention. `reply_markup` holds one thing, so a message with
+ * inline buttons cannot also carry the persistent menu — and `opened()` put
+ * buttons on nearly everything, so the menu almost never went out. Removing this
+ * is what makes the menu re-attach on every message that has no buttons of its
+ * own, which is now most of them.
+ *
+ * ── Why `deepLink` stays ────────────────────────────────────────────────────
+ *
+ * It names the screen this message is about, and `deepLinkTarget()` asserts that
+ * every one of them is on the Mini App's allowlist. That check is worth keeping
+ * whether or not a button spends it today.
+ */
+function opened(text: string, deepLink: string): RenderedMessage {
+  return { text, deepLink };
 }
 
 /**
  * A message from inside a conversation.
  *
- * Carries the reply-and-close keyboard when the payload names a chat, which every
+ * Carries the close-and-share keyboard when the payload names a chat, which every
  * relay payload does — the conditional is there so a malformed one degrades to a
  * plain message rather than a button that closes nothing.
+ *
+ * There is no "reply" button, and there never needed to be one: the message is
+ * in Telegram and the reply is typed into Telegram. It used to open the Mini App
+ * to do that, which was a detour spending the row's first tap target.
  */
-function relayed(text: string, payload: Payload, botUsername: string): RenderedMessage {
+function relayed(text: string, payload: Payload): RenderedMessage {
   const chat = id(payload, 'chatPublicId');
-  const deepLink = `chats/${chat ?? ''}`;
   return {
     text,
-    deepLink,
-    ...(chat !== null
-      ? { keyboard: chatKeyboard(chat, botUsername, deepLink, bool(payload, 'chatOpen')) }
-      : {}),
+    deepLink: `chats/${chat ?? ''}`,
+    ...(chat !== null ? { keyboard: chatKeyboard(chat, bool(payload, 'chatOpen')) } : {}),
   };
 }
 

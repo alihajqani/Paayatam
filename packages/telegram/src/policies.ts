@@ -102,3 +102,37 @@ export function formatPolicies(documents: readonly PolicyDocument[]): string {
   const text = rendered.join('\n\n') + tail;
   return text.length > TELEGRAM_MESSAGE_LIMIT ? text.slice(0, BUDGET) : text;
 }
+
+/** One acceptance, as `/terms` reports it back. */
+export interface AcceptedPolicy {
+  /** The document's Persian title, or its label when the operator left it empty. */
+  title: string;
+  /** When it was accepted, already formatted in Tehran time. */
+  acceptedAt: string;
+}
+
+/**
+ * `/terms`, for somebody who owes nothing — what they accepted, and when.
+ *
+ * ── Why it lives here rather than in `BotService` ───────────────────────────
+ *
+ * It was built inline in the command handler, and it interpolated
+ * `policy_version.title_fa` into a `<b>` tag **without escaping it**. An
+ * operator is not an attacker, but a title with an `&` in it would still have
+ * made Telegram reject the whole message — and the escaping rule this package
+ * enforces is «every value, at the point it is interpolated», not «every value
+ * an attacker might reach».
+ *
+ * Moving it also satisfies the exemption `escape.test.ts` grants a pre-rendered
+ * body: the writer of the payload has to be this package's own renderer, and
+ * there has to be a test proving that renderer escapes. Now there is.
+ */
+export function formatStanding(accepted: readonly AcceptedPolicy[]): string {
+  if (accepted.length === 0) return 'سندی ثبت نشده است.';
+
+  const lines = accepted
+    .map((entry) => `• <b>${escapeHtml(entry.title)}</b>\n  ${escapeHtml(entry.acceptedAt)}`)
+    .join('\n');
+
+  return `<b>قوانینی که پذیرفته‌اید</b>\n\n${lines}`;
+}

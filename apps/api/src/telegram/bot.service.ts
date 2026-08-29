@@ -47,6 +47,7 @@ import {
   formatDiscovered,
   formatJalali,
   formatPolicies,
+  formatStanding,
   menuCommandFor,
   formatTehran,
   formatMyChats,
@@ -464,18 +465,17 @@ export class BotService {
         }
 
         const standing = await this.consent.standingFor(user.id);
-        const accepted = standing.accepted
-          .map(
-            (entry) =>
-              `• <b>${entry.policy.titleFa ?? entry.policy.label}</b>\n  ${formatTehran(
-                entry.acceptedAt,
-              )}`,
-          )
-          .join('\n');
 
         return this.reply(updateId, user.id, TEMPLATES.BOT_TERMS_STANDING, {
-          text:
-            accepted === '' ? 'سندی ثبت نشده است.' : `<b>قوانینی که پذیرفته‌اید</b>\n\n${accepted}`,
+          // Rendered by the package that owns the escaping rule, like every other
+          // pre-rendered body. Built here, it interpolated an operator's
+          // `title_fa` into a `<b>` tag unescaped — see `formatStanding`.
+          text: formatStanding(
+            standing.accepted.map((entry) => ({
+              title: entry.policy.titleFa ?? entry.policy.label,
+              acceptedAt: formatTehran(entry.acceptedAt),
+            })),
+          ),
         });
       }
 
@@ -608,7 +608,18 @@ export class BotService {
         kind: 'text',
         value: message.text,
       });
-      if (wizard !== null) return this.drawWizard(updateId, user, wizard);
+      if (wizard !== null) {
+        /**
+         * The answer is in the form now, so it comes out of the chat.
+         *
+         * Only once the wizard has **claimed** it: a message that was not an
+         * answer is a chat relay or a menu tap, and deleting one of those would
+         * take away something the user meant to keep. `handle` returning
+         * non-null is exactly the line between the two.
+         */
+        await this.tidy(user, message.telegramMessageId);
+        return this.drawWizard(updateId, user, wizard);
+      }
     }
 
     // Relaying a message is a write, and the policy gate applies to it exactly as
@@ -1096,6 +1107,32 @@ export class BotService {
      */
     if (await this.channelsBlock(updateId, user)) return;
 
+    /**
+     * Consent, then the profile — the rest of onboarding, without being asked
+     * for.
+     *
+     * The gate used to end at «ثبت شد ✅ حالا می‌توانید از پایه‌تم استفاده کنید»,
+     * naming `/discover` and `/create_event`. Both of those then stopped the user
+     * again, because **a user with no profile has no city**, and a city is what
+     * `/discover` searches by and what `/create_event` asks for first. The
+     * product congratulated somebody on finishing and then refused their next
+     * two moves.
+     *
+     * So a new user is handed the profile form instead of a list of commands
+     * that will not work yet. Somebody who already has a profile — a returning
+     * user re-accepting a republished policy — gets the old message, because for
+     * them it is true.
+     */
+    if (this.env.ENABLE_CONVERSATION_WIZARD && (await this.profiles.find(user.id)) === null) {
+      await this.notice(
+        updateId,
+        user,
+        'قوانین پذیرفته شد ✅\n\nیک قدم مانده: نمایه‌تان را کامل کنید تا بتوانید فعالیت بسازید و در فعالیت‌های نزدیک شرکت کنید.',
+      );
+      const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+      return this.drawWizard(updateId, user, outcome);
+    }
+
     await this.reply(updateId, user.id, TEMPLATES.BOT_CONSENT_ACCEPTED, {});
   }
 
@@ -1512,6 +1549,35 @@ export class BotService {
   /** A one-sentence reply in the bot's own voice, rather than about an event. */
   private async notice(updateId: number, user: BotUser, text: string): Promise<void> {
     await this.reply(updateId, user.id, TEMPLATES.BOT_NOTICE, { text });
+  }
+
+  /**
+   * Take a typed wizard answer out of the chat (report: "delete user messages").
+   *
+   * **A wizard is one message that changes, and half of it was not.** The bot
+   * edits its own screen (ADR-0017), but every answer the user typed stayed
+   * above it — so completing a profile left «۲۵», «تهران» and «کوهنوردی» stacked
+   * over a form that had already absorbed all three, and the form that was
+   * supposed to be a screen read as a transcript again.
+   *
+   * Enqueued rather than called, for the reason every other outbound Telegram
+   * call is (invariant 11), and keyed on **the user and the message**: Telegram
+   * numbers messages per chat, so two people's `message_id` collide routinely
+   * and a job id without the user would silently drop the second deletion.
+   *
+   * There is no failure branch. The worker treats "could not delete" as done —
+   * Telegram refuses anything older than 48 hours, and a message the user has
+   * already removed is the outcome this wanted.
+   */
+  private async tidy(user: BotUser, telegramMessageId: number | undefined): Promise<void> {
+    if (telegramMessageId === undefined) return;
+
+    await this.queues.enqueue(
+      QUEUES.TELEGRAM_SEND,
+      JOBS.BOT_DELETE_MESSAGE,
+      jobId('tidy', user.id, String(telegramMessageId)),
+      { userId: user.id, messageId: telegramMessageId },
+    );
   }
 
   private async answer(callbackQueryId: string, text: string): Promise<void> {

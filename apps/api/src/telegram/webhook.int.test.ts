@@ -60,6 +60,8 @@ let fixture: CatalogFixture;
 /** Distinctive, and shaped like a real Telegram id — the leak assertions hunt for it. */
 const HOST_TELEGRAM_ID = 573_914_882;
 const GUEST_TELEGRAM_ID = 601_222_333;
+/** Never seeded: `/start` is what creates this one, so it has no profile. */
+const NEWCOMER_TELEGRAM_ID = 733_818_204;
 const HOST_USERNAME = 'leaky_host_handle';
 
 let updateSequence = 5000;
@@ -1605,6 +1607,48 @@ describe('POST /telegram/:secret — the consent gate', () => {
     await post(agree);
 
     expect(await prisma.consent.count({ where: { userId } })).toBe(2); // TERMS + PRIVACY, once each
+  });
+
+  /**
+   * The rest of onboarding, without being asked for (report: "fix the flow").
+   *
+   * The gate used to end by naming `/discover` and `/create_event`, and both of
+   * those then stopped the user again — a profile is where the city comes from,
+   * and neither command works without one. So the acceptance hands a new user
+   * the profile form rather than a list of commands that will refuse them.
+   */
+  it('opens the profile form after a new user accepts', async () => {
+    await requirePolicies();
+
+    // `/start` on an unseen Telegram id: an account, and no profile.
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: BigInt(NEWCOMER_TELEGRAM_ID) },
+      select: { userId: true },
+    });
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: account.userId } }),
+    ).toMatchObject({ kind: 'EDIT_PROFILE' });
+  });
+
+  /**
+   * And it stays out of the way of somebody who already has one — a returning
+   * user re-accepting a republished policy is finished, and telling them to make
+   * a profile they made months ago would be the product not knowing them.
+   */
+  it('leaves a user who already has a profile alone', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await tap(GUEST_TELEGRAM_ID, 'wz:agree:');
+
+    expect(await prisma.conversationState.count({ where: { userId } })).toBe(0);
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_CONSENT_ACCEPTED } }),
+    ).toBe(1);
   });
 
   /** `/terms` for somebody up to date reports what they signed and when. */

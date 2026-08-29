@@ -34,6 +34,13 @@ export type InlineKeyboard = readonly (readonly InlineButton[])[];
  * `[A-Za-z0-9_-]`, so a template's `chats/<id>` becomes `chats_<id>`; anything that
  * still does not fit is dropped rather than sent broken, because a button that
  * lands somewhere wrong is worse than a button that only opens the app.
+ *
+ * **One caller left: the channel post** (`channel.ts`). Every open-app button on
+ * a message the bot *sends somebody* is gone — it was under almost all of them,
+ * which is what made it noise, and `reply_markup` holds one thing, so it was
+ * also what kept the persistent menu off nearly every message. A channel post is
+ * read by people who may never have started the bot, and it is the only action
+ * on the post, so it keeps its button.
  */
 export function openAppButton(text: string, botUsername: string, deepLink?: string): InlineButton {
   const payload = deepLink === undefined ? undefined : deepLink.replaceAll('/', '_');
@@ -53,18 +60,17 @@ export function openAppButton(text: string, botUsername: string, deepLink?: stri
  * expires in 24 hours (D9), and the difference between deciding from a
  * notification and deciding from a screen you have to navigate to is the
  * difference between an answered request and an expired one.
+ *
+ * The third button — «گفتگو پیش از تصمیم», which opened the Mini App — is gone
+ * with every other open-app button on a message the bot sends. What is left is
+ * the decision itself, which is what the notification is for.
  */
-export function hostDecisionKeyboard(
-  participantPublicId: string,
-  botUsername: string,
-  deepLink?: string,
-): InlineKeyboard {
+export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboard {
   return [
     [
       { text: '✅ پذیرش', callbackData: encodeChatCallback('accept', participantPublicId) },
       { text: '✖️ رد', callbackData: encodeChatCallback('reject', participantPublicId) },
     ],
-    [openAppButton('گفتگو پیش از تصمیم', botUsername, deepLink)],
   ];
 }
 
@@ -77,8 +83,6 @@ export function hostDecisionKeyboard(
  */
 export function chatKeyboard(
   chatPublicId: string,
-  botUsername: string,
-  deepLink?: string,
   /**
    * Whether the conversation has been accepted, and contact details may
    * therefore be exchanged (report 6).
@@ -90,10 +94,15 @@ export function chatKeyboard(
   chatOpen = false,
 ): InlineKeyboard {
   const rows: InlineButton[][] = [
-    [
-      openAppButton('پاسخ در برنامه', botUsername, deepLink),
-      { text: '🔒 بستن گفتگو', callbackData: encodeChatCallback('close', chatPublicId) },
-    ],
+    /**
+     * Closing, alone on the first row.
+     *
+     * It used to share the row with «پاسخ در برنامه». Replying does not need a
+     * button at all — the message is in Telegram and the reply is typed into
+     * Telegram — so the button spent a tap target on a detour, which is why it
+     * went with the rest of them.
+     */
+    [{ text: '🔒 بستن گفتگو', callbackData: encodeChatCallback('close', chatPublicId) }],
   ];
 
   /**
@@ -116,11 +125,6 @@ export function chatKeyboard(
   return rows;
 }
 
-/** The plain "open the app" keyboard, for a message that is only an announcement. */
-export function openAppKeyboard(botUsername: string, deepLink?: string): InlineKeyboard {
-  return [[openAppButton('باز کردن برنامه', botUsername, deepLink)]];
-}
-
 /**
  * A button on the persistent keyboard below the text box.
  *
@@ -139,12 +143,17 @@ export type ReplyKeyboard = readonly (readonly ReplyButton[])[];
 /**
  * What the bottom keyboard offers.
  *
- * ── Why these five ──────────────────────────────────────────────────────────
+ * ── Why these six ───────────────────────────────────────────────────────────
  *
- * The bot answers twelve commands and this shows five, because a menu that
+ * The bot answers twelve commands and this shows six, because a menu that
  * lists everything is a menu nobody reads. These are the ones with a *verb* —
  * things somebody opens the bot intending to do — and the rest stay discoverable
  * through the "/" menu and `/help`.
+ *
+ * «نمایه من» is the sixth and was the one people asked for. It is not a verb,
+ * but it is the answer to "what does this thing know about me, and what is my
+ * trust score" — and `/profile` was previously reachable only by typing it,
+ * which meant only by having read `/help` first.
  *
  * ── Why the labels are not the commands ─────────────────────────────────────
  *
@@ -163,18 +172,30 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['🎟 فعالیت‌های من', 'myevents'],
   ['📨 درخواست‌های من', 'requests'],
   ['💬 گفتگوها', 'chats'],
+  ['👤 نمایه من', 'profile'],
 ]);
 
 /**
- * The persistent menu, two rows.
+ * The persistent menu, in rows of two.
  *
  * `is_persistent` keeps it open rather than collapsing to an icon the moment
- * something else is sent; `resize_keyboard` stops Telegram giving five buttons
+ * something else is sent; `resize_keyboard` stops Telegram giving six buttons
  * the height of a full phone keyboard.
+ *
+ * Two per row rather than three. Telegram truncates a reply-keyboard label that
+ * does not fit its share of the width, and «🔎 دیدن فعالیت‌ها» is long enough
+ * that three across would show some of these as an ellipsis — a menu you cannot
+ * read is the problem this keyboard exists to solve.
+ *
+ * Chunked rather than sliced by hand, so adding a seventh label lays itself out.
  */
 export function menuKeyboard(): ReplyKeyboard {
   const labels = [...MENU_COMMANDS.keys()];
-  return [labels.slice(0, 2).map((text) => ({ text })), labels.slice(2).map((text) => ({ text }))];
+  const rows: ReplyButton[][] = [];
+  for (let index = 0; index < labels.length; index += 2) {
+    rows.push(labels.slice(index, index + 2).map((text) => ({ text })));
+  }
+  return rows;
 }
 
 /**

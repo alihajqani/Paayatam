@@ -18,19 +18,33 @@ const BOT = 'payetam_bot';
  * button off.
  */
 describe('the chat keyboard', () => {
-  it('offers reply and close on every live conversation', () => {
-    const rows = chatKeyboard(CHAT_ID, BOT, `chats/${CHAT_ID}`);
+  it('offers closing on every live conversation, and nothing else', () => {
+    const rows = chatKeyboard(CHAT_ID);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.[0]?.url).toContain(BOT);
-    expect(parseChatCallback(rows[0]?.[1]?.callbackData ?? '')).toEqual({
+    expect(rows[0]).toHaveLength(1);
+    expect(parseChatCallback(rows[0]?.[0]?.callbackData ?? '')).toEqual({
       action: 'close',
       id: CHAT_ID,
     });
   });
 
+  /**
+   * The open-app button is gone from every keyboard the bot sends. It was under
+   * almost every message, which is what made it noise — and it is what kept the
+   * persistent menu off them, since `reply_markup` holds one thing.
+   */
+  it('carries no link out of Telegram', () => {
+    for (const button of [
+      ...chatKeyboard(CHAT_ID, true),
+      ...hostDecisionKeyboard(CHAT_ID),
+    ].flat()) {
+      expect(button.url).toBeUndefined();
+    }
+  });
+
   it('offers contact sharing once the conversation is open', () => {
-    const rows = chatKeyboard(CHAT_ID, BOT, `chats/${CHAT_ID}`, true);
+    const rows = chatKeyboard(CHAT_ID, true);
 
     expect(rows).toHaveLength(2);
     expect(parseChatCallback(rows[1]?.[0]?.callbackData ?? '')).toEqual({
@@ -45,32 +59,32 @@ describe('the chat keyboard', () => {
    * message one tap away from a disclosure that cannot be undone.
    */
   it('offers the question, never the act', () => {
-    const rows = chatKeyboard(CHAT_ID, BOT, `chats/${CHAT_ID}`, true);
+    const rows = chatKeyboard(CHAT_ID, true);
 
     expect(parseChatCallback(rows[1]?.[0]?.callbackData ?? '')?.action).not.toBe('shareyes');
   });
 
   it('leaves it off when the payload does not say the chat is open', () => {
     // An older deploy's payload has no `chatOpen`, which reaches this as `false`.
-    expect(chatKeyboard(CHAT_ID, BOT, `chats/${CHAT_ID}`, false)).toHaveLength(1);
-    expect(chatKeyboard(CHAT_ID, BOT, `chats/${CHAT_ID}`)).toHaveLength(1);
+    expect(chatKeyboard(CHAT_ID, false)).toHaveLength(1);
+    expect(chatKeyboard(CHAT_ID)).toHaveLength(1);
   });
 
   /** Its own row: it sits beside a destructive button and cannot be undone. */
   it('keeps sharing on a row of its own', () => {
-    const rows = chatKeyboard(CHAT_ID, BOT, `chats/${CHAT_ID}`, true);
+    const rows = chatKeyboard(CHAT_ID, true);
 
     expect(rows[1]).toHaveLength(1);
   });
 });
 
 describe('the host decision keyboard', () => {
-  it('puts both decisions one tap away, with the conversation under them', () => {
-    const rows = hostDecisionKeyboard(CHAT_ID, BOT, `participants/${CHAT_ID}`);
+  it('puts both decisions one tap away, and only those', () => {
+    const rows = hostDecisionKeyboard(CHAT_ID);
 
+    expect(rows).toHaveLength(1);
     expect(parseChatCallback(rows[0]?.[0]?.callbackData ?? '')?.action).toBe('accept');
     expect(parseChatCallback(rows[0]?.[1]?.callbackData ?? '')?.action).toBe('reject');
-    expect(rows[1]?.[0]?.url).toContain(BOT);
   });
 });
 

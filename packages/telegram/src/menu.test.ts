@@ -3,8 +3,15 @@ import { MENU_COMMANDS, menuCommandFor, menuKeyboard } from './keyboards';
 import { BOT_COMMANDS } from './commands';
 
 describe('the persistent menu', () => {
-  it('lays out in two rows', () => {
-    expect(menuKeyboard()).toHaveLength(2);
+  it('lays out in rows of two', () => {
+    for (const row of menuKeyboard()) {
+      expect(row.length).toBeLessThanOrEqual(2);
+    }
+  });
+
+  /** Report: `/profile` was reachable only by typing it. Now it is a button. */
+  it('offers the profile', () => {
+    expect(menuCommandFor('👤 نمایه من')).toBe('profile');
   });
 
   it('offers every label it knows how to map back', () => {

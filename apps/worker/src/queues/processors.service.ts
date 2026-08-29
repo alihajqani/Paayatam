@@ -130,6 +130,7 @@ export class Processors implements OnModuleInit {
     this.workers.create(QUEUES.TELEGRAM_SEND, (job) => {
       if (job.name === JOBS.BOT_CALLBACK_ANSWER) return this.onCallbackAnswer(job);
       if (job.name === JOBS.BOT_EDIT_MESSAGE) return this.onEditMessage(job);
+      if (job.name === JOBS.BOT_DELETE_MESSAGE) return this.onDeleteMessage(job);
       if (job.name === JOBS.CAMPAIGN_SEND) return this.onCampaignSend(job);
       return this.onSend(job);
     });
@@ -201,7 +202,7 @@ export class Processors implements OnModuleInit {
       asRecord(notification.payload),
     );
 
-    const message = render(notification.templateKey, payload, this.telegram.botUsername);
+    const message = render(notification.templateKey, payload);
     if (!message) {
       // A template this build does not know — a notification queued by a newer
       // deploy. Failing loudly would stall the queue behind it through a rollout,
@@ -218,27 +219,25 @@ export class Processors implements OnModuleInit {
      *
      * `reply_markup` holds one thing, so a message with inline buttons cannot
      * also carry the menu. The first version attached it only when there were no
-     * inline buttons — and **almost every bot message has them**, because
-     * `opened()` adds an open-app button to nearly every template. The menu
-     * therefore almost never went out, which is how it was reported as missing.
+     * inline buttons — and almost every bot message had them, because `opened()`
+     * put an open-app button on nearly every template. The menu therefore almost
+     * never went out, which is how it was reported as missing, and `BOT_WELCOME`
+     * had to be special-cased to force it.
      *
-     * `BOT_WELCOME` is the one that matters and is now forced: it is the first
-     * message anybody receives, so it is the one chance to install the menu
-     * before they have done anything. Its open-app button is the loss, and the
-     * menu is worth more than a link to an app being retired.
+     * The open-app buttons are gone now, so the condition finally means what it
+     * says: what is left with inline buttons is the handful of messages with
+     * something to *decide* — accept, reject, close, share — and every other
+     * message carries the menu. The welcome no longer needs an exception, since
+     * it no longer has a keyboard to lose.
      *
-     * After that the menu persists on the client, so every keyboard-less message
-     * re-attaching it is belt and braces for a client that missed the first one.
+     * The menu persists on the client between them, so re-attaching it is belt
+     * and braces for a client that missed the first one.
      */
-    const wantsMenu =
-      notification.templateKey === TEMPLATES.BOT_WELCOME || message.keyboard === undefined;
     const outcome = await this.telegram.send(
       notification.telegramUserId,
       message.text,
-      // The menu and inline buttons cannot share `reply_markup`; on the welcome
-      // the menu wins.
-      notification.templateKey === TEMPLATES.BOT_WELCOME ? undefined : message.keyboard,
-      { parseMode: 'HTML', menu: wantsMenu ? menuKeyboard() : undefined },
+      message.keyboard,
+      { parseMode: 'HTML', menu: message.keyboard === undefined ? menuKeyboard() : undefined },
     );
 
     switch (outcome.kind) {
@@ -385,6 +384,26 @@ export class Processors implements OnModuleInit {
 
     // RETRY and RATE_LIMITED: let BullMQ's backoff have it.
     throw new Error(`Could not redraw a wizard message: ${outcome.reason}`);
+  }
+
+  /**
+   * Remove the user's own message once a wizard has read it.
+   *
+   * The mirror of `onEditMessage`, and deliberately the quieter of the two: it
+   * resolves the chat the same way — through `telegramTargetFor`, so no Telegram
+   * identifier is ever written to Redis (invariant 7) — and then **never
+   * throws**. A message that could not be deleted is a message the user still
+   * sees, which is untidy; a job that retried it would spend the global rate
+   * limiter's headroom on tidiness while somebody watches a spinner.
+   */
+  private async onDeleteMessage(job: Job): Promise<void> {
+    const data = job.data as { messageId?: number; userId?: string };
+    if (data.userId === undefined || data.messageId === undefined) return;
+
+    const target = await this.notifications.telegramTargetFor(data.userId);
+    if (target === null || target.botBlocked) return;
+
+    await this.telegram.deleteMessage(target.telegramUserId, data.messageId);
   }
 
   /**

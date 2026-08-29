@@ -69,7 +69,7 @@ describe('BOT_COMMANDS', () => {
   });
 
   it('renders every command into the help text', () => {
-    const help = render(TEMPLATES.BOT_HELP, {}, 'payetam_bot');
+    const help = render(TEMPLATES.BOT_HELP, {});
 
     for (const { command, description } of BOT_COMMANDS) {
       expect(help?.text).toContain(`/${command}`);

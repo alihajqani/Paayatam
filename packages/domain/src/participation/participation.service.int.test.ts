@@ -738,7 +738,7 @@ describe('the notification a real acceptance produces', () => {
       eventType: row.eventType,
       aggregateId: row.aggregateId,
       payload: row.payload as Record<string, unknown>,
-    }).map((plan) => render(plan.templateKey, plan.payload, 'payetambot')?.text ?? '');
+    }).map((plan) => render(plan.templateKey, plan.payload)?.text ?? '');
   }
 
   it('names the event instead of showing an empty «»', async () => {

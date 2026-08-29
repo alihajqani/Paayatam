@@ -48,8 +48,6 @@ import {
  * Nothing here touches a database or a network. It is safe to run anywhere.
  */
 
-const BOT = 'paayatambot';
-
 /** Fixed so a run is comparable to the last one. */
 const NOW = new Date('2026-08-29T09:00:00.000Z');
 
@@ -305,7 +303,7 @@ async function main(): Promise<void> {
     TEMPLATES.BOT_EVENT_CREATED,
     TEMPLATES.BOT_HELP,
   ]) {
-    const message = render(key, { title: 'کوهنوردی صبح جمعه — درکه' }, BOT);
+    const message = render(key, { title: 'کوهنوردی صبح جمعه — درکه' });
     screen(`template ${key}`, message?.text ?? '(nothing)', message?.keyboard ?? []);
   }
 

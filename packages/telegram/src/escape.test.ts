@@ -69,7 +69,7 @@ describe('no template emits injected markup', () => {
   const OWN_MARKUP = new Set(['<b>', '</b>', '<i>', '</i>']);
 
   /**
-   * The one template whose `text` is *not* user input (ADR-0017).
+   * The templates whose `text` is *not* user input.
    *
    * `BOT_WIZARD` carries a body `renderStep` has already assembled, including its
    * own `<b>`/`<i>`, and having escaped every user-supplied value it
@@ -81,17 +81,38 @@ describe('no template emits injected markup', () => {
    * and asserts it comes out escaped. What is exempted here is only the second
    * escape of an already-escaped string.
    *
-   * **Do not add a second entry to this set** without a reason of the same shape:
-   * the writer of the payload must be this package's own renderer, and there must
-   * be a test proving that renderer escapes. Every other template takes values
-   * that originate with a user, and for those the rule is unchanged.
+   * ── The six that were escaped twice ─────────────────────────────────────────
+   *
+   * The digests were not on this list and should have been from the day they
+   * were written. `formatMyRequests`, `formatMyEvents`, `formatMyChats`,
+   * `formatDiscovered`, `formatPendingReviews` and `formatStanding` all build
+   * `<b>`-marked lists and all escape at the interpolation; `render` then escaped
+   * the finished body a **second** time, so the tags survived as text and
+   * `/myevents` answered with a literal `<b>سفر شمال</b>`. Five commands and
+   * `/terms` read like a view-source of themselves, and this test passed the
+   * whole time — because a double-escaped body contains no tags at all, which is
+   * exactly what it was asserting.
+   *
+   * **Do not add an entry to this set** without a reason of the same shape: the
+   * writer of the payload must be this package's own renderer, and there must be
+   * a test proving that renderer escapes. Each of these seven has one, in the
+   * `*.test.ts` beside the formatter. Every other template takes values that
+   * originate with a user, and for those the rule is unchanged.
    */
-  const PRE_RENDERED: readonly string[] = [TEMPLATES.BOT_WIZARD];
+  const PRE_RENDERED: readonly string[] = [
+    TEMPLATES.BOT_WIZARD,
+    TEMPLATES.BOT_REQUESTS,
+    TEMPLATES.BOT_MY_EVENTS,
+    TEMPLATES.BOT_CHATS,
+    TEMPLATES.BOT_DISCOVER,
+    TEMPLATES.BOT_REVIEWS,
+    TEMPLATES.BOT_TERMS_STANDING,
+  ];
 
   it.each(Object.values(TEMPLATES).filter((key) => !PRE_RENDERED.includes(key)))(
     '%s',
     (templateKey) => {
-      const message = render(templateKey, FIELDS, BOT);
+      const message = render(templateKey, FIELDS);
 
       expect(message).not.toBeNull();
       expect(message?.text).not.toContain('<img');
@@ -101,14 +122,39 @@ describe('no template emits injected markup', () => {
     },
   );
 
-  /** The exemption is a list of one, and it stays that way on purpose. */
-  it('exempts exactly one template from the escaping rule', () => {
-    expect(PRE_RENDERED).toEqual([TEMPLATES.BOT_WIZARD]);
+  /**
+   * The exemption is enumerated, so growing it is a deliberate edit to this line
+   * rather than something a new template can drift into.
+   */
+  it('exempts exactly the pre-rendered bodies', () => {
+    expect([...PRE_RENDERED].sort()).toEqual(
+      [
+        TEMPLATES.BOT_CHATS,
+        TEMPLATES.BOT_DISCOVER,
+        TEMPLATES.BOT_MY_EVENTS,
+        TEMPLATES.BOT_REQUESTS,
+        TEMPLATES.BOT_REVIEWS,
+        TEMPLATES.BOT_TERMS_STANDING,
+        TEMPLATES.BOT_WIZARD,
+      ].sort(),
+    );
+  });
+
+  /**
+   * And the exempted ones really do pass their body through untouched — the
+   * regression that started all this was the opposite.
+   */
+  it('renders a pre-rendered body without escaping it again', () => {
+    const body = '<b>سفر شمال</b>';
+
+    for (const templateKey of PRE_RENDERED) {
+      expect(render(templateKey, { text: body })?.text).toContain(body);
+    }
   });
 
   /** And the escaped form really is present where a value was interpolated. */
   it('escapes the value rather than dropping it', () => {
-    const message = render(TEMPLATES.PARTICIPATION_ACCEPTED, FIELDS, BOT);
+    const message = render(TEMPLATES.PARTICIPATION_ACCEPTED, FIELDS);
     expect(message?.text).toContain('&lt;img src=x onerror=alert(1)&gt;');
   });
 
@@ -121,7 +167,7 @@ describe('no template emits injected markup', () => {
    * then fails every retry of it.
    */
   it.each(Object.values(TEMPLATES))('%s builds no button from a hostile id', (templateKey) => {
-    const message = render(templateKey, FIELDS, BOT);
+    const message = render(templateKey, FIELDS);
 
     for (const button of (message?.keyboard ?? []).flat()) {
       expect(button.callbackData ?? '').not.toContain(HOSTILE);
@@ -140,7 +186,7 @@ describe('no template emits injected markup', () => {
  */
 describe('an unknown template', () => {
   it('renders nothing rather than throwing', () => {
-    expect(render('something.from.the.future', {}, BOT)).toBeNull();
+    expect(render('something.from.the.future', {})).toBeNull();
   });
 });
 
@@ -152,18 +198,14 @@ describe('the chat relay template', () => {
   const CHAT = '11111111-2222-3333-4444-555555555555';
 
   it('carries the alias and the text, and nothing else', () => {
-    const message = render(
-      TEMPLATES.CHAT_MESSAGE,
-      {
-        senderAlias: 'میهمان ۱',
-        text: 'ساعت هفت جلوی کافه',
-        chatPublicId: CHAT,
-        // Fields a caller might wrongly include. The template reads neither.
-        telegramUserId: '573914882',
-        username: 'leaky_handle',
-      },
-      BOT,
-    );
+    const message = render(TEMPLATES.CHAT_MESSAGE, {
+      senderAlias: 'میهمان ۱',
+      text: 'ساعت هفت جلوی کافه',
+      chatPublicId: CHAT,
+      // Fields a caller might wrongly include. The template reads neither.
+      telegramUserId: '573914882',
+      username: 'leaky_handle',
+    });
 
     expect(message?.text).toContain('میهمان ۱');
     expect(message?.text).toContain('ساعت هفت جلوی کافه');
@@ -178,7 +220,7 @@ describe('the chat relay template', () => {
    * would leave the handler for it unreachable — dead code that reads as a feature.
    */
   it('offers the close button, keyed on the chat', () => {
-    const message = render(TEMPLATES.CHAT_MESSAGE, { senderAlias: 'م', chatPublicId: CHAT }, BOT);
+    const message = render(TEMPLATES.CHAT_MESSAGE, { senderAlias: 'م', chatPublicId: CHAT });
     const buttons = (message?.keyboard ?? []).flat();
 
     expect(buttons.map((button) => button.callbackData)).toContain(`chat:close:${CHAT}`);
@@ -186,11 +228,11 @@ describe('the chat relay template', () => {
 
   /** An edit says so. Silence would leave the recipient acting on a retracted line. */
   it('marks an edited message as edited', () => {
-    const message = render(
-      TEMPLATES.CHAT_MESSAGE_EDITED,
-      { senderAlias: 'میهمان ۱', text: 'ساعت هشت', chatPublicId: CHAT },
-      BOT,
-    );
+    const message = render(TEMPLATES.CHAT_MESSAGE_EDITED, {
+      senderAlias: 'میهمان ۱',
+      text: 'ساعت هشت',
+      chatPublicId: CHAT,
+    });
 
     expect(message?.text).toContain('ویرایش شد');
     expect(message?.text).toContain('ساعت هشت');
@@ -206,7 +248,7 @@ describe('the host decision keyboard', () => {
   it.each([TEMPLATES.PARTICIPATION_REQUESTED_HOST, TEMPLATES.WAITLIST_PROMOTED_HOST])(
     '%s offers accept and reject',
     (templateKey) => {
-      const message = render(templateKey, { participantPublicId: PARTICIPANT }, BOT);
+      const message = render(templateKey, { participantPublicId: PARTICIPANT });
       const data = (message?.keyboard ?? []).flat().map((button) => button.callbackData);
 
       expect(data).toContain(`chat:accept:${PARTICIPANT}`);
@@ -216,11 +258,9 @@ describe('the host decision keyboard', () => {
 
   /** 64 bytes is Telegram's hard limit, and a UUID leaves it uncomfortably close. */
   it("fits inside Telegram's callback_data limit", () => {
-    const message = render(
-      TEMPLATES.PARTICIPATION_REQUESTED_HOST,
-      { participantPublicId: PARTICIPANT },
-      BOT,
-    );
+    const message = render(TEMPLATES.PARTICIPATION_REQUESTED_HOST, {
+      participantPublicId: PARTICIPANT,
+    });
 
     for (const button of (message?.keyboard ?? []).flat()) {
       expect(Buffer.byteLength(button.callbackData ?? '', 'utf8')).toBeLessThanOrEqual(64);
@@ -252,11 +292,10 @@ describe('BOT_WIZARD', () => {
   });
 
   it('passes the renderer’s own markup through unescaped', () => {
-    const message = render(
-      TEMPLATES.BOT_WIZARD,
-      { text: screen.text, keyboard: JSON.stringify(screen.keyboard) },
-      BOT,
-    );
+    const message = render(TEMPLATES.BOT_WIZARD, {
+      text: screen.text,
+      keyboard: JSON.stringify(screen.keyboard),
+    });
 
     expect(message?.text).toContain('<i>گام ۱ از ۱۱</i>');
     expect(message?.text).not.toContain('&lt;i&gt;');
@@ -277,7 +316,7 @@ describe('BOT_WIZARD', () => {
       canGoBack: false,
       optional: false,
     });
-    const message = render(TEMPLATES.BOT_WIZARD, { text: hostile.text }, BOT);
+    const message = render(TEMPLATES.BOT_WIZARD, { text: hostile.text });
 
     expect(message?.text).toContain('&lt;img');
     expect(message?.text).not.toContain('<img');

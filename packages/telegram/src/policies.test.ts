@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatPolicies, type PolicyDocument } from './policies';
+import { formatPolicies, formatStanding, type PolicyDocument } from './policies';
 
 function doc(over: Partial<PolicyDocument> = {}): PolicyDocument {
   return {
@@ -68,5 +68,33 @@ describe('formatPolicies', () => {
 
   it('is empty for no documents', () => {
     expect(formatPolicies([])).toBe('');
+  });
+});
+
+/**
+ * `/terms` for a user who is up to date.
+ *
+ * The escaping is what earns this body its exemption from the second escape in
+ * `render` — see the `PRE_RENDERED` note in `escape.test.ts`.
+ */
+describe('the standing acceptances', () => {
+  it('says so plainly when there are none', () => {
+    expect(formatStanding([])).toBe('سندی ثبت نشده است.');
+  });
+
+  it('lists each document with the date it was accepted', () => {
+    const text = formatStanding([{ title: 'قوانین', acceptedAt: '۱۴۰۵/۰۶/۰۷' }]);
+
+    expect(text).toContain('<b>قوانین</b>');
+    expect(text).toContain('۱۴۰۵/۰۶/۰۷');
+  });
+
+  it('escapes a title the operator wrote markup into', () => {
+    const text = formatStanding([
+      { title: '<img src=x onerror=alert(1)>', acceptedAt: '<i>دیروز</i>' },
+    ]);
+
+    expect(text).not.toContain('<img');
+    expect(text).not.toContain('<i>دیروز');
   });
 });
