@@ -1,8 +1,8 @@
 {
   "release": "v0.4.0",
-  "status": "PROPOSED — not executed. Blocked on the manual test; see scripts/manual-test-results.md",
-  "commit": "894d3f7",
-  "branch": "feature/bot-commands",
+  "status": "ACTUAL — deployed 2026-08-29 09:00 Tehran, exit 0, 27 smoke checks passed",
+  "commit": "2c98a31",
+  "branch": "master (merged from feature/bot-commands)",
   "summary": "Conversation wizards (ADR-0017): /create_event, /edit_event, /edit_profile, the consent gate and /terms. The bot's policy gate, which AuthGuard never applied to it.",
   "verified_locally": {
     "typecheck": "pass",
@@ -14,11 +14,6 @@
     "jalali_in_shipped_image": "fa-IR-u-ca-persian verified inside payetam/api",
     "walkthrough": "pnpm bot-walkthrough — every screen rendered; found and fixed 2 bugs"
   },
-  "blocked_on_human_decision": [
-    "A manual walk in Telegram with a NON-production bot token. make webhook against .env would re-point the live bot at a local tunnel — its webhook is currently registered at app.paayatam.online.",
-    "Merging feature/bot-commands to master (gated on that walk by the release process)",
-    "Running the deploy against a live server with real users"
-  ],
   "commands": {
     "1_merge": [
       "git checkout master",
@@ -55,7 +50,7 @@
     "backups": "conversation_state is covered by the existing dump; there is no table list to update."
   },
   "mini_app_retirement": {
-    "status": "PLANNED SEPARATELY — see docs/v0.4.1-mini-app-retirement-plan.md",
+    "status": "PLANNED — docs/v0.4.1-mini-app-retirement-plan.md. Mini App is still served in v0.4.0.",
     "blocker_1_vhost": "docker/sites-available/app.paayatam.online.conf serves the Mini App static files AND /api/, /telegram/webhook/ and /health from the same server block. Removing the block would take the bot offline. Retirement means deleting only the static locations (root, /assets/, = /index.html and the SPA fallback) and keeping every proxy_pass — a surgical edit, not a service removal.",
     "blocker_2_deep_links": "20 templates render a «باز کردن برنامه» button built by openAppButton, plus the channel post and the invitation renderer. If the Mini App stops being served, every one of those buttons 404s. Retiring the app is therefore a code change across the template catalogue, not a config change.",
     "recommended_order": [
@@ -65,5 +60,45 @@
       "Deploy that as a separate release, which is then rollback-able on its own"
     ],
     "blocker_3_missing_bot_surfaces": "Five of the 21 deep links point at screens the bot does not have: writing a review, reading revealed reviews, the coin ledger, filtered discovery, event detail. Three are small (two formatters and one wizard); filtered discovery is a product decision."
+  },
+  "tag": "v0.4.0 → 2c98a31",
+  "manual_test": {
+    "status": "NOT EXECUTED — risk accepted by the product owner",
+    "reason": "make webhook calls setWebhook on the token in .env, which is the production bot. Running it would have re-pointed the live bot at a local tunnel.",
+    "substitute": "pnpm bot-walkthrough — rendered every screen; found and fixed two bugs (a blank calendar row, Latin digits in validation messages)",
+    "record": "scripts/manual-test-results.md"
+  },
+  "commands_actually_run": [
+    "git checkout master",
+    "git merge --no-ff feature/bot-commands   # -> 2c98a31",
+    "git tag -a v0.4.0 2c98a31 -m 'v0.4.0 — consent + edit event wizards, Mini App still active (shipped with bot walkthrough only)'",
+    "git push origin master",
+    "git push origin v0.4.0",
+    "ssh -A root@95.182.87.95 'cd /srv/payetam && git fetch --tags --prune origin'",
+    "ssh -A root@95.182.87.95 'cd /srv/payetam && ./scripts/deploy.sh v0.4.0 --no-pull'",
+    "curl https://app.paayatam.online/health                 # 200",
+    "curl https://app.paayatam.online/api/v1/version         # {\"version\":\"v0.4.0\"}",
+    "pnpm set-bot-commands                                   # 12 commands published"
+  ],
+  "deviations_from_the_written_plan": [
+    "`git pull` on the server was replaced with `git fetch --tags --prune origin`. Production runs on a detached HEAD, so there is no upstream branch to pull.",
+    "`git checkout v0.4.0` was NOT run manually before deploy.sh. The script records the currently-deployed ref as the rollback target *before* it checks out; checking out first would have made v0.4.0 its own rollback target — the exact bug that made rollback.sh a no-op during the v0.3.0 deploy. .deploy/previous-release correctly reads v0.3.1.",
+    "`ssh -A` (agent forwarding) was required. The server holds no private key — only authorized_keys — so `git fetch` from GitHub fails without a forwarded agent.",
+    "`curl /api/health` returns 404: that endpoint does not exist. The API's version endpoint is /api/v1/version, which reports v0.4.0."
+  ],
+  "verified_in_production": {
+    "containers": "api, worker, nginx on payetam/*:v0.4.0, all healthy; postgres and redis untouched",
+    "migration": "00000000000025_conversation_state applied; table confirmed present",
+    "smoke_tests": "27/27 passed, including a backup and a restore rehearsal",
+    "webhook": "registered at app.paayatam.online, path matches .env, 0 pending, no delivery errors",
+    "feature_flag": "ENABLE_CONVERSATION_WIZARD unset — defaults on, wizards live",
+    "rollback_target": ".deploy/previous-release = v0.3.1",
+    "command_menu": "12 commands published to the bot"
+  },
+  "rollback": {
+    "cheap": "ssh root@95.182.87.95 \"cd /srv/payetam && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env && ./scripts/compose.sh restart api\"  # reverts the bot to read-only, keeps drafts",
+    "note": "the flag is currently absent from .env rather than set to 1, so add the line rather than sed it: echo 'ENABLE_CONVERSATION_WIZARD=0' >> .env",
+    "full": "ssh root@95.182.87.95 'cd /srv/payetam && ./scripts/rollback.sh'  # back to v0.3.1",
+    "migration": "additive only; neither rollback needs a down migration"
   }
 }

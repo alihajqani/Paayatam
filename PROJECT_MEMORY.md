@@ -17,12 +17,7 @@ join; they negotiate anonymously in a Telegram chat before either knows who the
 other is. Coins price the scarce actions, Trust Score prices the people.
 
 Not a bot script. A **NestJS modular monolith** deployed on a single VPS via
-Docker Compose, live in production at `v0.3.1`.
-
-**v0.4.0 is built, green and unmerged.** It moves every user-facing form into
-the bot (ADR-0017). It is not merged because the release process requires a
-manual walk in Telegram and that walk cannot be done from this checkout — the
-`.env` token is production's. See `scripts/manual-test-results.md`.
+Docker Compose, live in production at **`v0.4.0`** (deployed 2026-08-29).
 
 ## 2. Read these, in this order
 
@@ -398,9 +393,10 @@ a fact about the thing rather than a relationship between two people.
 `apps/miniapp/src/telegram/deep-links.test.ts`, which renders every template and
 checks its target. It found two that had never worked.
 
-## 10a. v0.4.0 — the bot wizards, and where the release stands
+## 10a. v0.4.0 — the bot wizards
 
-Built on `feature/bot-commands`, green, **not merged and not deployed**.
+Merged to `master` (`2c98a31`), tagged, **deployed 2026-08-29**. 27 smoke checks
+passed; `.deploy/previous-release` reads `v0.3.1`.
 
 | Piece | State |
 |---|---|
@@ -410,15 +406,25 @@ Built on `feature/bot-commands`, green, **not merged and not deployed**.
 | `EDIT_PROFILE` — `/edit_profile` | done |
 | `/terms` | done |
 | `ENABLE_CONVERSATION_WIZARD` | rollback lever, defaults on, non-destructive off |
-| Manual test in Telegram | **outstanding** — see below |
-| Merge / tag / deploy | **blocked on the manual test** |
+| Manual test in Telegram | **never run** — risk accepted, see below |
+| Merge / tag / deploy | done; migration 0025 applied |
+| Command menu | 12 commands published — the first time `setMyCommands` has ever been called |
 
-**Why it is not merged.** `make webhook` calls `setWebhook` on whatever token
-`.env` holds, and that token is the **production** bot —
-`./scripts/set-webhook.sh --info` reports its webhook at `app.paayatam.online`.
-Running it would deliver real users' messages to a laptop, and a *failed*
-`setWebhook` deletes the previous registration, leaving production deaf. A real
-manual test needs a second bot from BotFather, which nothing here can create.
+**It shipped without a manual test in Telegram, deliberately.** `make webhook`
+calls `setWebhook` on whatever token `.env` holds, and that token is the
+**production** bot — running it would deliver real users' messages to a laptop,
+and a *failed* `setWebhook` deletes the previous registration. A real manual test
+needs a second bot from BotFather, which nothing here can create. The product
+owner accepted that risk against a cheap rollback; `scripts/manual-test-results.md`
+records what is and is not verified.
+
+**So the first person to walk a wizard in Telegram will be a user.** If something
+looks wrong in production, the honest first move is still the twenty-minute walk
+with a BotFather token — it is the only thing that reproduces what a user sees.
+The fast lever meanwhile is `ENABLE_CONVERSATION_WIZARD=0` plus an API restart,
+which reverts the bot to read-only and keeps drafts in flight. Note the variable
+is **absent** from production's `.env` rather than set to `1`, so turning it off
+means appending the line, not editing one.
 
 **What was done instead.** `pnpm bot-walkthrough` (`tools/bot-walkthrough.ts`)
 drives the real step machine through the real renderer and prints every screen —
@@ -442,3 +448,11 @@ From `.claude-work-checkpoint.md` §2 — none blocking, all worth knowing:
    before real users exist.
 3. Pushing a release tag may trigger `.github/workflows/deploy.yml`, whose
    `deploy` job sits behind `environment: production`.
+4. **The server holds no private SSH key.** `git fetch` from GitHub therefore
+   fails unless you connect with `ssh -A` and have the key in your local agent.
+   Every deploy that fetches needs agent forwarding; `deploy.sh --no-pull` does
+   not fetch, so the tag must be on the server before it runs.
+5. **Do not `git checkout <tag>` before running `deploy.sh <tag>`.** The script
+   records the currently-deployed ref as the rollback target *before* it checks
+   out. Checking out first makes the new tag its own rollback target — which is
+   what made `rollback.sh` a no-op after the v0.3.0 deploy.
