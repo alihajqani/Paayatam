@@ -214,18 +214,31 @@ export class Processors implements OnModuleInit {
     }
 
     /**
-     * The persistent menu rides along on any message with no inline keyboard.
+     * The persistent menu, on the messages that can carry it.
      *
-     * `reply_markup` holds one thing, so a message that already has buttons
-     * cannot also carry the menu — but the menu persists on the client once sent,
-     * so it only has to be attached often enough to survive a client that has
-     * never seen it. Every notice, digest and confirmation qualifies.
+     * `reply_markup` holds one thing, so a message with inline buttons cannot
+     * also carry the menu. The first version attached it only when there were no
+     * inline buttons — and **almost every bot message has them**, because
+     * `opened()` adds an open-app button to nearly every template. The menu
+     * therefore almost never went out, which is how it was reported as missing.
+     *
+     * `BOT_WELCOME` is the one that matters and is now forced: it is the first
+     * message anybody receives, so it is the one chance to install the menu
+     * before they have done anything. Its open-app button is the loss, and the
+     * menu is worth more than a link to an app being retired.
+     *
+     * After that the menu persists on the client, so every keyboard-less message
+     * re-attaching it is belt and braces for a client that missed the first one.
      */
+    const wantsMenu =
+      notification.templateKey === TEMPLATES.BOT_WELCOME || message.keyboard === undefined;
     const outcome = await this.telegram.send(
       notification.telegramUserId,
       message.text,
-      message.keyboard,
-      { parseMode: 'HTML', menu: message.keyboard === undefined ? menuKeyboard() : undefined },
+      // The menu and inline buttons cannot share `reply_markup`; on the welcome
+      // the menu wins.
+      notification.templateKey === TEMPLATES.BOT_WELCOME ? undefined : message.keyboard,
+      { parseMode: 'HTML', menu: wantsMenu ? menuKeyboard() : undefined },
     );
 
     switch (outcome.kind) {

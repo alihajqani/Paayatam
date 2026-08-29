@@ -523,6 +523,35 @@ export class BotService {
     }
 
     await this.reply(updateId, userId, TEMPLATES.BOT_WELCOME, {});
+
+    /**
+     * The gate, immediately after the welcome (v0.4.2).
+     *
+     * It used to wait for the first *write* — somebody would read `/help`,
+     * browse `/discover`, then be stopped at `/create_event` by a screen they
+     * had no reason to expect. Onboarding is the moment to ask: the user has
+     * just arrived, has done nothing yet, and the acceptance is what makes
+     * everything after it possible.
+     *
+     * Still a check rather than a step, so it costs nothing for somebody already
+     * up to date — a returning user pressing `/start` gets the welcome and
+     * nothing else.
+     */
+    await this.gateAfterWelcome(updateId, { id: userId, publicId: created.publicId });
+  }
+
+  /**
+   * Open the consent gate for a user who owes an acceptance.
+   *
+   * Separate from `mayWrite` because the two differ in what they do when the
+   * gate is *clear*: `mayWrite` returns a verdict its caller acts on, and this
+   * simply stops. Folding them would give `onStart` a boolean it has no use for.
+   */
+  private async gateAfterWelcome(updateId: number, user: BotUser): Promise<void> {
+    if (await this.consent.hasAcceptedCurrentPolicies(user.id)) return;
+
+    const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
+    await this.drawWizard(updateId, user, outcome);
   }
 
   /**
@@ -1204,9 +1233,18 @@ export class BotService {
     await this.queues.enqueue(
       QUEUES.TELEGRAM_SEND,
       JOBS.BOT_EDIT_MESSAGE,
-      // One redraw per update: a redelivered update produces the same id and
-      // BullMQ absorbs the second.
-      jobId('wizard', `${String(updateId)}:${String(lastMessageId)}`),
+      /**
+       * One redraw per update: a redelivered update produces the same id and
+       * BullMQ absorbs the second.
+       *
+       * The two parts are **separate arguments**, not joined with a colon.
+       * `jobId` refuses a `:` because it would collide with BullMQ's own key
+       * namespace — and building the id by hand threw on every single wizard
+       * step in production, which `dispatch` caught and logged. The conversation
+       * advanced in the database and nothing reached the screen, so the wizard
+       * looked frozen after the first answer.
+       */
+      jobId('wizard', String(updateId), String(lastMessageId)),
       {
         userId: user.id,
         messageId: lastMessageId,
@@ -1441,7 +1479,22 @@ export class BotService {
     const queued = await this.notifications.queue({
       userId,
       templateKey,
-      dedupeKey: `bot:${String(updateId)}`,
+      /**
+       * The update **and the template**, because one update can produce two
+       * messages.
+       *
+       * `/start` from somebody who owes an acceptance sends a welcome *and*
+       * opens the consent gate. Keyed on the update alone the second is deduped
+       * away by the UNIQUE index and silently never sends — which is a redelivery
+       * guarantee doing exactly its job to a message that was not a redelivery.
+       *
+       * Per (update, template) is still exactly-once for the property that
+       * matters: Telegram retrying one update produces the same pair of messages,
+       * once each. What it stops being is exactly-one-message-per-update, which
+       * was never the rule — only an assumption that held while every branch
+       * replied once.
+       */
+      dedupeKey: `bot:${String(updateId)}:${templateKey}`,
       payload,
     });
     // Already queued by an earlier delivery of this same update. Enqueueing again
