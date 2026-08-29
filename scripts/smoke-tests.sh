@@ -205,7 +205,15 @@ code="$(compose exec -T nginx curl -s -o /dev/null -w '%{http_code}' --max-time 
 log "Queues"
 # A worker that boots and registers nothing looks identical to a healthy one from
 # the outside. The startup line is the only evidence either way.
-if compose logs --tail 200 worker 2> /dev/null | grep -q 'Worker started'; then
+#
+# Captured into a variable rather than piped straight into `grep -q`. Under the
+# `pipefail` this script inherits from lib.sh, `grep -q` exits at the *first*
+# match and closes the pipe, `docker compose logs` dies on SIGPIPE (141), and the
+# pipeline reports failure — so the check failed exactly when the line was found
+# early enough for compose to still be writing. It passed on a short log and
+# failed on a long one, which is the worst way for a health check to be wrong.
+worker_log="$(compose logs --tail 200 worker 2> /dev/null || true)"
+if grep -q 'Worker started' <<< "$worker_log"; then
     pass "the worker registered its processors"
 else
     bad "no 'Worker started' line in the worker's recent logs"
