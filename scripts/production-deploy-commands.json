@@ -1,7 +1,7 @@
 {
-  "release": "v0.4.0",
-  "status": "ACTUAL — deployed 2026-08-29 09:00 Tehran, exit 0, 27 smoke checks passed",
-  "commit": "2c98a31",
+  "release": "v0.4.1",
+  "status": "ACTUAL — v0.4.1 deployed 2026-08-29, exit 0, 27 smoke checks passed (v0.4.0 deployed earlier the same day)",
+  "commit": "062abd3",
   "branch": "master (merged from feature/bot-commands)",
   "summary": "Conversation wizards (ADR-0017): /create_event, /edit_event, /edit_profile, the consent gate and /terms. The bot's policy gate, which AuthGuard never applied to it.",
   "verified_locally": {
@@ -61,7 +61,7 @@
     ],
     "blocker_3_missing_bot_surfaces": "Five of the 21 deep links point at screens the bot does not have: writing a review, reading revealed reviews, the coin ledger, filtered discovery, event detail. Three are small (two formatters and one wizard); filtered discovery is a product decision."
   },
-  "tag": "v0.4.0 → 2c98a31",
+  "tag": "v0.4.1 → 062abd3",
   "manual_test": {
     "status": "NOT EXECUTED — risk accepted by the product owner",
     "reason": "make webhook calls setWebhook on the token in .env, which is the production bot. Running it would have re-pointed the live bot at a local tunnel.",
@@ -69,36 +69,39 @@
     "record": "scripts/manual-test-results.md"
   },
   "commands_actually_run": [
-    "git checkout master",
-    "git merge --no-ff feature/bot-commands   # -> 2c98a31",
-    "git tag -a v0.4.0 2c98a31 -m 'v0.4.0 — consent + edit event wizards, Mini App still active (shipped with bot walkthrough only)'",
-    "git push origin master",
-    "git push origin v0.4.0",
+    "git merge --no-ff feature/bot-commands   # v0.4.0 -> 2c98a31",
+    "git tag -a v0.4.0 2c98a31 && git push origin master v0.4.0",
     "ssh -A root@95.182.87.95 'cd /srv/payetam && git fetch --tags --prune origin'",
     "ssh -A root@95.182.87.95 'cd /srv/payetam && ./scripts/deploy.sh v0.4.0 --no-pull'",
-    "curl https://app.paayatam.online/health                 # 200",
-    "curl https://app.paayatam.online/api/v1/version         # {\"version\":\"v0.4.0\"}",
-    "pnpm set-bot-commands                                   # 12 commands published"
+    "pnpm set-bot-commands                                   # 12 commands published",
+    "# --- production UX repairs ---",
+    "git tag -a v0.4.1 062abd3 && git push origin master v0.4.1",
+    "ssh -A root@95.182.87.95 \"cd /srv/payetam && git fetch origin refs/tags/v0.4.1:refs/tags/v0.4.1\"",
+    "ssh -A root@95.182.87.95 'cd /srv/payetam && ./scripts/deploy.sh v0.4.1 --no-pull'",
+    "curl https://app.paayatam.online/api/v1/version         # {\"version\":\"v0.4.1\"}"
   ],
   "deviations_from_the_written_plan": [
     "`git pull` on the server was replaced with `git fetch --tags --prune origin`. Production runs on a detached HEAD, so there is no upstream branch to pull.",
     "`git checkout v0.4.0` was NOT run manually before deploy.sh. The script records the currently-deployed ref as the rollback target *before* it checks out; checking out first would have made v0.4.0 its own rollback target — the exact bug that made rollback.sh a no-op during the v0.3.0 deploy. .deploy/previous-release correctly reads v0.3.1.",
     "`ssh -A` (agent forwarding) was required. The server holds no private key — only authorized_keys — so `git fetch` from GitHub fails without a forwarded agent.",
-    "`curl /api/health` returns 404: that endpoint does not exist. The API's version endpoint is /api/v1/version, which reports v0.4.0."
+    "`curl /api/health` returns 404: that endpoint does not exist. The API's version endpoint is /api/v1/version, which reports v0.4.0.",
+    "`git fetch --tags` EXITS 1 on this server: a stale local v0.3.0 tag differs from origin's, so fetch reports 'would clobber existing tag' and returns non-zero. Chained with && it silently aborted the v0.4.1 deploy before it started (production was untouched). Fetch the single tag instead: git fetch origin refs/tags/<tag>:refs/tags/<tag>"
   ],
   "verified_in_production": {
-    "containers": "api, worker, nginx on payetam/*:v0.4.0, all healthy; postgres and redis untouched",
-    "migration": "00000000000025_conversation_state applied; table confirmed present",
-    "smoke_tests": "27/27 passed, including a backup and a restore rehearsal",
-    "webhook": "registered at app.paayatam.online, path matches .env, 0 pending, no delivery errors",
-    "feature_flag": "ENABLE_CONVERSATION_WIZARD unset — defaults on, wizards live",
-    "rollback_target": ".deploy/previous-release = v0.3.1",
-    "command_menu": "12 commands published to the bot"
+    "release": "v0.4.1",
+    "containers": "api, worker, nginx on payetam/*:v0.4.1, all healthy",
+    "smoke_tests": "27/27 passed",
+    "rollback_target": ".deploy/previous-release = v0.4.0",
+    "health": "/health 200, /api/v1/version reports v0.4.1"
   },
   "rollback": {
     "cheap": "ssh root@95.182.87.95 \"cd /srv/payetam && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env && ./scripts/compose.sh restart api\"  # reverts the bot to read-only, keeps drafts",
     "note": "the flag is currently absent from .env rather than set to 1, so add the line rather than sed it: echo 'ENABLE_CONVERSATION_WIZARD=0' >> .env",
-    "full": "ssh root@95.182.87.95 'cd /srv/payetam && ./scripts/rollback.sh'  # back to v0.3.1",
+    "full": "ssh root@95.182.87.95 'cd /srv/payetam && ./scripts/rollback.sh'  # back to v0.4.0",
     "migration": "additive only; neither rollback needs a down migration"
+  },
+  "known_open": {
+    "stale_conversations": "Two conversation_state rows predate the fix. They self-heal: last_message_id is null, so the next step sends one message and the worker records its id, and every step after that edits. Left alone rather than deleted — one holds a half-typed event.",
+    "channel_posts": "Not a bug. The channel carries only promoted events (channel_post.kind is PAID or BOOSTED). An event created through the wizard has is_vip=false and boosted_until=null, so it was never going to be posted. Promotion is a paid action with no bot surface yet."
   }
 }

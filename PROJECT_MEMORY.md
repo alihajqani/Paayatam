@@ -471,7 +471,13 @@ From `.claude-work-checkpoint.md` §2 — none blocking, all worth knowing:
    fails unless you connect with `ssh -A` and have the key in your local agent.
    Every deploy that fetches needs agent forwarding; `deploy.sh --no-pull` does
    not fetch, so the tag must be on the server before it runs.
-5. **Do not `git checkout <tag>` before running `deploy.sh <tag>`.** The script
+5. **`git fetch --tags` exits 1 on this server.** A stale local `v0.3.0` tag
+   differs from origin's, so fetch reports *would clobber existing tag* and
+   returns non-zero — which silently aborted a deploy chained behind `&&`.
+   Production was untouched, and the failure produced no output at all, which is
+   the worst kind. Fetch the one tag instead:
+   `git fetch origin refs/tags/<tag>:refs/tags/<tag>`.
+6. **Do not `git checkout <tag>` before running `deploy.sh <tag>`.** The script
    records the currently-deployed ref as the rollback target *before* it checks
    out. Checking out first makes the new tag its own rollback target — which is
    what made `rollback.sh` a no-op after the v0.3.0 deploy.
