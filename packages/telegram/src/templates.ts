@@ -93,6 +93,10 @@ export const TEMPLATES = {
   BOT_CHANNEL_GATE: 'bot.channel_gate',
   /** `/terms` for somebody already up to date: what they accepted, and when. */
   BOT_TERMS_STANDING: 'bot.terms_standing',
+  /** `/wallet` — the balance and the ledger behind it. */
+  BOT_WALLET: 'bot.wallet',
+  /** `/referral` — the caller's own invite code and what it has earned. */
+  BOT_REFERRAL: 'bot.referral',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -637,6 +641,17 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `از «رویدادهای من» می‌توانید درخواست‌ها را ببینید و پاسخ بدهید.`,
         `my-events`,
       );
+
+    /**
+     * `/wallet` and `/referral` — both bodies built by this package's own
+     * formatters, both already escaped at every interpolation, so both go
+     * through `prerendered` for the reason the five digests do.
+     */
+    case TEMPLATES.BOT_WALLET:
+      return opened(prerendered(payload), `wallet`);
+
+    case TEMPLATES.BOT_REFERRAL:
+      return opened(prerendered(payload), `home`);
 
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:

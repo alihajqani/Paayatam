@@ -9,6 +9,7 @@ import {
   ConversationService,
   DiscoveryService,
   EventService,
+  GiftCodeService,
   NotificationService,
   ParticipationService,
   ProfileService,
@@ -47,7 +48,9 @@ import {
   formatDiscovered,
   formatJalali,
   formatPolicies,
+  formatReferral,
   formatStanding,
+  formatWallet,
   menuCommandFor,
   formatTehran,
   formatMyChats,
@@ -143,6 +146,7 @@ export class BotService {
     private readonly membership: ChannelMembershipService,
     @Inject(ENV) private readonly env: Env,
     private readonly referrals: ReferralService,
+    private readonly giftCodes: GiftCodeService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
     private readonly limiter: RateLimitService,
@@ -214,7 +218,7 @@ export class BotService {
             );
 
           case 'COMMAND':
-            return this.onCommand(update.updateId, user, intent.command);
+            return this.onCommand(update.updateId, user, intent.command, intent.argument);
         }
       }
     }
@@ -237,7 +241,13 @@ export class BotService {
    * somebody back to the welcome message told them nothing they had not already
    * read.
    */
-  private async onCommand(updateId: number, user: BotUser, command: string): Promise<void> {
+  private async onCommand(
+    updateId: number,
+    user: BotUser,
+    command: string,
+    /** Whatever followed the command name, trimmed. Only `/gift` reads it. */
+    argument: string | null = null,
+  ): Promise<void> {
     switch (command.toLowerCase()) {
       case 'help':
         return this.reply(updateId, user.id, TEMPLATES.BOT_HELP, {});
@@ -245,6 +255,88 @@ export class BotService {
       case 'balance': {
         const balance = await this.coins.balanceOf(user.id);
         return this.reply(updateId, user.id, TEMPLATES.BOT_BALANCE, { balance });
+      }
+
+      /**
+       * `/wallet` — the balance, and where it came from.
+       *
+       * `/balance` answers "how many" and has since M13; it does not answer
+       * "why is it that number", which is what somebody asks the moment it
+       * moves. The ledger lived only in `WalletView`, so the bot could state a
+       * balance and not account for it — and ADR-0007's «a balance nobody can
+       * account for is a balance nobody can appeal» is about coins as much as
+       * the Trust Score.
+       *
+       * Twenty rather than the service's default fifty: a digest is one Telegram
+       * message, and `buildDigest` would drop the tail of fifty anyway with a
+       * line about what did not fit.
+       */
+      case 'wallet': {
+        const [balance, history] = await Promise.all([
+          this.coins.balanceOf(user.id),
+          this.coins.historyOf(user.id, WALLET_HISTORY_LIMIT),
+        ]);
+        return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
+          text: formatWallet(balance, history),
+        });
+      }
+
+      /**
+       * `/referral` — the caller's code, and what it has earned.
+       *
+       * The bot is one step shorter than the screen this replaces: a referral
+       * code is shared *in Telegram*, `HomeView` rendered it to be copied and
+       * pasted into a chat the user was already in, and the ready-made
+       * `?start=<code>` link is what people actually send. `/start` claims it,
+       * so the whole loop closes inside one application.
+       */
+      case 'referral': {
+        const summary = await this.referrals.summaryFor(user.id);
+        return this.reply(updateId, user.id, TEMPLATES.BOT_REFERRAL, {
+          text: formatReferral(
+            {
+              code: summary.code,
+              invited: summary.invited,
+              qualified: summary.qualified,
+              coinsEarned: summary.coinsEarned,
+            },
+            // Optional in the environment, and the link is the point of this
+            // message — so an unconfigured username degrades to the bot's own
+            // handle rather than to `https://t.me/undefined?start=…`.
+            this.env.TELEGRAM_BOT_USERNAME ?? 'paayatambot',
+          ),
+        });
+      }
+
+      /**
+       * `/gift <code>` — redeem a gift or discount code.
+       *
+       * The first command to take an argument. `parseUpdate` matched one and
+       * threw it away for everything but `/start`, so a code had nowhere to
+       * ride; it is carried now, which is a smaller change than a wizard whose
+       * only step is "type the code".
+       *
+       * The code is **not** echoed back on failure. It may be a campaign code
+       * somebody was given privately, and a bot repeating it into a chat that
+       * may be screenshotted is a disclosure the Mini App's form never made.
+       */
+      case 'gift': {
+        if (argument === null) {
+          return this.notice(updateId, user, 'کد را همراه دستور بفرستید — مثال: /gift ABCD1234');
+        }
+        if (!(await this.mayWrite(updateId, user))) return;
+        try {
+          const redeemed = await this.giftCodes.redeem(user.id, argument);
+          return this.notice(
+            updateId,
+            user,
+            `کد پذیرفته شد ✅\n\n${toPersianDigits(String(redeemed.coins))} سکه به حساب شما اضافه شد. ` +
+              `موجودی: ${toPersianDigits(String(redeemed.balance))} سکه`,
+          );
+        } catch (error) {
+          if (!(error instanceof AppError)) throw error;
+          return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+        }
       }
 
       /**
@@ -1924,6 +2016,16 @@ export class BotService {
  * the filters and the join button are.
  */
 const DISCOVER_LIMIT = 5;
+
+/**
+ * How much of the ledger `/wallet` shows.
+ *
+ * Twenty rather than `historyOf`'s default fifty: a digest is one Telegram
+ * message, and `buildDigest` would drop the tail of fifty anyway with a line
+ * saying what did not fit. Asking for what fits is more honest than asking for
+ * more and truncating it.
+ */
+const WALLET_HISTORY_LIMIT = 20;
 
 /**
  * The zone every wall-clock answer in a wizard is read in.

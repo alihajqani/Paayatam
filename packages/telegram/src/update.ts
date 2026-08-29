@@ -70,8 +70,16 @@ export interface BotInboundText {
 export type BotIntent =
   /** `/start`, with the deep-link payload when there is one. */
   | { kind: 'START'; from: BotSender; payload: string | null }
-  /** Any other `/command`. Named so it is never relayed into somebody's chat. */
-  | { kind: 'COMMAND'; from: BotSender; command: string }
+  /**
+   * Any other `/command`. Named so it is never relayed into somebody's chat.
+   *
+   * `argument` is whatever followed the command name, trimmed, or null. It was
+   * parsed and thrown away until `/gift <code>` needed it — `/start` kept its
+   * payload and nothing else could take one, so redeeming a code had no way to
+   * carry the code. Null rather than an empty string, so «they typed nothing»
+   * and «they typed spaces» are the same case for every handler.
+   */
+  | { kind: 'COMMAND'; from: BotSender; command: string; argument: string | null }
   /** Plain text in the bot's DM: a chat message, once we know which chat. */
   | { kind: 'TEXT'; from: BotSender; message: BotInboundText; replyToMessageId: number | null }
   /** The sender edited a message they had already sent (D10). */
@@ -220,13 +228,12 @@ function intentOf(parsed: z.infer<typeof update>): BotIntent | null {
     const command = COMMAND.exec(text);
     if (command) {
       const name = command[1] ?? '';
-      if (name.toLowerCase() !== 'start') return { kind: 'COMMAND', from, command: name };
-      const payload = command[2]?.trim();
-      return {
-        kind: 'START',
-        from,
-        payload: payload === undefined || payload === '' ? null : payload,
-      };
+      const rest = command[2]?.trim();
+      const argument = rest === undefined || rest === '' ? null : rest;
+      if (name.toLowerCase() !== 'start') {
+        return { kind: 'COMMAND', from, command: name, argument };
+      }
+      return { kind: 'START', from, payload: argument };
     }
 
     return {

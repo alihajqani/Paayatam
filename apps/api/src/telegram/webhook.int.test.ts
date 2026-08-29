@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
-import { ChatService, ParticipationService, normalize } from '@payetam/domain';
+import { ChatService, CoinService, ParticipationService, normalize } from '@payetam/domain';
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { TEMPLATES } from '@payetam/telegram';
 import {
@@ -55,6 +55,7 @@ const prisma: PrismaClient = createTestPrisma();
 let app: NestFastifyApplication;
 let participation: ParticipationService;
 let chats: ChatService;
+let coins: CoinService;
 let fixture: CatalogFixture;
 
 /** Distinctive, and shaped like a real Telegram id — the leak assertions hunt for it. */
@@ -136,6 +137,7 @@ beforeAll(async () => {
 
   participation = app.get(ParticipationService);
   chats = app.get(ChatService);
+  coins = app.get(CoinService);
 }, 120_000);
 
 afterAll(async () => {
@@ -1414,6 +1416,81 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
     await tap(HOST_TELEGRAM_ID, 'wz:cancel:');
 
     expect(await prisma.conversationState.count()).toBe(0);
+  });
+});
+
+/**
+ * The economy commands: what you have, where it came from, and how to add to it.
+ */
+describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
+  let sequence = 9800;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function bodyOf(templateKey: string): Promise<string> {
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    return String((row.payload as Record<string, unknown>)['text']);
+  }
+
+  it('accounts for the balance rather than only stating it', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+    await coins.apply({
+      userId,
+      amount: 15,
+      type: 'ONBOARDING_REWARD',
+      reasonCode: 'onboarding',
+      idempotencyKey: `onboarding:${userId}`,
+      actorType: 'SYSTEM',
+    });
+
+    await type(GUEST_TELEGRAM_ID, '/wallet');
+
+    const text = await bodyOf(TEMPLATES.BOT_WALLET);
+    expect(text).toContain('کیف پول شما');
+    // The ledger line, in the language the user reads rather than the enum.
+    expect(text).toContain('هدیهٔ خوش‌آمد');
+    expect(text).not.toContain('ONBOARDING_REWARD');
+  });
+
+  it('gives the referral code as a link somebody can send', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/referral');
+
+    const text = await bodyOf(TEMPLATES.BOT_REFERRAL);
+    expect(text).toContain('https://t.me/');
+    expect(text).toContain('?start=');
+  });
+
+  /** The first command that takes an argument — `parseUpdate` threw it away before. */
+  it('asks for the code when /gift arrives without one', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/gift');
+
+    expect(await bodyOf(TEMPLATES.BOT_NOTICE)).toContain('/gift');
+  });
+
+  /**
+   * A wrong code is refused, and **the code is not echoed back**. It may be a
+   * campaign code somebody was given privately, and a bot repeating it into a
+   * chat that may be screenshotted is a disclosure the Mini App's form never
+   * made.
+   */
+  it('refuses an unknown code without repeating it', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/gift NOTAREALCODE');
+
+    const text = await bodyOf(TEMPLATES.BOT_NOTICE);
+    expect(text).not.toContain('NOTAREALCODE');
   });
 });
 
