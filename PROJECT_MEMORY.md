@@ -497,3 +497,91 @@ From `.claude-work-checkpoint.md` §2 — none blocking, all worth knowing:
    records the currently-deployed ref as the rollback target *before* it checks
    out. Checking out first makes the new tag its own rollback target — which is
    what made `rollback.sh` a no-op after the v0.3.0 deploy.
+
+---
+
+## 12. v0.4.2 — the fresh-deploy runbook, and what it caught
+
+On 2026-08-29 the production stack was rebuilt from nothing: all four volumes
+and every container destroyed, then brought back up on v0.4.2. What follows is
+what was actually done and what it found, because the two are not the same list.
+
+### The order that works
+
+Certificates **before** `deploy.sh`, not after. `deploy.sh` ends in
+`smoke-tests.sh`, which fetches `https://app.paayatam.online/health` over real
+TLS and takes the deploy down with it when that fails. Deploy-before-certs is a
+guaranteed failed deploy on a host whose `certbot-etc` volume was just deleted.
+
+Then: `deploy.sh` → the five content seeds → `create-admin` → publish the legal
+documents. `README.md` §"From zero to production" carries the commands.
+
+`PAYETAM_VERSION` must be exported before **any** bare `compose.sh` call.
+Destroying volumes and containers leaves the *images*, so this is the difference
+between reusing `payetam/web:v0.4.2` and silently rebuilding a `:local` tag.
+
+### Trap — the stack was healthy and the database was empty
+
+All six containers reported healthy, `/health` returned `{"status":"ok"}`, and
+`psql -c '\dt'` said **"Did not find any relations."** Migrations had never run.
+The API's health check does not assert a schema, so nothing about the outside of
+the system said so; the only evidence was in the worker's log, repeating
+`The table public.event does not exist` every twenty seconds while its eleven
+scheduled jobs burned through their retries.
+
+The fix is `./scripts/migrate.sh`, and then **restart the worker** — it recovers
+on its own but its retry backlog stays in the log, which matters for the next
+trap.
+
+### Trap — `grep -q` under `pipefail` fails *because* it succeeded
+
+`smoke-tests.sh` checked the worker with
+
+```bash
+compose logs --tail 200 worker 2>/dev/null | grep -q 'Worker started'
+```
+
+`lib.sh` sets `set -euo pipefail`. `grep -q` exits at the **first** match and
+closes the pipe; `docker compose logs` then dies on SIGPIPE (141); `pipefail`
+takes the rightmost non-zero status, and the check reports failure. It fails
+precisely when the line is found *early enough that compose is still writing* —
+so it passed on a short log for every previous deploy and failed the moment the
+crash-loop backlog above made the log long.
+
+Fixed by capturing into a variable first (`worker_log="$(compose logs … || true)"`,
+then `grep -q … <<< "$worker_log"`). The general rule: **never pipe into
+`grep -q` in a `pipefail` script.** Use `grep -c`, or capture first.
+
+This is the second failure in this repo whose whole symptom was a non-zero exit
+with nothing printed — see §11 items 5 and 6. Both were shell plumbing, not code.
+
+### Trap — the hand-written `policy_version` INSERT that cannot work
+
+A suggested recovery step was to insert policy rows directly with columns
+`title_en`, `body_fa`, `body_en` and integer ids. None of them exist:
+`policy_version` has `content_md`, `title_fa`, `summary_fa`, an **Int** `version`,
+a **uuid7 string** `id`, and `type` is the `policy_type` enum. `seed:policies`
+writes the correct shape and the audit row the rail requires. Reach for the seed,
+never a hand-written INSERT — the schema in someone's head is not the schema.
+
+### What only a human can do
+
+Three steps resist automation, two of them deliberately:
+
+1. **The content seeds** demand a typed database name and refuse a non-TTY stdin.
+   `ssh -tt` satisfies this honestly (it allocates a real pty); piping into a
+   non-TTY does not, and is not meant to.
+2. **`create-admin`** refuses `--password` as an argument and prints the TOTP
+   secret exactly once. Running it inside an agent session would put a production
+   password and its second factor in the same transcript, which is the whole
+   thing 2FA exists to prevent.
+3. **Walking the bot in Telegram** needs a Telegram client. Everything behind it
+   is checkable — webhook registration, current policy count, worker relay — but
+   the walk itself is not.
+
+### The state this left
+
+27/27 smoke checks. 4 roles, 25 permissions, 2 current policy versions, 31
+provinces, 1252 cities (31 active), 14 categories, 25 interests, 8 blacklist
+terms, 64 settings. `admin_user` and `user` at 0 — the first administrator is
+created by hand, and `MONITORING_CHAT_ID` is still empty.
