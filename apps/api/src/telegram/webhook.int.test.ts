@@ -561,22 +561,30 @@ describe('commands', () => {
     expect(typeof payload['trustScore']).toBe('number');
   });
 
-  /** A card of empty fields is worse than a sentence saying where to fill them in. */
-  it('sends somebody with no profile to the app rather than an empty card', async () => {
+  /**
+   * No profile is a **form**, not a sentence about one.
+   *
+   * A card of empty fields would be worse than either — but the sentence this
+   * used to assert was «هنوز نمایه‌ای نساخته‌اید. برای تکمیل نمایه برنامه را باز
+   * کنید», and once the open-app buttons were gone that named an application the
+   * user had no way to reach. Paired with the profile-creation bug it was a
+   * closed loop: no profile, so `/discover` refused; `/profile` to find out why,
+   * and the answer was to leave.
+   */
+  it('opens the profile form for somebody who has none', async () => {
     await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
     await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/profile') }));
 
     expect(await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_PROFILE } })).toBe(
       0,
     );
-    const notice = await prisma.notification.findFirstOrThrow({
-      where: { templateKey: TEMPLATES.BOT_NOTICE },
-      orderBy: { createdAt: 'desc' },
-      select: { payload: true },
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: BigInt(GUEST_TELEGRAM_ID) },
+      select: { userId: true },
     });
-    expect((notice.payload as Record<string, unknown>)['text']).toContain(
-      'هنوز نمایه‌ای نساخته‌اید',
-    );
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: account.userId } }),
+    ).toMatchObject({ kind: 'EDIT_PROFILE' });
   });
 
   /**
@@ -1435,6 +1443,118 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
       }),
     );
   }
+
+  /**
+   * The bug v0.4.7 shipped, as a test.
+   *
+   * `submitProfile` called `ProfileService.update` unconditionally, and `update`
+   * refuses a profile that does not exist — an edit of nothing is not an edit.
+   * That was fine while this wizard was only reachable from `/edit_profile` by
+   * somebody who had onboarded in the Mini App; v0.4.7 pointed the consent gate
+   * at it, so every new user filled in a whole profile, pressed «ثبت نمایه», and
+   * was answered «برای ادامه، ابتدا پروفایل خود را کامل کنید» by the very form
+   * that was completing it. Nothing was written and there was no way out from
+   * inside the bot.
+   */
+  it('creates the profile for somebody who has none', async () => {
+    const province = await prisma.province.create({
+      data: { slug: 'p-first-profile', nameFa: 'تهران', isActive: true },
+    });
+    await prisma.city.update({
+      where: { id: fixture.tehranId },
+      data: { provinceId: province.id },
+    });
+    const provinceId = province.id;
+
+    /**
+     * The reported flow, start to finish.
+     *
+     * The consent is not ceremony here: `ProfileService.complete` refuses a user
+     * still in `onboarding_state = NEW` with `TERMS_NOT_ACCEPTED`, so a profile
+     * cannot be created before the policies are accepted — and accepting is what
+     * v0.4.7 made open this wizard in the first place.
+     */
+    await prisma.policyVersion.updateMany({
+      where: { type: 'TERMS', isCurrent: true },
+      data: { isCurrent: false },
+    });
+    await prisma.policyVersion.create({
+      data: {
+        type: 'TERMS',
+        version: 9,
+        status: 'PUBLISHED',
+        isCurrent: true,
+        titleFa: 'قوانین',
+        summaryFa: 'خلاصه',
+        contentMd: '# سند',
+      },
+    });
+
+    // `/start` on an unseen id: an account, no profile row, and the gate.
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: BigInt(NEWCOMER_TELEGRAM_ID) },
+      select: { userId: true },
+    });
+    expect(await prisma.userProfile.count({ where: { userId: account.userId } })).toBe(0);
+
+    // Accepting hands over the profile form — no `/edit_profile` typed.
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: account.userId } }),
+    ).toMatchObject({ kind: 'EDIT_PROFILE' });
+
+    await type(NEWCOMER_TELEGRAM_ID, 'شوماخر');
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:gender:MALE');
+    await type(NEWCOMER_TELEGRAM_ID, '1990');
+    await tap(NEWCOMER_TELEGRAM_ID, `wz:prov:${provinceId}`);
+    await tap(NEWCOMER_TELEGRAM_ID, `wz:city:${fixture.tehranId}`);
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // bio
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:confirm:');
+
+    const profile = await prisma.userProfile.findUniqueOrThrow({
+      where: { userId: account.userId },
+    });
+    expect(profile.displayName).toBe('شوماخر');
+    expect(profile.birthYear).toBe(1990);
+    expect(profile.cityId).toBe(fixture.tehranId);
+    // `complete` is an onboarding step, so it advances the state `update` never
+    // touches — which is what stops `/discover` refusing them afterwards.
+    expect(
+      await prisma.user.findUniqueOrThrow({
+        where: { id: account.userId },
+        select: { onboardingState: true },
+      }),
+    ).toMatchObject({ onboardingState: 'PROFILE_COMPLETE' });
+    // And the form closed, rather than surviving a refusal.
+    expect(await prisma.conversationState.count({ where: { userId: account.userId } })).toBe(0);
+  });
+
+  /** A first profile needs a name, a year and a city; the wizard lets you skip all three. */
+  it('names what is missing rather than refusing generically', async () => {
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+
+    await type(NEWCOMER_TELEGRAM_ID, '/edit_profile');
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // name
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // gender
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // birth year
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // province
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // city
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // bio
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:confirm:');
+
+    const notice = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_NOTICE },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const text = String((notice.payload as Record<string, unknown>)['text']);
+    expect(text).toContain('نام');
+    expect(text).toContain('سال تولد');
+    expect(text).toContain('شهر');
+    // The draft survives, so «ویرایش» walks back to the step they skipped.
+    expect(await prisma.conversationState.count()).toBe(1);
+  });
 
   it('changes only the fields that were answered', async () => {
     const userId = await seedGuest(GUEST_TELEGRAM_ID, 'نام قدیمی');

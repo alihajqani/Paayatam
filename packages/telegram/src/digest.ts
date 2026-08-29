@@ -88,7 +88,7 @@ export function buildDigest({ title, empty, entries }: DigestInput): string {
   const dropped = entries.length - kept.length;
   const tail =
     dropped > 0
-      ? `\n\n<i>و ${toPersianDigits(String(dropped))} مورد دیگر — برای دیدن همه برنامه را باز کنید.</i>`
+      ? `\n\n<i>و ${toPersianDigits(String(dropped))} مورد دیگر که در یک پیام جا نشد.</i>`
       : '';
 
   return `${heading}\n\n${kept.join('\n\n')}${tail}`;

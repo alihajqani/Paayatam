@@ -132,8 +132,20 @@ export interface SummaryLine {
  * off the critical path so the common event takes eight taps. «ویرایش» returns to
  * the first step with everything still filled in, which is what makes the summary
  * a checkpoint rather than a point of no return.
+ *
+ * ── Why the commit label is a parameter ─────────────────────────────────────
+ *
+ * It was the constant «ثبت فعالیت», and three wizards reach this screen. So
+ * somebody who had just answered a name, a gender, a birth year and a city was
+ * shown their profile back under «اگر همه‌چیز درست است، «ثبت فعالیت» را بزنید» —
+ * the product asking them to submit an *event* they had not filled in. The
+ * caller knows what is being submitted; this screen did not.
  */
-export function renderSummary(lines: readonly SummaryLine[], canAddDetails: boolean): WizardScreen {
+export function renderSummary(
+  lines: readonly SummaryLine[],
+  canAddDetails: boolean,
+  commitLabel = 'ثبت فعالیت',
+): WizardScreen {
   const body = lines
     .map((line) => `<b>${escapeHtml(line.label)}:</b> ${escapeHtml(line.value)}`)
     .join('\n');
@@ -141,7 +153,7 @@ export function renderSummary(lines: readonly SummaryLine[], canAddDetails: bool
   const buttons: InlineButton[][] = [
     [
       {
-        text: '✅ ثبت فعالیت',
+        text: `✅ ${commitLabel}`,
         callbackData: encodeWizardCallback({ action: 'confirm', value: '' }),
       },
     ],
@@ -160,7 +172,7 @@ export function renderSummary(lines: readonly SummaryLine[], canAddDetails: bool
   ]);
 
   return {
-    text: `<b>بازبینی نهایی</b>\n\n${body}\n\n<i>اگر همه‌چیز درست است، «ثبت فعالیت» را بزنید.</i>`,
+    text: `<b>بازبینی نهایی</b>\n\n${body}\n\n<i>اگر همه‌چیز درست است، «${commitLabel}» را بزنید.</i>`,
     keyboard: buttons,
   };
 }

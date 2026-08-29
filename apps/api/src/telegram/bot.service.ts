@@ -312,12 +312,20 @@ export class BotService {
        */
       case 'profile': {
         const profile = await this.profiles.find(user.id);
+        /**
+         * No profile is a **form**, not a sentence about one.
+         *
+         * This used to answer «برای تکمیل نمایه برنامه را باز کنید», which was
+         * the second half of the loop the profile-creation bug produced: the
+         * user had no profile because the wizard could not create one, and the
+         * one command that names the problem sent them to an application this
+         * release has just finished removing every button to.
+         */
         if (profile === null) {
-          return this.notice(
-            updateId,
-            user,
-            'هنوز نمایه‌ای نساخته‌اید. برای تکمیل نمایه برنامه را باز کنید.',
-          );
+          if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+          if (!(await this.mayWrite(updateId, user))) return;
+          const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+          return this.drawWizard(updateId, user, outcome);
         }
 
         const trustScore = await this.trust.scoreOf(user.id);
@@ -347,7 +355,7 @@ export class BotService {
           return this.notice(
             updateId,
             user,
-            'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را در برنامه کامل کنید.',
+            'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را کامل کنید — /edit_profile',
           );
         }
 
@@ -850,11 +858,7 @@ export class BotService {
    * somebody will actually do during an incident.
    */
   private async wizardsOff(updateId: number, user: BotUser): Promise<void> {
-    await this.notice(
-      updateId,
-      user,
-      'این بخش موقتاً در دسترس نیست. فعلاً از برنامه استفاده کنید.',
-    );
+    await this.notice(updateId, user, 'این بخش موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید.');
   }
 
   /**
@@ -911,7 +915,7 @@ export class BotService {
         }
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;
-          const screen = renderSummary(await this.profileSummaryLines(profile), false);
+          const screen = renderSummary(await this.profileSummaryLines(profile), false, 'ثبت نمایه');
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
         const form = asCreateEventForm(outcome.snapshot.form);
@@ -1328,13 +1332,41 @@ export class BotService {
   }
 
   /**
-   * Save the profile edits.
+   * Save the profile — creating it when there is none, editing it when there is.
    *
-   * **Only the keys the user answered are sent.** `UpdateProfileInput` takes a
-   * partial, and a skipped step means "leave this alone" — building a full input
-   * with defaults would quietly overwrite a bio somebody chose not to touch.
-   * `ProfileService.update` is the authority, and it is the same call the Mini
-   * App's edit screen makes.
+   * ── The bug this shape exists for ───────────────────────────────────────────
+   *
+   * This called `ProfileService.update` unconditionally, and `update` **refuses a
+   * profile that does not exist**: its third statement is `if (!existing) throw
+   * PROFILE_INCOMPLETE`, because an edit of nothing is not an edit. That was
+   * correct while the wizard was only ever reached from `/edit_profile` by
+   * somebody who had onboarded in the Mini App.
+   *
+   * v0.4.7 pointed the consent gate straight at this wizard, and every new user
+   * therefore filled in a whole profile, pressed «ثبت», and was answered «برای
+   * ادامه، ابتدا پروفایل خود را کامل کنید» — the Persian for `PROFILE_INCOMPLETE`,
+   * reported by the very form that was completing it. Nothing was written, so
+   * `/discover` refused them, `/profile` said they had no profile, and there was
+   * no way out of it from inside the bot.
+   *
+   * ── Why two calls and not one ───────────────────────────────────────────────
+   *
+   * `complete` is an onboarding step: it advances `onboarding_state`, grants the
+   * joining coins and moves the Trust Score. None of that may happen again when
+   * somebody fixes a typo in their bio, and `ProfileService`'s own note says the
+   * way to guarantee it cannot is for the edit path to hold no code that could.
+   * So the branch belongs here, at the one place that knows which of the two the
+   * user is doing.
+   *
+   * **Only the keys the user answered are sent on the edit path.** A skipped step
+   * means "leave this alone", and building a full input with defaults would
+   * quietly overwrite a bio somebody chose not to touch.
+   *
+   * **Creation has three fields it cannot invent.** Every step in this wizard is
+   * optional — that is what makes it an *edit* wizard — so a first-time user can
+   * skip their way to a form with no name, no birth year or no city, and
+   * `CompleteProfileInput` requires all three. They are named back rather than
+   * refused generically, and the draft survives so the answer is one tap away.
    */
   private async submitProfile(
     updateId: number,
@@ -1342,6 +1374,10 @@ export class BotService {
     raw: Record<string, unknown>,
   ): Promise<void> {
     const form = raw as EditProfileForm;
+
+    if ((await this.profiles.find(user.id)) === null) {
+      return this.createProfile(updateId, user, form);
+    }
 
     try {
       await this.profiles.update(
@@ -1358,6 +1394,65 @@ export class BotService {
       );
       await this.conversations.clear(user.id);
       await this.notice(updateId, user, 'نمایه شما به‌روز شد ✅');
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      // The draft survives, for the reason it survives a refused event.
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+  }
+
+  /**
+   * The first profile, through the wizard that used to be edit-only.
+   *
+   * `interestIds` is empty and that is a real gap rather than a placeholder: the
+   * wizard has no interests step, and `complete` requires the array. Interests
+   * drive discovery ranking, so a bot-onboarded user starts with none until the
+   * wizard grows a step for them — which is better than the alternative this
+   * replaces, where they had no profile at all.
+   */
+  private async createProfile(
+    updateId: number,
+    user: BotUser,
+    form: EditProfileForm,
+  ): Promise<void> {
+    const missing: string[] = [];
+    if (form.displayName === undefined) missing.push('نام');
+    if (form.birthYear === undefined) missing.push('سال تولد');
+    if (form.cityId === undefined) missing.push('شهر');
+
+    if (
+      form.displayName === undefined ||
+      form.birthYear === undefined ||
+      form.cityId === undefined
+    ) {
+      // The draft is left open on purpose: «ویرایش» on the summary walks back to
+      // the step they skipped, and clearing it would make them start over.
+      await this.notice(
+        updateId,
+        user,
+        `برای ساختن نمایه به این مورد${missing.length > 1 ? 'ها' : ''} هم نیاز داریم: ` +
+          `${missing.join('، ')}.\n\nروی «ویرایش» بزنید و کامل کنید.`,
+      );
+      return;
+    }
+
+    try {
+      await this.profiles.complete(user.id, {
+        displayName: form.displayName,
+        birthYear: form.birthYear,
+        cityId: form.cityId,
+        ...(form.gender !== undefined ? { gender: form.gender } : {}),
+        ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
+        ...(form.bio !== undefined ? { bio: form.bio } : {}),
+        interestIds: [],
+      });
+      await this.conversations.clear(user.id);
+      await this.notice(
+        updateId,
+        user,
+        'نمایه شما ساخته شد ✅\n\nحالا می‌توانید با /discover فعالیت‌های نزدیک را ببینید ' +
+          'یا با /create_event یکی بسازید.',
+      );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       // The draft survives, for the reason it survives a refused event.
@@ -1627,7 +1722,7 @@ export class BotService {
     );
 
     return live.length === 0
-      ? 'گفتگوی بازی ندارید. از برنامه یک فعالیت انتخاب کنید و درخواست پیوستن بفرستید.'
+      ? 'گفتگوی بازی ندارید. با /discover یک فعالیت پیدا کنید و درخواست پیوستن بفرستید.'
       : 'چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. برای دیدن فهرست گفتگوها /chats را بفرستید.';
   }
 }

@@ -65,13 +65,12 @@ log "Checking the environment"
 
 # ── 2. Where to go back to ───────────────────────────────────────────────────
 #
-# Written before the checkout, in a file rather than in a variable, because the
-# thing that needs it is a *later invocation* of a different script after this
-# one has exited badly.
+# Read here, written after the checkout — see below. In a file rather than in a
+# variable either way, because the thing that needs it is a *later invocation*
+# of a different script after this one has exited badly.
 mkdir -p "${PAYETAM_ROOT}/.deploy"
 previous="$(git rev-parse --short HEAD)"
 previous_ref="$(git describe --tags --exact-match 2> /dev/null || echo "$previous")"
-printf '%s\n' "$previous_ref" > "${PAYETAM_ROOT}/.deploy/previous-release"
 log "Currently deployed: ${previous_ref}"
 
 # ── 3. The code ──────────────────────────────────────────────────────────────
@@ -93,6 +92,28 @@ if [[ -n "$TAG" ]]; then
     log "Checking out ${TAG}"
     git checkout --quiet --detach "$TAG"
     ok "At $(git rev-parse --short HEAD) (${TAG})"
+
+    # ── The rollback target, recorded now that the tree has actually moved ────
+    #
+    # This used to be written in step 2, before the fetch. A deploy that died at
+    # `git fetch` — no agent forwarded, no key on the server, which is exactly
+    # how it fails — had by then overwritten the file with the release that was
+    # still running. `previous-release` and `current-release` both said v0.4.5,
+    # so `rollback.sh` was a no-op at the one moment somebody reaches for it,
+    # and the real target it had been holding was gone.
+    #
+    # Nothing had been deployed, so there was nothing to go back *from*: the
+    # file should not have moved. Written here, it moves only once there is a
+    # checkout to undo — and a build that fails after this point still leaves a
+    # correct target, which is the window the file exists for.
+    #
+    # Re-deploying the tag that is already out is the same argument: it would
+    # make the rollback target the thing you are rolling back from.
+    if [[ "$previous_ref" != "$TAG" ]]; then
+        printf '%s\n' "$previous_ref" > "${PAYETAM_ROOT}/.deploy/previous-release"
+    else
+        warn "Re-deploying ${TAG}; leaving the rollback target where it is"
+    fi
 else
     warn "No tag given — deploying the current checkout at ${previous_ref}"
 fi

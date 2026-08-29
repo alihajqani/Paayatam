@@ -444,8 +444,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `<b>درخواست‌ها</b>\n` +
           `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
           `لازم نیست چیزی را باز کنید.\n\n` +
-          `بقیهٔ کارها — ساختن رویداد، جستجوی پیشرفته، ویرایش نمایه، نوشتن نظر — ` +
-          `در برنامه انجام می‌شود.`,
+          `<b>بقیهٔ کارها</b>\n` +
+          `ساختن فعالیت با /create_event، ویرایش نمایه با /edit_profile، ` +
+          `و دیدن فعالیت‌های نزدیک با /discover — همه همین‌جا در ربات.`,
         `home`,
       );
 
@@ -534,7 +535,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         `<b>نمایه شما</b>\n\n` +
           `${str(payload, 'displayName')}\n` +
           `📍 ${str(payload, 'cityName')}\n` +
-          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰`,
+          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰\n\n` +
+          // The card used to be a dead end: it named a Mini App screen through a
+          // button, and the button is gone. The way to change any of this is a
+          // command, and it is on the card rather than in `/help`.
+          `<i>برای ویرایش، /edit_profile را بفرستید.</i>`,
         `profile/edit`,
       );
 
