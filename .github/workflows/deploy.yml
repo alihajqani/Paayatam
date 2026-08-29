@@ -99,10 +99,14 @@ jobs:
       # running it as root on the production host.
       - name: Parse the deployment scripts
         run: |
+          n=0
           for script in scripts/*.sh; do
             bash -n "$script" || exit 1
+            n=$((n + 1))
           done
-          echo "All ${#} scripts parse."
+          # `${#}` here was the positional-parameter count — always 0 — so this
+          # reported "All 0 scripts parse." on every green run.
+          echo "All ${n} scripts parse."
 
       # `.env` is gitignored, but a forced add or a stray filename should fail
       # loudly here rather than merge quietly.
@@ -277,11 +281,14 @@ jobs:
           LIVE_RESULT: ${{ needs.verify-live.result }}
         run: |
           set -uo pipefail
-          if [ -z "${TOKEN:-}" ] || [ -z "${CHAT:-}" ]; then
-            echo "No TELEGRAM_BOT_TOKEN / MONITORING_CHAT_ID configured — skipping."
-            exit 0
-          fi
 
+          # The outcome is worked out and printed *before* the credentials are
+          # checked, so the job log always records what this run concluded.
+          # Deciding it after the early exit below meant that on a repository
+          # with no Telegram secrets — which is every run so far — the branch
+          # never executed and there was no way to tell a correct verdict from
+          # a broken one.
+          #
           # Ordered so the first true branch is the most specific. `skipped` is a
           # normal outcome now, not a failure: a tag push verifies and stops
           # there, so treating "not success" as "broken" would paint every
@@ -296,6 +303,13 @@ jobs:
             marker="🔴 Deployed, but it is not answering from the internet"
           else
             marker="🟢 Deployed"
+          fi
+
+          echo "verdict: ${marker}"
+
+          if [ -z "${TOKEN:-}" ] || [ -z "${CHAT:-}" ]; then
+            echo "No TELEGRAM_BOT_TOKEN / MONITORING_CHAT_ID configured — not sending."
+            exit 0
           fi
 
           {
