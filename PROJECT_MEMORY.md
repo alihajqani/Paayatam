@@ -17,7 +17,7 @@ join; they negotiate anonymously in a Telegram chat before either knows who the
 other is. Coins price the scarce actions, Trust Score prices the people.
 
 Not a bot script. A **NestJS modular monolith** deployed on a single VPS via
-Docker Compose, live in production at **`v0.4.1`** (deployed 2026-08-29).
+Docker Compose, live in production at **`v0.4.2`** (deployed 2026-08-29).
 
 ## 2. Read these, in this order
 
@@ -232,11 +232,27 @@ suite was green through all of them.
     Consent to something nobody has been shown is not consent, and this is the
     one screen in the product where that distinction is legal rather than
     aesthetic.
-16. **A test can encode the bug.** The unit test covering the too-short-title
+16. **`dispatch` catches everything, so a throw is a silent no-op.** The webhook
+    must answer 200 (ADR-0004), so `BotService.dispatch` swallows every error into
+    a log line. A colon in a BullMQ job id therefore froze **every wizard step
+    after the first, for every user**, while the integration tests stayed green —
+    they assert on *state*, and the state was always correct: the conversation
+    advanced, the event was created, and nothing reached a screen. **Assert that
+    a message was produced, not only that the row moved.** When a bot path looks
+    dead in production and the tests are green, read the API log for
+    `Update <id> failed:` before anything else — that is where a swallowed throw
+    goes.
+17. **One update can owe two messages.** `reply` deduped on `bot:<updateId>`, so
+    the second message of any update was absorbed by the UNIQUE index and never
+    sent — a redelivery guarantee doing its job to something that was not a
+    redelivery. The key is per (update, template) now. Exactly-once was never
+    one-message-per-update; that was an assumption that held while every branch
+    replied once.
+18. **A test can encode the bug.** The unit test covering the too-short-title
     refusal asserted the Latin `3` it produced. It passed for as long as the bug
     existed and would have failed on the fix. When a walkthrough disagrees with a
     green test, the test is a suspect too.
-17. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
+19. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
    why migrations 0022 and 0023 are separate files. They are not rolled back by a
    later failure — additive-only, so a partial apply is safe, but the runbook
    must say so.
