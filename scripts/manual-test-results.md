@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-29, 08:45 Tehran
 **Branch:** `feature/bot-commands` @ `08475b2`
-**Verdict: NOT READY FOR MERGE — one human step outstanding.** See §4.
+**Verdict: SHIPPED ON THE WALKTHROUGH ALONE — risk accepted by the product owner,
+2026-08-29.** See §5.
 
 ---
 
@@ -95,18 +96,31 @@ across the two wizard files.
 
 ## 5. Verdict
 
-**NOT READY FOR MERGE** — on the process as written, which requires a human
-walkthrough in Telegram.
+**Manual test with new bot not executed — risk accepted, rollback is cheap
+(`ENABLE_CONVERSATION_WIZARD=0` + API restart).**
 
-Everything that can be checked without a live bot has been checked and is green.
-The outstanding step is one person, one BotFather token, twenty minutes:
+Decision taken by the product owner on 2026-08-29, having read §4. Everything
+checkable without a live bot is green; what ships unverified is the list under
+"Not verified" above — chiefly how Telegram *draws* the keyboards and whether
+`editMessageText` lands the way the transcript suggests.
+
+The rollback that makes this acceptable, in order of cost:
 
 ```bash
-# with a NEW bot's token in .env — never the production one
-make dev && make tunnel && make webhook
-# then in Telegram: /start → /create_event → walk it → /edit_event → /terms
+# 1. Cheapest. Reverts the bot to read-only. Drafts in flight are kept and
+#    resume when it goes back on; nothing is discarded.
+ssh root@95.182.87.95 "cd /srv/payetam \
+  && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env \
+  && ./scripts/compose.sh restart api"
+
+# 2. Full release rollback, if the problem is not the wizards.
+ssh root@95.182.87.95 "cd /srv/payetam && ./scripts/rollback.sh"
 ```
 
-If that walk is clean, this becomes READY and the merge can proceed. The
-alternative — merging on the strength of the walkthrough alone — is a defensible
-call, but it is a call about risk appetite and it is not mine to make.
+Migration 0025 is additive — one enum, one table, two indexes — so the previous
+release runs unchanged against the new schema and neither rollback needs a down
+migration.
+
+**If a bug does surface in production, the honest first move is still the
+twenty-minute walk with a BotFather token**, because it is the only thing that
+reproduces what a user actually sees.
