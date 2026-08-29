@@ -14,10 +14,20 @@
 # Every service that needs one reads `env_file: ../.env` — the same
 # `/srv/payetam/.env` DEPLOYMENT.md §5 sets up.
 # Deliberately **not** `${POSTGRES_PASSWORD}`-style interpolation: Compose
-# resolves those while parsing, so `docker compose config` would print the
-# database password, the bot token and both JWT secrets to stdout — into a
-# terminal, a CI log, or a pasted bug report. Nothing here interpolates a secret,
-# so `config` is safe to run and safe to share.
+# resolves those while parsing, and a file that interpolates a secret cannot be
+# validated anywhere the secret is absent.
+#
+# **`docker compose config` is still not safe to share.** This block used to
+# claim it was, on the reasoning above. That reasoning covers `${VAR}` and
+# nothing else: Compose v2 *also* inlines `env_file` contents into the
+# `environment:` it prints, so `config` run on the server emits the database
+# password, the bot token and both JWT secrets to stdout — into a terminal, a CI
+# log, or a pasted bug report. Redirect it (`> /dev/null`, which is what
+# `deploy.sh` and the CI check both do) and never paste the output.
+#
+# The consequence for validation: `config` needs `../.env` to *exist*, so CI
+# writes `.env.production.example` there first. Placeholder values validate the
+# structure exactly as well as real ones, and there is nothing to leak.
 #
 # ── What is reachable from outside ───────────────────────────────────────────
 #

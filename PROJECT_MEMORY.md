@@ -585,3 +585,46 @@ Three steps resist automation, two of them deliberately:
 provinces, 1252 cities (31 active), 14 categories, 25 interests, 8 blacklist
 terms, 64 settings. `admin_user` and `user` at 0 — the first administrator is
 created by hand, and `MONITORING_CHAT_ID` is still empty.
+
+### Trap — the deploy workflow had never once succeeded
+
+`gh run list --workflow=deploy.yml` on 2026-08-29: **seven runs, seven failures**,
+every tag from v0.2.0 onward. Not a regression — it had never worked.
+
+One step was responsible:
+
+```yaml
+- name: Validate the compose file
+  run: docker compose -f docker/docker-compose.prod.yml config > /dev/null
+```
+
+Every service declares `env_file: ../.env`. `.env` is gitignored, so on a runner
+it does not exist, and Compose treats a missing `env_file` as fatal *before* it
+validates anything: `env file /home/runner/work/… not found`. CI writes
+`.env.production.example` to `.env` for the length of the step instead —
+placeholder values validate structure exactly as well as real ones.
+
+Two things follow from this, and the second is the one that matters:
+
+1. `deploy` has `needs: verify`, so **no tag has ever deployed from CI.** All
+   seven releases were deployed by hand. The `environment: production` gate was
+   never what protected production; the broken step was.
+2. Fixing `verify` would have made the next tag push deploy on its own, for the
+   first time ever, on the same commit that fixed it. Deploy is therefore now
+   `if: github.event_name == 'workflow_dispatch'` — a tag push verifies and
+   stops, and `notify` treats `skipped` as green rather than as failure.
+
+### Trap — `docker compose config` prints the secrets after all
+
+The compose file's header claimed `config` was "safe to run and safe to share",
+reasoning that nothing uses `${VAR}` interpolation. That covers interpolation and
+nothing else: **Compose v2 also inlines `env_file` contents into the
+`environment:` block it prints.** Run on the server, `config` emits the database
+password, the bot token and both JWT secrets to stdout.
+
+`deploy.sh` and the CI check both redirect to `/dev/null`, so nothing leaked. The
+comment was the hazard — it invited someone to run `config` and paste the output
+into a bug report. Corrected in place.
+
+The general shape, and it is the third time in this file: **a claim about a
+tool's behaviour that was true when written and silently stopped being true.**

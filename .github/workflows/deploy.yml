@@ -2,7 +2,10 @@ name: Deploy
 
 # Tags only, and `v*` only. A deploy is a deliberate act with a name you can say
 # out loud in an incident — "we are on v0.3.1" — and a branch push is neither.
-# Rolling back is `scripts/rollback.sh` on the server, or re-running this
+#
+# **A tag push verifies the tag and stops.** Deploying is `workflow_dispatch`, or
+# `scripts/deploy.sh <tag>` on the server. See the `deploy` job for why.
+# Rolling back is `scripts/rollback.sh` on the server, or dispatching this
 # workflow against the previous tag.
 on:
   push:
@@ -73,8 +76,23 @@ jobs:
       # A malformed compose file is a deploy that stops after the images are
       # built and the old ones are gone. Ten seconds here, on a runner, rather
       # than in the middle of a maintenance window.
+      #
+      # `.env` is gitignored and therefore absent on a runner, while every
+      # service declares `env_file: ../.env` — so `config` failed on the missing
+      # file before it validated anything. This step had never passed: it failed
+      # identically on every tag from v0.2.0 onwards, which took the whole
+      # workflow down with it and is why no tag has ever deployed from CI.
+      #
+      # The example carries the same keys with placeholder values, which is all
+      # `config` needs, and validating against it also proves the example itself
+      # still parses. Removed afterwards so nothing later in the job picks up a
+      # file full of `CHANGE_ME`. Output is discarded because `config` inlines
+      # `env_file` values — see the header of the compose file.
       - name: Validate the compose file
-        run: docker compose -f docker/docker-compose.prod.yml config > /dev/null
+        run: |
+          cp .env.production.example .env
+          docker compose -f docker/docker-compose.prod.yml config > /dev/null
+          rm .env
 
       # Shell scripts are the part of this deployment with no type checker.
       # `bash -n` catches the unclosed quote that would otherwise be found by
@@ -108,11 +126,24 @@ jobs:
   # is what turns it into containers.
   #
   # `environment: production` is what gives this a required-reviewer gate in the
-  # repository settings, and it is worth turning on: a tag push is otherwise
-  # enough on its own to replace what real users are talking to.
+  # repository settings, and it is still worth turning on — the `if:` below keeps
+  # a tag push from reaching this job, but a dispatch reaches it immediately, and
+  # the gate is the only thing between a mistyped tag and what real users are
+  # talking to.
   deploy:
     name: deploy to the server
     needs: verify
+    # **A tag push verifies; it does not deploy.** Every release so far has been
+    # deployed by hand from the server, with a data baseline taken before and
+    # compared after — and this job could not have done that even if it had
+    # worked, because `verify` failed on every tag from v0.2.0 onwards and
+    # `needs: verify` meant this never ran once.
+    #
+    # Rather than switch seven releases' worth of manual practice to automatic
+    # on the commit that first makes it possible, deploying stays deliberate:
+    # `scripts/deploy.sh <tag>` on the server, or this workflow run by hand from
+    # the Actions tab against a tag that has already passed verification.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment:
@@ -251,14 +282,20 @@ jobs:
             exit 0
           fi
 
-          if [ "$DEPLOY_RESULT" = "success" ] && [ "$LIVE_RESULT" = "success" ]; then
-            marker="🟢 Deployed"
-          elif [ "$VERIFY_RESULT" != "success" ]; then
-            marker="🔴 Deploy blocked — the tag did not pass verification"
+          # Ordered so the first true branch is the most specific. `skipped` is a
+          # normal outcome now, not a failure: a tag push verifies and stops
+          # there, so treating "not success" as "broken" would paint every
+          # release red and teach everyone to ignore the channel.
+          if [ "$VERIFY_RESULT" != "success" ]; then
+            marker="🔴 Blocked — the tag did not pass verification"
+          elif [ "$DEPLOY_RESULT" = "skipped" ]; then
+            marker="🟢 Verified. Deploy is manual: ./scripts/deploy.sh ${RELEASE_TAG}"
           elif [ "$DEPLOY_RESULT" != "success" ]; then
             marker="🔴 Deploy FAILED"
-          else
+          elif [ "$LIVE_RESULT" != "success" ]; then
             marker="🔴 Deployed, but it is not answering from the internet"
+          else
+            marker="🟢 Deployed"
           fi
 
           {
@@ -267,7 +304,7 @@ jobs:
             printf 'commit: %s\n' "${GITHUB_SHA:0:8}"
             printf 'by: %s\n' "${GITHUB_ACTOR}"
             printf 'run: %s/%s/actions/runs/%s\n' "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
-            if [ "$DEPLOY_RESULT" != "success" ] || [ "$LIVE_RESULT" != "success" ]; then
+            if [ "$DEPLOY_RESULT" = "failure" ] || [ "$LIVE_RESULT" = "failure" ]; then
               printf '\nOn the server: ./scripts/rollback.sh\n'
             fi
           } > /tmp/message
@@ -283,5 +320,7 @@ jobs:
           shred -u /tmp/curlrc 2> /dev/null || rm -f /tmp/curlrc
 
       - name: Fail the run when any stage failed
-        if: needs.verify.result != 'success' || needs.deploy.result != 'success' || needs.verify-live.result != 'success'
+        # `failure`, not `!= success`: on a tag push deploy and verify-live are
+        # skipped by design, and skipped is not a failure.
+        if: needs.verify.result != 'success' || needs.deploy.result == 'failure' || needs.verify-live.result == 'failure'
         run: exit 1
