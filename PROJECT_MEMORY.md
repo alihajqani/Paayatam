@@ -17,7 +17,12 @@ join; they negotiate anonymously in a Telegram chat before either knows who the
 other is. Coins price the scarce actions, Trust Score prices the people.
 
 Not a bot script. A **NestJS modular monolith** deployed on a single VPS via
-Docker Compose, live in production at `v0.3.0`.
+Docker Compose, live in production at `v0.3.1`.
+
+**v0.4.0 is built, green and unmerged.** It moves every user-facing form into
+the bot (ADR-0017). It is not merged because the release process requires a
+manual walk in Telegram and that walk cannot be done from this checkout — the
+`.env` token is production's. See `scripts/manual-test-results.md`.
 
 ## 2. Read these, in this order
 
@@ -209,7 +214,20 @@ suite was green through all of them.
     prefills needs `touchedFields`, which the machine maintains. The general
     shape: **a default that is indistinguishable from an answer will eventually
     be saved as one.**
-13. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
+13. **The bot bypassed the policy gate for two milestones.**
+    `@RequiresCurrentPolicies()` is a route decorator read by `AuthGuard`, and
+    `BotService` does not pass through `AuthGuard` — it calls domain services
+    directly. So chat relays, participation decisions and contact sharing were
+    all possible without a current acceptance, from M13 until ADR-0017. The
+    general shape, which `BotService`'s own comment already stated and which
+    nobody had checked against the *gate*: **a rule enforced in a guard protects
+    the surface the guard runs on, and the bot is not that surface.** Ask of any
+    new cross-cutting rule: which surfaces does it actually reach?
+14. **A test can encode the bug.** The unit test covering the too-short-title
+    refusal asserted the Latin `3` it produced. It passed for as long as the bug
+    existed and would have failed on the fix. When a walkthrough disagrees with a
+    green test, the test is a suspect too.
+15. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
    why migrations 0022 and 0023 are separate files. They are not rolled back by a
    later failure — additive-only, so a partial apply is safe, but the runbook
    must say so.
@@ -379,6 +397,40 @@ a fact about the thing rather than a relationship between two people.
 `deepLinkTarget()` — the payload is attacker-supplied. Pinned by
 `apps/miniapp/src/telegram/deep-links.test.ts`, which renders every template and
 checks its target. It found two that had never worked.
+
+## 10a. v0.4.0 — the bot wizards, and where the release stands
+
+Built on `feature/bot-commands`, green, **not merged and not deployed**.
+
+| Piece | State |
+|---|---|
+| `ACCEPT_POLICIES` — the consent gate | done, 6 integration tests |
+| `CREATE_EVENT` — `/create_event` | done, walked end to end to a real `event` row |
+| `EDIT_EVENT` — `/edit_event` | done, reuses the create steps |
+| `EDIT_PROFILE` — `/edit_profile` | done |
+| `/terms` | done |
+| `ENABLE_CONVERSATION_WIZARD` | rollback lever, defaults on, non-destructive off |
+| Manual test in Telegram | **outstanding** — see below |
+| Merge / tag / deploy | **blocked on the manual test** |
+
+**Why it is not merged.** `make webhook` calls `setWebhook` on whatever token
+`.env` holds, and that token is the **production** bot —
+`./scripts/set-webhook.sh --info` reports its webhook at `app.paayatam.online`.
+Running it would deliver real users' messages to a laptop, and a *failed*
+`setWebhook` deletes the previous registration, leaving production deaf. A real
+manual test needs a second bot from BotFather, which nothing here can create.
+
+**What was done instead.** `pnpm bot-walkthrough` (`tools/bot-walkthrough.ts`)
+drives the real step machine through the real renderer and prints every screen —
+no database, no network. It found two bugs the 2672 automated tests could not:
+a calendar row of seven blank buttons, and validation messages in Latin digits
+sitting under a Persian progress line. Run it after touching any wizard; a
+removed button or a changed screen shows up in a diff of its output.
+
+Retiring the Mini App is planned separately in
+`docs/v0.4.1-mini-app-retirement-plan.md` and is **more than a config change**:
+21 templates carry a deep link, and five of them point at screens the bot still
+does not have.
 
 ## 11. Open operational items
 

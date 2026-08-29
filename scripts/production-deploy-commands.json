@@ -1,21 +1,22 @@
 {
   "release": "v0.4.0",
-  "status": "PROPOSED — not executed",
-  "commit": "18fb67a",
+  "status": "PROPOSED — not executed. Blocked on the manual test; see scripts/manual-test-results.md",
+  "commit": "894d3f7",
   "branch": "feature/bot-commands",
   "summary": "Conversation wizards (ADR-0017): /create_event, /edit_event, /edit_profile, the consent gate and /terms. The bot's policy gate, which AuthGuard never applied to it.",
   "verified_locally": {
     "typecheck": "pass",
     "lint": "pass",
     "format": "pass",
-    "unit_component": "1309/1309 in 76 files",
+    "unit_component": "1310/1310 in 76 files",
     "integration_real_postgres": "1363/1363 in 49 files",
     "docker_targets": "api, worker, web all build",
-    "jalali_in_shipped_image": "fa-IR-u-ca-persian verified inside payetam/api"
+    "jalali_in_shipped_image": "fa-IR-u-ca-persian verified inside payetam/api",
+    "walkthrough": "pnpm bot-walkthrough — every screen rendered; found and fixed 2 bugs"
   },
   "blocked_on_human_decision": [
-    "Merging feature/bot-commands to master",
-    "Retiring the Mini App in production (see mini_app_retirement below)",
+    "A manual walk in Telegram with a NON-production bot token. make webhook against .env would re-point the live bot at a local tunnel — its webhook is currently registered at app.paayatam.online.",
+    "Merging feature/bot-commands to master (gated on that walk by the release process)",
     "Running the deploy against a live server with real users"
   ],
   "commands": {
@@ -54,7 +55,7 @@
     "backups": "conversation_state is covered by the existing dump; there is no table list to update."
   },
   "mini_app_retirement": {
-    "status": "NOT INCLUDED IN THIS RELEASE — two blockers found",
+    "status": "PLANNED SEPARATELY — see docs/v0.4.1-mini-app-retirement-plan.md",
     "blocker_1_vhost": "docker/sites-available/app.paayatam.online.conf serves the Mini App static files AND /api/, /telegram/webhook/ and /health from the same server block. Removing the block would take the bot offline. Retirement means deleting only the static locations (root, /assets/, = /index.html and the SPA fallback) and keeping every proxy_pass — a surgical edit, not a service removal.",
     "blocker_2_deep_links": "20 templates render a «باز کردن برنامه» button built by openAppButton, plus the channel post and the invitation renderer. If the Mini App stops being served, every one of those buttons 404s. Retiring the app is therefore a code change across the template catalogue, not a config change.",
     "recommended_order": [
@@ -62,6 +63,7 @@
       "Remove or repoint the openAppButton deep links in packages/telegram",
       "Strip the static locations from the app vhost, keeping the API and webhook locations",
       "Deploy that as a separate release, which is then rollback-able on its own"
-    ]
+    ],
+    "blocker_3_missing_bot_surfaces": "Five of the 21 deep links point at screens the bot does not have: writing a review, reading revealed reviews, the coin ledger, filtered discovery, event detail. Three are small (two formatters and one wizard); filtered discovery is a product decision."
   }
 }
