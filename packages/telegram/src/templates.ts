@@ -546,8 +546,15 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * `REVIEW_WINDOW_OPEN`; it resolves to `/reviews`, which is the screen with
      * the form on it.
      */
-    case TEMPLATES.BOT_REVIEWS:
-      return opened(prerendered(payload), `reviews/pending`);
+    case TEMPLATES.BOT_REVIEWS: {
+      // A row of five ratings per pending review, in the digest's order.
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `reviews/pending`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     case TEMPLATES.BOT_PROFILE:
       return opened(

@@ -62,6 +62,8 @@ const HOST_TELEGRAM_ID = 573_914_882;
 const GUEST_TELEGRAM_ID = 601_222_333;
 /** Never seeded: `/start` is what creates this one, so it has no profile. */
 const NEWCOMER_TELEGRAM_ID = 733_818_204;
+/** A second guest, for the "not your participation" refusal. */
+const SECOND_GUEST_TELEGRAM_ID = 688_401_557;
 const HOST_USERNAME = 'leaky_host_handle';
 
 let updateSequence = 5000;
@@ -1412,6 +1414,95 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
     await tap(HOST_TELEGRAM_ID, 'wz:cancel:');
 
     expect(await prisma.conversationState.count()).toBe(0);
+  });
+});
+
+/**
+ * Writing a review from the bot.
+ *
+ * `/reviews` listed what you owed and gave you no way to pay it: the form was
+ * `ReviewsView`, and v0.4.6 removed the last button that opened it. A row of
+ * five ratings per pending review answers the part that moves the Trust Score.
+ */
+describe('POST /telegram/:secret — rating somebody', () => {
+  let sequence = 9500;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  /** A participation whose review window is open right now. */
+  async function seedPending(): Promise<{ guestId: string; participantPublicId: string }> {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.accept(hostId, joined.publicId);
+
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { userId: guestId },
+      select: { id: true, publicId: true, eventId: true },
+    });
+    await prisma.reviewPair.create({
+      data: {
+        participantId: participant.id,
+        eventId: participant.eventId,
+        opensAt: new Date(Date.now() - 60_000),
+        deadlineAt: new Date(Date.now() + 86_400_000),
+        status: 'PENDING',
+      },
+    });
+    return { guestId, participantPublicId: participant.publicId };
+  }
+
+  it('offers five ratings per pending review, and rating writes one', async () => {
+    const { guestId, participantPublicId } = await seedPending();
+
+    await type(GUEST_TELEGRAM_ID, '/reviews');
+
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REVIEWS },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const raw = (digest.payload as Record<string, unknown>)['keyboard'];
+    const rows = JSON.parse(String(raw)) as { text: string; callbackData: string }[][];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveLength(5);
+    expect(rows[0]?.[3]?.callbackData).toBe(`rv:rate4:${participantPublicId}`);
+
+    await tap(GUEST_TELEGRAM_ID, `rv:rate4:${participantPublicId}`);
+
+    const review = await prisma.review.findFirstOrThrow({
+      where: { reviewerUserId: guestId },
+      select: { rating: true },
+    });
+    expect(review.rating).toBe(4);
+  });
+
+  /** A tampered participation is one the service declines. Authorisation is not in the button. */
+  it("writes nothing for a participation that is not the caller's", async () => {
+    await seedPending();
+    await seedGuest(SECOND_GUEST_TELEGRAM_ID, 'کس دیگر');
+
+    await tap(SECOND_GUEST_TELEGRAM_ID, 'rv:rate5:00000000-0000-4000-8000-000000000000');
+
+    expect(await prisma.review.count()).toBe(0);
   });
 });
 

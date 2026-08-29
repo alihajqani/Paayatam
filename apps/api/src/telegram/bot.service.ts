@@ -57,6 +57,9 @@ import {
   parseChatCallback,
   parseEventCallback,
   encodeEventCallback,
+  parseReviewCallback,
+  encodeReviewCallback,
+  REVIEW_RATINGS,
   isPublicId,
   isoDay,
   parseIsoDay,
@@ -454,7 +457,24 @@ export class BotService {
             deadlineAt: row.deadlineAt,
           })),
         );
-        return this.reply(updateId, user.id, TEMPLATES.BOT_REVIEWS, { text });
+        /**
+         * Five ratings per pending review, one row each, in the digest's order.
+         *
+         * `/reviews` used to be a list of things you owed and could not pay: the
+         * form was in the Mini App and v0.4.6 removed the last button to it.
+         */
+        const rateable = pending.filter((row) => isPublicId(row.participantPublicId));
+        const rows = rateable.map((row) =>
+          REVIEW_RATINGS.map((rating) => ({
+            text: `${toPersianDigits(String(rating))}⭐`,
+            callbackData: encodeReviewCallback(rating, row.participantPublicId),
+          })),
+        );
+
+        return this.reply(updateId, user.id, TEMPLATES.BOT_REVIEWS, {
+          text,
+          ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+        });
       }
 
       /**
@@ -799,6 +819,28 @@ export class BotService {
      * other button does — the bot does not pass through `AuthGuard`, so the
      * policy gate is applied here or nowhere.
      */
+    /**
+     * A rating tap. Before `chat:` and `ev:`, told apart by prefix like the rest.
+     */
+    const reviewCallback = parseReviewCallback(data);
+    if (reviewCallback !== null) {
+      if (!(await this.mayWrite(update.updateId, user))) {
+        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        return;
+      }
+      try {
+        await this.reviews.submit(user.id, reviewCallback.id, { rating: reviewCallback.rating });
+        await this.answer(
+          callbackQueryId,
+          `نظر شما ثبت شد ✅ (${toPersianDigits(String(reviewCallback.rating))} از ۵)`,
+        );
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+        await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+      }
+      return;
+    }
+
     const eventCallback = parseEventCallback(data);
     if (eventCallback !== null) {
       if (!(await this.mayWrite(update.updateId, user))) {

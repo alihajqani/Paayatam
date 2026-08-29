@@ -138,3 +138,58 @@ export function parseEventCallback(data: string): EventCallback | null {
 
   return { action: action as EventCallbackAction, id };
 }
+
+/**
+ * The review protocol: `rv:rate<1-5>:<participant public id>`.
+ *
+ * ── Why the rating is in the action and not the value ───────────────────────
+ *
+ * The value slot holds the participant public id, which is a UUID and spends 36
+ * of the 64 bytes on its own. Putting the rating there too would need a fourth
+ * field and a separator the parsers already refuse. `rv:rate4:<uuid>` is 45
+ * bytes and needs neither.
+ *
+ * ── Why a review is two taps and not a form ─────────────────────────────────
+ *
+ * `ReviewsView` asks for a rating, up to five tags and a comment on one screen.
+ * The bot asks for the rating, because the rating is the part that moves the
+ * Trust Score and the part almost everybody fills in — and a review that gets
+ * written is worth more than a richer one that does not. Tags and the comment
+ * are a real gap and want a wizard of their own; `review.edit_window_minutes`
+ * is what will let that wizard amend a rating already given.
+ *
+ * Authorisation is not in the button, as everywhere else: `ReviewService.submit`
+ * refuses a participation that is not the caller's, one whose window has not
+ * opened, and one whose deadline has passed.
+ */
+export const REVIEW_RATINGS = [1, 2, 3, 4, 5] as const;
+export type ReviewRating = (typeof REVIEW_RATINGS)[number];
+
+export interface ReviewCallback {
+  rating: ReviewRating;
+  /** The participation being reviewed. */
+  id: string;
+}
+
+const REVIEW_PREFIX = 'rv';
+
+export function encodeReviewCallback(rating: ReviewRating, id: string): string {
+  const data = `${REVIEW_PREFIX}:rate${String(rating)}:${id}`;
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+export function parseReviewCallback(data: string): ReviewCallback | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, action, id] = parts;
+  if (prefix !== REVIEW_PREFIX || id === undefined || !isPublicId(id)) return null;
+  if (action === undefined || !action.startsWith('rate')) return null;
+
+  const rating = Number(action.slice(4));
+  const match = REVIEW_RATINGS.find((candidate) => candidate === rating);
+  return match === undefined ? null : { rating: match, id };
+}

@@ -73,6 +73,8 @@ export {
 export type { ChatCallback, ChatCallbackAction } from './callback-data';
 export { EVENT_CALLBACK_ACTIONS, encodeEventCallback, parseEventCallback } from './callback-data';
 export type { EventCallback, EventCallbackAction } from './callback-data';
+export { REVIEW_RATINGS, encodeReviewCallback, parseReviewCallback } from './callback-data';
+export type { ReviewCallback, ReviewRating } from './callback-data';
 
 export { chatKeyboard, hostDecisionKeyboard, openAppButton } from './keyboards';
 export type { InlineButton, InlineKeyboard } from './keyboards';
