@@ -134,6 +134,7 @@ export function calendarKeyboard(
     })),
   ];
 
+  const weeks: InlineButton[][] = [];
   let row: InlineButton[] = [];
   for (let column = 0; column < persianWeekday(first); column += 1) row.push(filler());
 
@@ -147,14 +148,31 @@ export function calendarKeyboard(
           },
     );
     if (row.length === 7) {
-      rows.push(row);
+      weeks.push(row);
       row = [];
     }
   }
   if (row.length > 0) {
     while (row.length < 7) row.push(filler());
-    rows.push(row);
+    weeks.push(row);
   }
+
+  /**
+   * Drop whole weeks that are entirely in the past.
+   *
+   * Looking at the current month on the 7th, the first row is seven blanks — a
+   * row of dead squares above the days somebody can actually pick. It is not
+   * merely ugly: an inline keyboard is a tap target, and a row that answers
+   * nothing teaches the reader that this keyboard has parts that do not work.
+   *
+   * Only *leading* weeks are dropped, and only when nothing in them is
+   * selectable. A gap in the middle of a month cannot happen — `earliest` moves
+   * forward, never in and out.
+   */
+  const hasDay = (week: readonly InlineButton[]): boolean =>
+    week.some((button) => button.callbackData?.startsWith(`wz:${step}:`) === true);
+  while (weeks.length > 0 && !hasDay(weeks[0] as InlineButton[])) weeks.shift();
+  rows.push(...weeks);
 
   /**
    * The heading row is last so the month name sits directly above the trailer

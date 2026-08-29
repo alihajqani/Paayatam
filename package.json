@@ -33,6 +33,7 @@
     "seed:gift-codes-dev": "tsx --env-file=.env tools/seed-gift-codes-dev.ts",
     "create-admin": "tsx --env-file-if-exists=.env tools/create-admin.ts",
     "set-bot-commands": "tsx --env-file=.env tools/set-bot-commands.ts",
+    "bot-walkthrough": "tsx tools/bot-walkthrough.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {

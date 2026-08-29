@@ -23,11 +23,27 @@ describe('title', () => {
     });
   });
 
-  it('says how short is too short, rather than just refusing', () => {
+  /**
+   * The bound is stated, and stated in **Persian digits** — this asserted the
+   * Latin `3` until the walkthrough showed «باید دست‌کم 3 نویسه باشد» rendered
+   * beside «گام ۱ از ۱۱». Every other number this product shows a user is
+   * Persian; a validation message is not the place to make an exception.
+   */
+  it('says how short is too short, in Persian digits', () => {
     const result = accept('title', 'ab');
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('۳'.replace('۳', '3'));
+    if (!result.ok) {
+      expect(result.error).toContain('۳');
+      expect(result.error).not.toMatch(/[0-9]/);
+    }
+  });
+
+  it('states a range in Persian digits too', () => {
+    const result = accept('cap', '99');
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).not.toMatch(/[0-9]/);
   });
 
   it('refuses one that is too long', () => {

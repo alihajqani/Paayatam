@@ -98,10 +98,10 @@ function text(input: WizardInput, min: number, max: number, what: string): TextR
   }
   const value = input.value.trim();
   if (value.length < min) {
-    return { ok: false, error: `${what} باید دست‌کم ${String(min)} نویسه باشد.` };
+    return { ok: false, error: `${what} باید دست‌کم ${toPersianDigits(String(min))} نویسه باشد.` };
   }
   if (value.length > max) {
-    return { ok: false, error: `${what} نباید بیش از ${String(max)} نویسه باشد.` };
+    return { ok: false, error: `${what} نباید بیش از ${toPersianDigits(String(max))} نویسه باشد.` };
   }
   return { ok: true, value };
 }
@@ -113,7 +113,7 @@ function integer(input: WizardInput, min: number, max: number, what: string): nu
 
   const value = Number.parseInt(raw, 10);
   if (value < min || value > max) {
-    return `${what} باید بین ${String(min)} و ${String(max)} باشد.`;
+    return `${what} باید بین ${toPersianDigits(String(min))} و ${toPersianDigits(String(max))} باشد.`;
   }
   return value;
 }
