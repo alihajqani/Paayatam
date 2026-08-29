@@ -17,7 +17,7 @@ join; they negotiate anonymously in a Telegram chat before either knows who the
 other is. Coins price the scarce actions, Trust Score prices the people.
 
 Not a bot script. A **NestJS modular monolith** deployed on a single VPS via
-Docker Compose, live in production at **`v0.4.0`** (deployed 2026-08-29).
+Docker Compose, live in production at **`v0.4.1`** (deployed 2026-08-29).
 
 ## 2. Read these, in this order
 
@@ -218,11 +218,25 @@ suite was green through all of them.
     nobody had checked against the *gate*: **a rule enforced in a guard protects
     the surface the guard runs on, and the bot is not that surface.** Ask of any
     new cross-cutting rule: which surfaces does it actually reach?
-14. **A test can encode the bug.** The unit test covering the too-short-title
+14. **A message that is not edited becomes a keyboard that outlives its step.**
+    `conversation_state.last_message_id` was never set in v0.4.0, so every wizard
+    step sent a *new* message. The visible bug was chat clutter; the damaging one
+    was that old keyboards stayed on screen, and tapping one sent a callback for
+    a step the user had left — which the current step refused with a message
+    about a different field. It was reported as «the Free button is broken». Two
+    fixes, and both are needed: the worker records the id after sending a
+    `bot.wizard`, and a callback whose action does not match the current step
+    **re-renders instead of refusing**.
+15. **Showing a document's *title* is not showing the document.** The consent
+    gate printed «TERMS v1 — قوانین استفاده از پایه‌تَم» over an accept button.
+    Consent to something nobody has been shown is not consent, and this is the
+    one screen in the product where that distinction is legal rather than
+    aesthetic.
+16. **A test can encode the bug.** The unit test covering the too-short-title
     refusal asserted the Latin `3` it produced. It passed for as long as the bug
     existed and would have failed on the fix. When a walkthrough disagrees with a
     green test, the test is a suspect too.
-15. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
+17. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
    why migrations 0022 and 0023 are separate files. They are not rolled back by a
    later failure — additive-only, so a partial apply is safe, but the runbook
    must say so.
@@ -393,7 +407,7 @@ a fact about the thing rather than a relationship between two people.
 `apps/miniapp/src/telegram/deep-links.test.ts`, which renders every template and
 checks its target. It found two that had never worked.
 
-## 10a. v0.4.0 — the bot wizards
+## 10a. v0.4.0 / v0.4.1 — the bot wizards
 
 Merged to `master` (`2c98a31`), tagged, **deployed 2026-08-29**. 27 smoke checks
 passed; `.deploy/previous-release` reads `v0.3.1`.
@@ -418,7 +432,12 @@ needs a second bot from BotFather, which nothing here can create. The product
 owner accepted that risk against a cheap rollback; `scripts/manual-test-results.md`
 records what is and is not verified.
 
-**So the first person to walk a wizard in Telegram will be a user.** If something
+**The first person to walk a wizard in Telegram was a user, and it showed.**
+v0.4.1 is the repair: ten reports, eight of which traced to one fault — the
+wizard never edited its own message, so old keyboards accumulated and taps landed
+on steps the user had left. The walkthrough could not have caught it; it renders
+screens, and this was a bug about *which* screen a tap reaches. What would have
+caught it is twenty minutes in Telegram. If something
 looks wrong in production, the honest first move is still the twenty-minute walk
 with a BotFather token — it is the only thing that reproduces what a user sees.
 The fast lever meanwhile is `ENABLE_CONVERSATION_WIZARD=0` plus an API restart,
