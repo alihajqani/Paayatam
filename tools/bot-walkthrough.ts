@@ -241,14 +241,27 @@ async function main(): Promise<void> {
     cost: { kind: 'callback', action: 'cost', value: 'FREE' },
   });
 
+  /**
+   * The field list `BotService.summaryLines` builds, mirrored here.
+   *
+   * Mirrored rather than called: that method needs the catalog and a Nest
+   * container, and this tool deliberately touches neither. If the two drift, the
+   * integration test is what catches it — this is here so the transcript shows
+   * what a host actually reviews.
+   */
   const summary = renderSummary(
     [
       { label: 'نام', value: form.title ?? '' },
       { label: 'دسته', value: 'ورزش و طبیعت' },
-      { label: 'شهر', value: CITY_NAMES[0] ?? '' },
-      { label: 'زمان', value: '۲۲ شهریور ۱۴۰۵ — ساعت ۸' },
-      { label: 'ظرفیت', value: '۶' },
+      { label: 'مکان', value: `${CITY_NAMES[0] ?? ''} — منطقه ۱` },
+      { label: 'زمان', value: '۲۲ شهریور ۱۴۰۵ — ساعت ۰۸:۰۰' },
+      { label: 'مدت', value: '۴ ساعت' },
+      { label: 'ظرفیت', value: '۶ نفر' },
       { label: 'هزینه', value: 'رایگان' },
+      {
+        label: 'توضیح',
+        value: typeof form.description === 'string' ? form.description : '',
+      },
     ],
     true,
   );
