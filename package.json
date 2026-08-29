@@ -32,6 +32,8 @@
     "seed:events": "tsx --env-file=.env tools/seed-events.ts",
     "seed:gift-codes-dev": "tsx --env-file=.env tools/seed-gift-codes-dev.ts",
     "create-admin": "tsx --env-file-if-exists=.env tools/create-admin.ts",
+    "set-bot-commands": "tsx --env-file=.env tools/set-bot-commands.ts",
+    "bot-walkthrough": "tsx tools/bot-walkthrough.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
@@ -40,6 +42,7 @@
     "@payetam/db": "workspace:*",
     "@payetam/domain": "workspace:*",
     "@payetam/platform": "workspace:*",
+    "@payetam/telegram": "workspace:*",
     "@prisma/adapter-pg": "^7.9.1",
     "@types/node": "^22.10.0",
     "@vitejs/plugin-vue": "^6.0.4",

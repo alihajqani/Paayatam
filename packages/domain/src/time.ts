@@ -92,3 +92,34 @@ export function startOfDayIn(instant: Date, timeZone: string): Date {
   const firstGuess = new Date(localMidnightAsUtc - offsetMsAt(instant, timeZone));
   return new Date(localMidnightAsUtc - offsetMsAt(firstGuess, timeZone));
 }
+
+/**
+ * A wall-clock time in a zone, as the UTC instant it names.
+ *
+ * The inverse of `partsIn`, and the direction the bot's date picker needs: a user
+ * chooses «۱۵ شهریور» and «۱۸:۰۰», which is a local wall clock, and the database
+ * stores UTC (ADR-0008).
+ *
+ * Two passes, for the reason `startOfDayIn` gives: the first uses the offset in
+ * force at the guessed instant, the second re-reads the offset there and
+ * corrects it. `Asia/Tehran` has been a fixed +03:30 since 2022, so today the two
+ * passes agree — but an event time that is silently an hour wrong twice a year is
+ * not worth the lines saved, and this helper is the one the wizard commits a
+ * host's event to.
+ *
+ * `month` is 1-based, as a human writes it, because every caller reads it off a
+ * date the user picked rather than out of a `Date`.
+ */
+export function zonedTimeToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): Date {
+  const asIfUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+
+  const firstGuess = new Date(asIfUtc - offsetMsAt(new Date(asIfUtc), timeZone));
+  return new Date(asIfUtc - offsetMsAt(firstGuess, timeZone));
+}

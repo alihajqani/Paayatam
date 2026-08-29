@@ -1,4 +1,6 @@
-import { isPublicId } from './callback-data';
+import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
+import { encodeChatCallback, isPublicId } from './callback-data';
+import { helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
   chatKeyboard,
@@ -38,6 +40,8 @@ export const TEMPLATES = {
   CHAT_MESSAGE: 'chat.message',
   CHAT_MESSAGE_EDITED: 'chat.message_edited',
   CHAT_MESSAGE_DELETED: 'chat.message_deleted',
+  /** The «آیا مطمئنید؟» step before contact details are disclosed (report 6). */
+  CHAT_SHARE_CONFIRM: 'chat.share_confirm',
   REVIEW_REVEALED: 'review.revealed',
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
@@ -57,6 +61,43 @@ export const TEMPLATES = {
    * exists — and the copy is the one that would fall behind.
    */
   BOT_NOTICE: 'bot.notice',
+  /** `/help` — what the bot can do, for somebody who has only ever seen `/start`. */
+  BOT_HELP: 'bot.help',
+  /** `/balance` — the coin balance, without opening anything. */
+  BOT_BALANCE: 'bot.balance',
+  /** `/requests` — what the sender has asked to join, and where each one stands. */
+  BOT_REQUESTS: 'bot.requests',
+  /** `/myevents` — what the sender is hosting, and how full each one is. */
+  BOT_MY_EVENTS: 'bot.my_events',
+  /** `/chats` — which conversations are open, and who is waiting for a reply. */
+  BOT_CHATS: 'bot.chats',
+  /** `/profile` — who the product thinks you are, including your Trust Score. */
+  BOT_PROFILE: 'bot.profile',
+  /** `/discover` — what is on in the sender's city, without opening anything. */
+  BOT_DISCOVER: 'bot.discover',
+  /** `/reviews` — the reviews the sender still owes, and when they expire. */
+  BOT_REVIEWS: 'bot.reviews',
+  /**
+   * A conversation wizard's screen (ADR-0017).
+   *
+   * A passthrough, like `BOT_NOTICE`: the body and the keyboard are built by
+   * `renderStep` and `renderSummary`, which know the step. A template per step
+   * would be a second copy of the wizard definition, and the copy is the one
+   * that falls behind.
+   *
+   * Only the **first** screen is a notification. Every screen after it is an
+   * `editMessageText` job on the same message, which is what makes a wizard a
+   * screen rather than a transcript.
+   */
+  BOT_WIZARD: 'bot.wizard',
+  /** The event exists. Said once, with the way to open it. */
+  BOT_EVENT_CREATED: 'bot.event_created',
+  /** The policies are accepted and the gate is clear (ADR-0017). */
+  BOT_CONSENT_ACCEPTED: 'bot.consent_accepted',
+  /** The channel requirement stands, with a button per channel to join. */
+  BOT_CHANNEL_GATE: 'bot.channel_gate',
+  /** `/terms` for somebody already up to date: what they accepted, and when. */
+  BOT_TERMS_STANDING: 'bot.terms_standing',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -71,6 +112,24 @@ export interface RenderedMessage {
 }
 
 type Payload = Record<string, unknown>;
+
+/**
+ * A body that is **already** HTML, passed through unescaped.
+ *
+ * Exactly one caller: `BOT_WIZARD`, whose text comes from `renderStep`, which
+ * emits its own `<b>`/`<i>` and has already escaped every user-supplied value it
+ * interpolated — a prompt, a validation message, a title somebody typed. Running
+ * `escapeHtml` over that a second time turns the wizard's own markup into visible
+ * `&lt;i&gt;`, which is what it did until this existed.
+ *
+ * **The contract is one-directional and narrow:** a template may use this only
+ * when the value was produced by this package's own renderer. Anything that
+ * originates with a user goes through `str`.
+ */
+function raw(payload: Payload, key: string): string {
+  const value = payload[key];
+  return typeof value === 'string' ? value : '';
+}
 
 function str(payload: Payload, key: string): string {
   const value = payload[key];
@@ -140,7 +199,7 @@ export function render(
      */
     case TEMPLATES.PARTICIPATION_REQUESTED_HOST: {
       const participant = id(payload, 'participantPublicId');
-      const deepLink = `participants/${participant ?? ''}`;
+      const deepLink = HOST_DECISION_SCREEN;
       return {
         text:
           `<b>درخواست تازه</b>\n\n` +
@@ -161,11 +220,20 @@ export function render(
         botUsername,
       );
 
+    /**
+     * The one notification where the disclaimer belongs (report 8).
+     *
+     * Not on every message about an event — a liability line under a chat relay
+     * is noise, and noise is how a disclaimer stops being read. This is the
+     * moment a real-world meeting with a stranger becomes real, which is the
+     * moment «احتیاط کنید» is actually advice rather than boilerplate.
+     */
     case TEMPLATES.PARTICIPATION_ACCEPTED:
       return opened(
         `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
-          `از این پس می‌توانید اطلاعات تماس را در گفتگو رد و بدل کنید.`,
+          `از این پس می‌توانید اطلاعات تماس را در گفتگو رد و بدل کنید.\n\n` +
+          `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
         `chats/${str(payload, 'chatPublicId')}`,
         botUsername,
       );
@@ -190,7 +258,7 @@ export function render(
     /** D8: and so does the host, in the same domain event — decision buttons included. */
     case TEMPLATES.WAITLIST_PROMOTED_HOST: {
       const participant = id(payload, 'participantPublicId');
-      const deepLink = `participants/${participant ?? ''}`;
+      const deepLink = HOST_DECISION_SCREEN;
       return {
         text:
           `یک درخواست از لیست انتظار به «${str(payload, 'eventTitle')}» منتقل شد و ` +
@@ -248,6 +316,48 @@ export function render(
         payload,
         botUsername,
       );
+
+    /**
+     * The confirmation before contact details are shared (report 6).
+     *
+     * Two things have to be true of this message and both are load-bearing.
+     *
+     * It must **not overstate what happens**: agreeing discloses nothing by
+     * itself. The platform holds no phone number and will not surrender a
+     * Telegram handle — what changes is that the user's own messages stop being
+     * masked, so they can send their details themselves if they choose to. A
+     * message that said "your contact details will be shared" would be describing
+     * a thing the product does not do, and the user would act on it.
+     *
+     * And it must carry the button, because the whole point of this step is that
+     * the *decision* happens here rather than in another application. The
+     * conditional is the same one every other keyboard here has: a malformed
+     * payload degrades to a plain message rather than a button that confirms
+     * nothing.
+     */
+    case TEMPLATES.CHAT_SHARE_CONFIRM: {
+      const chat = id(payload, 'chatPublicId');
+      return {
+        text:
+          `<b>اشتراک اطلاعات تماس</b>\n\n` +
+          `با تأیید، از این پس شمارهٔ تماس یا نام کاربری‌تان در پیام‌های <i>خودتان</i> پنهان ` +
+          `نمی‌شود و می‌توانید آن را بفرستید.\n\n` +
+          `پایه‌تَم هیچ اطلاعاتی از شما را به طرف مقابل نمی‌دهد؛ تصمیم و متن پیام با خود شماست. ` +
+          `این کار برگشت‌پذیر نیست.`,
+        ...(chat !== null
+          ? {
+              keyboard: [
+                [
+                  {
+                    text: '✅ بله، تأیید می‌کنم',
+                    callbackData: encodeChatCallback('shareyes', chat),
+                  },
+                ],
+              ],
+            }
+          : {}),
+      };
+    }
 
     /** The sender deleted it. The replacement sentence comes from the domain (D10). */
     case TEMPLATES.CHAT_MESSAGE_DELETED:
@@ -317,12 +427,235 @@ export function render(
         botUsername,
       );
 
+    /**
+     * `/help` — the only place the bot's own capabilities are written down.
+     *
+     * Until this existed every command except `/start` answered «این فرمان را
+     * نمی‌شناسم», which told somebody what the bot could *not* do and nothing at
+     * all about what it could. The three behaviours listed are the ones that are
+     * invisible: that a reply routes to the right conversation, that the buttons
+     * carry the decision, and that plain text works when only one chat is open.
+     */
+    case TEMPLATES.BOT_HELP:
+      return opened(
+        `<b>راهنما</b>\n\n` +
+          `${helpCommandLines()}\n` +
+          `<b>/start</b> — بازگشت به ابتدا\n\n` +
+          `<b>گفتگوها</b>\n` +
+          `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
+          `اگر فقط یک گفتگوی باز دارید، نوشتن پیام کافی است. ` +
+          `برای دیدن اینکه چه گفتگوهایی باز است، /chats را بفرستید.\n\n` +
+          `<b>درخواست‌ها</b>\n` +
+          `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
+          `لازم نیست چیزی را باز کنید.\n\n` +
+          `بقیهٔ کارها — ساختن رویداد، جستجوی پیشرفته، ویرایش نمایه، نوشتن نظر — ` +
+          `در برنامه انجام می‌شود.`,
+        `home`,
+        botUsername,
+      );
+
+    /**
+     * `/balance` — a number somebody checks often, and previously could only see by
+     * opening the Mini App and waiting for the home screen to load.
+     *
+     * The button still offers the wallet, because the balance answers "how many"
+     * and the ledger answers "why", and only one of those fits in a line.
+     */
+    case TEMPLATES.BOT_BALANCE:
+      return opened(`<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`, `wallet`, botUsername);
+
+    /**
+     * `/requests` — the digest, built by `formatMyRequests` and passed through.
+     *
+     * The body arrives already rendered for the reason `BOT_NOTICE`'s does: a
+     * payload holds scalars, and a list of events is not one. What is stored is
+     * the snapshot the sender asked for, which is also the honest thing to keep
+     * — re-rendering it six weeks later from live rows would answer a question
+     * nobody asked.
+     */
+    case TEMPLATES.BOT_REQUESTS:
+      return opened(str(payload, 'text'), `my-requests`, botUsername);
+
+    /** `/myevents` — the host's digest, built by `formatMyEvents`. */
+    case TEMPLATES.BOT_MY_EVENTS:
+      return opened(str(payload, 'text'), `my-events`, botUsername);
+
+    /**
+     * `/chats` — the conversation digest, built by `formatMyChats`.
+     *
+     * `chats` is already in the Mini App's `DEEP_LINKS` allowlist, so the button
+     * lands on the conversation list rather than the splash. Adding a template
+     * whose target is *not* in that allowlist is the failure this pairing exists
+     * to prevent — see `deepLinkTarget()`.
+     */
+    case TEMPLATES.BOT_CHATS:
+      return opened(str(payload, 'text'), `chats`, botUsername);
+
+    /**
+     * `/profile` — and the only place in the product that shows you your own
+     * Trust Score.
+     *
+     * `GET /me/trust` has existed since M18 and `TrustBadge` renders *other*
+     * people's scores on two screens, but no Mini App view has ever shown the
+     * caller theirs. ADR-0007's «a score nobody can account for is a score
+     * nobody can appeal» is hard to act on when you cannot see the number.
+     *
+     * Rendered as a number without the `TrustBadge` fallback, and that is
+     * correct rather than an oversight: `scoreOf` returns the configured
+     * starting score for an account with no ledger row, so there is no `null`
+     * to stand in for. «تازه‌وارد» exists because *somebody else's* score can be
+     * genuinely unknown — your own never is.
+     *
+     * The button opens `profile/edit`, because `/profile` is an onboarding step
+     * the router bounces a finished user away from.
+     */
+    /**
+     * `/discover` — the digest, built by `formatDiscovered`, disclaimer included.
+     *
+     * The button opens `discover`, where the fourteen filters this command
+     * deliberately does not ask about actually live.
+     */
+    case TEMPLATES.BOT_DISCOVER:
+      return opened(str(payload, 'text'), `discover`, botUsername);
+
+    /**
+     * `/reviews` — the pending digest, built by `formatPendingReviews`.
+     *
+     * `reviews/pending` was already on the allowlist, put there for
+     * `REVIEW_WINDOW_OPEN`; it resolves to `/reviews`, which is the screen with
+     * the form on it.
+     */
+    case TEMPLATES.BOT_REVIEWS:
+      return opened(str(payload, 'text'), `reviews/pending`, botUsername);
+
+    case TEMPLATES.BOT_PROFILE:
+      return opened(
+        `<b>نمایه شما</b>\n\n` +
+          `${str(payload, 'displayName')}\n` +
+          `📍 ${str(payload, 'cityName')}\n` +
+          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰`,
+        `profile/edit`,
+        botUsername,
+      );
+
+    /**
+     * A wizard screen. The keyboard arrives already built, as JSON.
+     *
+     * Parsed rather than reconstructed because `renderStep` has already decided
+     * the layout — which page of cities, which month, whether «بازگشت» applies —
+     * and none of that is recoverable from a payload of scalars. A malformed one
+     * degrades to a message with no buttons rather than throwing inside `render`,
+     * which would fail the send job and then every retry of it.
+     */
+    case TEMPLATES.BOT_WIZARD: {
+      const keyboard = parseKeyboard(payload);
+      // `raw`, not `str`: see the note on `raw`. `renderStep` has already escaped
+      // everything inside this that came from a user.
+      return { text: raw(payload, 'text'), ...(keyboard !== undefined ? { keyboard } : {}) };
+    }
+
+    /**
+     * The gate is clear.
+     *
+     * It names what just became possible rather than saying «متشکریم»: somebody
+     * who has just been stopped by a gate wants to know they can proceed, and
+     * which commands are the way in.
+     */
+    case TEMPLATES.BOT_CONSENT_ACCEPTED:
+      return opened(
+        `<b>ثبت شد</b> ✅\n\n` +
+          `حالا می‌توانید از پایه‌تم استفاده کنید:\n` +
+          `<b>/discover</b> — دیدن فعالیت‌های نزدیک\n` +
+          `<b>/create_event</b> — ساختن فعالیت تازه`,
+        `home`,
+        botUsername,
+      );
+
+    /**
+     * The channel requirement, with a **button** per channel.
+     *
+     * Buttons rather than links in the body, because a `<a href>` inside a
+     * notice would have to survive `escapeHtml` — and the template that carries
+     * arbitrary sentences must keep escaping them. A URL button carries the link
+     * outside the text entirely, which is both safer and a larger tap target.
+     */
+    case TEMPLATES.BOT_CHANNEL_GATE: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text:
+          `<b>عضویت در کانال</b>\n\n` + `برای ادامه، در کانال‌های زیر عضو شوید و دوباره تلاش کنید.`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    /**
+     * `/terms`, for somebody who owes nothing.
+     *
+     * `raw`-free: the body is built from policy titles, which are operator text
+     * from `policy_version`, and `str` escapes it. That is the right choice even
+     * though an operator is not an attacker — a title with an ampersand in it
+     * should render, not break the message.
+     */
+    case TEMPLATES.BOT_TERMS_STANDING:
+      return opened(str(payload, 'text'), `home`, botUsername);
+
+    /** The event exists, and here is the way to it. */
+    case TEMPLATES.BOT_EVENT_CREATED:
+      return opened(
+        `<b>فعالیت ثبت شد</b> ✅\n\n` +
+          `«${str(payload, 'title')}» ساخته شد. ` +
+          `از «رویدادهای من» می‌توانید درخواست‌ها را ببینید و پاسخ بدهید.`,
+        `my-events`,
+        botUsername,
+      );
+
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:
       return { text: str(payload, 'text') };
 
     default:
       return null;
+  }
+}
+
+/**
+ * Where a host goes to decide on a request.
+ *
+ * It was `participants/<id>`, and **there has never been a `/participants`
+ * route.** `deepLinkTarget()` resolves a start param against a fixed allowlist
+ * and returns null for anything else, so the «باز کردن برنامه» button on the two
+ * notifications a host most needs to act on — a new join request, and a waitlist
+ * promotion — silently opened the splash screen. A request expires in
+ * twenty-four hours (D9); a button that goes nowhere is how it expires.
+ *
+ * These two escaped the 2026-08-28 sweep because they build their target inline
+ * rather than through `opened()`, so they did not look like the others.
+ * `deep-links.test.ts` now checks every template against the allowlist, which is
+ * what found them.
+ *
+ * The participant id is dropped rather than relocated: no route reads it, and
+ * `MyEventsView` — which is where accept and reject actually live — lists the
+ * pending requests for every event the caller hosts.
+ */
+const HOST_DECISION_SCREEN = 'my-events';
+
+/**
+ * A keyboard a caller already built, carried through the payload as JSON.
+ *
+ * Undefined on anything unreadable. A notification payload is jsonb and this is
+ * the one template whose buttons are not derivable from its scalars, so the
+ * choice is between carrying them and rebuilding the wizard's layout decisions
+ * inside the renderer — which would be the wizard, twice.
+ */
+function parseKeyboard(payload: Payload): InlineKeyboard | undefined {
+  const raw = payload['keyboard'];
+  if (typeof raw !== 'string') return undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as InlineKeyboard) : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -344,6 +677,21 @@ function relayed(text: string, payload: Payload, botUsername: string): RenderedM
   return {
     text,
     deepLink,
-    ...(chat !== null ? { keyboard: chatKeyboard(chat, botUsername, deepLink) } : {}),
+    ...(chat !== null
+      ? { keyboard: chatKeyboard(chat, botUsername, deepLink, bool(payload, 'chatOpen')) }
+      : {}),
   };
+}
+
+/**
+ * A boolean from a payload, defaulting to false.
+ *
+ * False for an absent key on purpose: a payload written by an older deploy has no
+ * `chatOpen`, and the safe reading of "we do not know whether this conversation
+ * is open" is to leave the contact-sharing button off. A button that is missing
+ * is a feature nobody noticed; a button that discloses somebody's details from a
+ * conversation that was never accepted is a privacy incident.
+ */
+function bool(payload: Payload, key: string): boolean {
+  return payload[key] === true;
 }

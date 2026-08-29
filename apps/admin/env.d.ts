@@ -18,6 +18,14 @@ interface ImportMetaEnv {
    * cookie rather than on the fetch (ADR-0010).
    */
   readonly VITE_ADMIN_API_BASE_URL?: string;
+  /**
+   * The release this bundle was built from (M22 phase 10).
+   *
+   * Compiled in by `docker/Dockerfile` from `PAYETAM_VERSION`, for the same
+   * reason the Mini App's is: static files have no environment to read. Unset in
+   * development, which `resolveVersion()` reports as `local`.
+   */
+  readonly VITE_APP_VERSION?: string;
 }
 
 interface ImportMeta {

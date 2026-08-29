@@ -11,7 +11,34 @@ export type SendOutcome =
   | { kind: 'SENT'; messageId: number }
   /** The bot is blocked or the chat is gone. Terminal — never retry (ADR-0005). */
   | { kind: 'BLOCKED'; reason: string }
+  /**
+   * Telegram answered 429 and `auto-retry` could not absorb it (M22 phase 4).
+   *
+   * Retryable like `RETRY`, and reported separately because it means something
+   * different: a rate limit that survives both the plugin's `retry_after` sleep
+   * and BullMQ's global limiter is Telegram asking us to stop, not a blip. A
+   * campaign that sees several in a row trips its circuit breaker, which nothing
+   * could do if this arrived indistinguishable from a network error.
+   */
+  | { kind: 'RATE_LIMITED'; reason: string; retryAfterSeconds: number | null }
   /** Anything else. The queue's backoff applies. */
+  | { kind: 'RETRY'; reason: string };
+
+/**
+ * What came of redrawing a wizard's message (ADR-0017).
+ *
+ * `GONE` is the member that earns this its own type. It is not a failure and it
+ * is not retryable: the message the wizard lives on no longer exists — deleted,
+ * or older than the 48 hours Telegram permits an edit within — and the answer is
+ * to send a fresh one and record its id, which only the caller can do. Folding it
+ * into `RETRY` would retry an edit that can never succeed; folding it into
+ * `BLOCKED` would mark a present user as having blocked the bot.
+ */
+export type EditOutcome =
+  | { kind: 'EDITED' }
+  | { kind: 'GONE'; reason: string }
+  | { kind: 'BLOCKED'; reason: string }
+  | { kind: 'RATE_LIMITED'; reason: string; retryAfterSeconds: number | null }
   | { kind: 'RETRY'; reason: string };
 
 /**
@@ -76,7 +103,7 @@ export class TelegramClient {
    * retry will not fix but which must be loud rather than silently marking
    * somebody undeliverable.
    */
-  async postToChannel(text: string): Promise<SendOutcome> {
+  async postToChannel(text: string, keyboard?: InlineKeyboard): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
     if (this.channelId === undefined || this.channelId === '') {
       return { kind: 'RETRY', reason: 'TELEGRAM_CHANNEL_ID is not configured' };
@@ -86,6 +113,11 @@ export class TelegramClient {
       const message = await this.bot.api.sendMessage(this.channelId, text, {
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
+        // The button that makes the channel interactive (report 7). Optional in
+        // the signature rather than required, so a caller with nothing to link to
+        // — there is none today — posts a plain message instead of an empty
+        // keyboard, which Telegram renders as a stray blank row.
+        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
       });
       return { kind: 'SENT', messageId: message.message_id };
     } catch (error) {
@@ -110,6 +142,7 @@ export class TelegramClient {
       const outcome = classify(error);
       if (outcome.kind === 'SENT') return true;
       if (outcome.kind === 'BLOCKED') return true;
+      if (outcome.kind === 'RATE_LIMITED') return false;
       // Telegram refuses to delete anything older than 48 hours in some chats.
       // Treated as done for the same reason a missing message is: retrying cannot
       // change it, and the row must stop being reconsidered on every sweep.
@@ -117,12 +150,27 @@ export class TelegramClient {
     }
   }
 
-  async send(chatId: bigint, text: string, keyboard?: InlineKeyboard): Promise<SendOutcome> {
+  /**
+   * Send one message to one person.
+   *
+   * `parseMode` defaults to `'HTML'`, which is what every template in
+   * `packages/telegram` is written for and what every caller before M22 wanted.
+   * An admin-authored body passes `undefined` instead: with no parse mode Telegram
+   * renders the text literally, so there is nothing to escape and nothing to
+   * inject — which is why plain is the default on *that* path and HTML is opt-in
+   * (see `validateTelegramMessage`).
+   */
+  async send(
+    chatId: bigint,
+    text: string,
+    keyboard?: InlineKeyboard,
+    options: { parseMode?: 'HTML' | undefined } = { parseMode: 'HTML' },
+  ): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 
     try {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
-        parse_mode: 'HTML',
+        ...(options.parseMode !== undefined ? { parse_mode: options.parseMode } : {}),
         link_preview_options: { is_disabled: true },
         ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
       });
@@ -158,6 +206,56 @@ export class TelegramClient {
         `Could not answer a callback query: ${outcome.kind === 'SENT' ? 'unknown' : outcome.reason}`,
       );
       return false;
+    }
+  }
+
+  /**
+   * Redraw the message a conversation wizard lives on (ADR-0017).
+   *
+   * ── Why editing rather than sending ─────────────────────────────────────────
+   *
+   * A wizard is one message that changes, not a transcript that grows. Twelve
+   * steps as twelve messages buries the form under itself, and the form is what
+   * the user is trying to fill in.
+   *
+   * ── The two failures that are not failures ──────────────────────────────────
+   *
+   * **`message is not modified`** happens whenever a tap produces the identical
+   * screen — pressing the page number that is already showing, most obviously.
+   * Telegram calls it a 400; it means the screen is already correct, so it is
+   * reported as success rather than retried into a dead letter.
+   *
+   * **`message to edit not found`** means the user deleted it, or it aged past
+   * the 48 hours Telegram allows an edit within. Neither is recoverable by
+   * retrying, and both leave a live wizard with nowhere to draw — so this
+   * reports `GONE`, and the caller sends a fresh message and records its id. A
+   * wizard that dead-ends because somebody tidied their chat would be a form
+   * they cannot finish and cannot restart.
+   */
+  async editMessage(
+    chatId: bigint,
+    messageId: number,
+    text: string,
+    keyboard?: InlineKeyboard,
+  ): Promise<EditOutcome> {
+    if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
+
+    try {
+      await this.bot.api.editMessageText(Number(chatId), messageId, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
+      });
+      return { kind: 'EDITED' };
+    } catch (error) {
+      if (error instanceof GrammyError) {
+        if (/message is not modified/i.test(error.description)) return { kind: 'EDITED' };
+        if (/message to edit not found|message can't be edited/i.test(error.description)) {
+          return { kind: 'GONE', reason: error.description };
+        }
+      }
+      const outcome = classify(error);
+      return outcome.kind === 'SENT' ? { kind: 'EDITED' } : outcome;
     }
   }
 }
@@ -196,6 +294,17 @@ export function classify(error: unknown): SendOutcome {
     if (error.error_code === 403) return { kind: 'BLOCKED', reason: error.description };
     if (error.error_code === 400 && /chat not found/i.test(error.description)) {
       return { kind: 'BLOCKED', reason: error.description };
+    }
+    if (error.error_code === 429) {
+      // `parameters.retry_after` is what Telegram asks us to wait. Surfaced rather
+      // than swallowed so a caller can log it and a breaker can act on it; the
+      // *waiting* is still `auto-retry`'s and BullMQ's job.
+      const retryAfter = error.parameters.retry_after;
+      return {
+        kind: 'RATE_LIMITED',
+        reason: `429: ${error.description}`,
+        retryAfterSeconds: typeof retryAfter === 'number' ? retryAfter : null,
+      };
     }
     return { kind: 'RETRY', reason: `${String(error.error_code)}: ${error.description}` };
   }

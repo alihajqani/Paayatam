@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
+import AppVersion from '@/components/AppVersion.vue';
 import { formatCoins, toPersianDigits } from '@/format/fa';
 import { useChatsStore } from '@/stores/chats';
 import { useReviewsStore } from '@/stores/reviews';
@@ -46,7 +47,12 @@ onMounted(() => {
     </section>
 
     <section v-if="profile" class="flex flex-col gap-2 rounded-xl bg-tg-secondary-bg p-4">
-      <h2 class="text-sm text-tg-subtitle">پروفایل</h2>
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-sm text-tg-subtitle">پروفایل</h2>
+        <RouterLink to="/profile/edit" class="min-h-11 py-2 text-sm text-tg-link"
+          >ویرایش</RouterLink
+        >
+      </div>
       <p>
         {{ profile.city.nameFa
         }}<template v-if="profile.district"> — {{ profile.district.nameFa }}</template>
@@ -133,6 +139,35 @@ onMounted(() => {
         <span class="font-medium">سکه‌ها، اعتماد و دعوت</span>
         <span class="text-tg-hint">›</span>
       </RouterLink>
+
+      <!--
+        A permanent way to the rules (report 1).
+
+        `/terms` has been re-openable since M22 and nothing linked to it, so the
+        only route to the document was being blocked by the gate — which is the
+        half of the report that is not about the gate at all: "a page to display
+        the current policy version" has to be reachable when nothing is wrong.
+      -->
+      <RouterLink
+        to="/terms"
+        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
+      >
+        <span class="font-medium">قوانین و شرایط استفاده</span>
+        <span
+          v-if="session.pendingPolicies.length > 0"
+          class="rounded-full bg-tg-destructive px-2 py-0.5 text-xs text-tg-button-text"
+        >
+          نیازمند تأیید
+        </span>
+        <span v-else class="text-tg-hint">›</span>
+      </RouterLink>
     </nav>
+
+    <!--
+      Bottom of the home screen, which is where a version string lives in every
+      app the user already has. `mt-auto` so it sits at the foot of a short
+      viewport rather than floating under the last button.
+    -->
+    <AppVersion class="mt-auto" />
   </main>
 </template>

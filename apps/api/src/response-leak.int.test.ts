@@ -74,9 +74,27 @@ let scannedReferralId: string;
 let scanTagId: string;
 /** A second one, for the delete. Gone after the first pass — see the note at its endpoint. */
 let scanDoomedTagId: string;
+/** M22 fixtures: a draft policy, a province, a city and a draft campaign. */
+let scanPolicyId: string;
+let scanProvinceId: string;
+let scanCityId: string;
+let scanCampaignPublicId: string;
+let scanRequiredChannelId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
+
+/**
+ * The two channel handles this scan puts into the database itself.
+ *
+ * Named constants rather than literals at three call sites, because the
+ * redaction below has to match the fixtures exactly: a fixture renamed without
+ * its redaction becomes a scan that fails on its own test data, and a redaction
+ * left behind after a fixture is removed becomes one that forgives a string
+ * nothing produces.
+ */
+const SCAN_CHANNEL_FIXTURE = 'payetam_leak_scan';
+const SCAN_CHANNEL_CREATED = 'payetam_scan';
 
 /** Counters for the two endpoints whose payload may be presented only once. */
 let authAttempt = 0;
@@ -101,6 +119,15 @@ interface Endpoint {
    * and every admin read after that would be a 401 the scan mistook for coverage.
    */
   adminCookieFor?: () => string;
+  /**
+   * The CSRF token that pairs with `adminCookieFor`'s cookie.
+   *
+   * Separate rather than derived, because the token is **per session**: handing a
+   * different session's cookie without its own token is refused by `AdminGuard`,
+   * which is precisely the mistake that stopped this scan reaching any admin
+   * write for four milestones.
+   */
+  adminCsrfFor?: () => string;
   /**
    * Sent as JSON for the endpoints that read one.
    *
@@ -597,19 +624,36 @@ beforeAll(async () => {
   adminCookie = signedIn.sessionToken;
   adminCsrf = signedIn.csrfToken;
 
-  // Throwaway sessions for `logout`, which consumes the one it is handed. The
-  // CSRF token is shared because every one of these is the same account.
-  const disposableAdmin: string[] = [];
+  /**
+   * Throwaway sessions for `logout`, which consumes the one it is handed.
+   *
+   * **The CSRF token is per session, not per account**, and getting that wrong is
+   * how this scan spent four milestones not scanning a single admin write. The
+   * loop used to overwrite one shared `adminCsrf` on every iteration while
+   * `adminCookie` kept the *first* session — so `AdminGuard` compared a token
+   * belonging to session Z against a cookie belonging to session A and refused
+   * every POST, PUT, PATCH and DELETE on the admin API with
+   * `FORBIDDEN {reason: 'csrf'}`. The scan then dutifully searched those refusals
+   * for leaks and found none, which is exactly the shape of a security test that
+   * passes for the wrong reason.
+   *
+   * Pairing them is the fix: each session carries its own token, and `logout`
+   * takes the pair it is going to spend.
+   */
+  const disposableAdmin: { token: string; csrf: string }[] = [];
   for (let index = 0; index < LEAK_PATTERNS.length + 1; index += 1) {
     const extra = await adminAccess.login({
       email: 'leak-scan@payetam.test',
       password: adminPassword,
       totpCode: totpCode(base32Decode(created.totpSecret), Date.now()),
     });
-    disposableAdmin.push(extra.sessionToken);
-    adminCsrf = extra.csrfToken;
+    disposableAdmin.push({ token: extra.sessionToken, csrf: extra.csrfToken });
   }
-  adminCookie = disposableAdmin[0] ?? adminCookie;
+  const primary = disposableAdmin[0];
+  if (primary !== undefined) {
+    adminCookie = primary.token;
+    adminCsrf = primary.csrf;
+  }
   let logoutIndex = 1;
 
   /**
@@ -713,6 +757,86 @@ beforeAll(async () => {
   scanDoomedTagId = (
     await prisma.category.create({
       data: { slug: 'leak-scan-doomed', nameFa: 'پویش حذف', isActive: false },
+      select: { id: true },
+    })
+  ).id;
+
+  /**
+   * M22 fixtures.
+   *
+   * Written with Prisma rather than through the API, for the reason the activity
+   * tags above are: the scan runs its whole list once per leak pattern, and a
+   * fixture created by the first pass would not exist for the coverage check that
+   * builds the list. A draft policy and a draft campaign specifically, because
+   * both are the states these endpoints can be exercised against repeatedly —
+   * publishing is a one-way door and a confirmed campaign would enqueue delivery.
+   */
+  scanPolicyId = (
+    await prisma.policyVersion.create({
+      data: {
+        type: 'TERMS',
+        version: 9_000,
+        contentMd: 'متن آزمایشی برای پویش نشتی. این نسخه هرگز منتشر نمی‌شود.',
+        titleFa: 'پویش نشتی',
+        status: 'DRAFT',
+        isCurrent: false,
+      },
+      select: { id: true },
+    })
+  ).id;
+  scanProvinceId = (
+    await prisma.province.create({
+      data: { slug: 'leak-scan-province', nameFa: 'استان پویش', isActive: false },
+      select: { id: true },
+    })
+  ).id;
+  scanCityId = (
+    await prisma.city.create({
+      data: {
+        slug: 'leak-scan-city',
+        nameFa: 'شهر پویش',
+        nameNormalized: 'شهر پویش',
+        isActive: false,
+        provinceId: scanProvinceId,
+      },
+      select: { id: true },
+    })
+  ).id;
+  scanCampaignPublicId = (
+    await prisma.messageCampaign.create({
+      data: {
+        idempotencyKey: `leak-scan-${randomUUID()}`,
+        kind: 'DIRECT',
+        status: 'DRAFT',
+        bodyText: 'پیام آزمایشی پویش نشتی. هرگز ارسال نمی‌شود.',
+        // The `message_campaign_actor_consistent` CHECK from migration 0021: an
+        // ADMIN campaign must name the admin. Satisfying it here is also a small
+        // proof the constraint reached the test database.
+        actorType: 'ADMIN',
+        actorAdminId: created.adminUserId,
+        dryRun: true,
+      },
+      select: { publicId: true },
+    })
+  ).publicId;
+
+  /**
+   * A channel for the three routes that address one by id (v0.3.1).
+   *
+   * Written with Prisma rather than through the POST above, so the scan's own
+   * requests stay independent of each other: an assertion about `DELETE` should
+   * not fail because `POST` changed shape. `is_active` is true and the
+   * requirement is off, so deleting it at the end of the scan is permitted —
+   * `assertNotLastActive` only refuses while `membership_required` is on.
+   */
+  scanRequiredChannelId = (
+    await prisma.requiredChannel.create({
+      data: {
+        title: 'کانال ثابت پویش',
+        chatIdentifier: `@${SCAN_CHANNEL_FIXTURE}`,
+        inviteUrl: `https://t.me/${SCAN_CHANNEL_FIXTURE}`,
+        sortOrder: 10,
+      },
       select: { id: true },
     })
   ).id;
@@ -1091,7 +1215,222 @@ beforeAll(async () => {
       method: 'POST',
       url: '/admin/v1/auth/logout',
       admin: true,
-      adminCookieFor: () => disposableAdmin[logoutIndex++] ?? 'already-spent',
+      adminCookieFor: () => disposableAdmin[logoutIndex]?.token ?? 'already-spent',
+      adminCsrfFor: () => disposableAdmin[logoutIndex++]?.csrf ?? 'already-spent',
+    },
+    /**
+     * ── M22 ────────────────────────────────────────────────────────────────
+     *
+     * Every endpoint the milestone added, and it is the milestone with the most
+     * to leak: phase 12 puts a Telegram user id and an @username into the admin
+     * API **on purpose**, behind `user.telegram.read`. That makes the scan's job
+     * sharper rather than looser — the identity is allowed to appear in exactly
+     * one response and must appear in no other, and the only way to know is to
+     * read all of them.
+     */
+    { method: 'GET', url: '/api/v1/version', anonymous: true },
+    { method: 'GET', url: '/api/v1/me/policies' },
+    {
+      // Phase 2. A clean body: putting a leaky identifier in a bio here would
+      // make the scan fail on what the *caller* wrote, not on what leaked.
+      method: 'PATCH',
+      url: '/api/v1/me/profile',
+      body: { bio: 'اهل کوه و کتاب' },
+    },
+    // Phase 6. Both fail open when no channel is configured, which is the state
+    // this test runs in — and a fail-open answer is still a response to read.
+    { method: 'GET', url: '/api/v1/me/channel-membership' },
+    { method: 'POST', url: '/api/v1/me/channel-membership/check', body: {} },
+    /**
+     * Phase 5 and 11 — the three paid actions.
+     *
+     * The host has no coins here, so these answer `INSUFFICIENT_COINS` after the
+     * first pass. That is deliberate and it is the more interesting body: a
+     * refusal that named the twenty people it would have invited would be a leak
+     * of exactly the kind phase 11 could plausibly introduce.
+     */
+    // `viewerEventPublicId`, not `eventPublicId`: all three are host-only, and the
+    // session the scan carries is the viewer's. Pointed at somebody else's event
+    // they would answer FORBIDDEN on every pass, and a GET that never answers
+    // below 400 is what the "read a real session" check below exists to catch.
+    { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/publish-to-channel`, body: {} },
+    { method: 'GET', url: `/api/v1/events/${viewerEventPublicId}/invite-preview` },
+    { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/invite-top`, body: {} },
+    // Phase 2, the admin half.
+    {
+      method: 'PATCH',
+      url: `/admin/v1/users/${hostPublicId}/profile`,
+      admin: true,
+      body: { bio: 'اصلاح توسط پشتیبانی' },
+    },
+    { method: 'GET', url: '/admin/v1/version', admin: true },
+    /**
+     * Phase 8. Reads, a create and an edit — but **not** publish and **not**
+     * archive against a real document.
+     *
+     * Publishing is a one-way door that makes a version the one every user is
+     * asked to accept. The scan points both at an id that does not exist, so the
+     * 404 is read and no policy is ever published by a test run.
+     */
+    { method: 'GET', url: '/admin/v1/policies', admin: true },
+    { method: 'GET', url: `/admin/v1/policies/${scanPolicyId}`, admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/policies',
+      admin: true,
+      body: () => ({ type: 'PRIVACY', contentMd: `پیش‌نویس پویش ${randomUUID()}` }),
+    },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/policies/${scanPolicyId}`,
+      admin: true,
+      body: { titleFa: 'پویش نشتی — ویرایش' },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/policies/00000000-0000-4000-8000-000000000000/publish',
+      admin: true,
+      body: { version: 9000 },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/policies/00000000-0000-4000-8000-000000000000/archive',
+      admin: true,
+      body: {},
+    },
+    { method: 'GET', url: '/admin/v1/policy-consents', admin: true },
+    /**
+     * Phase 4. The campaign surface, and nothing here sends a message.
+     *
+     * `preview` is the dry run by definition. The create is `dryRun: true`. The
+     * fixture campaign stays `DRAFT`, so `confirm` refuses on a state check
+     * rather than enqueueing delivery — and `cancel` and `resume` answer against
+     * the same draft. No outbox row is written and no worker is running.
+     */
+    {
+      method: 'POST',
+      url: '/admin/v1/messages/preview',
+      admin: true,
+      body: { kind: 'BROADCAST', bodyText: 'پیش‌نمایش پویش', filter: {} },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/messages',
+      admin: true,
+      body: () => ({
+        kind: 'BROADCAST',
+        bodyText: 'پیام آزمایشی پویش نشتی',
+        filter: {},
+        dryRun: true,
+        idempotencyKey: `leak-scan-${randomUUID()}`,
+      }),
+    },
+    { method: 'GET', url: '/admin/v1/messages', admin: true },
+    { method: 'GET', url: `/admin/v1/messages/${scanCampaignPublicId}`, admin: true },
+    {
+      method: 'POST',
+      url: `/admin/v1/messages/${scanCampaignPublicId}/confirm`,
+      admin: true,
+      body: { estimatedRecipients: 0 },
+    },
+    {
+      method: 'POST',
+      url: `/admin/v1/messages/${scanCampaignPublicId}/cancel`,
+      admin: true,
+      body: { reason: 'پویش نشتی' },
+    },
+    {
+      method: 'POST',
+      url: `/admin/v1/messages/${scanCampaignPublicId}/resume`,
+      admin: true,
+      body: {},
+    },
+    /**
+     * Phase 12 — **the one endpoint allowed to return a Telegram identity.**
+     *
+     * It is behind `user.telegram.read` and it exists so an operator can reach a
+     * person during an incident. The scan reads it like every other endpoint;
+     * what keeps it from failing is the exemption below, which names this single
+     * route rather than relaxing the patterns for everything.
+     */
+    { method: 'GET', url: `/admin/v1/users/${hostPublicId}/telegram`, admin: true },
+    /**
+     * Phase 6, the configuration half. `membershipRequired` stays false
+     * throughout: the scan must not switch on a gate.
+     */
+    { method: 'GET', url: '/admin/v1/channel-config', admin: true },
+    {
+      method: 'PUT',
+      url: '/admin/v1/channel-config',
+      admin: true,
+      body: { membershipRequired: false },
+    },
+    /**
+     * The channels themselves (v0.3.1). The POST writes a link, which is the
+     * value `normalizeInviteUrl` rebuilds — so this also asserts that what comes
+     * back is the normalised form and not the string that was sent.
+     *
+     * The three routes that address one by id use `scanRequiredChannelId`, a row
+     * written by the fixtures rather than by the POST above — so an assertion
+     * about `DELETE` cannot fail because `POST` changed shape.
+     */
+    {
+      method: 'POST',
+      url: '/admin/v1/channel-config/channels',
+      admin: true,
+      body: { title: 'کانال اسکن', inviteUrl: `https://t.me/${SCAN_CHANNEL_CREATED}` },
+    },
+    {
+      method: 'PUT',
+      url: '/admin/v1/channel-config/channels/order',
+      admin: true,
+      body: { ids: [scanRequiredChannelId] },
+    },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/channel-config/channels/${scanRequiredChannelId}`,
+      admin: true,
+      body: { title: 'کانال ثابت پویش (ویرایش‌شده)' },
+    },
+    // Last of the four, because it ends the row the two above address.
+    {
+      method: 'DELETE',
+      url: `/admin/v1/channel-config/channels/${scanRequiredChannelId}`,
+      admin: true,
+    },
+    // Phase 9.
+    { method: 'GET', url: '/admin/v1/provinces', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/provinces',
+      admin: true,
+      body: () => ({ slug: `leak-scan-p-${randomUUID()}`, nameFa: 'استان پویش' }),
+    },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/provinces/${scanProvinceId}`,
+      admin: true,
+      body: { nameFa: 'استان پویش' },
+    },
+    { method: 'GET', url: '/admin/v1/cities', admin: true },
+    { method: 'GET', url: '/admin/v1/cities?query=پویش&limit=5', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/cities',
+      admin: true,
+      body: () => ({ slug: `leak-scan-c-${randomUUID()}`, nameFa: 'شهر پویش' }),
+    },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/cities/${scanCityId}`,
+      admin: true,
+      body: { nameFa: 'شهر پویش' },
+    },
+    {
+      method: 'POST',
+      url: '/admin/v1/cities/reorder',
+      admin: true,
+      body: { order: [scanCityId] },
     },
     // Last of all: it retires the viewer's event, and the passes that follow then
     // read the refusals — which are responses too.
@@ -1113,7 +1452,7 @@ async function fetchBody(endpoint: Endpoint): Promise<string> {
       : endpoint.admin === true
         ? {
             cookie: `${ADMIN_SESSION_COOKIE}=${endpoint.adminCookieFor?.() ?? adminCookie}`,
-            'x-csrf-token': adminCsrf,
+            'x-csrf-token': endpoint.adminCsrfFor?.() ?? adminCsrf,
           }
         : { authorization: `Bearer ${accessToken}` };
 
@@ -1173,6 +1512,65 @@ const LEAK_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
  */
 const UNCOVERED_BY_DESIGN = /^POST \/telegram\/webhook\//;
 
+/**
+ * The one endpoint that is *supposed* to return a Telegram identity (M22 phase 12).
+ *
+ * `GET /admin/v1/users/:publicId/telegram` exists so an operator can reach a
+ * person during an incident. It is behind `user.telegram.read`, which no role
+ * below `SUPER_ADMIN` holds by default, and the RBAC matrix asserts that
+ * separately.
+ *
+ * The exemption names **one route and one route only**, rather than loosening
+ * `LEAK_PATTERNS` or dropping the endpoint from the scan. Both of those would buy
+ * this one legitimate response by blinding the scan to every illegitimate one,
+ * and the whole value of §3.6 layer 5 is that it fails on the endpoint nobody
+ * thought about. This endpoint is still *scanned* — it is checked for a phone
+ * number like everything else, and only the identity patterns are forgiven.
+ */
+const IDENTITY_BY_DESIGN = /^GET \/admin\/v1\/users\/[^/]+\/telegram$/;
+const IDENTITY_PATTERNS = new Set(['the Telegram user id', 'an @username', 'a t.me link']);
+
+/**
+ * The routes that return a **channel's** public identity (v0.3.1).
+ *
+ * A required channel is described by a @username and a `t.me` join link, and both
+ * are meant to be read by every user — the join button is built from them. So the
+ * two handle-shaped patterns match these responses by design, and would match
+ * them however the product was written.
+ *
+ * The audit search is here for the same reason and it is the interesting one: an
+ * audit row records *what changed*, so a channel's configuration appears verbatim
+ * in the `before`/`after` payloads of `channel.required_channel_*`.
+ *
+ * ── Why this is not simply an exemption ──────────────────────────────────────
+ *
+ * Forgiving these routes outright would blind them to a **person's** handle, and
+ * `/admin/v1/audit/search` is exactly the route where one could appear: an audit
+ * payload is a free-form record of somebody's edit. So instead of skipping the
+ * check, the scan **redacts the two channel handles it created itself** and then
+ * runs the pattern normally. A channel's identity is forgiven; anybody else's
+ * still fails, on the same routes, with the same patterns.
+ */
+const CHANNEL_IDENTITY_BY_DESIGN =
+  /^(?:GET|PUT|POST|PATCH|DELETE) (?:\/admin\/v1\/channel-config(?:\/.*)?|\/admin\/v1\/audit\/search|\/api\/v1\/me\/channel-membership(?:\/check)?)$/;
+
+/**
+ * The channel handles this scan planted, removed from a body before it is scanned.
+ *
+ * Longest form first: redacting the bare username out of `https://t.me/<name>`
+ * would leave `t.me/` behind, which is itself one of the patterns.
+ */
+function withoutChannelIdentity(body: string): string {
+  let out = body;
+  for (const handle of [SCAN_CHANNEL_FIXTURE, SCAN_CHANNEL_CREATED]) {
+    out = out
+      .replaceAll(`https://t.me/${handle}`, 'CHANNEL_JOIN_LINK')
+      .replaceAll(`t.me/${handle}`, 'CHANNEL_JOIN_LINK')
+      .replaceAll(`@${handle}`, 'CHANNEL_HANDLE');
+  }
+  return out;
+}
+
 /** Does a listed URL reach this route pattern? Query strings do not count. */
 function reaches(pattern: string, url: string): boolean {
   const path = url.split('?')[0] ?? url;
@@ -1204,17 +1602,89 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
     expect(registeredRoutes.size).toBeGreaterThan(ENDPOINTS.length / 2);
   });
 
-  it.each(LEAK_PATTERNS)('never returns $name', async ({ pattern }) => {
+  it.each(LEAK_PATTERNS)('never returns $name', async ({ name, pattern }) => {
     const offenders: string[] = [];
 
     for (const endpoint of ENDPOINTS) {
-      const body = await fetchBody(endpoint);
-      if (pattern.test(body)) {
+      const raw = await fetchBody(endpoint);
+      const route = `${endpoint.method} ${endpoint.url.split('?')[0]}`;
+
+      const exempt = IDENTITY_PATTERNS.has(name) && IDENTITY_BY_DESIGN.test(route);
+      // A channel's own handle is forgiven on the routes that describe channels;
+      // everything else in the same body is still scanned.
+      const body = CHANNEL_IDENTITY_BY_DESIGN.test(route) ? withoutChannelIdentity(raw) : raw;
+
+      if (!exempt && pattern.test(body)) {
         offenders.push(`${endpoint.method} ${endpoint.url} → ${body.slice(0, 300)}`);
       }
     }
 
     expect(offenders).toEqual([]);
+  });
+
+  /**
+   * The channel redaction must actually be doing something, and must not be
+   * doing anything else.
+   *
+   * Two failure modes, both silent. A redaction that no longer matches its
+   * fixtures — a renamed channel — leaves the scan failing on its own test data,
+   * which somebody then "fixes" by widening it. A redaction that swallowed more
+   * than the channel handles would forgive a person's identity on the very route
+   * most likely to carry one. So this asserts the exact shape: the channel
+   * handles go, and a handle that is not a channel's stays.
+   */
+  it('redacts only the channel handles it planted', () => {
+    const body = JSON.stringify({
+      inviteUrl: `https://t.me/${SCAN_CHANNEL_FIXTURE}`,
+      chatIdentifier: `@${SCAN_CHANNEL_FIXTURE}`,
+      created: `https://t.me/${SCAN_CHANNEL_CREATED}`,
+      someone: `@${TELEGRAM_USERNAME}`,
+      someoneElse: `https://t.me/${TELEGRAM_USERNAME}`,
+    });
+
+    const redacted = withoutChannelIdentity(body);
+
+    expect(redacted).not.toContain(SCAN_CHANNEL_FIXTURE);
+    expect(redacted).not.toContain(SCAN_CHANNEL_CREATED);
+    // A person's handle and a person's link both survive, so the two patterns
+    // still catch them on exactly the routes this redaction applies to.
+    expect(redacted).toContain(`@${TELEGRAM_USERNAME}`);
+    for (const { name, pattern } of LEAK_PATTERNS) {
+      if (name === 'an @username' || name === 'a t.me link') {
+        expect(pattern.test(redacted), name).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * The routes the redaction applies to are routes that exist.
+   *
+   * A regex that matches nothing is an exemption that looks rigorous and forgives
+   * nothing; one that has drifted wider forgives everything.
+   */
+  it('applies the channel redaction to routes that are actually registered', () => {
+    const matched = [...registeredRoutes].filter((route) => CHANNEL_IDENTITY_BY_DESIGN.test(route));
+
+    expect(matched.length).toBeGreaterThan(0);
+    for (const route of matched) {
+      expect(route).toMatch(/channel-config|channel-membership|audit\/search/);
+    }
+  });
+
+  /**
+   * The exemption above is only safe if it is narrow, so this asserts it is: the
+   * endpoint it names must actually be one the scan visits, and it must be the
+   * *only* route the pattern matches. An exemption that quietly stopped matching
+   * anything — a renamed route — would leave the scan looking rigorous while
+   * forgiving nothing, and one that widened would forgive everything.
+   */
+  it('exempts exactly one endpoint from the identity patterns', () => {
+    const exempted = ENDPOINTS.filter((endpoint) =>
+      IDENTITY_BY_DESIGN.test(`${endpoint.method} ${endpoint.url.split('?')[0]}`),
+    );
+
+    expect(exempted).toHaveLength(1);
+    expect([...registeredRoutes].filter((route) => IDENTITY_BY_DESIGN.test(route))).toHaveLength(1);
   });
 
   /**

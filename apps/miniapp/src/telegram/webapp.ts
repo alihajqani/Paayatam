@@ -52,6 +52,15 @@ interface HapticFeedback {
 
 interface TelegramWebApp {
   initData: string;
+  /**
+   * The unsigned half of the launch payload.
+   *
+   * **Unsigned, and therefore only ever used for navigation.** `initData` is what
+   * the server verifies; nothing here is evidence of anything. `start_param` is
+   * the `?startapp=` value the notification button carried, and the worst a
+   * forged one can do is open a screen the user could have tapped to anyway.
+   */
+  initDataUnsafe?: { start_param?: string };
   colorScheme: 'light' | 'dark';
   themeParams: ThemeParams;
   viewportStableHeight?: number;
@@ -67,6 +76,20 @@ interface TelegramWebApp {
    * way to ask, and hardcoding one would be a second place to change it.
    */
   close(): void;
+  /**
+   * Opens a `t.me` link inside Telegram rather than in a browser tab.
+   *
+   * `close()` gets the user back to *whatever chat they opened the Mini App
+   * from*, which is the bot when they launched it from the bot and the channel
+   * when they tapped a post's button. Report 6's whole complaint is the second
+   * case: "go back to the bot and find the conversation" is not something to ask
+   * of somebody who arrived from a channel. This lands them in the bot chat
+   * whichever door they came in by.
+   *
+   * Optional in the type because older WebApp builds do not have it — the caller
+   * falls back to `close()`, which is right more often than it is wrong.
+   */
+  openTelegramLink?: (url: string) => void;
   disableVerticalSwipes?: () => void;
   onEvent(event: string, handler: () => void): void;
   showAlert(message: string): void;
@@ -171,6 +194,79 @@ export function initTelegram(): void {
   webApp.onEvent('themeChanged', () => {
     applyTheme();
   });
+}
+
+/**
+ * Take the user to the bot's chat, wherever they opened the app from (report 6).
+ *
+ * `openTelegramLink` when the client has it, `close()` otherwise. The fallback is
+ * not a degradation for most users: somebody who launched the Mini App from the
+ * bot is returned to the bot by closing it. It is only wrong for somebody who
+ * arrived from a channel post, and that is exactly who the link form is for.
+ *
+ * An empty `botUsername` — a deployment that never configured one — closes
+ * rather than opening `https://t.me/`, which is a link to nothing.
+ */
+/**
+ * Where a `?startapp=` deep link wants to land, as a route path.
+ *
+ * ── What was broken ──────────────────────────────────────────────────────────
+ *
+ * Every «باز کردن برنامه» button in every notification has carried a payload
+ * since M13 — `openAppButton` builds `https://t.me/<bot>?startapp=<target>` and
+ * the templates pass `home`, `wallet`, `my-requests`, `reviews/pending`. Nothing
+ * ever read it back. Telegram delivers it as `initDataUnsafe.start_param`, the
+ * Mini App never looked, and so **every one of those buttons opened the splash**
+ * and left the user to navigate to the thing the message was about. The review
+ * reminder is the clearest loss: it names a pending review and then lands two
+ * taps away from it.
+ *
+ * `openAppButton` encodes `/` as `_`, because Telegram restricts `startapp` to
+ * `A-Za-z0-9_-`. This reverses that.
+ *
+ * ── Why an allowlist rather than a path ──────────────────────────────────────
+ *
+ * The payload is attacker-supplied — anyone can send anyone a `?startapp=`
+ * link. Treating it as a route would let a stranger choose which screen someone
+ * else's app opens on, including `/events/<id>/edit`. A fixed set of
+ * destinations cannot name a resource, so the worst a forged link achieves is a
+ * screen the user could have reached from the home page.
+ */
+export const DEEP_LINKS: Record<string, string> = {
+  home: '/home',
+  wallet: '/wallet',
+  discover: '/discover',
+  chats: '/chats',
+  reviews: '/reviews',
+  'reviews/pending': '/reviews',
+  'my-requests': '/my-requests',
+  'my-events': '/my-events',
+  /**
+   * `/profile/edit`, not `/profile`.
+   *
+   * `/profile` is the onboarding step and is in `ONBOARDING_PATHS`, so the router
+   * sends a *finished* user straight back to `/home` — a deep link to it would
+   * bounce for everybody who has completed onboarding, which is everybody who
+   * could have tapped the button. `/profile/edit` is the product screen, declared
+   * outside the funnel for exactly this reason.
+   */
+  'profile/edit': '/profile/edit',
+};
+
+export function deepLinkTarget(): string | null {
+  const raw = webApp?.initDataUnsafe?.start_param;
+  if (raw === undefined || raw === '') return null;
+
+  return DEEP_LINKS[raw.replaceAll('_', '/')] ?? null;
+}
+
+export function openBotChat(botUsername: string): void {
+  const url = botUsername === '' ? null : `https://t.me/${botUsername}`;
+  if (url !== null && webApp?.openTelegramLink !== undefined) {
+    webApp.openTelegramLink(url);
+    return;
+  }
+  webApp?.close();
 }
 
 export function haptic(kind: 'success' | 'error' | 'selection'): void {

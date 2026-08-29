@@ -122,6 +122,64 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'تفریحات', permission: PERMISSIONS.CATALOG_MANAGE, group: 'system' },
   },
   {
+    /**
+     * Sending a Telegram message (M22 phase 4).
+     *
+     * `message.send` opens the screen; the wider `message.broadcast` is what the
+     * filter controls need, and the compose form disables them without it. Both
+     * are checked again in the service — hiding a control is a courtesy.
+     *
+     * Filed under «اقتصاد»? No — under `system`, because this is an operational
+     * capability rather than a lever on the economy, and it sits next to the
+     * audit trail an operator checks after using it.
+     */
+    path: '/messages',
+    name: 'messages',
+    component: () => import('@/views/MessagesView.vue'),
+    meta: { title: 'پیام‌ها', permission: PERMISSIONS.MESSAGE_SEND, group: 'system' },
+  },
+  {
+    /**
+     * The event channel and the membership requirement (M22 phase 6).
+     *
+     * `channel.manage` rather than `settings.manage`, because everything behind
+     * that key retunes a number and this one switch can refuse every gated action
+     * for every user at once.
+     */
+    path: '/channel',
+    name: 'channel',
+    component: () => import('@/views/ChannelView.vue'),
+    meta: { title: 'کانال رویدادها', permission: PERMISSIONS.CHANNEL_MANAGE, group: 'system' },
+  },
+  {
+    /**
+     * Provinces and cities (M22 phase 9).
+     *
+     * `catalog.manage`, the same key the activity tags sit behind: both are lists
+     * a user picks from, and the reason M21 kept cities out of the panel was drift
+     * in *generated* data rather than a different capability. Activation is not
+     * drift.
+     */
+    path: '/places',
+    name: 'places',
+    component: () => import('@/views/PlacesView.vue'),
+    meta: { title: 'شهرها و استان‌ها', permission: PERMISSIONS.CATALOG_MANAGE, group: 'system' },
+  },
+  {
+    /**
+     * Legal documents (M22 phase 8).
+     *
+     * `policy.read` rather than `policy.manage`, so support and moderation can
+     * open it: reading the rules is half of what support does, and writing them
+     * is a different capability. The screen hides the buttons the session cannot
+     * use, and every one of them is checked again in the service.
+     */
+    path: '/policies',
+    name: 'policies',
+    component: () => import('@/views/PoliciesView.vue'),
+    meta: { title: 'اسناد حقوقی', permission: PERMISSIONS.POLICY_READ, group: 'system' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),

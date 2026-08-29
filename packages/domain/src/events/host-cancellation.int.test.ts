@@ -11,7 +11,10 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { ChannelConfigService } from '../channel/channel-config.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { CatalogService } from '../catalog/catalog.service';
+import { ChannelService } from '../channel/channel.service';
 import { SettingsService } from '../catalog/settings.service';
 import { ChatService } from '../chat/chat.service';
 import { MessageCipher } from '../chat/message-cipher';
@@ -42,9 +45,16 @@ const clock = new FakeClock(NOW);
 const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 
 const settings = new SettingsService(service);
-const catalog = new CatalogService(service, settings);
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, settings, catalogEnv);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
+const channel = new ChannelService(service, clock, settings);
 const audit = new AuditService(service, clock);
 const outbox = new OutboxService(service, clock);
 const cipher = new MessageCipher({
@@ -54,6 +64,18 @@ const chat = new ChatService(service, clock, cipher, audit, outbox);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
+/**
+ * The channel-membership gate, in its permissive default state.
+ *
+ * `event_channel_config` is truncated between tests, so `membershipRequired` is
+ * false and every check answers NOT_REQUIRED — the gate is a no-op here, which is
+ * what these suites want. `membership.int.test.ts` is where it is switched on.
+ */
+const membership = new ChannelMembershipService(
+  service,
+  new ChannelConfigService(service, clock, audit),
+);
+
 const events = new EventService(
   service,
   clock,
@@ -61,6 +83,8 @@ const events = new EventService(
   catalog,
   settings,
   moderation,
+  channel,
+  membership,
   coins,
   penalties,
   chat,
@@ -76,6 +100,7 @@ const participation = new ParticipationService(
   outbox,
   chat,
   penalties,
+  membership,
 );
 
 const STARTS_AT = new Date('2026-09-20T15:00:00.000Z');

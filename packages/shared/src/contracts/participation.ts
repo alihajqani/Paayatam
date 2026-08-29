@@ -118,8 +118,23 @@ export const participationView = z.object({
 });
 export type ParticipationView = z.infer<typeof participationView>;
 
+/**
+ * The same request, in the requester's own list, naming the event it is for.
+ *
+ * Only the list carries this. The action responses return `participationView`,
+ * because a caller who just posted to `/events/:id/join` already has the title.
+ */
+export const myParticipationView = participationView.extend({
+  event: z.object({
+    publicId: z.string(),
+    title: z.string(),
+    startsAt: z.iso.datetime(),
+  }),
+});
+export type MyParticipationView = z.infer<typeof myParticipationView>;
+
 export const myParticipationsResponse = z.object({
-  participations: z.array(participationView),
+  participations: z.array(myParticipationView),
 });
 export type MyParticipationsResponse = z.infer<typeof myParticipationsResponse>;
 

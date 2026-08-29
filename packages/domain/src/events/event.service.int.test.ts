@@ -11,6 +11,8 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { ChannelConfigService } from '../channel/channel-config.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { MessageCipher } from '../chat/message-cipher';
 import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
@@ -18,7 +20,8 @@ import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { CatalogService } from '../catalog/catalog.service';
-import { SettingsService } from '../catalog/settings.service';
+import { ChannelService } from '../channel/channel.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { BlacklistService } from '../moderation/blacklist.service';
 import { ModerationService } from '../moderation/moderation.service';
 import { normalize } from '../moderation/persian-normalizer';
@@ -40,9 +43,16 @@ const clock = new FakeClock(NOW);
 const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 
 const settings = new SettingsService(service);
-const catalog = new CatalogService(service, settings);
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, settings, catalogEnv);
 const blacklist = new BlacklistService(service);
 const moderation = new ModerationService(service, blacklist);
+const channel = new ChannelService(service, clock, settings);
 const audit = new AuditService(service, clock);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
@@ -52,6 +62,18 @@ const cipher = new MessageCipher({
   CHAT_ENCRYPTION_KEY: TEST_CHAT_ENCRYPTION_KEY,
 } as unknown as Env);
 const chat = new ChatService(service, clock, cipher, audit, outbox);
+/**
+ * The channel-membership gate, in its permissive default state.
+ *
+ * `event_channel_config` is truncated between tests, so `membershipRequired` is
+ * false and every check answers NOT_REQUIRED — the gate is a no-op here, which is
+ * what these suites want. `membership.int.test.ts` is where it is switched on.
+ */
+const membership = new ChannelMembershipService(
+  service,
+  new ChannelConfigService(service, clock, audit),
+);
+
 const events = new EventService(
   service,
   clock,
@@ -59,6 +81,8 @@ const events = new EventService(
   catalog,
   settings,
   moderation,
+  channel,
+  membership,
   coins,
   penalties,
   chat,
@@ -97,9 +121,22 @@ function inputWithoutDistrict(overrides: Partial<CreateEventInput> = {}): Create
   return rest;
 }
 
+/**
+ * What a host starts with, so authoring can cost coins (M22 phase 5).
+ *
+ * A real account gets this from the onboarding grant; `createUser` writes the row
+ * directly and never runs it. Large enough that no test in this file is
+ * accidentally about affordability — the one that *is* funds a host deliberately
+ * and asserts the refusal.
+ */
+const HOST_ENDOWMENT = 1_000;
+
+/** What creating an event costs, read from the same table the service reads. */
+const CREATE_COST = SETTING_DEFAULTS['economy.event_create_coins'];
+
 /** A host who has finished onboarding, which authoring requires. */
 async function createHost(): Promise<string> {
-  const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+  const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: HOST_ENDOWMENT });
   await prisma.userProfile.create({
     data: { userId, displayName: 'میزبان', cityId: fixture.tehranId, birthYear: 1995 },
   });
@@ -675,7 +712,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
 
     // 40 coins for 24 hours, from `SETTING_DEFAULTS`.
     expect(boosted.boostedUntil).toEqual(new Date(NOW.getTime() + 24 * 3_600_000));
-    await expect(coins.balanceOf(hostId)).resolves.toBe(60);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST - 40);
   });
 
   /**
@@ -695,7 +732,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
 
     // 24 h remaining at purchase + 24 h bought, measured from the first expiry.
     expect(second.boostedUntil).toEqual(new Date(NOW.getTime() + 48 * 3_600_000));
-    await expect(coins.balanceOf(hostId)).resolves.toBe(20);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST - 80);
   });
 
   it('starts a lapsed window from now, not from the old expiry', async () => {
@@ -724,21 +761,27 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
 
     expect(first.isVip).toBe(true);
     expect(second.isVip).toBe(true);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(150);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 250 - CREATE_COST - 100);
     await expect(prisma.coinLedger.count({ where: { type: 'VIP_SPEND' } })).resolves.toBe(1);
   });
 
   it('leaves the event untouched when the host cannot afford it', async () => {
-    await fund(hostId, 10);
-    const created = await events.create(hostId, validInput());
+    // A host with exactly enough to author and nothing to promote with. The
+    // shared `hostId` is deliberately not used: it is endowed so that every
+    // other test in this file is about something other than affordability.
+    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: CREATE_COST + 10 });
+    await prisma.userProfile.create({
+      data: { userId: poor, displayName: 'کم‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
+    });
+    const created = await events.create(poor, validInput());
 
-    await expect(events.boost(hostId, created.publicId, 'BOOST')).rejects.toMatchObject({
+    await expect(events.boost(poor, created.publicId, 'BOOST')).rejects.toMatchObject({
       code: 'INSUFFICIENT_COINS',
     });
 
     const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
     expect(row.boostedUntil).toBeNull();
-    await expect(coins.balanceOf(hostId)).resolves.toBe(10);
+    await expect(coins.balanceOf(poor)).resolves.toBe(10);
   });
 
   /**
@@ -785,7 +828,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
     await expect(events.boost(hostId, blocked.publicId, 'BOOST')).rejects.toMatchObject({
       code: 'EVENT_NOT_BOOSTABLE',
     });
-    await expect(coins.balanceOf(hostId)).resolves.toBe(100);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST);
   });
 
   it('refuses to promote an event that has already started', async () => {
@@ -796,7 +839,204 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
     await expect(events.boost(hostId, created.publicId, 'BOOST')).rejects.toMatchObject({
       code: 'EVENT_NOT_BOOSTABLE',
     });
-    await expect(coins.balanceOf(hostId)).resolves.toBe(100);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST);
+  });
+});
+
+/**
+ * What creating an event costs (M22 phase 5).
+ *
+ * The property worth a real database is the pairing, and it is the same one the
+ * boost suite above checks from the other side: the coins leave and the event
+ * arrives in one transaction, or neither does. A host charged for an event that
+ * was rolled back has no way to tell that from a bug, and the money is gone
+ * either way.
+ */
+describe('EventService.create — the creation charge (M22 phase 5)', () => {
+  it('charges the configured price and records it against the event', async () => {
+    const created = await events.create(hostId, validInput());
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    const entry = await prisma.coinLedger.findFirstOrThrow({
+      where: { type: 'EVENT_CREATE_SPEND' },
+    });
+
+    expect(entry.amount).toBe(-CREATE_COST);
+    expect(entry.reasonCode).toBe('event.created');
+    expect(entry.refType).toBe('event');
+    expect(entry.refId).toBe(row.id);
+    expect(entry.actorType).toBe('USER');
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CREATE_COST);
+  });
+
+  it('refuses, and creates nothing, when the host cannot afford it', async () => {
+    const pauper = await createUser(prisma, 'PROFILE_COMPLETE');
+    await prisma.userProfile.create({
+      data: { userId: pauper, displayName: 'بی‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
+    });
+
+    await expect(events.create(pauper, validInput())).rejects.toMatchObject({
+      code: 'INSUFFICIENT_COINS',
+    });
+
+    // The whole point of charging inside the transaction: no orphan event, and
+    // no orphan quota consumption either.
+    await expect(prisma.event.count({ where: { hostUserId: pauper } })).resolves.toBe(0);
+    await expect(coins.balanceOf(pauper)).resolves.toBe(0);
+  });
+
+  /**
+   * A blocked event is still an event.
+   *
+   * It exists, it consumed a slot of the daily quota and it is queued for a human
+   * to read. Not charging would make the blacklist a free way to occupy a
+   * moderator; reversing it automatically would be an apology for content the
+   * scanner objected to. A moderator who disagrees reverses it by hand, which is
+   * a decision with a name on it.
+   */
+  it('charges for a BLOCKed event too, because the event exists', async () => {
+    await events.create(hostId, validInput({ title: 'دورهمی با مشروب' }));
+
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CREATE_COST);
+    await expect(prisma.coinLedger.count({ where: { type: 'EVENT_CREATE_SPEND' } })).resolves.toBe(
+      1,
+    );
+  });
+
+  /**
+   * Two creations at once are two events and two charges — which is correct, and
+   * is *not* what an accidental double-tap should produce. That case is plan §6's
+   * `Idempotency-Key` header, tested in `apps/api/src/common/idempotency.int.test.ts`
+   * against the HTTP layer where the header exists.
+   */
+  it('charges once per event under concurrency, and never oversells the balance', async () => {
+    const broke = await createUser(prisma, 'PROFILE_COMPLETE', { coins: CREATE_COST });
+    await prisma.userProfile.create({
+      data: { userId: broke, displayName: 'یک‌بار', cityId: fixture.tehranId, birthYear: 1995 },
+    });
+
+    const results = await Promise.allSettled([
+      events.create(broke, validInput()),
+      events.create(broke, validInput({ title: 'دورهمی دوم در کافه' })),
+    ]);
+
+    // Exactly one could be paid for. The other is refused rather than driving the
+    // balance negative, which the CHECK would refuse anyway.
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    await expect(coins.balanceOf(broke)).resolves.toBe(0);
+    await expect(prisma.event.count({ where: { hostUserId: broke } })).resolves.toBe(1);
+  });
+
+  it('writes no ledger row at all when the price is zero', async () => {
+    await prisma.appSetting.upsert({
+      where: { key: 'economy.event_create_coins' },
+      create: { key: 'economy.event_create_coins', value: 0 },
+      update: { value: 0 },
+    });
+
+    await events.create(hostId, validInput());
+
+    // `coin_ledger.amount` may not be zero, so "free" has to mean no row rather
+    // than a row recording that nothing happened.
+    await expect(prisma.coinLedger.count({ where: { type: 'EVENT_CREATE_SPEND' } })).resolves.toBe(
+      0,
+    );
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT);
+  });
+});
+
+/**
+ * Buying a place in the channel (M22 phase 5).
+ *
+ * The property worth a real database is the same one boost has, plus one more:
+ * `UNIQUE (event_id, kind)` is what makes the purchase exactly-once, and the claim
+ * is taken *before* the charge so a second attempt is refused rather than charged
+ * and then refunded.
+ */
+describe('EventService.publishToChannel — the paid channel post', () => {
+  const SEND_COST = SETTING_DEFAULTS['economy.event_channel_send_coins'];
+
+  it('claims a PAID post and charges the configured price', async () => {
+    const created = await events.create(hostId, validInput());
+
+    await events.publishToChannel(hostId, created.publicId);
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    const post = await prisma.channelPost.findFirstOrThrow({ where: { eventId: row.id } });
+    expect(post.kind).toBe('PAID');
+    // Unposted: nothing here talks to Telegram, the worker's sweep does.
+    expect(post.postedAt).toBeNull();
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CREATE_COST - SEND_COST);
+
+    const entry = await prisma.coinLedger.findFirstOrThrow({
+      where: { type: 'CHANNEL_POST_SPEND' },
+    });
+    expect(entry.amount).toBe(-SEND_COST);
+    expect(entry.refId).toBe(row.id);
+  });
+
+  it('refuses a second purchase, and charges nothing for it', async () => {
+    const created = await events.create(hostId, validInput());
+    await events.publishToChannel(hostId, created.publicId);
+    const after = await coins.balanceOf(hostId);
+
+    await expect(events.publishToChannel(hostId, created.publicId)).rejects.toMatchObject({
+      code: 'EVENT_ALREADY_IN_CHANNEL',
+    });
+
+    await expect(coins.balanceOf(hostId)).resolves.toBe(after);
+    await expect(prisma.coinLedger.count({ where: { type: 'CHANNEL_POST_SPEND' } })).resolves.toBe(
+      1,
+    );
+  });
+
+  it('claims nothing when the host cannot afford it', async () => {
+    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: CREATE_COST });
+    await prisma.userProfile.create({
+      data: { userId: poor, displayName: 'کم‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
+    });
+    const created = await events.create(poor, validInput());
+
+    await expect(events.publishToChannel(poor, created.publicId)).rejects.toMatchObject({
+      code: 'INSUFFICIENT_COINS',
+    });
+
+    // The claim was taken first and rolled back with the charge, so the event is
+    // not silently barred from a future purchase by a row nobody paid for.
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    await expect(prisma.channelPost.count({ where: { eventId: row.id } })).resolves.toBe(0);
+  });
+
+  it('tells a stranger the event does not exist, and charges them nothing', async () => {
+    const created = await events.create(hostId, validInput());
+    const stranger = await createUser(prisma, 'PROFILE_COMPLETE', { coins: 500 });
+
+    await expect(events.publishToChannel(stranger, created.publicId)).rejects.toMatchObject({
+      code: 'EVENT_NOT_FOUND',
+    });
+    await expect(coins.balanceOf(stranger)).resolves.toBe(500);
+  });
+
+  it('refuses an event that has already started', async () => {
+    const created = await events.create(hostId, validInput());
+    clock.set(new Date('2026-08-20T16:00:00.000Z'));
+
+    await expect(events.publishToChannel(hostId, created.publicId)).rejects.toMatchObject({
+      code: 'EVENT_NOT_BOOSTABLE',
+    });
+  });
+
+  it('hands the unposted claim to the sweep, and keeps it after a failure', async () => {
+    const created = await events.create(hostId, validInput());
+    await events.publishToChannel(hostId, created.publicId);
+
+    const pending = await channel.findUnpostedPaid();
+
+    expect(pending.map((post) => post.eventPublicId)).toEqual([created.publicId]);
+    expect(pending[0]?.kind).toBe('PAID');
+    // Still there on the next pass: the worker never releases a paid claim,
+    // because it is the record that somebody paid.
+    await expect(channel.findUnpostedPaid()).resolves.toHaveLength(1);
   });
 });
 

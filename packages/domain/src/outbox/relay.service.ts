@@ -5,6 +5,20 @@ import { CLOCK, type Clock } from '@payetam/platform';
 import { planNotifications } from '../notifications/fanout';
 import { NotificationService } from '../notifications/notification.service';
 
+/** How far behind the outbox is, if it is behind at all. */
+export interface OutboxBacklog {
+  /** Rows committed and not yet fanned out. */
+  pending: number;
+  /**
+   * Age of the oldest undelivered row, or null when there is none.
+   *
+   * The number that actually means something. A large `pending` during a burst is
+   * the relay working; an *old* row is the relay stuck, because the drain takes
+   * the oldest first — so nothing overtakes a row that is failing.
+   */
+  oldestAgeMs: number | null;
+}
+
 export interface RelayResult {
   /** Outbox rows drained. */
   processed: number;
@@ -97,6 +111,37 @@ export class OutboxRelayService {
     }
 
     return result;
+  }
+
+  /**
+   * How far behind the outbox is (M22 phase 7).
+   *
+   * M16 made this number scrapeable and the comment there says why it matters:
+   * queue depth going up means the worker is behind, but **outbox backlog going up
+   * means the guarantee itself is not being kept** — a promise breaking quietly,
+   * with no user-visible symptom until somebody notices they were never told.
+   *
+   * What M16 could not do is notice on its own; `/metrics` needs somebody
+   * scraping it and somebody reading the scrape. This is the same question asked
+   * by the worker every five minutes so it can raise its hand.
+   */
+  async backlog(): Promise<OutboxBacklog> {
+    const [pending, oldest] = await Promise.all([
+      this.prisma.outboxEvent.count({ where: { processedAt: null } }),
+      this.prisma.outboxEvent.findFirst({
+        where: { processedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    return {
+      pending,
+      oldestAgeMs:
+        oldest === null
+          ? null
+          : Math.max(0, this.clock.now().getTime() - oldest.createdAt.getTime()),
+    };
   }
 
   private async resolveUserId(publicId: string): Promise<string | null> {

@@ -2,6 +2,7 @@
   "name": "@payetam/shared",
   "version": "0.1.0",
   "private": true,
+  "sideEffects": false,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

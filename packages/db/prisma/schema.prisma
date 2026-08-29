@@ -91,6 +91,10 @@ model User {
   reviewsReceived     Review[]             @relation("ReviewsReceived")
   referralReceived    Referral?            @relation("ReferralReceived")
   giftCodeRedemptions GiftCodeRedemption[]
+  messageCampaigns    MessageCampaign[]
+  messagesReceived    MessageRecipient[]
+  invitationsReceived EventInvitation[]
+  conversation        ConversationState?
 
   @@index([status])
   @@index([createdAt])
@@ -137,6 +141,24 @@ enum PolicyType {
   @@map("policy_type")
 }
 
+/// Where a policy version is in its authoring life (M22).
+///
+/// Added beside `is_current` rather than replacing it. `is_current` answers "which
+/// version must a user accept?" and is enforced by a partial unique index; this
+/// answers "may an author still edit this row?" — and the two are not the same
+/// question. A published version that has been superseded is `PUBLISHED` and not
+/// current; a draft is neither.
+///
+/// **Every row that existed before M22 is `PUBLISHED`**, which is what the column
+/// default says and why the migration needs no backfill.
+enum PolicyStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+
+  @@map("policy_status")
+}
+
 /// Versioned policy text.
 ///
 /// Deviation from the plan: `policy_document` and `policy_version` are merged. A
@@ -144,19 +166,44 @@ enum PolicyType {
 /// version per type" rule is enforced by a partial unique index in the migration —
 /// which is a stronger guarantee than a parent row would have given.
 model PolicyVersion {
-  id          String     @id @default(uuid(7))
+  id          String       @id @default(uuid(7))
   type        PolicyType
   version     Int
-  contentMd   String     @map("content_md")
-  summaryFa   String?    @map("summary_fa")
-  isCurrent   Boolean    @default(false) @map("is_current")
-  publishedAt DateTime   @default(now()) @map("published_at") @db.Timestamptz(3)
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  contentMd   String       @map("content_md")
+  summaryFa   String?      @map("summary_fa")
+  isCurrent   Boolean      @default(false) @map("is_current")
+  /// Defaults to PUBLISHED so every pre-M22 row is already valid (migration 0021).
+  status      PolicyStatus @default(PUBLISHED)
+  /// The document's own name, distinct from its `type`. Nullable because the rows
+  /// seeded before M22 have none, and inventing one for them would be writing
+  /// legal text nobody approved.
+  titleFa     String?      @map("title_fa")
+  /// What changed since the previous version, for the person being asked to
+  /// accept it again. Not a substitute for the text — a summary is not consent.
+  changeSummaryFa String?  @map("change_summary_fa")
+  publishedAt DateTime     @default(now()) @map("published_at") @db.Timestamptz(3)
+  archivedAt  DateTime?    @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  consents Consent[]
+  /// Optimistic concurrency for two authors editing one draft (M22).
+  ///
+  /// A published version is immutable, so this only ever moves while `status` is
+  /// DRAFT — which is the point: the row that can be overwritten is the only row
+  /// that needs a token.
+  revision Int @default(0)
+
+  createdByAdminId   String? @map("created_by_admin_id")
+  publishedByAdminId String? @map("published_by_admin_id")
+
+  consents    Consent[]
+  createdBy   AdminUser? @relation("PolicyCreatedBy", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  publishedBy AdminUser? @relation("PolicyPublishedBy", fields: [publishedByAdminId], references: [id], onDelete: SetNull)
 
   @@unique([type, version])
   @@index([type, isCurrent])
+  /// The admin list: everything of one type, newest first, drafts included.
+  @@index([type, status, version(sort: Desc)], map: "policy_version_authoring_idx")
   @@map("policy_version")
 }
 
@@ -188,6 +235,20 @@ model Consent {
   acceptedAt      DateTime       @default(now()) @map("accepted_at") @db.Timestamptz(3)
   ipHash          String?        @map("ip_hash")
   userAgentHash   String?        @map("user_agent_hash")
+
+  /// `TERMS v3` — the version identifier as it stood at the moment of acceptance,
+  /// snapshotted (M22).
+  ///
+  /// Redundant with the join, and deliberately so: this is evidence, and evidence
+  /// that depends on another row still being readable is weaker than evidence that
+  /// does not. Nullable, because the rows written before M22 have no snapshot and
+  /// fabricating one would be worse than leaving the join to answer for them.
+  policyVersionLabel String? @map("policy_version_label")
+  /// The request that recorded it, so an acceptance can be tied to the access log.
+  requestId          String? @map("request_id")
+  /// Which build of the Mini App the user was looking at. Safe client context —
+  /// a release string, never a device fingerprint (ADR-0009).
+  appVersion         String? @map("app_version")
 
   user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
   policyVersion PolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
@@ -235,6 +296,18 @@ model City {
   id         String   @id @default(uuid(7))
   slug       String   @unique
   nameFa     String   @map("name_fa")
+  /// `name_fa` through the ADR-0012 pipeline, so a search for «قايم شهر» finds
+  /// «قائم‌شهر» (M22).
+  ///
+  /// A column rather than an expression index, for the reason `event.title_normalized`
+  /// is one: the normalizer is TypeScript and cannot be called from Postgres. The
+  /// migration backfills it with the subset of the pipeline that SQL can express
+  /// and that these 1,252 names actually need — letter folding, ZWNJ, case — and
+  /// the admin service maintains it on every write from then on.
+  ///
+  /// Nullable so the column can be added without a lock-taking NOT NULL rewrite;
+  /// the search falls back to `name_fa` for any row that somehow has none.
+  nameNormalized String? @map("name_normalized")
   isActive   Boolean  @default(false) @map("is_active")
   sortOrder  Int      @default(0) @map("sort_order")
   /// Nullable on purpose and permanently — see migration 0020.
@@ -251,6 +324,11 @@ model City {
 
   @@index([isActive, sortOrder])
   @@index([provinceId, isActive, sortOrder])
+  /// Substring search over 1,252 names, so the picker can be a text field rather
+  /// than a list nobody can scroll on a phone (M22).
+  @@index([nameNormalized(ops: raw("gin_trgm_ops"))], map: "city_name_trgm_idx", type: Gin)
+  /// The admin list: one province's cities, alphabetically.
+  @@index([provinceId, nameFa], map: "city_province_name_idx")
   @@map("city")
 }
 
@@ -370,6 +448,14 @@ model UserProfile {
   cityId      String    @map("city_id")
   districtId  String?   @map("district_id")
   bio         String?
+  /// Whether this user has asked not to receive event invitations (M22).
+  ///
+  /// A profile column rather than a preferences table, because it is the only
+  /// preference the product has and a table for one boolean is a join with
+  /// nothing in it. **Opt-out, not opt-in**: the top-20 selector excludes anybody
+  /// with this set, and the default is false so nothing changes for existing users
+  /// until they choose.
+  inviteOptOut Boolean  @default(false) @map("invite_opt_out")
   /// Set the first time the profile passes every completeness rule, and never
   /// moved afterwards — later edits are edits, not a second completion. It is
   /// therefore safe to read as "when did this user finish onboarding".
@@ -418,6 +504,14 @@ enum CoinLedgerType {
   GIFT_CODE_REDEEM
   BOOST_SPEND
   VIP_SPEND
+  /// The three M22 sinks (phase 5). Separate values rather than one `SPEND`,
+  /// for the reason `GIFT_CODE_REDEEM` is separate from `ADMIN_ADJUSTMENT`:
+  /// "they made an event", "they pushed one to the channel" and "they paid to
+  /// invite twenty people" answer different questions in an audit and have
+  /// different people to ask about them.
+  EVENT_CREATE_SPEND
+  CHANNEL_POST_SPEND
+  INVITE_SPEND
   CANCELLATION_PENALTY
   NO_SHOW_PENALTY
   HOST_CANCELLATION_REFUND
@@ -481,6 +575,7 @@ model CoinLedger {
 
   penalisedParticipants EventParticipant[]
   giftCodeRedemption    GiftCodeRedemption?
+  messageCampaign       MessageCampaign?
 
   @@index([userId, createdAt])
   @@index([type, createdAt])
@@ -940,6 +1035,8 @@ model Event {
   reviewPairs  ReviewPair[]
   channelPosts ChannelPost[]
   chats        AnonymousChat[]
+  invitations  EventInvitation[]
+  campaigns    MessageCampaign[]
 
   @@index([status, startsAt])
   @@index([hostUserId, createdAt])
@@ -1594,6 +1691,8 @@ model AuditLog {
   @@index([actorType, actorId, createdAt])
   @@index([targetType, targetId, createdAt])
   @@index([createdAt])
+  /// The legal trail is read by action name — "every `policy.*` row" (M22).
+  @@index([action, createdAt])
   @@map("audit_log")
 }
 
@@ -1827,6 +1926,11 @@ model AdminUser {
   roleChangesSeen   RoleChangeRequest[] @relation("RoleChangeApprovedBy")
   giftCodesCreated  GiftCode[]
   referralsRejected Referral[]
+  messageCampaigns  MessageCampaign[]
+  policiesDrafted   PolicyVersion[]     @relation("PolicyCreatedBy")
+  policiesPublished PolicyVersion[]     @relation("PolicyPublishedBy")
+  channelConfigs    EventChannelConfig[]
+  requiredChannels  RequiredChannel[]
 
   @@index([status])
   @@map("admin_user")
@@ -2059,6 +2163,21 @@ enum ChannelPostKind {
   VIP
   BOOSTED
   TRENDING
+  /**
+   * The host paid for this one specific publication (M22 phase 5).
+   *
+   * A fourth reason rather than a reuse of `BOOSTED`, and for the same argument
+   * the other three make: "they bought a 24-hour lift", "they bought permanent VIP
+   * standing" and "they bought one post in the channel" are three different
+   * purchases at three different prices, and a ledger that cannot tell them apart
+   * cannot answer what promotion earned.
+   *
+   * It is also the one kind whose claim row is **never released on failure**: the
+   * others are re-derivable from `is_vip`, `boosted_until` and `request_count`, so
+   * deleting a failed claim costs nothing. This one is the record that somebody
+   * paid, and deleting it would lose the purchase.
+   */
+  PAID
 
   @@map("channel_post_kind")
 }
@@ -2089,4 +2208,411 @@ model ChannelPost {
   /// The delete sweep's read: posts that are live and whose event no longer is.
   @@index([deletedAt, postedAt])
   @@map("channel_post")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Outbound campaigns (M22)
+//
+// One shape for three things that turned out to be the same thing: an admin
+// messaging one user, an admin broadcasting to a filtered set, and a host paying
+// to invite twenty people to their event. All three select recipients, need
+// confirming before they cost anything, deliver through the one rate-limited
+// queue, and have to be answerable afterwards — "who did we message, and what
+// happened to each one?".
+//
+// Three properties are the database's rather than the service's:
+//
+//   - **`idempotency_key` is UNIQUE**, so a double-tapped «ارسال» produces one
+//     campaign. It is derived from the intention (the admin, the filter hash, the
+//     body) or supplied by the client, exactly as `coin_ledger.idempotency_key` is.
+//   - **`UNIQUE (campaign_id, user_id)` on the recipients**, so a dispatcher that
+//     runs twice cannot enqueue a second delivery to the same person.
+//   - **`UNIQUE (event_id, user_id)` on invitations**, so nobody is invited to one
+//     event twice however many times the host pays.
+//
+// `body_text` is stored. It is admin- or host-authored operational content rather
+// than private correspondence — the thing a dispute is about is *what was sent* —
+// and the chat retention rules (ADR-0009) apply to `chat_message`, which this is
+// not.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum MessageCampaignKind {
+  /// One named recipient (M22 phase 12).
+  DIRECT
+  /// A filtered set (phase 4).
+  BROADCAST
+  /// The paid top-20 invitation (phase 11).
+  EVENT_INVITE
+
+  @@map("message_campaign_kind")
+}
+
+/// The lifecycle, and the reason a broadcast cannot happen by accident.
+///
+/// `DRAFT → CONFIRMED` is a **separate request from a separate button**, and it is
+/// the only edge that leads to delivery. A dry run stops at `COMPLETED` without
+/// ever entering `QUEUED`, which is what makes "preview" and "send" different
+/// verbs rather than a flag somebody can forget.
+enum MessageCampaignStatus {
+  DRAFT
+  CONFIRMED
+  QUEUED
+  SENDING
+  COMPLETED
+  PARTIALLY_FAILED
+  FAILED
+  CANCELLED
+
+  @@map("message_campaign_status")
+}
+
+/// What happened to one intended delivery.
+///
+/// Shared by `message_recipient` and `event_invitation` because the outcomes are
+/// the same outcomes — and a second enum with the same members is a second thing
+/// to keep in step with `TelegramClient.classify`.
+///
+/// `BLOCKED` and `INVALID` are **terminal and not failures**: there is nobody at
+/// the other end, and retrying burns the rate budget other people's messages need
+/// (ADR-0005). `SKIPPED` is a recipient the selection kept but delivery declined —
+/// an account banned between selection and send.
+enum DeliveryStatus {
+  PENDING
+  SENT
+  RATE_LIMITED
+  BLOCKED
+  INVALID
+  FAILED
+  SKIPPED
+
+  @@map("delivery_status")
+}
+
+model MessageCampaign {
+  id       String @id @default(uuid(7))
+  /// The only campaign identifier that appears in a URL or a response.
+  publicId String @unique @default(uuid(4)) @map("public_id")
+  /// Exactly-once, in the database. See the block comment above.
+  idempotencyKey String @unique @map("idempotency_key")
+
+  kind   MessageCampaignKind
+  status MessageCampaignStatus @default(DRAFT)
+
+  /// What is actually sent. Plain text unless `parse_mode` says otherwise, and
+  /// the service refuses anything Telegram would reject rather than discovering
+  /// it one recipient at a time.
+  bodyText  String  @map("body_text")
+  /// 'HTML' or null. The product already sends HTML through `TelegramClient`;
+  /// nothing else is accepted.
+  parseMode String? @map("parse_mode")
+
+  /// The selection, as data — city ids, a status, a completeness flag. Never raw
+  /// personal data, and never a list of Telegram identifiers: the recipients are
+  /// rows in `message_recipient`, which reference `user` by internal id.
+  filter Json @default("{}")
+
+  /// What the preview told the operator before they confirmed. Kept so "you said
+  /// 400 and sent 380" is answerable.
+  estimatedRecipients Int @default(0) @map("estimated_recipients")
+  /// `{ queued, sent, rateLimited, blocked, invalid, failed, skipped }`, maintained
+  /// by the dispatcher. A cache of `GROUP BY status` over the recipients, kept so
+  /// the list screen is one read rather than one aggregate per row.
+  counts Json @default("{}")
+
+  /// True for a rehearsal. A dry run selects recipients, writes them, reports the
+  /// counts and **never enqueues a single job**.
+  dryRun Boolean @default(false) @map("dry_run")
+
+  /// Who asked for it. `ADMIN` for phases 4 and 12, `USER` for the host who paid
+  /// for an invitation — reusing `ActorType` rather than declaring which of the
+  /// two nullable columns is set, because the enum already answers that question
+  /// everywhere else in this schema.
+  actorType    ActorType @map("actor_type")
+  actorAdminId String?   @map("actor_admin_id")
+  actorUserId  String?   @map("actor_user_id")
+
+  /// The event this is about, for an invitation or an event-scoped broadcast.
+  eventId String? @map("event_id")
+
+  /// The coins this cost, if it cost any (phase 5's 10- and 15-coin sinks).
+  ///
+  /// UNIQUE, so one ledger row can pay for at most one campaign — which is what
+  /// makes the refund path safe: reversing this ledger row cannot silently refund
+  /// a second campaign that claimed the same payment.
+  coinLedgerId String? @unique @map("coin_ledger_id")
+
+  confirmedByAdminId String? @map("confirmed_by_admin_id")
+  cancelledByAdminId String? @map("cancelled_by_admin_id")
+
+  /// Set when the circuit breaker tripped, with the reason. The campaign stays
+  /// SENDING — it is paused, not failed — and the dispatcher stops claiming.
+  pausedAt    DateTime? @map("paused_at") @db.Timestamptz(3)
+  pauseReason String?   @map("pause_reason")
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(3)
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(3)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(3)
+
+  actorAdmin AdminUser?  @relation(fields: [actorAdminId], references: [id], onDelete: SetNull)
+  actorUser  User?       @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  event      Event?      @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  ledger     CoinLedger? @relation(fields: [coinLedgerId], references: [id], onDelete: Restrict)
+
+  recipients  MessageRecipient[]
+  invitations EventInvitation[]
+
+  @@index([status, createdAt])
+  @@index([kind, createdAt])
+  @@index([actorAdminId, createdAt])
+  @@map("message_campaign")
+}
+
+/// One intended delivery, and the record of what became of it.
+model MessageRecipient {
+  id         String @id @default(uuid(7))
+  campaignId String @map("campaign_id")
+  userId     String @map("user_id")
+
+  status   DeliveryStatus @default(PENDING)
+  attempts Int            @default(0)
+  /// The client's own classification, truncated. Never a raw Telegram payload and
+  /// never a token — an operator reads this, and the token is configuration.
+  lastError String?       @map("last_error")
+
+  telegramMessageId Int?      @map("telegram_message_id")
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  campaign MessageCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user     User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// The duplicate guard. A dispatcher that runs twice inserts nothing the second
+  /// time.
+  @@unique([campaignId, userId])
+  @@index([campaignId, status])
+  /// The dispatcher's claim query, partial so it holds the backlog rather than
+  /// every delivery the product has ever made.
+  @@index([campaignId], map: "message_recipient_pending_idx", where: { status: "PENDING" })
+  @@map("message_recipient")
+}
+
+/// Somebody the top-20 selector picked, and why (M22 phase 11).
+///
+/// Separate from `message_recipient` even though a campaign carries both, because
+/// the question this table answers outlives the campaign: **"has this person
+/// already been invited to this event?"** must stay a unique index long after the
+/// campaign row has been read for the last time.
+///
+/// `score_breakdown` is the explainable snapshot — which terms fired and what each
+/// contributed. It holds no personal data, only the host's own event's attributes
+/// matched against a count: `{"sameCity": 30, "interestMatch": 20, …}`.
+model EventInvitation {
+  id         String  @id @default(uuid(7))
+  eventId    String  @map("event_id")
+  userId     String  @map("user_id")
+  campaignId String? @map("campaign_id")
+
+  score          Int
+  scoreBreakdown Json @map("score_breakdown")
+
+  status    DeliveryStatus @default(PENDING)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt    DateTime?      @map("sent_at") @db.Timestamptz(3)
+
+  event    Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  campaign MessageCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  /// Invited at most once per event, for life.
+  @@unique([eventId, userId])
+  @@index([eventId, createdAt])
+  /// The "penalise a recent invitation" term in the next selection's score.
+  @@index([userId, createdAt])
+  @@map("event_invitation")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The event channel, as something an admin configures (M22 phase 6)
+//
+// `TELEGRAM_CHANNEL_ID` has been an environment variable since M14 and stays one:
+// it is the destination the *bot* posts to, and a destination that can be edited
+// from a web panel is a destination an attacker with a session can redirect. This
+// table is the other half — the **public** face of that channel and whether users
+// must join it — none of which is a secret and all of which an operator needs to
+// change without a deploy.
+//
+// A single row, pinned by a CHECK on the primary key. A settings table with one
+// row is a settings table; a settings table with two rows is a bug nobody notices
+// until the second one wins.
+// ─────────────────────────────────────────────────────────────────────────────
+model EventChannelConfig {
+  /// Always `'default'`. The CHECK in migration 0021 is what makes that true.
+  id String @id @default("default")
+
+  /// What the Telegram API is given for a membership check: `@payetam` or
+  /// `-1001234567890`. Never a token, never an invite hash.
+  chatIdentifier String? @map("chat_identifier")
+  /// The public @username, without the `@`. Null for a private channel.
+  publicUsername String? @map("public_username")
+  /// Where the «عضویت در کانال» button goes. Normalised to `https://t.me/…` on
+  /// write and rejected otherwise — an unvalidated URL here is a phishing link
+  /// the product would render for every user (T5.3, and the SSRF review in §13).
+  inviteUrl      String? @map("invite_url")
+
+  /// **Defaults to false, permanently.** Turning this on with a misconfigured
+  /// channel locks out every user at once, so it is a decision somebody makes
+  /// after the status indicator says the bot can actually see the channel.
+  membershipRequired Boolean  @default(false) @map("membership_required")
+  /// Which operations the requirement covers: `EVENT_CREATE`, `EVENT_JOIN`,
+  /// `EVENT_CHANNEL_SEND`, `EVENT_INVITE`. Empty means none, which is what an
+  /// unconfigured deployment has.
+  requiredActions    String[] @default([]) @map("required_actions")
+  /// Whether to ask Telegram. False means the requirement is advisory — the user
+  /// is shown the join button and taken at their word, which is the honest
+  /// setting for a channel the bot is not an administrator of.
+  verifyViaTelegram  Boolean  @default(true) @map("verify_via_telegram")
+
+  updatedByAdminId String?  @map("updated_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy AdminUser? @relation(fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+
+  @@map("event_channel_config")
+}
+
+/// A channel a user can be required to join before the product will let them act
+/// (v0.3.1).
+///
+/// ── Why this is a table and `EventChannelConfig` is not ────────────────────
+///
+/// v0.3.0 held the channel's public face on the settings singleton, which can
+/// describe exactly one channel. The requirement is now several, **in a stated
+/// order** — the order they are joined in and the order they are listed in — so
+/// the channels are rows and the singleton keeps only what is global: whether the
+/// requirement is on, which operations it covers, whether Telegram is asked.
+///
+/// The singleton's three per-channel columns are still there and are no longer
+/// read. Migration 0024 copied whatever they held into the first row of this
+/// table; dropping them would have been a destructive statement in a feature
+/// release.
+///
+/// **No secret is stored here.** `TELEGRAM_CHANNEL_ID` and the bot token stay
+/// environment variables, for the reason `EventChannelConfig` gives: a posting
+/// destination editable from a web session is one an attacker with a session can
+/// redirect.
+model RequiredChannel {
+  id String @id @default(uuid(7))
+
+  /// What the operator calls it, and what the user reads above the join button.
+  /// Not derived from the username — «کانال اصلی» is what a reader needs.
+  title String
+
+  /// What `getChatMember` is given: `@payetam` or `-1001234567890`. Null means
+  /// this channel cannot be verified, so every user passes it — which is the
+  /// honest state for a channel the bot is not an administrator of.
+  chatIdentifier String? @map("chat_identifier")
+  /// The public @username, without the `@`. Null for a private channel.
+  publicUsername String? @map("public_username")
+  /// Where the «عضویت» button goes. Normalised to `https://t.me/…` on write and
+  /// rejected otherwise — this is rendered as an `href` for every user.
+  inviteUrl      String? @map("invite_url")
+
+  /// Order of joining and of display. Sparse (10, 20, 30…) so inserting between
+  /// two channels does not rewrite every row after it.
+  sortOrder Int     @default(0) @map("sort_order")
+  /// Deactivated rather than deleted: a channel that stops being required is
+  /// usually required again later, and the audit trail reads better for it.
+  isActive  Boolean @default(true) @map("is_active")
+
+  updatedByAdminId String?  @map("updated_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy AdminUser? @relation(fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([isActive, sortOrder])
+  @@map("required_channel")
+}
+
+/// Which form a conversation is filling in (ADR-0017).
+///
+/// `ACCEPT_POLICIES` is first because it is the one that has to exist before the
+/// Mini App can be retired: consent gates every write in the product, and until
+/// the bot can take an acceptance, switching the Mini App off refuses everything
+/// for everybody.
+enum ConversationKind {
+  ACCEPT_POLICIES
+  COMPLETE_PROFILE
+  EDIT_PROFILE
+  CREATE_EVENT
+  EDIT_EVENT
+
+  @@map("conversation_kind")
+}
+
+/// A half-filled form, held between two Telegram updates (ADR-0017).
+///
+/// ── Why `user_id` is UNIQUE ────────────────────────────────────────────────
+///
+/// One wizard at a time, per person. A user holds exactly one Telegram
+/// conversation with the bot, so two simultaneous wizards would be two flows
+/// writing to the same screen — and every message the second one edited would
+/// destroy the first one's. The constraint is also what makes "whose draft is
+/// this?" answerable without an id in the button: the draft is looked up by the
+/// authenticated sender, so there is no identifier for a tamperer to swap.
+///
+/// ── Why the form data is encrypted ─────────────────────────────────────────
+///
+/// Most of what a draft holds becomes a public event. The description does not
+/// have to: it is the user's own words, written before they decided to publish
+/// them, and a draft that is abandoned is words they decided *not* to publish.
+/// Same key and same shape as `chat_message` (ADR-0009), so there is one story
+/// about encrypted columns rather than two.
+///
+/// ── `last_update_id` is the idempotency ────────────────────────────────────
+///
+/// Telegram retries any webhook call that did not answer 200, and a retried
+/// update must not advance a wizard twice — the second advance would skip a
+/// question. `update_id` is monotonic per bot, so an update whose id is not
+/// greater than this one has been seen: the step is re-rendered rather than
+/// advanced. This is the property ADR-0017 says replaces "the bot has no
+/// memory", and it is the whole of it.
+model ConversationState {
+  id     String           @id @default(uuid(7))
+  userId String           @unique @map("user_id")
+  kind   ConversationKind
+  /// The step key, owned by the wizard definition rather than by an enum here:
+  /// adding a step to a form is not a migration.
+  step   String
+
+  formDataCiphertext Bytes @map("form_data_ciphertext")
+  formDataNonce      Bytes @map("form_data_nonce")
+  keyVersion         Int   @map("key_version")
+
+  /// The message the wizard is drawn on, so the next step edits rather than
+  /// appends. Null until the first render, and again whenever an edit failed and
+  /// a fresh message had to be sent.
+  lastMessageId Int? @map("last_message_id")
+
+  /// What is being edited, for the wizards that edit something: an event public
+  /// id for EDIT_EVENT. Null for the ones that create.
+  targetPublicId String? @map("target_public_id")
+
+  /// The highest Telegram `update_id` that has advanced this conversation.
+  lastUpdateId BigInt @map("last_update_id")
+
+  /// Seven days out (ADR-0017 §3). Long enough that somebody who starts an event
+  /// on Friday can finish it on Monday, which the brief asked for explicitly.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("conversation_state")
 }

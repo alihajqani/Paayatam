@@ -36,6 +36,67 @@ export const SETTING_DEFAULTS = {
   'economy.vip_coins': 100,
 
   /**
+   * What the three M22 promotion actions cost (phase 5).
+   *
+   * Here rather than as constants for the reason §11 gives about every other
+   * number in this table: an operator who finds that five coins is too steep for
+   * a first event has to be able to change it without a deploy, and a price that
+   * only exists in a compiled bundle cannot be changed at all.
+   *
+   * **Zero is a legitimate value and means free**, which is how the feature is
+   * rolled back: set `economy.event_create_coins` to 0 and creating an event stops
+   * costing anything, with no code path removed and no migration. The services
+   * skip the ledger write entirely at zero, so a free action leaves no row
+   * claiming somebody paid nothing.
+   */
+  'economy.event_create_coins': 5,
+  'economy.event_channel_send_coins': 15,
+  'economy.event_top_invite_coins': 10,
+  /**
+   * How many people one paid invitation reaches (phase 11).
+   *
+   * A setting rather than the literal 20 the requirement names, because the
+   * price and the reach are tuned against each other and changing one without
+   * the other is how a promotion stops making sense. The selector never returns
+   * more than this however many candidates qualify.
+   */
+  'events.top_invite_max_recipients': 20,
+
+  /**
+   * How the top-20 selector ranks candidates (phase 11).
+   *
+   * In `app_setting` for §11's reason — "all tunable numbers in the database" —
+   * and because this particular set is a *product experiment*: whether previous
+   * attendance in the same category predicts turnout better than living in the
+   * right city is a question the numbers should be able to answer without a
+   * deploy.
+   *
+   * The scale is arbitrary and the ordering is not. Every term is bounded, the
+   * total is bounded, and the score is a plain sum — so "why was this person
+   * chosen?" is answered by a breakdown stored beside the invitation rather than
+   * by re-running a model. **Nothing here uses an attribute the product does not
+   * already collect for another purpose**, and nothing infers one.
+   */
+  'invite.weight_same_city': 30,
+  'invite.weight_interest_match': 20,
+  'invite.weight_category_history': 25,
+  'invite.weight_recent_activity': 15,
+  /** Trust contributes at most this much, scaled by the 0–100 score. */
+  'invite.weight_trust': 10,
+  /**
+   * Subtracted from anybody invited to *anything* recently.
+   *
+   * The one term that pushes down rather than up, and the reason it exists is
+   * that a good score is otherwise self-reinforcing: the same twenty people would
+   * be picked for every event until they muted the bot. A penalty is cheaper than
+   * a quota and needs no second table.
+   */
+  'invite.penalty_recent_invite': 20,
+  'invite.recent_invite_days': 14,
+  /** How recently somebody must have taken part to count as active. */
+  'invite.recent_activity_days': 30,
+
+  /**
    * Where a new account starts (plan §11). The 0–100 *range* is deliberately not
    * here: ADR-0007 writes it into the schema as a CHECK, and a configurable clamp
    * over a fixed constraint would be a setting whose only possible effect is a

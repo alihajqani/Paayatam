@@ -3,15 +3,21 @@ import type { Job } from 'bullmq';
 import {
   ChannelService,
   ChatService,
+  CoinService,
+  ConversationService,
   EventLifecycleService,
+  InvitationService,
+  MessagingService,
   NotificationService,
   OutboxRelayService,
   ParticipationService,
+  RATE_LIMIT_BREAKER_THRESHOLD,
   RetentionService,
   ReviewService,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
-import { TEMPLATES, render, renderChannelPost } from '@payetam/telegram';
+import { TEMPLATES, render, renderChannelPost, type InlineKeyboard } from '@payetam/telegram';
+import { TelegramLoggerService } from '../monitoring/telegram-logger.service';
 import { TelegramClient } from '../telegram/telegram.client';
 import { WorkerFactory } from './worker.factory';
 
@@ -25,6 +31,25 @@ import { WorkerFactory } from './worker.factory';
  */
 /** Three consecutive five-minute sweeps: loud within the hour, quiet on a blip. */
 const CHANNEL_FAILURE_ALERT_THRESHOLD = 3;
+
+/**
+ * How many recipients one dispatch pass turns into jobs.
+ *
+ * The limiter releases 25 a second, so 500 is twenty seconds of work — enough that
+ * the queue never runs dry between minute-by-minute passes, small enough that a
+ * four-thousand-recipient broadcast does not materialise as four thousand Redis
+ * entries in one tick.
+ */
+const DISPATCH_BATCH = 500;
+
+/**
+ * How old the oldest undelivered outbox row may get before it is an incident.
+ *
+ * Fifteen minutes is three backstop passes. One pass can be missed by a restart
+ * and two by a slow deploy; three means the row is being *tried* and is failing,
+ * which is the case worth waking somebody for.
+ */
+const OUTBOX_STALE_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class Processors implements OnModuleInit {
@@ -43,8 +68,34 @@ export class Processors implements OnModuleInit {
     private readonly reviews: ReviewService,
     private readonly channel: ChannelService,
     private readonly retention: RetentionService,
+    /** Admin campaigns and paid invitations (M22 phases 4 and 11). */
+    private readonly messaging: MessagingService,
+    /**
+     * The invitation half of a campaign.
+     *
+     * `message_recipient` is the queue's record of a delivery and
+     * `event_invitation` is the product's — the second is what a future selection
+     * reads to know somebody has already been asked. They are written together
+     * here so they cannot disagree.
+     */
+    private readonly invitations: InvitationService,
     /** Channel publishing outcomes, so a stuck channel is visible on /metrics (M16). */
     private readonly metrics: MetricsRegistry,
+    /**
+     * For one thing only: asking the ledger whether it still adds up (M22 phase 7).
+     *
+     * The worker never *moves* coins on a schedule. This reads.
+     */
+    private readonly coins: CoinService,
+    /** Alerts a person should act on: a stuck channel, a tripped breaker (M20). */
+    private readonly alerts: TelegramLoggerService,
+    /**
+     * Bot conversation drafts (ADR-0017), for two things only: recording the
+     * message a wizard was redrawn onto when the old one was gone, and sweeping
+     * drafts past their seven days. The worker never *advances* a wizard — that
+     * is the API's, because it is the process the update arrives at.
+     */
+    private readonly conversations: ConversationService,
   ) {}
 
   /**
@@ -58,13 +109,24 @@ export class Processors implements OnModuleInit {
    */
   private consecutiveChannelFailures = 0;
 
+  /**
+   * Consecutive 429s per campaign, for the circuit breaker (M22 phase 4).
+   *
+   * Cleared by the first success, so a burst that resolves itself leaves nothing
+   * behind. See `onRateLimited` for why it lives here rather than in Redis.
+   */
+  private readonly rateLimitStreak = new Map<string, number>();
+
   async onModuleInit(): Promise<void> {
     this.workers.create(QUEUES.DOMAIN_EVENTS, (job) => this.onDomainEvent(job));
     // Two job names on one queue: both talk to Telegram, so both are paced by the
     // one limiter that exists for it (ADR-0005).
-    this.workers.create(QUEUES.TELEGRAM_SEND, (job) =>
-      job.name === JOBS.BOT_CALLBACK_ANSWER ? this.onCallbackAnswer(job) : this.onSend(job),
-    );
+    this.workers.create(QUEUES.TELEGRAM_SEND, (job) => {
+      if (job.name === JOBS.BOT_CALLBACK_ANSWER) return this.onCallbackAnswer(job);
+      if (job.name === JOBS.BOT_EDIT_MESSAGE) return this.onEditMessage(job);
+      if (job.name === JOBS.CAMPAIGN_SEND) return this.onCampaignSend(job);
+      return this.onSend(job);
+    });
     this.workers.create(QUEUES.SCHEDULED, (job) => this.onScheduled(job));
 
     for (const entry of SCHEDULE) {
@@ -110,7 +172,9 @@ export class Processors implements OnModuleInit {
    *  - **BLOCKED** is terminal and *not* a failure: it marks `bot_blocked` and
    *    returns normally, because throwing would retry a block and burn the rate
    *    budget other users' notifications need.
-   *  - **RETRY** throws, which is how a queue is told to try again.
+   *  - **RETRY** and **RATE_LIMITED** throw, which is how a queue is told to try
+   *    again. They are one case here: a single notification has no campaign to
+   *    trip a breaker for, and the queue's backoff is the whole of the answer.
    */
   private async onSend(job: Job): Promise<void> {
     const notificationId = (job.data as { notificationId?: string }).notificationId;
@@ -160,6 +224,7 @@ export class Processors implements OnModuleInit {
         return;
 
       case 'RETRY':
+      case 'RATE_LIMITED':
         await this.notifications.markFailed(notification.id, outcome.reason);
         // Thrown, so BullMQ applies the backoff and eventually dead-letters it.
         throw new Error(outcome.reason);
@@ -218,6 +283,65 @@ export class Processors implements OnModuleInit {
   }
 
   /**
+   * Redraw the message a conversation wizard lives on (ADR-0017).
+   *
+   * ── Why the fallback is here and not in the client ──────────────────────────
+   *
+   * When the message is `GONE` — deleted by the user, or past the 48 hours
+   * Telegram allows an edit within — the wizard has nowhere to draw and the only
+   * recovery is a fresh message. That needs a second Telegram call *and* a write
+   * back to `conversation_state.last_message_id`, so it belongs to the processor
+   * that already has both. A wizard that dead-ends because somebody tidied their
+   * chat is a form they can neither finish nor restart.
+   *
+   * The payload carries the internal `user_id`; the chat id is resolved here, so
+   * no Telegram identifier is ever written to Redis (invariant 7). Nothing below
+   * logs one either — the messages name an outcome and nothing else.
+   */
+  private async onEditMessage(job: Job): Promise<void> {
+    const data = job.data as {
+      messageId?: number;
+      userId?: string;
+      text?: string;
+      keyboard?: InlineKeyboard;
+    };
+    if (data.userId === undefined || data.messageId === undefined || data.text === undefined) {
+      return;
+    }
+
+    const target = await this.notifications.telegramTargetFor(data.userId);
+    // No account, or the bot is blocked: there is nobody to redraw for, and
+    // retrying would burn rate budget other users' notifications need.
+    if (target === null || target.botBlocked) return;
+
+    const outcome = await this.telegram.editMessage(
+      target.telegramUserId,
+      data.messageId,
+      data.text,
+      data.keyboard,
+    );
+
+    if (outcome.kind === 'EDITED') return;
+
+    if (outcome.kind === 'GONE') {
+      const sent = await this.telegram.send(target.telegramUserId, data.text, data.keyboard);
+      if (sent.kind === 'SENT') {
+        await this.conversations.rememberMessage(data.userId, sent.messageId);
+      }
+      this.logger.log('A wizard message was gone; drew a new one');
+      return;
+    }
+
+    if (outcome.kind === 'BLOCKED') {
+      this.logger.log('A wizard message could not be redrawn: the bot is blocked');
+      return;
+    }
+
+    // RETRY and RATE_LIMITED: let BullMQ's backoff have it.
+    throw new Error(`Could not redraw a wizard message: ${outcome.reason}`);
+  }
+
+  /**
    * The repeatable sweeps.
    *
    * Every one of these is a domain method M6, M10 and M11 wrote and deliberately
@@ -240,6 +364,8 @@ export class Processors implements OnModuleInit {
         // the fast one; this guarantees an outbox row committed during an outage
         // is eventually delivered.
         await this.onDomainEvent(job);
+        // …and then ask whether the drain actually kept up (M22 phase 7).
+        await this.checkOutboxHealth();
         return;
       }
 
@@ -289,6 +415,11 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      case JOBS.CAMPAIGN_DISPATCH: {
+        await this.onCampaignDispatch();
+        return;
+      }
+
       /**
        * The retention purge (§8), which M15 built as a service and left here to
        * schedule — the same split every other sweep above went through.
@@ -308,6 +439,53 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      /** Conversation drafts past their seven days (ADR-0017 §3). */
+      case JOBS.CONVERSATION_PURGE: {
+        const removed = await this.conversations.purgeExpired();
+        if (removed > 0) {
+          this.logger.log(`Conversation purge: removed ${String(removed)} expired draft(s)`);
+        }
+        return;
+      }
+
+      /**
+       * Does the ledger still add up? (M22 phase 7)
+       *
+       * ADR-0007 makes `coin_account.balance` a cache of `SUM(coin_ledger.amount)`,
+       * and until now that invariant was asserted by tests and by nobody in
+       * production. A drift means one of three things — a write that bypassed
+       * `CoinService`, a partially-applied transaction, or manual `psql` — and all
+       * three are things somebody needs to know about tonight rather than when a
+       * user disputes a balance.
+       *
+       * Deliberately **read-only**. Nothing here corrects a drift: an automatic
+       * "fix" would either overwrite a balance a user is holding or write a
+       * plug entry into an append-only ledger, and choosing between those is a
+       * judgement call with money attached. The job's whole job is to notice.
+       */
+      case JOBS.LEDGER_RECONCILE: {
+        const drift = await this.coins.findDrift();
+        if (drift.length === 0) {
+          // Logged even when clean, for the same reason the purge is: a sweep that
+          // silently stopped running looks exactly like one that finds nothing.
+          this.logger.log('Ledger reconciliation: no drift');
+          return;
+        }
+
+        this.logger.error(`Ledger reconciliation: ${String(drift.length)} account(s) drifted`);
+        this.alerts.alert('ledger.drift', 'error', 'Coin balances disagree with the ledger', {
+          accounts: drift.length,
+          // The worst one, as a magnitude. Enough to tell a rounding artefact from
+          // a duplicated grant, and no user id — a drift report goes to an
+          // operations group, and ADR-0009 does not stop applying because the
+          // message is an alert (§3.6 layer 2).
+          largestGap: Math.max(...drift.map((row) => Math.abs(row.balance - row.ledger))),
+          totalGap: drift.reduce((sum, row) => sum + (row.balance - row.ledger), 0),
+          truncated: drift.length >= 20,
+        });
+        return;
+      }
+
       case JOBS.REVIEW_SWEEP: {
         const settled = await this.reviews.settleExpired();
         if (settled.partial + settled.empty > 0) {
@@ -321,6 +499,199 @@ export class Processors implements OnModuleInit {
       default:
         this.logger.warn(`Unknown scheduled job ${job.name}`);
     }
+  }
+
+  /**
+   * Is the outbox keeping up? (M22 phase 7)
+   *
+   * Called after every backstop drain, so the question is asked of an outbox that
+   * has *just* been given the chance to catch up. A row still sitting there after
+   * that is not a burst — it is a row the relay keeps failing on, and because the
+   * drain takes the oldest first, one stuck row blocks everything behind it.
+   *
+   * This is the "critical health incident" the alerting requirement names. It is
+   * the one failure in the system with no user-visible symptom: nobody complains
+   * about a notification they were never told existed, so the only way anyone
+   * finds out is if the software says so.
+   *
+   * Age rather than count, for the reason `backlog()` gives. `alert()` throttles
+   * on the key, so a genuinely stuck relay reports once and then stays quiet
+   * rather than sending a message every five minutes for a week.
+   */
+  private async checkOutboxHealth(): Promise<void> {
+    const backlog = await this.relay.backlog();
+    if (backlog.oldestAgeMs === null || backlog.oldestAgeMs < OUTBOX_STALE_MS) return;
+
+    this.logger.error(
+      `Outbox backlog: ${String(backlog.pending)} pending, oldest ` +
+        `${String(Math.round(backlog.oldestAgeMs / 60_000))}m old`,
+    );
+    this.alerts.alert('outbox.stale', 'error', 'The outbox is not draining', {
+      pending: backlog.pending,
+      oldestMinutes: Math.round(backlog.oldestAgeMs / 60_000),
+      // No ids and no payloads: an outbox row's payload is the notification's, and
+      // a notification is about a named person doing something (ADR-0009). The
+      // count and the age are what an operator acts on anyway.
+    });
+  }
+
+  /**
+   * Turn confirmed campaigns into individual send jobs (M22 phase 4).
+   *
+   * Bounded per pass. A four-thousand-recipient broadcast becomes four thousand
+   * queued jobs eventually, and building all of them in one tick would put four
+   * thousand entries into Redis before the limiter has released the first — which
+   * is a memory spike for no gain, since the limiter is what decides throughput.
+   *
+   * Nothing is mutated to "claim" a recipient. The BullMQ job id is derived from
+   * the recipient row, so a second pass over the same rows re-adds ids that already
+   * exist and BullMQ ignores them. That is the first of the two idempotency layers;
+   * the row's own `PENDING → terminal` transition is the second.
+   */
+  private async onCampaignDispatch(): Promise<void> {
+    const campaigns = await this.messaging.claimSendingCampaigns();
+
+    for (const campaign of campaigns) {
+      const pending = await this.messaging.pendingDeliveries(campaign.id, DISPATCH_BATCH);
+
+      for (const delivery of pending) {
+        await this.queues.enqueue(
+          QUEUES.TELEGRAM_SEND,
+          JOBS.CAMPAIGN_SEND,
+          jobId('campaign', delivery.recipientId),
+          { recipientId: delivery.recipientId, campaignId: delivery.campaignId },
+        );
+      }
+
+      if (pending.length === 0) {
+        // Nothing left to enqueue. Whether that means "finished" depends on what
+        // the send jobs did, which `finalizeIfDone` reads rather than assumes.
+        const finished = await this.messaging.finalizeIfDone(campaign.id);
+        if (finished) this.logger.log(`Campaign ${campaign.publicId} finished`);
+      } else {
+        // Keep the panel's tally moving while a long broadcast drains, so an
+        // operator watching it sees progress rather than a number that jumps at
+        // the end.
+        await this.messaging.refreshCounts(campaign.id);
+      }
+    }
+  }
+
+  /**
+   * One recipient of one campaign.
+   *
+   * The outcomes are the same four `onSend` handles and are recorded differently,
+   * because a campaign has to be able to report them separately afterwards:
+   *
+   *  - **SENT** records the Telegram message id.
+   *  - **BLOCKED** is terminal and not a failure. There is nobody to deliver to,
+   *    and retrying a block burns the budget other messages need (ADR-0005).
+   *  - **RATE_LIMITED** stays pending and throws, so BullMQ backs off — and
+   *    increments the campaign's breaker. Past the threshold the campaign pauses
+   *    itself rather than pushing on, because a 429 that survived `auto-retry` and
+   *    the global limiter is Telegram asking us to stop.
+   *  - **RETRY** stays pending and throws.
+   *
+   * A recipient the campaign no longer wants — cancelled, paused, or already
+   * resolved — comes back null from `loadDelivery` and this returns without
+   * sending. That is what makes cancel mean something for a job already sitting in
+   * Redis.
+   */
+  private async onCampaignSend(job: Job): Promise<void> {
+    const data = job.data as { recipientId?: string; campaignId?: string };
+    if (data.recipientId === undefined || data.campaignId === undefined) return;
+
+    const target = await this.messaging.loadDelivery(data.recipientId);
+    if (!target) return;
+
+    if (target.telegramUserId === null || target.botBlocked) {
+      await this.messaging.recordDelivery(data.recipientId, { status: 'INVALID' });
+      await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'INVALID');
+      return;
+    }
+
+    const outcome = await this.telegram.send(target.telegramUserId, target.bodyText, undefined, {
+      parseMode: target.parseMode,
+    });
+
+    switch (outcome.kind) {
+      case 'SENT':
+        this.rateLimitStreak.delete(data.campaignId);
+        await this.messaging.recordDelivery(data.recipientId, {
+          status: 'SENT',
+          telegramMessageId: outcome.messageId,
+        });
+        await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'SENT');
+        return;
+
+      case 'BLOCKED':
+        await this.messaging.recordDelivery(data.recipientId, {
+          status: 'BLOCKED',
+          error: outcome.reason,
+        });
+        await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'BLOCKED');
+        return;
+
+      case 'RATE_LIMITED': {
+        await this.messaging.recordAttempt(data.recipientId, outcome.reason);
+        await this.onRateLimited(data.campaignId, outcome.reason);
+        throw new Error(outcome.reason);
+      }
+
+      case 'RETRY': {
+        await this.messaging.recordAttempt(data.recipientId, outcome.reason);
+        // A send that has run out of attempts is a failure this recipient keeps,
+        // rather than a row that stays PENDING forever and stops the campaign
+        // finalising.
+        if (job.attemptsMade + 1 >= (job.opts.attempts ?? 1)) {
+          await this.messaging.recordDelivery(data.recipientId, {
+            status: 'FAILED',
+            error: outcome.reason,
+          });
+          await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'FAILED');
+          return;
+        }
+        throw new Error(outcome.reason);
+      }
+    }
+  }
+
+  /**
+   * The circuit breaker.
+   *
+   * In memory, per campaign, for the reason `TelegramLoggerService` keeps its
+   * throttle in memory: this is a property of the run rather than of a row, there
+   * is one worker, and a breaker that needs a network round trip to decide whether
+   * the network is angry is not a breaker. A restart resets it, which is the right
+   * default — a fresh process should try again.
+   *
+   * Pausing rather than cancelling: the campaign keeps its pending recipients and
+   * an operator resumes it once Telegram has calmed down. Cancelling would throw
+   * away the remaining audience over what may be a five-minute problem.
+   */
+  private async onRateLimited(campaignId: string, reason: string): Promise<void> {
+    const streak = (this.rateLimitStreak.get(campaignId) ?? 0) + 1;
+    this.rateLimitStreak.set(campaignId, streak);
+
+    this.metrics.counter(
+      'payetam_campaign_rate_limited_total',
+      'Campaign deliveries refused by Telegram with 429.',
+      {},
+    );
+
+    if (streak < RATE_LIMIT_BREAKER_THRESHOLD) return;
+
+    await this.messaging.pause(campaignId, `rate limited ${String(streak)} times in a row`);
+    this.rateLimitStreak.delete(campaignId);
+
+    // Keyed on the campaign, so a paused one alerts once rather than once per
+    // recipient still in flight.
+    this.alerts.alert(`campaign-paused:${campaignId}`, 'error', 'A campaign paused itself', {
+      campaignId,
+      reason,
+      threshold: RATE_LIMIT_BREAKER_THRESHOLD,
+    });
+    this.logger.error(`Campaign ${campaignId} paused after repeated rate limits`);
   }
 
   /**
@@ -344,23 +715,36 @@ export class Processors implements OnModuleInit {
       if (removed) await this.channel.markTakenDown(target.postId);
     }
 
-    for (const post of await this.channel.claimPending()) {
-      const outcome = await this.telegram.postToChannel(
-        renderChannelPost({
-          kind: post.kind,
-          title: post.title,
-          categoryName: post.categoryName,
-          cityName: post.cityName,
-          districtName: post.districtName,
-          startsAt: post.startsAt,
-          capacity: post.capacity,
-          acceptedCount: post.acceptedCount,
-          costType: post.costType,
-          costAmount: post.costAmount,
-          eventPublicId: post.eventPublicId,
-          botUsername: this.telegram.botUsername,
-        }),
-      );
+    /**
+     * Paid claims first, and never released on failure (M22 phase 5).
+     *
+     * A VIP or trending claim is re-derivable from `is_vip` and `request_count`,
+     * so a failed send deletes it and the next pass re-claims. A **paid** claim is
+     * the record that somebody spent fifteen coins; deleting it would lose the
+     * purchase, so it stays and is retried until Telegram accepts it.
+     *
+     * First, because a host who paid should not queue behind the trending sweep.
+     */
+    const paid = await this.channel.findUnpostedPaid();
+
+    for (const post of [...paid, ...(await this.channel.claimPending())]) {
+      // Text and keyboard together, from one renderer: a post whose button linked
+      // to a different event than its body is the failure two call sites invite.
+      const rendered = renderChannelPost({
+        kind: post.kind,
+        title: post.title,
+        categoryName: post.categoryName,
+        cityName: post.cityName,
+        districtName: post.districtName,
+        startsAt: post.startsAt,
+        capacity: post.capacity,
+        acceptedCount: post.acceptedCount,
+        costType: post.costType,
+        costAmount: post.costAmount,
+        eventPublicId: post.eventPublicId,
+        botUsername: this.telegram.botUsername,
+      });
+      const outcome = await this.telegram.postToChannel(rendered.text, rendered.keyboard);
 
       if (outcome.kind === 'SENT') {
         await this.channel.markPosted(post.postId, outcome.messageId);
@@ -371,7 +755,8 @@ export class Processors implements OnModuleInit {
         );
         sent += 1;
       } else {
-        await this.channel.releaseClaim(post.postId);
+        // Paid claims are never released — see the note above `paid`.
+        if (post.kind !== 'PAID') await this.channel.releaseClaim(post.postId);
         this.metrics.counter(
           'payetam_channel_post_total',
           'Channel publication attempts by outcome.',

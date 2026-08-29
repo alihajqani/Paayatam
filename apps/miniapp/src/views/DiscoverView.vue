@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiError } from '@/api/client';
 import EventCard from '@/components/EventCard.vue';
+import EventDisclaimer from '@/components/EventDisclaimer.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import { haptic } from '@/telegram/webapp';
 import { useEventsStore } from '@/stores/events';
@@ -240,6 +241,17 @@ onMounted(load);
       <template #empty-action>
         <button type="button" class="min-h-11 text-tg-link" @click="clear">پاک‌کردن صافی‌ها</button>
       </template>
+
+      <!--
+        Once, above the list, in the compact form (report 8).
+
+        Repeating it on every card would be the literal reading of "above every
+        event" and the worse one: a sentence that appears twelve times on a
+        scrolling screen is a sentence people learn to look past, which is the one
+        failure a disclaimer cannot afford. The full form is on the event page,
+        where somebody is actually deciding.
+      -->
+      <EventDisclaimer compact class="mb-3" />
 
       <ul class="flex flex-col gap-3">
         <li v-for="event in events.results" :key="event.publicId">

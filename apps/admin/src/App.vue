@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import AppVersion from '@/components/AppVersion.vue';
 import { useSessionStore } from '@/stores/session';
 
 /**
@@ -62,16 +63,34 @@ async function signOut(): Promise<void> {
       the whole of an LTR locale (§3.7).
     -->
     <aside
-      class="shrink-0 border-b border-line bg-surface lg:min-h-dvh lg:w-64 lg:border-b-0 lg:border-e"
+      class="flex shrink-0 flex-col border-b border-line bg-surface lg:min-h-dvh lg:w-64 lg:border-b-0 lg:border-e"
     >
       <div class="flex items-center justify-between gap-3 px-4 py-4">
-        <RouterLink :to="{ name: 'dashboard' }" class="text-lg font-bold">
+        <RouterLink :to="{ name: 'dashboard' }" class="flex items-center gap-2 text-lg font-bold">
+          <!--
+            The mark (M22 phase 10). `alt=""` because the words beside it are the
+            link's accessible name, and width/height so the row does not reflow
+            when the image lands.
+          -->
+          <img
+            src="/brand/mark-96.webp"
+            alt=""
+            aria-hidden="true"
+            width="24"
+            height="24"
+            decoding="async"
+            class="size-6 shrink-0"
+          />
           پنل پایه‌تَم
         </RouterLink>
         <span class="rounded-full bg-neutral-soft px-2 py-0.5 text-xs text-ink-soft lg:hidden">
           {{ session.session?.displayName }}
         </span>
       </div>
+
+      <!-- The six ribbon colours, as the Mini App draws them. Decoration; no text
+           is drawn in it or on it, so it cannot fail a contrast check. -->
+      <div class="brand-rule mx-4 h-0.5 rounded-full opacity-80" role="presentation"></div>
 
       <nav class="flex gap-4 overflow-x-auto px-4 pb-3 lg:flex-col lg:gap-5 lg:overflow-visible">
         <div v-for="group in GROUPS" :key="group.key" class="flex shrink-0 flex-col gap-1">
@@ -96,6 +115,12 @@ async function signOut(): Promise<void> {
           </template>
         </div>
       </nav>
+
+      <!--
+        `mt-auto`, so on a desk it sits at the foot of a full-height sidebar; on a
+        phone the sidebar is a short strip and it simply follows the nav.
+      -->
+      <AppVersion class="mt-auto" />
     </aside>
 
     <div class="flex min-w-0 flex-1 flex-col">

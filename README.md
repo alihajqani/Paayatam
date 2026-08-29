@@ -16,6 +16,48 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
+**Milestone 22 complete — v0.3.0, product and admin upgrades.**
+
+A user can now **edit their profile** after onboarding rather than living with
+what they typed the first time, and support can correct one on their behalf
+behind `user.profile.edit`, with every field change audited.
+
+The panel can **send a Telegram message** — to one person, or as a broadcast to a
+filtered slice. Nothing sends until a preview has been run and the recipient count
+typed back; delivery is the worker's, rate-limited, resumable, and unable to send
+twice to the same person. See [`docs/admin-panel.md`](docs/admin-panel.md) §9.
+
+**Three actions now cost coins**: creating an event is 5, sending it to the
+channel is 15, and inviting the twenty people most likely to come is 10. Every
+charge is atomic with the act it pays for, idempotent under retry, and refunded
+when the act it paid for could not happen.
+
+**Terms, privacy and rules are versioned.** A published version is immutable, one
+version per type is current, and publishing asks every user to re-accept before
+they can act again. Acceptance is append-only by database trigger.
+
+**Provinces and cities are managed from the panel** — created, renamed, reordered
+and deactivated, never deleted, because profiles and events point at them.
+
+**Membership in several channels can be required**, configurably and per action,
+in an order the operator sets. A user must be in *every* active channel — joining
+one of three is not enough — and the gate fails open on every outcome except an
+authoritative refusal from Telegram, so an outage or one misconfigured channel
+degrades the gate rather than the product. It is **off by default.** The widest
+action, `APP_ACCESS`, replaces the whole Mini App with the join screen; it is
+enforced by the router rather than by `AuthGuard`, because a gate over every
+authenticated route would refuse the very calls the screen that clears it is
+built from.
+
+The worker now **goes looking for failures** rather than only reacting to them:
+a nightly ledger-drift sweep and an outbox-staleness check alert a separate
+Telegram group, redacted, throttled, and behind a kill switch.
+
+And the Mini App **has a face**: a mark derived from the logo, a palette sampled
+from it, a header that is also the way home, the balance on the home screen, and a
+version string on both surfaces that matches the release actually deployed. See
+[`docs/brand.md`](docs/brand.md) and [`docs/performance.md`](docs/performance.md).
+
 **Milestone 19 complete — both launch blockers closed.** The admin panel exists (`apps/admin`, twelve
 screens over the API M12 built), and the two-account privacy gate has been executed and automated.
 See [`docs/admin-panel.md`](docs/admin-panel.md) and
@@ -94,6 +136,7 @@ including two delivery bugs that sat behind a green test suite for four mileston
 | [`docs/threat-model.md`](docs/threat-model.md) | Assets, adversaries, controls, and **explicitly accepted risks** |
 | [`docs/activities-and-places.md`](docs/activities-and-places.md) | **Adding an activity tag or a city.** Panel vs. seed file, slug rules, the «سایر» flag |
 | [`docs/glossary-fa.md`](docs/glossary-fa.md) | Persian ↔ English terms, error messages, typography rules |
+| [`PROJECT_MEMORY.md`](PROJECT_MEMORY.md) §10 | **The bot's conversation wizards** — how a multi-step form works, and the five things that are load-bearing |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | **Putting it on a server.** Step by step, from a bare VPS to a verified deploy |
 | [`SECURITY.md`](SECURITY.md) | What the production stack exposes, what protects it, and what is accepted |
 
@@ -438,6 +481,66 @@ injection silently yields `undefined` and the app fails at request time rather t
 
 ---
 
+## The bot
+
+Nine read-only commands and two conversation wizards. The list lives in
+`packages/telegram/src/commands.ts` and is the single source for Telegram's menu,
+for `/help`, and for the test that keeps both honest.
+
+| Command | What it does |
+|---|---|
+| `/start` | Creates the account. The only command that may. Takes a referral code |
+| `/help` | What the bot can do, and what still needs the app |
+| `/discover` | Activities in your city, from your profile — no arguments |
+| `/balance` | Coin balance |
+| `/requests` | What you have asked to join, and where each stands |
+| `/myevents` | What you are hosting, and how full each is |
+| `/chats` | Which conversations are open, and who is waiting |
+| `/reviews` | Reviews you still owe, and when they expire |
+| `/profile` | Your profile — and the only place your own Trust Score is shown |
+| `/terms` | The policies — the gate if you owe one, what you signed if you don't |
+| `/create_event` | **Wizard.** Builds a full event in the chat (ADR-0017) |
+| `/edit_event` | **Wizard.** Changes an event you host |
+| `/edit_profile` | **Wizard.** Changes any part of your profile |
+| `/cancel` | Closes an open wizard |
+
+Every write goes through the consent gate first. A user who owes a policy
+acceptance gets the gate *where the action would have happened*, one button from
+being able to continue — the bot never simply refuses.
+
+### Publishing the command menu
+
+```bash
+pnpm set-bot-commands            # publish what BOT_COMMANDS says
+pnpm set-bot-commands --info     # read back what Telegram has
+```
+
+Once per bot, and again whenever `BOT_COMMANDS` changes. Not a per-deploy step —
+the list is global to the token, so two environments sharing one would overwrite
+each other on every restart. See `DEPLOYMENT.md` §12.
+
+### Testing a wizard by hand
+
+```bash
+make dev            # the whole stack
+make tunnel         # a public URL for the webhook
+make webhook        # point Telegram at it
+```
+
+Then message the bot. A wizard lives on **one message that is edited in place**,
+so watch that message change rather than expecting new ones. If it stops
+updating, the likely cause is the `telegram-send` queue rather than the wizard:
+check the worker's log for `BOT_EDIT_MESSAGE`.
+
+`/cancel` clears a stuck form. So does starting another one — `/create_event`
+replaces whatever was in progress rather than refusing.
+
+**A draft lives seven days** and is swept at 04:15 Tehran. To see one, look at
+`conversation_state`; the form itself is encrypted, so `step` and `updated_at`
+are what is readable without the key.
+
+---
+
 ## Production
 
 Everything runs in Docker Compose on one VPS. [`DEPLOYMENT.md`](DEPLOYMENT.md) is
@@ -542,11 +645,33 @@ Node's `--env-file` expands `${…}`, so they really are two copies;
 
 ### Monitoring
 
-The worker posts to a Telegram group (`MONITORING_CHAT_ID`) when a job exhausts
-its retries; `scripts/notify-telegram.sh` does the same for failed backups,
-deploys and rollbacks. Alerts are throttled per key with the suppressed count
-carried forward, so a queue failing every job produces one message per window
-rather than a flood that gets the bot rate-limited.
+The worker posts to a Telegram group (`MONITORING_CHAT_ID`). Five things reach
+it, and nothing else does:
+
+| Alert | Raised when |
+| --- | --- |
+| `job-exhausted:<queue>:<job>` | A job used its last retry |
+| `job-failure-write` | The failed-job record itself could not be written |
+| `campaign-paused:<id>` | A campaign was rate-limited three times running and paused itself |
+| `ledger.drift` | A coin balance disagrees with its ledger (nightly sweep) |
+| `outbox.stale` | The oldest undelivered outbox row is over fifteen minutes old |
+
+The first three are reactions to something that already went wrong. The last two
+go looking, because both failures are **silent**: nobody complains about a
+notification they were never told existed, and a drifted balance surfaces weeks
+later as a user disputing it. Both sweeps are read-only — a drift is reported,
+never "corrected", since the two available corrections are overwriting a balance
+somebody is holding and writing a plug entry into an append-only ledger.
+
+Every alert carries `severity`, `service`, `env`, a stable code and a UTC
+timestamp, and none carries a user id, a phone number or a message body. Alerts
+are throttled per key with the suppressed count carried forward, and a global
+budget caps the whole channel per window, so a queue failing every job produces
+one message rather than a flood that gets the bot rate-limited.
+`MONITORING_ENABLED=0` silences delivery without clearing the chat id; either way
+the same lines go to the container log, so turning alerting off loses delivery
+rather than information. `scripts/notify-telegram.sh` uses the same group for
+failed backups, deploys and rollbacks.
 
 Everything else is structured JSON on stdout, capped at 10 MB × 5 files per
 service, plus Prometheus metrics at `/metrics` — reachable only from inside the

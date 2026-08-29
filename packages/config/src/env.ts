@@ -65,6 +65,21 @@ export const envSchema = z
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
     API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     PUBLIC_API_URL: urlWithScheme(['http', 'https'], 'http(s)').default('http://localhost:3000'),
+    /**
+     * Which release this process is (M22 phase 10).
+     *
+     * The same variable `docker/docker-compose.prod.yml` already tags every image
+     * with, read here so the API can *say* which one it is over `GET
+     * /api/v1/version`. Deliberately not validated harder than "a string": the
+     * shape rule lives in `resolveVersion()` in `@payetam/shared`, which the two
+     * bundles also call — a release string that is legal on the server and refused
+     * in the browser would be the worst of both.
+     *
+     * Never required, in any environment. A deployment that forgot to export it
+     * reports `local`, which is a wrong answer to "which release is this" and a
+     * far better outcome than an API that will not boot over a label.
+     */
+    PAYETAM_VERSION: z.string().optional(),
 
     // ── Required from M1 ─────────────────────────────────────────────────────
     DATABASE_URL: urlWithScheme(['postgresql', 'postgres'], 'PostgreSQL'),
@@ -153,6 +168,52 @@ export const envSchema = z
      * incident is the one nobody hears about.
      */
     MONITORING_ALERT_COOLDOWN_SECONDS: z.coerce.number().int().min(0).default(300),
+    /**
+     * The kill switch, separate from "is it configured" (M22 phase 7).
+     *
+     * `MONITORING_CHAT_ID` being unset means an operator has not set alerting up.
+     * This means one has, and wants it off **right now** — during a planned
+     * migration, or when a known-noisy incident is already being worked. Two
+     * different states with two different fixes, and collapsing them would mean
+     * silencing alerts required deleting the destination and remembering to put it
+     * back.
+     */
+    MONITORING_ENABLED: booleanFlag.default(true),
+    /**
+     * Whether the bot's conversation wizards are open for business (ADR-0017).
+     *
+     * The rollback lever for the largest behavioural change the bot has had. Off,
+     * `/create_event` and `/edit_profile` answer with the sentence that names the
+     * Mini App, and the bot is read-only again — which is what it was for its
+     * whole life until this release.
+     *
+     * **It does not delete anything.** Drafts already in flight stay in
+     * `conversation_state` and resume when the flag goes back on, because a flag
+     * that discarded them would make turning it off destructive and therefore
+     * something nobody does in an incident. They expire on their own seven-day
+     * clock if the flag stays off.
+     *
+     * Defaults **on**: the flag exists to be turned off in a hurry, and a
+     * rollback lever that has to be switched on to have any effect is one that is
+     * discovered to be unset during the incident it was built for.
+     */
+    ENABLE_CONVERSATION_WIZARD: booleanFlag.default(true),
+    /**
+     * The floor on what reaches Telegram.
+     *
+     * `warn` by default, so an informational line stays in the structured log
+     * where it can be searched without also being an interruption. Set to `error`
+     * during a noisy period, or to `info` while commissioning a deployment.
+     */
+    MONITORING_MIN_LEVEL: z.enum(['info', 'warn', 'error']).default('warn'),
+    /**
+     * Which environment an alert says it came from.
+     *
+     * Defaults to `NODE_ENV`. Named separately because two deployments can share a
+     * `NODE_ENV` of `production` and be entirely different systems — and an alert
+     * that does not say which one it is about is an alert somebody has to guess at.
+     */
+    MONITORING_ENVIRONMENT: z.string().min(1).optional(),
 
     // ── Safety rails ─────────────────────────────────────────────────────────
     ALLOW_PROD_SEED: booleanFlag.default(false),

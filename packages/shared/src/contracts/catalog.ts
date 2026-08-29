@@ -109,6 +109,20 @@ export const promotionPricing = z.object({
   boostDurationHours: z.number().int().positive(),
   /** Permanent VIP standing for the event. */
   vipCoins: z.number().int().nonnegative(),
+  /**
+   * The three M22 sinks (phase 5), on the same terms as the two above: the
+   * server's current configuration, asked for rather than assumed, so the
+   * price the host is *shown* before confirming and the price they are
+   * *charged* cannot disagree.
+   *
+   * Zero is meaningful and means free — which is how the whole feature is
+   * rolled back — so a client must render "رایگان" rather than «۰ سکه».
+   */
+  eventCreateCoins: z.number().int().nonnegative(),
+  eventChannelSendCoins: z.number().int().nonnegative(),
+  eventTopInviteCoins: z.number().int().nonnegative(),
+  /** How many people one paid invitation reaches, at most. */
+  topInviteMaxRecipients: z.number().int().positive(),
 });
 export type PromotionPricing = z.infer<typeof promotionPricing>;
 
@@ -118,5 +132,89 @@ export const catalogResponse = z.object({
   categories: z.array(categoryView),
   interests: z.array(interestView),
   promotion: promotionPricing,
+  /**
+   * The bot's @username, so a client can send somebody into the conversation
+   * with one tap instead of "close this and go find the bot" (report 6).
+   *
+   * Public by definition — it is already in every deep link the bot and the
+   * channel emit — and **not** a token. Empty when the deployment has not
+   * configured one, which a client renders as "no link" rather than as a broken
+   * `https://t.me/`.
+   */
+  botUsername: z.string(),
 });
 export type CatalogResponse = z.infer<typeof catalogResponse>;
+
+// ── Channel membership (M22 phase 6) ─────────────────────────────────────────
+
+/**
+ * `APP_ACCESS` is the odd one out and the wire contract should say so.
+ *
+ * The other four name a server-enforced operation. `APP_ACCESS` names a
+ * *navigation* rule the Mini App's router enforces from
+ * `GET /me/channel-membership` — there is no single endpoint behind it, and
+ * putting one in `AuthGuard` would refuse the very calls the screen that clears
+ * the gate is built from. See `GATED_ACTIONS` in the domain for the full
+ * argument.
+ */
+export const gatedAction = z.enum([
+  'APP_ACCESS',
+  'EVENT_CREATE',
+  'EVENT_JOIN',
+  'EVENT_CHANNEL_SEND',
+  'EVENT_INVITE',
+]);
+export type GatedActionView = z.infer<typeof gatedAction>;
+
+/**
+ * One required channel, and where the caller stands with it.
+ *
+ * No chat identifier: the client never needs it, and `-1001234567890` in a
+ * response is one more thing an allowlist has to keep out of a log (§3.6 layer 2).
+ */
+export const channelMembershipView = z.object({
+  id: z.string(),
+  /** What the user reads above the join button. Operator-authored. */
+  title: z.string(),
+  joinUrl: z.url().nullable(),
+  status: z.enum(['MEMBER', 'NOT_MEMBER', 'CHAT_UNAVAILABLE', 'BOT_CANNOT_VERIFY', 'UNKNOWN']),
+  allowed: z.boolean(),
+});
+export type ChannelMembershipView = z.infer<typeof channelMembershipView>;
+
+/**
+ * Where this user stands with the channel requirement.
+ *
+ * `status` is five outcomes rather than a boolean because they lead to five
+ * different sentences, and three of them are **not the user's fault**: the chat is
+ * unavailable, the bot cannot see the member list, or Telegram did not answer.
+ * `allowed` is true for all three — the product fails open — and the screen says
+ * something honest instead of asking somebody to fix a configuration problem.
+ */
+export const membershipStateResponse = z.object({
+  required: z.boolean(),
+  requiredActions: z.array(gatedAction),
+  /**
+   * Every required channel, **in the order the operator set**.
+   *
+   * The client renders this list as given and must not sort it: the order of
+   * joining and of display is a product decision made in the admin panel.
+   */
+  channels: z.array(channelMembershipView),
+  /**
+   * The first channel the caller has not joined — so a one-button surface still
+   * takes them somewhere useful. Null when nothing is outstanding.
+   */
+  joinUrl: z.url().nullable(),
+  status: z.enum([
+    'NOT_REQUIRED',
+    'MEMBER',
+    'NOT_MEMBER',
+    'CHAT_UNAVAILABLE',
+    'BOT_CANNOT_VERIFY',
+    'UNKNOWN',
+  ]),
+  allowed: z.boolean(),
+  reason: z.string().nullable(),
+});
+export type MembershipStateResponse = z.infer<typeof membershipStateResponse>;

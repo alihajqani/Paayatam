@@ -178,6 +178,34 @@ export const RATE_LIMITS = {
   /** Reports: 10 a day. */
   REPORT_FILE: { limit: 10, windowSeconds: 86_400 },
   /**
+   * Profile edits: 20 an hour (M22 phase 2).
+   *
+   * Generous for a person — nobody edits their bio twenty times in an afternoon —
+   * and tight enough to matter for a script. The reason it is bounded at all is
+   * that the two fields it writes, `display_name` and `bio`, are the product's
+   * only free-text user-authored surface outside a chat, and an unbounded write
+   * to a moderated field is a way to cycle content faster than review can read it.
+   */
+  PROFILE_UPDATE: { limit: 20, windowSeconds: 3_600 },
+  /**
+   * Paid invitations: 10 a day (M22 phase 11).
+   *
+   * The coin cost is the real control — each one is ten coins — and this is the
+   * backstop against a scripted loop finding a way past it. Ten a day is more
+   * events than the daily quota allows anybody to create, so it cannot bind on a
+   * legitimate host.
+   */
+  EVENT_INVITE: { limit: 10, windowSeconds: 86_400 },
+  /**
+   * Re-checking channel membership: 10 a minute (M22 phase 6).
+   *
+   * The one endpoint in the product where a tap becomes a Telegram call
+   * synchronously. Ten a minute is far more than a person pressing «بررسی دوباره»
+   * after joining, and low enough that a loop cannot spend the bot's budget on
+   * `getChatMember` calls that other users' messages need.
+   */
+  MEMBERSHIP_CHECK: { limit: 10, windowSeconds: 60 },
+  /**
    * Authentication, by IP rather than by user — there is no user yet.
    *
    * Not in T12's list, and added because it is the one endpoint an attacker can

@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import type { Env } from '@payetam/config';
 import type { PrismaClient, PrismaService } from '@payetam/db';
 import {
   createTestPrisma,
@@ -17,7 +18,13 @@ import { SettingsService } from './settings.service';
 
 const prisma: PrismaClient = createTestPrisma();
 const service = prisma as unknown as PrismaService;
-const catalog = new CatalogService(service, new SettingsService(service));
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, new SettingsService(service), catalogEnv);
 
 let fixture: CatalogFixture;
 
@@ -46,10 +53,19 @@ describe('CatalogService promotion pricing', () => {
 
     // Whole positive integers, never NaN or null: a blank price on a confirmation
     // screen would be worse than a wrong one, because nobody would question it.
+    //
+    // `toEqual` and not `toMatchObject`, deliberately: this is the list of prices
+    // the product charges, and a field appearing in it without anybody deciding
+    // the number is exactly what an exact assertion is for. M22 added the last
+    // four, and the documented defaults are 5 / 15 / 10 with a cap of 20.
     expect(snapshot.promotion).toEqual({
       boostCoins: 40,
       boostDurationHours: 24,
       vipCoins: 100,
+      eventCreateCoins: 5,
+      eventChannelSendCoins: 15,
+      eventTopInviteCoins: 10,
+      topInviteMaxRecipients: 20,
     });
   });
 

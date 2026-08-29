@@ -223,3 +223,53 @@ export const myEventsResponse = z.object({
   events: z.array(eventView),
 });
 export type MyEventsResponse = z.infer<typeof myEventsResponse>;
+
+// ── Paid invitations (M22 phase 11) ──────────────────────────────────────────
+
+/**
+ * What the host is shown before they are asked to pay.
+ *
+ * Counts only. `reasons` says that twelve of the twenty live in their city and
+ * never who those twelve are — a host is entitled to understand the selection and
+ * not to a list of users the platform picked out for them.
+ */
+export const invitePreviewResponse = z.object({
+  candidates: z.number().int().nonnegative(),
+  selected: z.number().int().nonnegative(),
+  maxRecipients: z.number().int().positive(),
+  cost: z.number().int().nonnegative(),
+  balance: z.number().int().nonnegative(),
+  affordable: z.boolean(),
+  reasons: z.object({
+    sameCity: z.number().int().nonnegative(),
+    interestMatch: z.number().int().nonnegative(),
+    categoryHistory: z.number().int().nonnegative(),
+    recentlyActive: z.number().int().nonnegative(),
+  }),
+  /** Non-null when the send would refuse. The screen renders it before the button. */
+  blockedReason: z.enum(['NO_CANDIDATES', 'INSUFFICIENT_COINS', 'EVENT_NOT_INVITABLE']).nullable(),
+});
+export type InvitePreviewResponse = z.infer<typeof invitePreviewResponse>;
+
+/**
+ * The purchase.
+ *
+ * `idempotencyKey` is the client's, minted when the confirmation dialog opens
+ * rather than when the button is pressed — so a double tap is one purchase and a
+ * deliberate second batch next week is two. It is *also* what the `Idempotency-Key`
+ * header protects at the HTTP layer; the two are independent and both are cheap.
+ */
+export const inviteTopRequest = z.object({
+  idempotencyKey: z.string().trim().min(8).max(64),
+});
+export type InviteTopRequest = z.infer<typeof inviteTopRequest>;
+
+export const inviteTopResponse = z.object({
+  /** Null when nobody was eligible, which is also the case that costs nothing. */
+  campaignPublicId: z.uuid().nullable(),
+  invited: z.number().int().nonnegative(),
+  charged: z.number().int().nonnegative(),
+  /** True when an identical request had already done this. Nothing was charged. */
+  replayed: z.boolean(),
+});
+export type InviteTopResponse = z.infer<typeof inviteTopResponse>;

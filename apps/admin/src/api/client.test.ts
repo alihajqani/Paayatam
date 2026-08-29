@@ -20,7 +20,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+  // A fresh `Response` per call, not one object resolved repeatedly: a body can
+  // only be read once, and a test that makes two requests would otherwise fail on
+  // "Body has already been read" rather than on anything it meant to assert.
+  fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
   vi.stubGlobal('fetch', fetchMock);
   setCsrfToken(null);
   setUnauthenticatedHandler(null);
@@ -175,5 +178,90 @@ describe('messageOf', () => {
 
   it('falls back for anything else thrown', () => {
     expect(messageOf(new Error('boom'), 'ذخیره نشد.')).toBe('ذخیره نشد.');
+  });
+});
+
+/**
+ * In-flight deduplication (M22 phase 3).
+ *
+ * Every case below is a real duplicate the panel produces on its own: a `watch`
+ * that fires twice in a tick, a moderator clicking through pages faster than the
+ * network answers, a screen that mounts and re-reads. The properties that matter
+ * are that the *query* is part of the identity and that nothing is ever cached.
+ */
+describe('in-flight deduplication', () => {
+  it('collapses two identical GETs that overlap into one request', async () => {
+    let release!: (value: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    const first = request('/users');
+    const second = request('/users');
+    release(jsonResponse({ users: [] }));
+
+    await expect(first).resolves.toEqual({ users: [] });
+    await expect(second).resolves.toEqual({ users: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not collapse two pages of the same list', async () => {
+    // The bug this prevents: serving page one to somebody who asked for page two.
+    await Promise.all([
+      request('/users', { query: { offset: 0 } }),
+      request('/users', { query: { offset: 25 } }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('is not a cache — a second call after the first settles goes to the network', async () => {
+    await request('/dashboard');
+    await request('/dashboard');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('never collapses a mutation, because two POSTs are two intentions', async () => {
+    await Promise.all([
+      request('/coins/adjust', { method: 'POST', body: { amount: 1 } }),
+      request('/coins/adjust', { method: 'POST', body: { amount: 1 } }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives every waiter the same failure when the one request fails', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'INTERNAL_ERROR', messageFa: 'خطا' } }, 500),
+    );
+
+    const first = request('/users');
+    const second = request('/users');
+
+    await expect(first).rejects.toBeInstanceOf(ApiError);
+    await expect(second).rejects.toBeInstanceOf(ApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops what is in flight when the session changes', async () => {
+    // An answer fetched for the previous operator must not be handed to the next.
+    let release!: (value: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    const first = request('/me');
+    setCsrfToken('a-new-session');
+    const second = request('/me');
+    release(jsonResponse({ ok: true }));
+
+    await first;
+    await second;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

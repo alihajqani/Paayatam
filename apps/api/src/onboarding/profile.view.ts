@@ -21,6 +21,7 @@ export function toProfileView(profile: ProfileDetail): ProfileView {
     district: profile.district,
     bio: profile.bio,
     interests: profile.interests,
+    inviteOptOut: profile.inviteOptOut,
     completedAt: profile.completedAt?.toISOString() ?? null,
   };
 }

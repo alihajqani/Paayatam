@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { Prisma } from '@payetam/db';
+import { ENV } from '@payetam/platform';
+import type { Env } from '@payetam/config';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { SettingsService } from './settings.service';
 
@@ -15,6 +17,11 @@ export interface PromotionPricingSnapshot {
   boostCoins: number;
   boostDurationHours: number;
   vipCoins: number;
+  /** The three M22 sinks (phase 5). Zero means free. */
+  eventCreateCoins: number;
+  eventChannelSendCoins: number;
+  eventTopInviteCoins: number;
+  topInviteMaxRecipients: number;
 }
 
 export interface CatalogSnapshot {
@@ -28,6 +35,20 @@ export interface CatalogSnapshot {
   })[];
   interests: (NamedRef & { categoryId: string | null })[];
   promotion: PromotionPricingSnapshot;
+  /**
+   * The bot's @username, so the Mini App can send somebody into the conversation.
+   *
+   * Public by definition — it is already in every deep link the bot and the
+   * channel emit — and not a token: `TELEGRAM_BOT_TOKEN` is a different
+   * environment variable and nothing here reads it.
+   *
+   * Carried on the catalog rather than fetched separately for the reason
+   * everything else here is: it is small, it changes at deploy time and not
+   * otherwise, and the alternative is another round trip on a connection where
+   * round trips are the expensive part (ADR-0003). Empty string when the
+   * deployment has not configured one, which the client treats as "no link".
+   */
+  botUsername: string;
 }
 
 /** The place a user says they are, once it has been checked against the catalog. */
@@ -49,6 +70,8 @@ export class CatalogService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    /** For `TELEGRAM_BOT_USERNAME` alone — never the token. */
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -126,18 +149,37 @@ export class CatalogService {
       })),
       interests,
       promotion,
+      botUsername: this.env.TELEGRAM_BOT_USERNAME ?? '',
     };
   }
 
-  /** Public because the price is not a secret — it is what the buyer is agreeing to. */
+  /**
+   * Public because the price is not a secret — it is what the buyer is agreeing to.
+   *
+   * One `getNumbers` rather than seven `getInt`s: this is on the cold-open path
+   * for every session, and seven round trips to `app_setting` to render one form
+   * is six more than the data needs.
+   */
   async promotionPricing(): Promise<PromotionPricingSnapshot> {
-    const [boostCoins, boostDurationHours, vipCoins] = await Promise.all([
-      this.settings.getInt('economy.boost_coins'),
-      this.settings.getInt('economy.boost_duration_hours'),
-      this.settings.getInt('economy.vip_coins'),
+    const values = await this.settings.getNumbers([
+      'economy.boost_coins',
+      'economy.boost_duration_hours',
+      'economy.vip_coins',
+      'economy.event_create_coins',
+      'economy.event_channel_send_coins',
+      'economy.event_top_invite_coins',
+      'events.top_invite_max_recipients',
     ]);
 
-    return { boostCoins, boostDurationHours, vipCoins };
+    return {
+      boostCoins: values['economy.boost_coins'],
+      boostDurationHours: values['economy.boost_duration_hours'],
+      vipCoins: values['economy.vip_coins'],
+      eventCreateCoins: values['economy.event_create_coins'],
+      eventChannelSendCoins: values['economy.event_channel_send_coins'],
+      eventTopInviteCoins: values['economy.event_top_invite_coins'],
+      topInviteMaxRecipients: values['events.top_invite_max_recipients'],
+    };
   }
 
   /**

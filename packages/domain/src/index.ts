@@ -8,8 +8,8 @@ export type { SessionTokens, AccessTokenClaims } from './identity/session.servic
 export { UserService, isUniqueViolation } from './identity/user.service';
 export type { PublicUser } from './identity/user.service';
 
-export { ConsentService } from './identity/consent.service';
-export type { CurrentPolicy, ConsentContextInfo } from './identity/consent.service';
+export { ConsentService, policyLabel } from './identity/consent.service';
+export type { CurrentPolicy, ConsentContextInfo, PolicyStanding } from './identity/consent.service';
 
 export { IdentityModule, INIT_DATA_VALIDATOR } from './identity/identity.module';
 
@@ -83,10 +83,12 @@ export type {
   CompleteProfileInput,
   ProfileCompletion,
   ProfileDetail,
+  ProfileEditor,
+  UpdateProfileInput,
 } from './profile/profile.service';
 export { ProfileModule } from './profile/profile.module';
 
-export { gregorianYearIn as gregorianYearInZone, startOfDayIn } from './time';
+export { gregorianYearIn as gregorianYearInZone, startOfDayIn, zonedTimeToUtc } from './time';
 
 export { assertTransition, canTransition, terminalStates } from './state-machine';
 export type { TransitionTable } from './state-machine';
@@ -147,6 +149,7 @@ export {
 export { ParticipationService } from './participation/participation.service';
 export type {
   ParticipationDetail,
+  MyParticipation,
   ParticipantSummary,
   CancellationPreview,
 } from './participation/participation.service';
@@ -163,6 +166,49 @@ export { REDACTION_PLACEHOLDER, sanitizeInbound } from './chat/sanitizer';
 export type { Redaction, RedactionKind, SanitizeOptions, SanitizedMessage } from './chat/sanitizer';
 export type { InboundTextMessage, MessageEntity } from './chat/inbound-message';
 export { CURRENT_KEY_VERSION, MessageCipher } from './chat/message-cipher';
+
+// ── Conversation wizards (ADR-0017) ─────────────────────────────────────────
+export { ConversationModule } from './conversation/conversation.module';
+export {
+  ConversationService,
+  DRAFT_TTL_DAYS,
+  TOUCHED_KEY,
+  asCreateEventForm,
+  touchedFields,
+} from './conversation/conversation.service';
+export type {
+  ConversationOutcome,
+  ConversationSnapshot,
+} from './conversation/conversation.service';
+export {
+  apply,
+  firstStep,
+  nextStep,
+  previousStep,
+  progressOf,
+  stepByKey,
+} from './conversation/wizard';
+export type {
+  FormPatch,
+  StepResult,
+  StepUi,
+  WizardDefinition,
+  WizardDeps,
+  WizardInput,
+  WizardStep,
+} from './conversation/wizard';
+export { acceptPoliciesWizard } from './conversation/wizards/accept-policies';
+export type { AcceptPoliciesForm } from './conversation/wizards/accept-policies';
+export { categoryChoice, createEventWizard } from './conversation/wizards/create-event';
+export { editEventWizard, eventChoice } from './conversation/wizards/edit-event';
+export type { EditEventForm } from './conversation/wizards/edit-event';
+export type { CreateEventForm } from './conversation/wizards/create-event';
+export {
+  GENDER_CHOICES,
+  editProfileWizard,
+  genderLabel,
+} from './conversation/wizards/edit-profile';
+export type { EditProfileForm } from './conversation/wizards/edit-profile';
 export type { EncryptedBody } from './chat/message-cipher';
 export {
   CHAT_ANONYMOUS_INTRO,
@@ -282,6 +328,38 @@ export type {
   CreateActivityTagInput,
   UpdateActivityTagInput,
 } from './adminaccess/catalog-admin.service';
+export {
+  InvitationService,
+  INVITE_SPEND_REASON,
+  inviteSpendKey,
+} from './invitations/invitation.service';
+export type { InvitePreview, InviteResult } from './invitations/invitation.service';
+export { CATEGORY_HISTORY_CAP, rankCandidates, scoreCandidate } from './invitations/score';
+export type {
+  InviteCandidate,
+  InviteTarget,
+  InviteWeights,
+  ScoreBreakdown,
+  ScoredCandidate,
+} from './invitations/score';
+export { InvitationsModule } from './invitations/invitations.module';
+
+export { MessagingService, RATE_LIMIT_BREAKER_THRESHOLD } from './messaging/messaging.service';
+export type {
+  MessageCampaignSummary,
+  DeliveryCounts,
+  DeliveryTarget,
+  MessageAudience,
+  PendingDelivery,
+} from './messaging/messaging.service';
+export { MessagingModule } from './messaging/messaging.module';
+export { MessagingAdminService } from './adminaccess/messaging-admin.service';
+export type { AudiencePreview, TelegramIdentity } from './adminaccess/messaging-admin.service';
+export { ChannelAdminService } from './adminaccess/channel-admin.service';
+export { GeographyAdminService } from './adminaccess/geography-admin.service';
+export type { ProvinceSummary, CitySummary } from './adminaccess/geography-admin.service';
+export { PolicyAdminService } from './adminaccess/policy-admin.service';
+export type { PolicySummary, ConsentRecord } from './adminaccess/policy-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';
@@ -292,9 +370,33 @@ export { planNotifications } from './notifications/fanout';
 export type { PlannedNotification } from './notifications/fanout';
 export { NotificationsModule } from './notifications/notifications.module';
 export { OutboxRelayService } from './outbox/relay.service';
+export type { OutboxBacklog } from './outbox/relay.service';
 export type { RelayResult } from './outbox/relay.service';
 
 export { ChannelService } from './channel/channel.service';
+export {
+  ChannelConfigService,
+  CHANNEL_CONFIG_ID,
+  GATED_ACTIONS,
+  normalizeChatIdentifier,
+  normalizeInviteUrl,
+  normalizeTitle,
+  normalizeUsername,
+} from './channel/channel-config.service';
+export type {
+  ChannelConfig,
+  ChannelConfigStatus,
+  ChannelConfigWarning,
+  GatedAction,
+  RequiredChannelRecord,
+} from './channel/channel-config.service';
+export { ChannelMembershipService, MEMBERSHIP_PROBE } from './channel/membership.service';
+export type {
+  ChannelMembershipState,
+  MembershipProbe,
+  MembershipProbeResult,
+  MembershipState,
+} from './channel/membership.service';
 export type { PublishablePost, TakedownTarget } from './channel/channel.service';
 export { ChannelModule } from './channel/channel.module';
 

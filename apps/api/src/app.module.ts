@@ -4,11 +4,15 @@ import { PrismaModule } from '@payetam/db';
 import {
   AuditModule,
   CatalogModule,
+  ChannelModule,
   ChatModule,
+  ConversationModule,
   DiscoveryModule,
   AdminAccessModule,
   EconomyModule,
   EventsModule,
+  InvitationsModule,
+  MessagingModule,
   ReviewsModule,
   IdentityModule,
   ModerationModule,
@@ -17,6 +21,7 @@ import {
   ParticipationModule,
   PrivacyModule,
   ProfileModule,
+  MEMBERSHIP_PROBE,
 } from '@payetam/domain';
 import {
   ClockModule,
@@ -48,7 +53,9 @@ import { ReportsController } from './moderation/reports.controller';
 import { OnboardingController } from './onboarding/onboarding.controller';
 import { ParticipationController } from './participation/participation.controller';
 import { BotService } from './telegram/bot.service';
+import { TelegramMembershipProbe } from './telegram/membership.probe';
 import { TelegramWebhookController } from './telegram/webhook.controller';
+import { VersionController } from './version/version.controller';
 
 /**
  * Root module.
@@ -74,9 +81,20 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     ProfileModule,
     ModerationModule,
     EventsModule,
+    InvitationsModule,
+    MessagingModule,
     DiscoveryModule,
     ParticipationModule,
     ChatModule,
+    ConversationModule,
+    /**
+     * For `ChannelConfigService` and `ChannelMembershipService` (M22 phase 6).
+     *
+     * The publishing half of this module belongs to the worker; the API imports
+     * it for the configuration and the gate, both of which are reads a request is
+     * waiting on.
+     */
+    ChannelModule,
     // For `NotificationService` alone, and for one consumer: the bot's replies are
     // notification rows so they are deduped, rendered and rate-limited like every
     // other message. The relay it also provides is the worker's and is not driven
@@ -109,6 +127,7 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     ReportsController,
     AdminController,
     TelegramWebhookController,
+    VersionController,
   ],
   providers: [
     AuthService,
@@ -116,6 +135,16 @@ import { TelegramWebhookController } from './telegram/webhook.controller';
     // an adapter over services every one of these modules already exports, and a
     // module wrapping one class would be indirection with nothing inside it.
     BotService,
+    /**
+     * The one Telegram call the API makes (M22 phase 6).
+     *
+     * Provided under the domain's port symbol as well as by class, so
+     * `ChannelMembershipService` resolves it without importing anything that can
+     * reach the network — and so a worker or a test that provides no probe gets
+     * `UNKNOWN`, which fails open.
+     */
+    TelegramMembershipProbe,
+    { provide: MEMBERSHIP_PROBE, useExisting: TelegramMembershipProbe },
     AdminAuthGuard,
     { provide: APP_GUARD, useClass: AuthGuard },
     // Ordered after authentication, so the bucket is keyed on the user when there

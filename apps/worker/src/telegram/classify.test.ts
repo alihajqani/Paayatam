@@ -51,18 +51,49 @@ describe('403 and its equivalents are terminal', () => {
   });
 });
 
-describe('everything else is retryable', () => {
-  /**
-   * A 429 that got past `auto-retry` still retries at the queue level. It is never
-   * terminal — the message is deliverable, the moment was simply wrong.
-   */
-  it('keeps a rate limit retryable', () => {
+/**
+ * A 429 that survived `auto-retry` is retryable *and* worth naming (M22 phase 4).
+ *
+ * It stayed `RETRY` until M22 and could not be told apart from a socket hang-up,
+ * which is fine for one notification and wrong for a four-thousand-recipient
+ * campaign: a rate limit that got past both the plugin's `retry_after` sleep and
+ * BullMQ's global limiter means Telegram is asking us to stop, and pushing on is
+ * how a bot gets restricted. Its own kind is what lets a campaign's circuit
+ * breaker see it.
+ */
+describe('a rate limit is retryable, and says so', () => {
+  it('classifies a 429 as RATE_LIMITED rather than as a generic retry', () => {
     const outcome = classify(telegramError(429, 'Too Many Requests: retry after 30'));
 
-    expect(outcome.kind).toBe('RETRY');
-    expect(outcome.kind === 'RETRY' && outcome.reason).toContain('429');
+    expect(outcome.kind).toBe('RATE_LIMITED');
+    expect(outcome.kind === 'RATE_LIMITED' && outcome.reason).toContain('429');
   });
 
+  it('carries retry_after when Telegram supplied one', () => {
+    const error = new GrammyError(
+      'Call to sendMessage failed',
+      {
+        ok: false,
+        error_code: 429,
+        description: 'Too Many Requests: retry after 12',
+        parameters: { retry_after: 12 },
+      },
+      'sendMessage',
+      {},
+    );
+
+    const outcome = classify(error);
+    expect(outcome.kind === 'RATE_LIMITED' && outcome.retryAfterSeconds).toBe(12);
+  });
+
+  it('reports null rather than guessing when Telegram supplied none', () => {
+    const outcome = classify(telegramError(429, 'Too Many Requests'));
+
+    expect(outcome.kind === 'RATE_LIMITED' && outcome.retryAfterSeconds).toBeNull();
+  });
+});
+
+describe('everything else is retryable', () => {
   it('keeps a server error retryable', () => {
     expect(classify(telegramError(500, 'Internal Server Error')).kind).toBe('RETRY');
   });

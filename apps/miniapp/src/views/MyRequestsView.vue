@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import type { CancellationPreviewResponse, ParticipantStatus } from '@payetam/shared';
+import {
+  PARTICIPANT_STATUS_GUEST_FA,
+  type CancellationPreviewResponse,
+  type ParticipantStatus,
+} from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import StateBlock from '@/components/StateBlock.vue';
-import { formatRelative } from '@/format/datetime';
+import { formatEventDate, formatRelative } from '@/format/datetime';
 import { formatCoins, toPersianDigits } from '@/format/fa';
 import { haptic, webApp } from '@/telegram/webapp';
 import { useParticipationStore } from '@/stores/participation';
@@ -31,26 +35,6 @@ const state = computed(() => {
   if (participation.mine.length === 0) return 'empty' as const;
   return 'ready' as const;
 });
-
-/**
- * Every status, in Persian.
- *
- * `Record<ParticipantStatus, …>` rather than `Record<string, …>` on purpose: a status
- * added to the enum and forgotten here becomes a type error rather than a raw English
- * word shown to a Persian user, which is what an earlier draft of this map did to
- * `CANCELLED_BY_PARTICIPANT`.
- */
-const STATUS_FA: Record<ParticipantStatus, string> = {
-  PENDING: 'در انتظار پاسخ میزبان',
-  WAITLISTED: 'نوبت انتظار',
-  ACCEPTED: 'پذیرفته شد',
-  REJECTED: 'رد شد',
-  EXPIRED: 'مهلت میزبان گذشت',
-  CANCELLED_BY_PARTICIPANT: 'شما لغو کردید',
-  CANCELLED_BY_HOST: 'میزبان لغو کرد',
-  COMPLETED: 'برگزار شد',
-  NO_SHOW: 'غایب ثبت شد',
-};
 
 const LIVE = new Set<ParticipantStatus>(['PENDING', 'WAITLISTED', 'ACCEPTED']);
 
@@ -126,12 +110,25 @@ onMounted(load);
           :key="item.publicId"
           class="flex flex-col gap-2 rounded-2xl bg-tg-secondary-bg p-4"
         >
+          <!--
+            Which event this is for. Without it a list of pending requests is a
+            column of identical «در انتظار» cards, and the only way to tell them
+            apart is to open each one.
+          -->
+          <p v-if="item.event" class="font-medium">{{ item.event.title }}</p>
+
           <div class="flex items-baseline justify-between gap-2">
-            <span class="text-sm">{{ STATUS_FA[item.status] ?? item.status }}</span>
+            <span class="text-sm">{{
+              PARTICIPANT_STATUS_GUEST_FA[item.status] ?? item.status
+            }}</span>
             <span v-if="item.waitlistRank" class="text-xs text-tg-hint">
               نفر {{ toPersianDigits(item.waitlistRank) }}
             </span>
           </div>
+
+          <p v-if="item.event" class="text-xs text-tg-hint">
+            {{ formatEventDate(item.event.startsAt) }}
+          </p>
 
           <p v-if="item.hostDeadlineAt && item.status === 'PENDING'" class="text-sm text-tg-hint">
             مهلت پاسخ میزبان: {{ formatRelative(item.hostDeadlineAt) }}

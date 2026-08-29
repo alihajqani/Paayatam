@@ -80,6 +80,25 @@ COPY . .
 # stage is discarded and the value never reaches a runtime image.
 ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build?schema=public
 
+# Which release the two bundles say they are (M22 phase 10).
+#
+# `PAYETAM_VERSION` is the variable that already tags every image in
+# docker-compose.prod.yml; this is the same value reaching the *frontends*, which
+# cannot read an environment variable at runtime — a Vite bundle is static files,
+# so the string has to be compiled in.
+#
+# The default matches `resolveVersion()`'s fallback in @payetam/shared, so a build
+# that forgets the arg produces `local` on the screen rather than a literal
+# `${PAYETAM_VERSION}` or an empty gap.
+#
+# Declared **here** rather than at the top of the file on purpose. An ARG
+# invalidates every layer after it, and this one belongs immediately before the
+# build it feeds: the install and the manifest layers are identical between two
+# releases of the same tree and must stay cached, while the bundles genuinely do
+# differ and must not.
+ARG PAYETAM_VERSION=local
+ENV VITE_APP_VERSION=${PAYETAM_VERSION}
+
 # `db:generate` first, and not optional: the Prisma client is generated into
 # packages/db/src/generated and is not committed, so every file importing
 # @payetam/db fails to type-check without it. `build` is `tsc -b` over the project
@@ -240,6 +259,10 @@ FROM nginx:alpine AS web
 COPY docker/nginx.conf              /etc/nginx/nginx.conf
 COPY docker/sites-available/        /etc/nginx/sites-available/
 COPY docker/sites-enabled/          /etc/nginx/sites-enabled/
+# Both site files `include` these; without them `nginx -t` fails and the container
+# never starts. Production bind-mounts all four paths over the baked copies, which
+# is what hid the omission — the image alone could not run nginx.
+COPY docker/snippets/               /etc/nginx/snippets/
 
 COPY --from=build /app/apps/miniapp/dist /srv/www/miniapp
 COPY --from=build /app/apps/admin/dist   /srv/www/admin

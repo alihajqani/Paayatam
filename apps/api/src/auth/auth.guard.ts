@@ -6,7 +6,7 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { SessionService, UserService } from '@payetam/domain';
+import { ConsentService, SessionService, UserService } from '@payetam/domain';
 import { AppError, ErrorCode } from '@payetam/shared';
 import type { FastifyRequest } from 'fastify';
 
@@ -20,6 +20,30 @@ export const ALLOW_PENDING_TERMS = 'allowPendingTerms';
  * Only the policy and consent endpoints may use this — everything else is gated.
  */
 export const AllowPendingTerms = () => SetMetadata(ALLOW_PENDING_TERMS, true);
+
+export const REQUIRES_CURRENT_POLICIES = 'requiresCurrentPolicies';
+/**
+ * Refuses a user who has not accepted the **current** versions (M22 phase 8).
+ *
+ * ── Why this is opt-in, where the terms gate is deny-by-default ──────────────
+ *
+ * The first-acceptance gate reads `onboardingState`, which the guard already has
+ * from the user row it re-reads on every request — it costs nothing. Re-acceptance
+ * cannot be answered from that column: a user who accepted v2 and is being asked
+ * for v3 is still `PROFILE_COMPLETE`. Answering it needs a count over `consent`,
+ * and putting that on **every** request would be a query per read for a condition
+ * that is false for almost everybody almost always.
+ *
+ * So it is declared per route, on the writes that matter — creating an event,
+ * joining one, sending a message, spending coins. Reads stay open on purpose: a
+ * user who has not yet accepted new terms should still be able to *read* them,
+ * see their own profile and find the screen that asks. Locking the whole product
+ * would mean the user could not reach the thing they are being asked to do.
+ *
+ * `ConsentService` caches "which versions are current" for thirty seconds, so the
+ * cost of a decorated route is one indexed `COUNT` on `consent`.
+ */
+export const RequiresCurrentPolicies = () => SetMetadata(REQUIRES_CURRENT_POLICIES, true);
 
 export interface AuthenticatedUser {
   publicId: string;
@@ -44,6 +68,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly sessions: SessionService,
     private readonly users: UserService,
+    private readonly consent: ConsentService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -89,6 +114,25 @@ export class AuthGuard implements CanActivate {
 
     if (!allowPendingTerms && user.onboardingState === 'NEW') {
       throw new AppError(ErrorCode.TERMS_NOT_ACCEPTED);
+    }
+
+    /**
+     * Re-acceptance, on the routes that declare they need it (M22 phase 8).
+     *
+     * `POLICY_VERSION_STALE` rather than `TERMS_NOT_ACCEPTED`, and the difference
+     * is what the client does about it: the first means "read the new version",
+     * the second means "you have never accepted anything". Two situations, two
+     * screens, two messages.
+     */
+    const requiresCurrent = this.reflector.getAllAndOverride<boolean>(REQUIRES_CURRENT_POLICIES, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (requiresCurrent === true) {
+      const internalId = await this.users.resolveInternalId(user.publicId);
+      if (!(await this.consent.hasAcceptedCurrentPolicies(internalId))) {
+        throw new AppError(ErrorCode.POLICY_VERSION_STALE);
+      }
     }
 
     return true;

@@ -132,6 +132,11 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | دفتر سکه | `ledger.read` | Search the ledger, and reconcile balances against it |
 | گزارش رخدادها | `audit.read` | The audit trail, filterable, with payloads |
 | تنظیمات | `settings.manage` | Every policy number in `app_setting` |
+| تفریحات | `catalog.manage` | Activity tags and the places they belong to (M21) |
+| پیام‌ها | `message.send` | Telegram messages and broadcasts — see §9. A broadcast additionally needs `message.broadcast` |
+| کانال‌های اجباری | `channel.manage` | The channels users must join, in order, and whether the requirement is on — see §11 |
+| شهرها و استان‌ها | `catalog.manage` | Provinces and cities: create, rename, reorder, activate — see §10 |
+| اسناد حقوقی | `policy.read` | Terms, privacy and rules. Editing a draft needs `policy.manage`, publishing needs `policy.publish`, and the acceptance log needs `policy.consent.read` — see §12 |
 
 **The guard is a courtesy, not a control.** Every one of those permissions is checked again in the
 service layer, which is where invariant 12 lives. An operator who edits the URL reaches a page that
@@ -139,6 +144,16 @@ answers 403 to everything on it. What the guard buys is that they land on «دس
 missing permission named, rather than on a page full of red boxes.
 
 An `ANALYST` — `dashboard.read` and nothing else, by ADR-0010 — sees one link.
+
+### Which release you are looking at (M22)
+
+The foot of the sidebar shows two version strings: **پنل**, the bundle this tab is
+running, and **سرور**, the release the API reports. They come apart during a
+deploy and that is normal — nginx serves the new bundle the moment its container
+is up, while the API is behind its own start-up and its own migration step. A
+minute of disagreement is a rollout; a persistent one means a container was not
+replaced, and `curl -s https://app.paayatam.online/api/v1/version` is the way to
+confirm from outside.
 
 ---
 
@@ -328,7 +343,186 @@ there is a fixed address to allow.
 
 ---
 
-## 9. Conventions, if you are adding a screen
+## 9. Messages — «پیام‌ها» (M22)
+
+Two things behind one screen, and the difference matters more than the shared UI
+suggests.
+
+**A direct message** goes to one person. `message.send` is enough.
+
+**A broadcast** goes to a filtered slice of the user base. It additionally needs
+`message.broadcast`, which by default only `SUPER_ADMIN` holds.
+
+### Nothing sends until you confirm, and the confirmation is typed
+
+The flow is deliberately three steps: **compose → preview → confirm**.
+
+The preview is a real dry run. It resolves the filter against the live database
+and tells you how many people match — and it writes no outbox row, charges
+nothing and sends nothing. A campaign created from it sits in `DRAFT` and stays
+there.
+
+Confirming asks you to type the recipient count back. That is not a checkbox
+being awkward: a checkbox is a reflex, and the number is the one fact worth
+checking twice. If the count changed between preview and confirm — somebody
+signed up, somebody was banned — the confirmation is refused and you preview
+again. You cannot broadcast to more people than you looked at.
+
+### After it starts
+
+The campaign screen shows `PENDING` / `SENT` / `FAILED` / `SKIPPED` per campaign
+and updates as the worker drains the queue. Three controls:
+
+- **توقف (pause)** stops delivery where it is. Already-sent messages are sent;
+  Telegram has no unsend.
+- **ادامه (resume)** picks up from the first `PENDING` recipient. It cannot
+  re-send, because a recipient row moves out of `PENDING` before the send and the
+  unique `(campaign, user)` index is what makes that stick.
+- **لغو (cancel)** ends it. A cancelled campaign cannot be resumed.
+
+### What it will not do
+
+- It will not send to somebody who has blocked the bot. `telegram_account.bot_blocked`
+  is part of the filter, and a `403` from Telegram sets it — so the second
+  broadcast is smaller than the first, and that is correct rather than a bug.
+- It will not retry a permanent failure. A blocked bot, a deleted account and a
+  malformed chat id are terminal; the recipient is marked `FAILED` with a reason
+  and never touched again.
+- It will not exceed Telegram's rate limit. Delivery is one queue with bounded
+  concurrency, and a `429` carrying `retry_after` parks the whole queue for
+  exactly that long rather than hammering through it.
+
+---
+
+## 10. Cities and provinces — «شهرها و استان‌ها» (M22)
+
+Provinces group cities; nothing else references a province, so renaming or
+reordering one is cosmetic.
+
+**A city is referenced by profiles and events**, which is why deactivating and
+deleting are different acts and only one of them exists. There is no delete. A
+city you turn off disappears from the picker and from search, and every profile
+and event already pointing at it is untouched — the reference stays valid, the
+history stays readable, and nobody's profile silently loses its city.
+
+`slug` is unique and permanent. `nameFa` is what people read and can be corrected
+freely; `name_normalized` is recomputed from it on save, which is what keeps
+«قايم» finding «قائم‌شهر» after a rename.
+
+Reordering sets `sort_order`, which is the order the picker shows before anybody
+types.
+
+---
+
+## 11. Required channels — «کانال‌های اجباری» (M22, several channels in v0.3.1)
+
+Two independent things on one screen.
+
+**Which channels there are.** A list, in an order you set. Each row carries a
+title (what the *user* reads above the join button — «کانال اصلی پایه‌تم», not
+`@payetam_main`), a chat identifier, an optional public username and an invite
+link. «↑» and «↓» change the order, which is the order users are shown them in
+and asked to join them in.
+
+The link is validated and *rebuilt* on save: only `https://t.me/…` and
+`https://telegram.me/…` are accepted, and what gets stored is the scheme, the host
+and the path — any query string, fragment or embedded credentials are dropped
+rather than echoed back. That is a security control, not tidiness: this value
+becomes an `href` in a button every user sees.
+
+**Whether membership is required.** Off by default, and it stays off until
+somebody deliberately turns it on. When on, a user must be a member of **every
+active channel** — joining one of three is not enough — and you choose which
+actions the requirement gates. An empty list means the requirement is inert.
+
+### The five gated actions
+
+| Action | Enforced by |
+| --- | --- |
+| `APP_ACCESS` | The Mini App's router. The whole app is replaced by the join screen. |
+| `EVENT_CREATE` | `EventService.create` |
+| `EVENT_JOIN` | `ParticipationService.join` |
+| `EVENT_CHANNEL_SEND` | `EventService.publishToChannel` |
+| `EVENT_INVITE` | `InvitationService.inviteTop` |
+
+`APP_ACCESS` is the odd one and the panel says so under the checkbox. The other
+four name a server-enforced operation and no client can talk its way past them.
+`APP_ACCESS` has no single operation behind it — it means "do not let this person
+browse the Mini App at all", which is a navigation rule. It is deliberately *not*
+in `AuthGuard`: a gate over every authenticated route would also refuse `/me`,
+`/me/policies` and the membership check, which are the three calls the screen
+that clears the gate is built from, so switching it on would lock the product
+shut with no way back.
+
+### The gate fails open, on purpose
+
+A user is refused only on an **authoritative** `NOT_MEMBER` from Telegram.
+Telegram being slow, rate-limiting us, returning an error, or the bot not being an
+admin of a channel all resolve to "let them through". A membership requirement
+that locks the product when Telegram has a bad afternoon is a worse outcome than
+one that occasionally lets a non-member create an event.
+
+With several channels this matters more, not less: the outcomes are combined by
+"does any channel *authoritatively* refuse", never by "did every channel say
+yes" — so one misconfigured channel in a list of four degrades that channel's
+check rather than emptying the product.
+
+### Two things the panel refuses outright
+
+- **Requiring membership with no channel to send anybody to.** The one warning
+  that is also an error, because it locks users out of a product with no way
+  forward on the screen.
+- **Removing the last active channel while the requirement is on.** That leaves a
+  gate with nothing behind it: the user is told to join something and shown no
+  button. Turn the requirement off first — the switch is one click away, and it
+  is the operator saying what they mean.
+
+### What is not here
+
+`TELEGRAM_CHANNEL_ID` and `TELEGRAM_BOT_TOKEN`. Both are environment variables:
+the bot's *posting* destination editable from a web session is a destination an
+attacker with a session can redirect, and a token in a form is a token in a
+browser's memory. This screen holds only what is public either way — usernames,
+invite links, titles.
+
+Every change to this screen is audited with the before and after.
+
+---
+
+## 12. Legal documents — «اسناد حقوقی» (M22)
+
+Terms, privacy policy and community rules, each versioned independently.
+
+### Versions are immutable once published
+
+A published version cannot be edited. Not "should not" — the `consent` table is
+append-only by a database trigger, and a published `policy_version` is what those
+acceptance rows point at. Correcting a published document means publishing the
+next version.
+
+A draft can be edited freely and is visible to nobody.
+
+### Publishing asks you to type the version number
+
+For the same reason the broadcast asks for the recipient count. Publishing is the
+act that asks **every user** to re-accept: the moment a new current version
+exists, everybody who has not accepted it is routed to the terms screen and stays
+there until they do. That is the intended behaviour and it is also the most
+disruptive button in the panel.
+
+Exactly one version per type can be current; the database enforces it with a
+partial unique index rather than trusting the application.
+
+### The acceptance log
+
+«پذیرش‌ها», behind `policy.consent.read`, is the evidence: who accepted which
+version, when, and from what app version. It is append-only and it is the answer
+to a legal question, so it is a separate permission from reading the documents
+themselves.
+
+---
+
+## 13. Conventions, if you are adding a screen
 
 - **A route declares its permission in `meta`.** The navigation and the guard both read it. A route
   with a `group` and no `permission` fails `router.test.ts`.

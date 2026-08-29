@@ -10,8 +10,12 @@ import {
 } from '@payetam/shared';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
-import { toParticipantSummaryView, toParticipationView } from './participation.view';
+import { CurrentUser, RequiresCurrentPolicies, type AuthenticatedUser } from '../auth/auth.guard';
+import {
+  toMyParticipationView,
+  toParticipantSummaryView,
+  toParticipationView,
+} from './participation.view';
 
 @Controller('api/v1')
 export class ParticipationController {
@@ -31,6 +35,7 @@ export class ParticipationController {
    *
    * 201 either way. A waitlisted request is a created request, not a refused one.
    */
+  @RequiresCurrentPolicies()
   @Post('events/:publicId/join')
   @RateLimit('PARTICIPATION_JOIN')
   @HttpCode(HttpStatus.CREATED)
@@ -125,7 +130,7 @@ export class ParticipationController {
   async mine(@CurrentUser() current: AuthenticatedUser): Promise<MyParticipationsResponse> {
     const userId = await this.users.resolveInternalId(current.publicId);
     const rows = await this.participation.listMine(userId);
-    return { participations: rows.map(toParticipationView) };
+    return { participations: rows.map(toMyParticipationView) };
   }
 
   /**

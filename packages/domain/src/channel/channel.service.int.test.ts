@@ -1,7 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { EventStatus, PrismaClient, PrismaService } from '@payetam/db';
 import { FakeClock } from '@payetam/platform';
-import { renderChannelPost } from '@payetam/telegram';
+import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
+import { renderChannelPost, type RenderedChannelPost } from '@payetam/telegram';
 import {
   createTestPrisma,
   createUser,
@@ -328,6 +329,18 @@ describe('a stale post comes down', () => {
  * outcome anyway, against a host whose profile is full of things that must not
  * appear.
  */
+/**
+ * Everything the channel actually shows: the message and the button under it.
+ *
+ * The keyboard is not decoration — it carries a URL built from the event, so an
+ * identity smuggled into a label or a link is the same leak as one in the body.
+ * Scanning only `text` would have been a check that stopped covering half the
+ * post the moment report 7 landed.
+ */
+function wholePost(rendered: RenderedChannelPost): string {
+  return `${rendered.text}\n${JSON.stringify(rendered.keyboard)}`;
+}
+
 describe('the post body carries no host identity', () => {
   it('names the event and never the person running it', async () => {
     await createEvent({ isVip: true });
@@ -335,7 +348,7 @@ describe('the post body carries no host identity', () => {
     const post = claimed[0];
     expect(post).toBeDefined();
 
-    const body = renderChannelPost({
+    const rendered = renderChannelPost({
       kind: post?.kind ?? 'VIP',
       title: post?.title ?? '',
       categoryName: post?.categoryName ?? '',
@@ -349,6 +362,9 @@ describe('the post body carries no host identity', () => {
       eventPublicId: post?.eventPublicId ?? '',
       botUsername: 'payetam_bot',
     });
+    // Text *and* button. The keyboard is part of the post the channel shows, so
+    // an identity smuggled into a button label or a URL is the same leak.
+    const body = wholePost(rendered);
 
     expect(body).toContain('شب بازی رومیزی');
     expect(body).toContain('تهران');
@@ -356,6 +372,62 @@ describe('the post body carries no host identity', () => {
     expect(body).not.toContain('مریم رضایی');
     expect(body).not.toContain('برای هماهنگی');
     expect(body).not.toContain(hostId);
+  });
+
+  /** Report 8: the disclaimer is above the event, on every post, whatever the kind. */
+  it.each(['VIP', 'BOOSTED', 'TRENDING', 'PAID'] as const)(
+    'carries the disclaimer above the event on a %s post',
+    (kind) => {
+      const rendered = renderChannelPost({
+        kind,
+        title: 'شب بازی رومیزی',
+        categoryName: 'کافه',
+        cityName: 'تهران',
+        districtName: null,
+        startsAt: STARTS_AT,
+        capacity: 6,
+        acceptedCount: 2,
+        costType: 'FREE',
+        costAmount: null,
+        eventPublicId: '00000000-0000-4000-8000-000000000000',
+        botUsername: 'payetam_bot',
+      });
+
+      expect(rendered.text).toContain(EVENT_DISCLAIMER_SHORT_FA);
+      // Above, not below: "above every event" is the requirement, and a liability
+      // line under the fold is a line nobody reads.
+      expect(rendered.text.indexOf(EVENT_DISCLAIMER_SHORT_FA)).toBeLessThan(
+        rendered.text.indexOf('شب بازی رومیزی'),
+      );
+    },
+  );
+
+  /** Report 7: the post is reachable *from*, by a button rather than a blue word. */
+  it('carries one inline button that deep-links to the event', () => {
+    const rendered = renderChannelPost({
+      kind: 'PAID',
+      title: 'x',
+      categoryName: 'y',
+      cityName: 'z',
+      districtName: null,
+      startsAt: STARTS_AT,
+      capacity: 6,
+      acceptedCount: 2,
+      costType: 'FREE',
+      costAmount: null,
+      eventPublicId: '11111111-1111-4111-8111-111111111111',
+      botUsername: 'payetam_bot',
+    });
+
+    expect(rendered.keyboard).toHaveLength(1);
+    expect(rendered.keyboard[0]).toHaveLength(1);
+    expect(rendered.keyboard[0]?.[0]?.url).toBe(
+      'https://t.me/payetam_bot?startapp=event_11111111-1111-4111-8111-111111111111',
+    );
+    // A URL button, never a callback: a channel post has no session behind a tap,
+    // and `callback_data` from a public channel would reach the bot with nobody
+    // attached to it.
+    expect(rendered.keyboard[0]?.[0]?.callbackData).toBeUndefined();
   });
 
   /** T9 on the widest audience any host-authored text reaches. */
@@ -377,12 +449,13 @@ describe('the post body carries no host identity', () => {
       costAmount: null,
       eventPublicId: post?.eventPublicId ?? '',
       botUsername: 'payetam_bot',
-    });
+    }).text;
 
     expect(body).not.toContain('<a href="http://evil"');
     expect(body).toContain('&lt;a href=');
-    // The only anchor is the one the template itself wrote.
-    expect(body.match(/<a /g) ?? []).toHaveLength(1);
+    // No anchor at all any more: the link became a button (report 7), so the only
+    // `<a` a body can contain is one a host wrote — and that one is escaped.
+    expect(body.match(/<a /g) ?? []).toHaveLength(0);
   });
 
   it('links by public id, which is the only identifier that leaves the backend', async () => {
@@ -404,7 +477,8 @@ describe('the post body carries no host identity', () => {
       botUsername: 'payetam_bot',
     });
 
-    expect(body).toContain(event.publicId);
-    expect(body).not.toContain(event.id);
+    // The button carries the id now, so the assertion has to look at both halves.
+    expect(wholePost(body)).toContain(event.publicId);
+    expect(wholePost(body)).not.toContain(event.id);
   });
 });

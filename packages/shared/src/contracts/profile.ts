@@ -13,6 +13,21 @@ export const gender = z.enum(['MALE', 'FEMALE', 'PREFER_NOT_SAY']);
 export type Gender = z.infer<typeof gender>;
 
 /**
+ * How many interests one profile may carry.
+ *
+ * A named constant rather than a literal in two schemas, because the number is
+ * also a **UI rule**: the picker has to stop offering the eleventh chip, and the
+ * count above it has to say «۱۰ از ۱۰». Before v0.3.1 the number lived in three
+ * places — `min(1).max(10)` twice here and «از ۱۰» twice in the Mini App — and the
+ * picker did not enforce it at all, so a user could tick fifteen and learn about
+ * the limit from a 400 after filling in the rest of the form.
+ *
+ * Exported, and the Mini App imports it: a cap the client cannot read is a cap the
+ * client will get wrong.
+ */
+export const MAX_PROFILE_INTERESTS = 10;
+
+/**
  * `birthYear` is a **Gregorian** year, and required even though the column is
  * nullable — the column allows null so M15 can anonymise a profile without
  * deleting it, not so a user can decline to answer and skip the 18+ gate
@@ -30,9 +45,76 @@ export const completeProfileRequest = z.object({
   cityId: z.uuid(),
   districtId: z.uuid().optional(),
   bio: z.string().trim().max(300).optional(),
-  interestIds: z.array(z.uuid()).min(1).max(10),
+  interestIds: z.array(z.uuid()).min(1).max(MAX_PROFILE_INTERESTS),
 });
 export type CompleteProfileRequest = z.infer<typeof completeProfileRequest>;
+
+/**
+ * Editing a profile that already exists (M22 phase 2).
+ *
+ * Deliberately **not** `completeProfileRequest.partial()`. Three of these fields
+ * are nullable here and are not optional-with-absent-meaning-null there, and the
+ * distinction is the whole contract: an **absent** key means "leave it alone" and
+ * an explicit `null` means "clear it". `.partial()` collapses those into one
+ * `undefined`, which would make "remove my bio" unexpressible and "I only changed
+ * my city" indistinguishable from "wipe everything else".
+ *
+ * `cityId` has no null: a profile must always name a city (the column is NOT
+ * NULL), so the only edit available is to a different one. `interestIds`, when
+ * present, is the **whole** new set — a replace rather than a patch, because a
+ * user unticking their last interest is a legitimate edit that an add/remove pair
+ * would need two more fields to express.
+ *
+ * At least one key must be present. An empty body is a client bug, and answering
+ * it with 200 would hide the bug behind a success.
+ */
+export const updateProfileRequest = z
+  .object({
+    displayName: z.string().trim().min(2).max(40).optional(),
+    gender: gender.nullable().optional(),
+    birthYear: z.number().int().min(1900).max(2200).optional(),
+    cityId: z.uuid().optional(),
+    districtId: z.uuid().nullable().optional(),
+    bio: z.string().trim().max(300).nullable().optional(),
+    interestIds: z.array(z.uuid()).min(1).max(MAX_PROFILE_INTERESTS).optional(),
+    /** Whether to stop receiving paid event invitations (phase 11). */
+    inviteOptOut: z.boolean().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, {
+    message: 'at least one field must be provided',
+  });
+export type UpdateProfileRequest = z.infer<typeof updateProfileRequest>;
+
+/**
+ * The admin's version of the same edit.
+ *
+ * Narrower on purpose, and the omissions are the interesting part.
+ * `interestIds` is absent because a moderator retagging somebody’s interests is
+ * editing a *preference*, not correcting a record — and `inviteOptOut` is absent
+ * for the stronger version of the same reason: opting a user back in to messages
+ * they asked not to receive is not an administrative correction, it is undoing a
+ * consent decision.
+ *
+ * What is left is exactly the set a support conversation needs to fix:
+ * a display name that breaks the rules, a birth year typed wrong, a city that
+ * moved, a bio that has to go.
+ */
+export const adminUpdateProfileRequest = z
+  .object({
+    displayName: z.string().trim().min(2).max(40).optional(),
+    gender: gender.nullable().optional(),
+    birthYear: z.number().int().min(1900).max(2200).optional(),
+    cityId: z.uuid().optional(),
+    districtId: z.uuid().nullable().optional(),
+    bio: z.string().trim().max(300).nullable().optional(),
+    /** Why. Required, and recorded in the audit row — an unexplained edit to
+     *  somebody else’s profile is not reviewable later. */
+    reason: z.string().trim().min(3).max(280),
+  })
+  .refine((body) => Object.keys(body).length > 1, {
+    message: 'at least one field must be provided alongside the reason',
+  });
+export type AdminUpdateProfileRequest = z.infer<typeof adminUpdateProfileRequest>;
 
 const namedRef = z.object({
   id: z.uuid(),
@@ -48,6 +130,8 @@ export const profileView = z.object({
   district: namedRef.nullable(),
   bio: z.string().nullable(),
   interests: z.array(namedRef),
+  /** Whether this user has asked not to receive event invitations (M22). */
+  inviteOptOut: z.boolean(),
   /** ISO-8601 UTC. The Mini App renders Jalali; the API never speaks it (ADR-0008). */
   completedAt: z.iso.datetime().nullable(),
 });

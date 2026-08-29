@@ -53,12 +53,42 @@ export const policyView = z.object({
   version: z.number().int().positive(),
   contentMd: z.string(),
   summaryFa: z.string().nullable(),
+  /**
+   * The document's own name, and what changed since the previous version (M22).
+   *
+   * Both nullable, because the versions seeded before M22 have neither and
+   * inventing them would be writing legal text nobody approved. A client renders
+   * the summary when it is there and the type when it is not.
+   */
+  titleFa: z.string().nullable(),
+  changeSummaryFa: z.string().nullable(),
+  /** `TERMS v3` — what a consent record snapshots, shown so the user sees it too. */
+  label: z.string(),
 });
 export type PolicyView = z.infer<typeof policyView>;
 
 export const currentPoliciesResponse = z.object({
   policies: z.array(policyView),
 });
+
+/**
+ * Which current documents this user still has to accept (M22 phase 8).
+ *
+ * `pending` is the gate: non-empty means the protected operations refuse until
+ * it is empty. `accepted` carries what they have already agreed to and when, so
+ * "when did I accept the terms?" is answerable from the app rather than only from
+ * a support conversation.
+ */
+export const myPoliciesResponse = z.object({
+  pending: z.array(policyView),
+  accepted: z.array(
+    z.object({
+      policy: policyView,
+      acceptedAt: z.iso.datetime(),
+    }),
+  ),
+});
+export type MyPoliciesResponse = z.infer<typeof myPoliciesResponse>;
 
 export const acceptConsentRequest = z.object({
   /** Every current required policy version id must be present, or the request is stale. */

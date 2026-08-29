@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { policyType } from './auth';
+import { gatedAction } from './catalog';
 
 /**
  * Admin and reporting contracts (M12, ADR-0010).
@@ -637,6 +639,9 @@ const coinLedgerTypeForAdmin = z.enum([
   'GIFT_CODE_REDEEM',
   'BOOST_SPEND',
   'VIP_SPEND',
+  'EVENT_CREATE_SPEND',
+  'CHANNEL_POST_SPEND',
+  'INVITE_SPEND',
   'CANCELLATION_PENALTY',
   'NO_SHOW_PENALTY',
   'HOST_CANCELLATION_REFUND',
@@ -990,6 +995,127 @@ export type AdminAuditResponse = z.infer<typeof adminAuditResponse>;
  * not in the code is a leftover nothing reads, and showing it would invite
  * somebody to tune it.
  */
+// ── Legal documents (M22 phase 8) ────────────────────────────────────────────
+
+export const policyStatus = z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']);
+export type PolicyStatusView = z.infer<typeof policyStatus>;
+
+/**
+ * One legal version as the panel reads it.
+ *
+ * `contentMd` is included even in the list, because a legal document is short and
+ * the screen that lists versions is the screen somebody compares them on. The
+ * alternative — a second fetch per row — would make "what changed?" a chore.
+ */
+export const adminPolicyView = z.object({
+  id: z.uuid(),
+  type: policyType,
+  version: z.number().int().positive(),
+  status: policyStatus,
+  titleFa: z.string().nullable(),
+  contentMd: z.string(),
+  summaryFa: z.string().nullable(),
+  changeSummaryFa: z.string().nullable(),
+  isCurrent: z.boolean(),
+  /** Optimistic-concurrency token. Echo it back on an edit or the write is refused. */
+  revision: z.number().int().nonnegative(),
+  createdByAdminId: z.uuid().nullable(),
+  publishedByAdminId: z.uuid().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  publishedAt: z.iso.datetime().nullable(),
+  archivedAt: z.iso.datetime().nullable(),
+  /** How many people have accepted this exact version. */
+  acceptanceCount: z.number().int().nonnegative(),
+});
+export type AdminPolicyView = z.infer<typeof adminPolicyView>;
+
+export const adminPolicyListQuery = z.object({
+  type: policyType.optional(),
+  status: policyStatus.optional(),
+});
+export type AdminPolicyListQuery = z.infer<typeof adminPolicyListQuery>;
+
+export const adminPolicyListResponse = z.object({
+  policies: z.array(adminPolicyView),
+});
+export type AdminPolicyListResponse = z.infer<typeof adminPolicyListResponse>;
+
+/**
+ * A new draft.
+ *
+ * No `version` field: the next number for a type is the server's to allocate, and
+ * a client that could choose one could collide with a published version or skip
+ * ahead of it. `UNIQUE (type, version)` would refuse the collision; not offering
+ * the field is what stops the attempt.
+ */
+export const createPolicyDraftRequest = z.object({
+  type: policyType,
+  titleFa: z.string().trim().min(2).max(120),
+  contentMd: z.string().trim().min(50).max(60_000),
+  summaryFa: z.string().trim().max(280).optional(),
+  changeSummaryFa: z.string().trim().max(1_000).optional(),
+});
+export type CreatePolicyDraftRequest = z.infer<typeof createPolicyDraftRequest>;
+
+/**
+ * Editing a draft.
+ *
+ * `expectedRevision` is required rather than optional. Two people editing one
+ * draft is the ordinary case for legal text — somebody writes it, somebody else
+ * corrects it — and a last-write-wins update silently discards whichever of them
+ * saved first.
+ */
+export const updatePolicyDraftRequest = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  titleFa: z.string().trim().min(2).max(120).optional(),
+  contentMd: z.string().trim().min(50).max(60_000).optional(),
+  summaryFa: z.string().trim().max(280).nullable().optional(),
+  changeSummaryFa: z.string().trim().max(1_000).nullable().optional(),
+});
+export type UpdatePolicyDraftRequest = z.infer<typeof updatePolicyDraftRequest>;
+
+/**
+ * Publishing, and the confirmation that has to come with it.
+ *
+ * `confirmVersion` must equal the version being published. It is not a checkbox
+ * and not a boolean: an operator has to read the number off the screen and type
+ * it, which is the cheapest available defence against publishing the wrong draft
+ * on a page with three of them.
+ */
+export const publishPolicyRequest = z.object({
+  confirmVersion: z.number().int().positive(),
+  /** Required. Recorded in the audit row — publishing is the legally significant act. */
+  reason: z.string().trim().min(3).max(280),
+});
+export type PublishPolicyRequest = z.infer<typeof publishPolicyRequest>;
+
+export const policyConsentView = z.object({
+  userPublicId: z.uuid(),
+  policyVersionId: z.uuid(),
+  /** Snapshotted at acceptance — `TERMS v3`. Survives the version being archived. */
+  label: z.string().nullable(),
+  context: z.enum(['ONBOARDING', 'REACCEPT', 'CONTACT_SHARE']),
+  acceptedAt: z.iso.datetime(),
+  appVersion: z.string().nullable(),
+  requestId: z.string().nullable(),
+});
+export type PolicyConsentView = z.infer<typeof policyConsentView>;
+
+export const policyConsentQuery = z.object({
+  policyVersionId: z.uuid().optional(),
+  userPublicId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type PolicyConsentQuery = z.infer<typeof policyConsentQuery>;
+
+export const policyConsentResponse = z.object({
+  consents: z.array(policyConsentView),
+  total: z.number().int().nonnegative(),
+});
+export type PolicyConsentResponse = z.infer<typeof policyConsentResponse>;
+
 export const appSettingView = z.object({
   key: z.string(),
   value: z.number(),
@@ -1046,6 +1172,377 @@ export const activityTagSlug = z
     /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
     'slug must be lowercase ASCII words joined by single hyphens',
   );
+
+// ── The event channel (M22 phase 6) ──────────────────────────────────────────
+
+/**
+ * What an operator sees and edits.
+ *
+ * **No token, ever.** `TELEGRAM_CHANNEL_ID` and `TELEGRAM_BOT_TOKEN` are
+ * environment variables and neither appears here: what this carries is the
+ * channel's public face — a @username, a join link — plus whether membership is
+ * required. A destination editable from a web session is a destination an
+ * attacker with a session can redirect, which is why the *posting* target stays
+ * in the environment.
+ */
+export const requiredChannelView = z.object({
+  id: z.string(),
+  /** What the operator calls it and what the user reads above the join button. */
+  title: z.string(),
+  chatIdentifier: z.string().nullable(),
+  publicUsername: z.string().nullable(),
+  inviteUrl: z.url().nullable(),
+  /** Derived: the invite link, else `https://t.me/<username>`, else null. */
+  joinUrl: z.url().nullable(),
+  /** Order of joining and of display. Sparse — 10, 20, 30… */
+  sortOrder: z.number().int(),
+  isActive: z.boolean(),
+});
+export type RequiredChannelView = z.infer<typeof requiredChannelView>;
+
+export const channelConfigView = z.object({
+  membershipRequired: z.boolean(),
+  requiredActions: z.array(gatedAction),
+  verifyViaTelegram: z.boolean(),
+  updatedAt: z.iso.datetime(),
+  /** Active channels, in join order. What a user is actually asked for. */
+  channels: z.array(requiredChannelView),
+  /** Every channel including the deactivated ones. What the panel lists. */
+  allChannels: z.array(requiredChannelView),
+  /** There is at least one active channel and every one has somewhere to send a user. */
+  hasJoinLink: z.boolean(),
+  /** Every active channel carries an identifier the API can ask Telegram about. */
+  canVerify: z.boolean(),
+  /**
+   * Reasons not to switch the requirement on, rendered **before** the switch.
+   *
+   * Turning it on with a channel the bot cannot see locks out every user at once,
+   * so the panel is required to say so first rather than afterwards.
+   */
+  warnings: z.array(
+    z.enum(['NO_CHANNELS', 'NO_JOIN_LINK', 'NO_CHAT_IDENTIFIER', 'NO_ACTIONS_SELECTED']),
+  ),
+});
+export type ChannelConfigView = z.infer<typeof channelConfigView>;
+
+/**
+ * The global switches only.
+ *
+ * The channels themselves moved to their own endpoints in v0.3.1, because they
+ * are a list with an order rather than three fields on a settings object — and a
+ * PUT that carried both would make "add a channel" and "turn the requirement on"
+ * the same request, which is exactly the pair an operator wants to do separately.
+ */
+export const updateChannelConfigRequest = z.object({
+  membershipRequired: z.boolean().optional(),
+  requiredActions: z.array(gatedAction).max(8).optional(),
+  verifyViaTelegram: z.boolean().optional(),
+});
+export type UpdateChannelConfigRequest = z.infer<typeof updateChannelConfigRequest>;
+
+/** Adding a channel. At least one of `inviteUrl` / `publicUsername` is required. */
+export const createRequiredChannelRequest = z.object({
+  title: z.string().trim().min(2).max(60),
+  chatIdentifier: z.string().trim().max(64).nullable().optional(),
+  publicUsername: z.string().trim().max(64).nullable().optional(),
+  /** Validated and rebuilt server-side: `https://t.me/…` only, no query, no fragment. */
+  inviteUrl: z.string().trim().max(300).nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export type CreateRequiredChannelRequest = z.infer<typeof createRequiredChannelRequest>;
+
+/** Editing one. An absent key means "leave it alone"; an explicit null clears it. */
+export const updateRequiredChannelRequest = z
+  .object({
+    title: z.string().trim().min(2).max(60).optional(),
+    chatIdentifier: z.string().trim().max(64).nullable().optional(),
+    publicUsername: z.string().trim().max(64).nullable().optional(),
+    inviteUrl: z.string().trim().max(300).nullable().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, {
+    message: 'at least one field must be provided',
+  });
+export type UpdateRequiredChannelRequest = z.infer<typeof updateRequiredChannelRequest>;
+
+/**
+ * The whole order at once, as a list of ids.
+ *
+ * Rather than a move-up/move-down pair: the panel holds the list the operator is
+ * looking at, and sending it back is the one formulation that cannot produce an
+ * order neither side intended.
+ */
+export const reorderRequiredChannelsRequest = z.object({
+  ids: z.array(z.string()).min(1).max(20),
+});
+export type ReorderRequiredChannelsRequest = z.infer<typeof reorderRequiredChannelsRequest>;
+
+// ── Outbound messaging (M22 phases 4 and 12) ─────────────────────────────────
+
+/**
+ * Who a campaign is for.
+ *
+ * Every field narrows. There is no "no filter means everybody": `everyone: true`
+ * has to be said, because "I forgot to set a filter" and "I meant everybody"
+ * produce the same request and only one of them is a decision somebody made.
+ *
+ * `userPublicIds` is the only way to reach a named person, and an audience naming
+ * exactly one is what `message.send` alone covers — anything wider needs
+ * `message.broadcast`.
+ */
+export const messageAudience = z
+  .object({
+    userPublicIds: z.array(z.uuid()).min(1).max(500).optional(),
+    cityIds: z.array(z.uuid()).min(1).max(50).optional(),
+    status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
+    profileComplete: z.boolean().optional(),
+    hasHostedEvent: z.boolean().optional(),
+    participatedCategoryIds: z.array(z.uuid()).min(1).max(20).optional(),
+    everyone: z.literal(true).optional(),
+  })
+  .refine((audience) => Object.keys(audience).length > 0, {
+    message: 'an audience must narrow, or say everyone: true',
+  });
+export type MessageAudienceRequest = z.infer<typeof messageAudience>;
+
+/**
+ * The body, and how Telegram should read it.
+ *
+ * `parseMode` is **absent by default**, which means plain text: Telegram renders
+ * the characters, so there is nothing to escape and nothing to inject. `'HTML'`
+ * is opt-in and validated against Telegram's own documented tag list, and an
+ * invalid body is refused rather than sanitised — see `MESSAGE_FORMAT_INVALID`.
+ *
+ * 4096 is Telegram's own limit. Checking it here means an operator finds out while
+ * typing rather than after four thousand recipients have been enqueued.
+ */
+const messageBody = {
+  bodyText: z.string().trim().min(1).max(4096),
+  parseMode: z.literal('HTML').optional(),
+};
+
+export const previewMessageRequest = z.object({
+  ...messageBody,
+  audience: messageAudience,
+});
+export type PreviewMessageRequest = z.infer<typeof previewMessageRequest>;
+
+export const messagePreviewResponse = z.object({
+  /** How many people this reaches. A count, never a list — see the service. */
+  recipients: z.number().int().nonnegative(),
+  appliedFilters: z.array(z.string()),
+  bodyText: z.string(),
+  parseMode: z.literal('HTML').nullable(),
+});
+export type MessagePreviewResponse = z.infer<typeof messagePreviewResponse>;
+
+export const createMessageRequest = z.object({
+  ...messageBody,
+  audience: messageAudience,
+  /** True for a rehearsal: recipients are selected and counted, nothing is sent. */
+  dryRun: z.boolean().optional(),
+  /**
+   * One key per intention.
+   *
+   * Required rather than optional, and generated by the panel when the form opens
+   * rather than when it is submitted. That is the difference between "the operator
+   * asked twice" and "the request arrived twice" — a key minted per click would
+   * make a double-tap two campaigns, which is exactly what it exists to prevent.
+   */
+  idempotencyKey: z.string().trim().min(8).max(64),
+});
+export type CreateMessageRequest = z.infer<typeof createMessageRequest>;
+
+export const messageCampaignStatus = z.enum([
+  'DRAFT',
+  'CONFIRMED',
+  'QUEUED',
+  'SENDING',
+  'COMPLETED',
+  'PARTIALLY_FAILED',
+  'FAILED',
+  'CANCELLED',
+]);
+export type MessageCampaignStatusView = z.infer<typeof messageCampaignStatus>;
+
+export const deliveryCountsView = z.object({
+  total: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  sent: z.number().int().nonnegative(),
+  rateLimited: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative(),
+  invalid: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+});
+export type DeliveryCountsView = z.infer<typeof deliveryCountsView>;
+
+export const messageCampaignView = z.object({
+  publicId: z.uuid(),
+  kind: z.enum(['DIRECT', 'BROADCAST', 'EVENT_INVITE']),
+  status: messageCampaignStatus,
+  bodyText: z.string(),
+  parseMode: z.string().nullable(),
+  dryRun: z.boolean(),
+  estimatedRecipients: z.number().int().nonnegative(),
+  counts: deliveryCountsView,
+  /** The filters that applied, named — never their contents beyond a count. */
+  appliedFilters: z.array(z.string()),
+  eventPublicId: z.uuid().nullable(),
+  pausedAt: z.iso.datetime().nullable(),
+  pauseReason: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  confirmedAt: z.iso.datetime().nullable(),
+  startedAt: z.iso.datetime().nullable(),
+  finishedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+});
+export type MessageCampaignView = z.infer<typeof messageCampaignView>;
+
+export const messageCampaignListResponse = z.object({
+  campaigns: z.array(messageCampaignView),
+  total: z.number().int().nonnegative(),
+});
+export type MessageCampaignListResponse = z.infer<typeof messageCampaignListResponse>;
+
+/**
+ * A user's Telegram identity (phase 12).
+ *
+ * `telegramUserId` is a **string**: the column is a BIGINT and `JSON.stringify`
+ * throws on a bigint, which the schema keeps as a deliberate accident — a
+ * Telegram id serialised by mistake fails loudly. Converting it at the one
+ * endpoint allowed to see it keeps that working everywhere else.
+ *
+ * `directLink` is null when there is no username, and `linkUnavailableReason`
+ * says so. A `tg://user?id=…` would be a fabricated link: it resolves only for a
+ * client that already knows the peer and does nothing from a browser.
+ */
+export const telegramIdentityView = z.object({
+  telegramUserId: z.string(),
+  username: z.string().nullable(),
+  directLink: z.url().nullable(),
+  linkUnavailableReason: z.literal('NO_USERNAME').nullable(),
+  botBlocked: z.boolean(),
+  lastSeenAt: z.iso.datetime(),
+});
+export type TelegramIdentityView = z.infer<typeof telegramIdentityView>;
+
+// ── Geography: provinces and cities (M22 phase 9) ────────────────────────────
+
+/**
+ * The slug rule again, reused rather than restated.
+ *
+ * A city slug is the same kind of thing as an activity tag's: an ASCII identifier
+ * that seeds, fixtures and documentation refer to, distinct from the Persian name
+ * which is the label and is freely editable.
+ */
+export const catalogSlug = activityTagSlug;
+
+export const adminProvinceView = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  nameFa: z.string(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int(),
+  cityCount: z.number().int().nonnegative(),
+  activeCityCount: z.number().int().nonnegative(),
+});
+export type AdminProvinceView = z.infer<typeof adminProvinceView>;
+
+export const adminProvinceListResponse = z.object({ provinces: z.array(adminProvinceView) });
+export type AdminProvinceListResponse = z.infer<typeof adminProvinceListResponse>;
+
+/**
+ * One city, with the counts that decide whether deactivating it is safe.
+ *
+ * The three counts are the point of this view. "Do not delete a city that has
+ * references" is only enforceable if the operator can see the references before
+ * they click, and «۲۳۴ پروفایل» is a better warning than a constraint violation.
+ */
+export const adminCityView = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  nameFa: z.string(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int(),
+  provinceId: z.uuid().nullable(),
+  provinceNameFa: z.string().nullable(),
+  districtCount: z.number().int().nonnegative(),
+  profileCount: z.number().int().nonnegative(),
+  eventCount: z.number().int().nonnegative(),
+});
+export type AdminCityView = z.infer<typeof adminCityView>;
+
+/**
+ * The city list is **paged and searched on the server**, unlike the Mini App's
+ * picker.
+ *
+ * The two look similar and are not the same problem. The picker filters ~1,200
+ * *active* cities the client already downloaded; this one pages every city
+ * including the deactivated ones, with reference counts attached, which is not
+ * data any client should be holding in memory.
+ */
+export const adminCityListQuery = z.object({
+  query: z.string().trim().max(64).optional(),
+  provinceId: z.uuid().optional(),
+  isActive: z.stringbool().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminCityListQuery = z.infer<typeof adminCityListQuery>;
+
+export const adminCityListResponse = z.object({
+  cities: z.array(adminCityView),
+  total: z.number().int().nonnegative(),
+});
+export type AdminCityListResponse = z.infer<typeof adminCityListResponse>;
+
+export const createCityRequest = z.object({
+  slug: catalogSlug,
+  nameFa: z.string().trim().min(1).max(80),
+  provinceId: z.uuid().optional(),
+  /** Defaults to **false**, matching the column: a new city is not served yet. */
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+export type CreateCityRequest = z.infer<typeof createCityRequest>;
+
+/**
+ * Everything except the slug, which is immutable for the reason a tag's is: it is
+ * the identifier code refers to, and an endpoint that can be *asked* to rename is
+ * one somebody eventually wires a text input to.
+ *
+ * `confirmReferences` is what turns "deactivate" into a two-step action when
+ * profiles or events point at the city. Without it the service refuses and names
+ * the counts.
+ */
+export const updateCityRequest = z.object({
+  nameFa: z.string().trim().min(1).max(80).optional(),
+  provinceId: z.uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+  confirmReferences: z.boolean().optional(),
+});
+export type UpdateCityRequest = z.infer<typeof updateCityRequest>;
+
+export const createProvinceRequest = z.object({
+  slug: catalogSlug,
+  nameFa: z.string().trim().min(1).max(80),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+export type CreateProvinceRequest = z.infer<typeof createProvinceRequest>;
+
+export const updateProvinceRequest = z.object({
+  nameFa: z.string().trim().min(1).max(80).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+});
+export type UpdateProvinceRequest = z.infer<typeof updateProvinceRequest>;
+
+export const reorderCitiesRequest = z.object({
+  order: z.array(z.uuid()).min(1).max(500),
+});
+export type ReorderCitiesRequest = z.infer<typeof reorderCitiesRequest>;
 
 export const activityTagView = z.object({
   id: z.uuid(),

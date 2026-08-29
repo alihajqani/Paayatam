@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { TEMPLATES, render } from './templates';
+import { renderStep } from './wizard/render';
 
 /** Every button's link is built from it, so it is stated once and asserted on. */
 const BOT = 'payetam_test_bot';
@@ -67,14 +68,42 @@ describe('no template emits injected markup', () => {
   };
   const OWN_MARKUP = new Set(['<b>', '</b>', '<i>', '</i>']);
 
-  it.each(Object.values(TEMPLATES))('%s', (templateKey) => {
-    const message = render(templateKey, FIELDS, BOT);
+  /**
+   * The one template whose `text` is *not* user input (ADR-0017).
+   *
+   * `BOT_WIZARD` carries a body `renderStep` has already assembled, including its
+   * own `<b>`/`<i>`, and having escaped every user-supplied value it
+   * interpolated. Escaping it again renders `&lt;i&gt;` at the user.
+   *
+   * **So the escaping invariant moves rather than disappears**: it is
+   * `renderStep`'s instead of the template's, and it is tested in the
+   * `BOT_WIZARD` block below, which feeds a hostile *prompt* through the renderer
+   * and asserts it comes out escaped. What is exempted here is only the second
+   * escape of an already-escaped string.
+   *
+   * **Do not add a second entry to this set** without a reason of the same shape:
+   * the writer of the payload must be this package's own renderer, and there must
+   * be a test proving that renderer escapes. Every other template takes values
+   * that originate with a user, and for those the rule is unchanged.
+   */
+  const PRE_RENDERED: readonly string[] = [TEMPLATES.BOT_WIZARD];
 
-    expect(message).not.toBeNull();
-    expect(message?.text).not.toContain('<img');
-    // Every tag in the output is one the template itself wrote.
-    const tags = message?.text.match(/<[^>]*>/g) ?? [];
-    expect(tags.every((tag) => OWN_MARKUP.has(tag))).toBe(true);
+  it.each(Object.values(TEMPLATES).filter((key) => !PRE_RENDERED.includes(key)))(
+    '%s',
+    (templateKey) => {
+      const message = render(templateKey, FIELDS, BOT);
+
+      expect(message).not.toBeNull();
+      expect(message?.text).not.toContain('<img');
+      // Every tag in the output is one the template itself wrote.
+      const tags = message?.text.match(/<[^>]*>/g) ?? [];
+      expect(tags.every((tag) => OWN_MARKUP.has(tag))).toBe(true);
+    },
+  );
+
+  /** The exemption is a list of one, and it stays that way on purpose. */
+  it('exempts exactly one template from the escaping rule', () => {
+    expect(PRE_RENDERED).toEqual([TEMPLATES.BOT_WIZARD]);
   });
 
   /** And the escaped form really is present where a value was interpolated. */
@@ -196,5 +225,61 @@ describe('the host decision keyboard', () => {
     for (const button of (message?.keyboard ?? []).flat()) {
       expect(Buffer.byteLength(button.callbackData ?? '', 'utf8')).toBeLessThanOrEqual(64);
     }
+  });
+});
+
+/**
+ * The wizard's own markup has to survive the template (ADR-0017).
+ *
+ * `BOT_WIZARD` carries a body `renderStep` already built — `<i>گام ۱ از ۱۱</i>`,
+ * a bold heading, a summary — and every user-supplied value inside it was
+ * escaped there. Escaping the whole thing a second time in the template renders
+ * `&lt;i&gt;` at the user, which is precisely what it did until `raw` existed.
+ *
+ * This is the assertion the wizard's other tests could not make: they check the
+ * notification *payload*, and the payload was always correct. The damage was in
+ * the render.
+ */
+describe('BOT_WIZARD', () => {
+  const screen = renderStep({
+    prompt: 'نام فعالیت؟',
+    ui: 'text',
+    stepKey: 'title',
+    position: 1,
+    total: 11,
+    canGoBack: false,
+    optional: false,
+  });
+
+  it('passes the renderer’s own markup through unescaped', () => {
+    const message = render(
+      TEMPLATES.BOT_WIZARD,
+      { text: screen.text, keyboard: JSON.stringify(screen.keyboard) },
+      BOT,
+    );
+
+    expect(message?.text).toContain('<i>گام ۱ از ۱۱</i>');
+    expect(message?.text).not.toContain('&lt;i&gt;');
+  });
+
+  /**
+   * And the renderer is still the thing that escapes. A prompt carrying markup
+   * must not reach Telegram as markup just because the template stopped
+   * escaping.
+   */
+  it('still escapes a value the renderer interpolated', () => {
+    const hostile = renderStep({
+      prompt: '<img src=x onerror=alert(1)>',
+      ui: 'text',
+      stepKey: 'title',
+      position: 1,
+      total: 2,
+      canGoBack: false,
+      optional: false,
+    });
+    const message = render(TEMPLATES.BOT_WIZARD, { text: hostile.text }, BOT);
+
+    expect(message?.text).toContain('&lt;img');
+    expect(message?.text).not.toContain('<img');
   });
 });

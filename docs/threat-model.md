@@ -151,6 +151,121 @@ none has one** — it is the item that has been open longest, and M19 added two 
 
 ---
 
+## 4a. M22 review — what was checked, and what was found
+
+The trigger list in §6 names three of the things M22 did: a new external
+integration (a Telegram read from the API), new admin capabilities (messaging,
+policy publishing, geography), and a new data type surfaced (Telegram identity in
+the panel). This is that review.
+
+### Findings
+
+| # | Finding | Severity | Status |
+|---|---|---|---|
+| F1 | `ChannelMembershipService` was injected into three services whose modules did not import `ChannelModule`. **Both the API and the worker would have failed to start.** | Availability, critical | **Fixed.** Modules corrected; `app.module.test.ts` in both apps now resolves each graph with Nest's `preview: true` and fails if it regresses |
+| F2 | 34 M22 endpoints were outside the response-leak scan, including every admin route the milestone added | Disclosure, high | **Fixed.** All 34 added. The scan's own completeness check had flagged them — it was passing only because it had not been run since the phases landed |
+| F2a | `ConsentService.hasAcceptedCurrentPolicies()` returned `false` when **no** required policy version is published, which `AuthGuard` turns into `POLICY_VERSION_STALE`. On a deployment whose legal text is still in draft — including a fresh install — every gated write was refused for every user, and the refusal pointed them at a document that did not exist. It also contradicted `standingFor()`, so the client believed it owed nothing while the server refused | Availability, critical | **Fixed.** `return true` on the empty set; "never accepted anything" is a different question already answered by `onboardingState === 'NEW'`. Two regression tests pin both directions |
+| F3 | `GET /admin/v1/users/:publicId/telegram` returns a Telegram id, an `@username` and a `t.me` link | By design (T2.4 exception) | **Accepted, narrowly.** Behind `user.telegram.read`, which no role below `SUPER_ADMIN` holds. The leak scan exempts **this one route** by an anchored pattern and still scans it for phone numbers; a further test asserts the exemption matches exactly one registered route, so it can neither widen nor silently stop matching |
+
+### What was checked and found already correct
+
+- **SQL injection.** Every raw query is a Prisma tagged template or a
+  `Prisma.sql` fragment composed with `Prisma.join`. Discovery's dynamic
+  `WHERE` — the one place SQL is assembled from user input — binds every value
+  and concatenates none. No `$queryRawUnsafe` or `$executeRawUnsafe` outside
+  Prisma's own generated code.
+- **XSS.** No `v-html`, no `innerHTML`, anywhere in either front end. Policy
+  documents are Markdown a person typed and every user reads; both the panel and
+  the Mini App render them as interpolated text, and both files carry a comment
+  saying why.
+- **SSRF.** The API makes exactly one outbound Telegram call (`getChatMember`,
+  the documented exception to invariant 11). The channel invite URL is never
+  fetched by the server; it is allowlisted to `https://t.me` / `https://telegram.me`
+  by exact host match and then **rebuilt from scheme, host and path**, so a query
+  string, a fragment or embedded credentials cannot be stored or echoed.
+- **CSRF.** Unchanged and still correct: the admin session is an `HttpOnly`
+  cookie plus an in-memory token echoed in `x-csrf-token` on every mutation.
+  M22's one new admin route is a `GET`.
+- **Authorisation.** The RBAC matrix runs every role against every admin
+  operation — 267 assertions, all passing — with expectations derived from
+  `ROLE_PERMISSIONS` rather than hand-written, and a completeness check that
+  fails when an operation declares no permission. Geography reuses
+  `catalog.manage` rather than inventing a permission for the same kind of data.
+- **Rate limiting.** `GET /api/v1/version` is public and carries no application
+  limit, which is the codebase's deliberate opt-in posture for reads. It is
+  covered at the edge — nginx limits `/api/` to 20 r/s per IP with burst 40 — and
+  the handler resolves one string at construction and touches nothing per request.
+- **Legal-record immutability.** `consent` carries a `BEFORE UPDATE OR DELETE`
+  trigger that raises on any update and permits a delete only when the retention
+  job has set `payetam.retention_purge`. Verified against the live schema.
+- **Secrets.** Nothing secret-shaped is committed on the branch. The bot token is
+  read from the environment, never selected into a response, and the two log
+  lines that mention it name the *variable*. Operational alerts go through
+  `redact()`, carry no user id, and the version endpoints return a release string
+  and nothing else.
+
+### Added to §4
+
+| # | Risk | Rationale |
+|---|---|---|
+| R11 | **The two brand marks are copies, and nothing enforces that they stay equal** | The panel and the Mini App are separate nginx vhosts with separate roots, and Vite's `publicDir` is one directory per app. `docs/brand.md` §3 lists every path and §4 is the checklist; a drifted logo is cosmetic, which is why this is accepted rather than automated |
+| R12 | **Publishing a legal version asks every user to re-accept, and it is one button** | The control is a typed-back version number rather than a checkbox, and the act is audited and irreversible-forward (a correction is the next version). The residual risk is an operator publishing a draft they meant to keep editing |
+
+## 4b. ADR-0017 review — conversation state as a new attack surface
+
+The bot now stores a half-filled form per user (`conversation_state`). That is a new data type, which
+is a review trigger under §6, so it is reviewed here rather than at the next incident.
+
+### The question worth asking
+
+**Can user A read or advance user B's conversation?** No, and the reason is structural rather than a
+check somebody remembered to write:
+
+- A wizard's `callback_data` is `wz:<action>:<value>`. It carries a step and a value and **no draft
+  id**, so there is no identifier for a tampered button to swap.
+- The draft is looked up by `user_id`, which comes from the authenticated Telegram sender resolved by
+  `knownUser`, and `conversation_state.user_id` is UNIQUE.
+- Therefore reaching another user's draft requires *being* that Telegram account, which is the same
+  bar as reading their notifications. There is no narrower path.
+
+This is stronger than decoding an id and then checking ownership — the check people forget to write —
+and it is asserted in `conversation.service.int.test.ts`, which drives two users' wizards side by side.
+
+### What the draft holds, and for how long
+
+An event's title, description, city, date, capacity and price — the fields of something the user is
+about to publish — or a profile's display name, birth year and bio. It holds **no `telegram_user_id`,
+no phone number and no message body**, so the anonymity boundary (A1, A2) is untouched.
+
+It is encrypted at rest under `CHAT_ENCRYPTION_KEY`, the same key and the same three columns as
+`chat_message`. `MessageCipher` therefore has a third consumer; `ChatModule`'s comment enumerates
+them, and that list is how «who can decrypt with this key?» stays answerable from module files.
+
+Retention is **seven days**, swept daily by `CONVERSATION_PURGE`, and the draft is deleted the moment
+the form is submitted or cancelled. The brief asked for both "delete after 24 hours" and "resume after
+24 hours"; ADR-0017 §3 records why resume won.
+
+### Findings
+
+| # | Finding | Resolution |
+|---|---|---|
+| C1 | The redraw job would have put a Telegram chat id in Redis — the only copy outside `identity`, and the only one nothing would remind anybody about | Fixed before merge. The job carries the internal `user_id` and the worker resolves the chat id at delivery through `NotificationService.telegramTargetFor`, as every notification already does |
+| C2 | Text typed during an open wizard, if read by the chat relay first, would deliver a user's event description to a stranger | The wizard is asked first and the relay runs only when there is no wizard; pinned by an integration test that types into a wizard while an open chat exists |
+| C3 | A redelivered update would advance a wizard twice, skipping a question | `last_update_id` — see ADR-0017 and trap 8 |
+
+### Findings, second pass (the consent gate)
+
+| # | Finding | Resolution |
+|---|---|---|
+| C4 | **The bot bypassed the policy gate entirely.** `@RequiresCurrentPolicies()` is a route decorator read by `AuthGuard`, and the bot does not pass through `AuthGuard` — so relaying a chat message, accepting or rejecting a request, and sharing contact details were all possible without a current acceptance. Present since M13; the wizards widened it to event creation | Fixed. `BotService.mayWrite` gates every write path and opens the consent wizard in place of the refused action. Integration tests cover the relay, the wizards and a redelivered acceptance |
+| C5 | A policy published *while* a user is mid-acceptance | The screen reads `currentPolicies()` live rather than snapshotting into the draft, so the document shown is the document accepted. A draft that carried the text would let somebody agree to a superseded version |
+
+### Added to §4
+
+| # | Risk | Rationale |
+|---|---|---|
+| R13 | **A draft survives a refused submission** | When `EventService.create` refuses (insufficient coins, a blacklisted term), the draft is kept so the user can correct one field rather than retype fifteen answers. The residual risk is that abandoned near-complete drafts live up to seven days holding text the user decided not to publish. Accepted: the alternative costs every refused user their whole form, and the retention sweep bounds it |
+
 ## 5. Legal questions requiring human review
 
 Flags for a person with local legal knowledge. **Not legal advice.**
@@ -162,6 +277,9 @@ Flags for a person with local legal knowledge. **Not legal advice.**
 5. What a data-subject deletion request must actually delete, and within what period (built in M15).
 6. Whether relaying user messages through a bot, and automated channel posting, comply with the **current**
    Telegram Bot API terms.
+6a. Whether storing a half-filled form for seven days (ADR-0017) needs to be named in the privacy
+   policy, and whether a data-subject deletion request must reach `conversation_state` — it is deleted
+   by cascade with the account today, which is believed sufficient but is not a legal opinion.
 7. The mandatory escalation path for illegal content, including CSAM, before chat goes public.
 
 ---

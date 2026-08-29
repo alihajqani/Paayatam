@@ -14,7 +14,7 @@ import {
 } from '@payetam/shared';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { CurrentUser, type AuthenticatedUser } from '../auth/auth.guard';
+import { CurrentUser, RequiresCurrentPolicies, type AuthenticatedUser } from '../auth/auth.guard';
 import { toChatMessagesResponse, toChatMessageView, toChatSummaryView } from './chat.view';
 
 /**
@@ -76,6 +76,7 @@ export class ChatController {
    * plain text. The bot's path, which does carry Telegram entities, drops every
    * one of them in the same sanitizer.
    */
+  @RequiresCurrentPolicies()
   @Post('chats/:publicId/messages')
   @RateLimit('CHAT_SEND')
   async send(

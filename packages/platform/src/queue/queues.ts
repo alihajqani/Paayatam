@@ -84,6 +84,33 @@ export const JOBS = {
    * no user**, which is what keeps a Telegram identifier out of Redis.
    */
   BOT_CALLBACK_ANSWER: 'bot-callback-answer',
+  /**
+   * Redraw the message a conversation wizard lives on (ADR-0017).
+   *
+   * On `telegram-send` for the same reason `BOT_CALLBACK_ANSWER` is:
+   * `editMessageText` is an outbound Telegram call, and invariant 11 puts every
+   * one of those in the worker behind the one global limiter. A wizard that
+   * edited inline from the API would also be the fastest way to exhaust the
+   * limiter, since it fires on *every* tap rather than once per notification.
+   *
+   * The payload carries the **internal** `user_id`, not a chat id. Telegram
+   * addresses an edit by `(chat_id, message_id)`, so the shortcut is to put the
+   * chat id in the job — and that would make Redis the one place outside
+   * `identity` holding a `telegram_user_id`, which invariant 7 exists to
+   * prevent. The worker resolves it at delivery through
+   * `NotificationService.telegramTargetFor`, which is what every notification
+   * already does. Same rule, same module, one resolution path.
+   */
+  BOT_EDIT_MESSAGE: 'bot-edit-message',
+  /**
+   * One recipient of an admin campaign or a paid invitation (M22 phases 4 and 11).
+   *
+   * On `telegram-send` with everything else, so it shares the one global limiter:
+   * a four-thousand-recipient broadcast must not be able to starve the reply
+   * somebody is watching a spinner for. The job id is derived from the recipient
+   * row, so re-adding it is a no-op and the dispatcher is free to run twice.
+   */
+  CAMPAIGN_SEND: 'campaign-send',
 
   // The repeatable sweeps (ADR-0005's schedule).
   EVENT_LIFECYCLE: 'event-lifecycle',
@@ -96,6 +123,30 @@ export const JOBS = {
   CHANNEL_SYNC: 'channel-sync',
   /** The retention purge (§8): expired chats, notifications, outbox and audit rows. */
   RETENTION_PURGE: 'retention-purge',
+  /** Delete conversation drafts past their seven days (ADR-0017 §3). */
+  CONVERSATION_PURGE: 'conversation-purge',
+  /**
+   * Turn confirmed campaigns into individual send jobs (M22 phase 4).
+   *
+   * On `scheduled` rather than `telegram-send`, because it talks to Postgres and
+   * not to Telegram — putting it behind the 25/s limiter would pace the *planning*
+   * of a broadcast at the speed of its delivery.
+   *
+   * Enqueued directly by the API the moment a campaign is confirmed, so a send
+   * starts in seconds; the minute-by-minute schedule below is the backstop for a
+   * worker that was down when that happened.
+   */
+  CAMPAIGN_DISPATCH: 'campaign-dispatch',
+  /**
+   * Ask the ledger whether it still adds up (M22 phase 7).
+   *
+   * ADR-0007's invariant has been asserted by a test since M9 and by nobody in
+   * production. A nightly check is what turns "the balance is a cache of the
+   * ledger" from a property the tests believe into one the deployment knows — and
+   * a coin inconsistency found by a machine at 4 a.m. is a different incident from
+   * one found by a user disputing their balance in six weeks.
+   */
+  LEDGER_RECONCILE: 'ledger-reconcile',
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
@@ -149,6 +200,10 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
   { name: JOBS.REVIEW_SWEEP, pattern: '0 * * * *' },
   { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
   { name: JOBS.CHANNEL_SYNC, pattern: '*/5 * * * *' },
+  // Every minute. The API nudges this queue on confirmation, so the schedule is
+  // the backstop rather than the mechanism — a campaign confirmed while the worker
+  // was restarting is picked up within a minute instead of never.
+  { name: JOBS.CAMPAIGN_DISPATCH, pattern: '* * * * *' },
   /**
    * Once a night, in the quietest hour Tehran has.
    *
@@ -159,4 +214,20 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    * costs nobody anything.
    */
   { name: JOBS.RETENTION_PURGE, pattern: '0 4 * * *', tz: 'Asia/Tehran' },
+  /**
+   * Conversation drafts, with the retention purge and for the same reason
+   * (ADR-0017 §3).
+   *
+   * Daily rather than hourly: a draft's deadline is seven days out, so the worst
+   * a day's granularity costs is a form living a few hours past it. Running it on
+   * a request instead would make one user pay for another's expired form.
+   */
+  { name: JOBS.CONVERSATION_PURGE, pattern: '15 4 * * *', tz: 'Asia/Tehran' },
+  /**
+   * Half past four, after the purge.
+   *
+   * Deliberately *after* it: the purge deletes expired rows, and reconciling
+   * before it would occasionally report a drift that the next half hour resolves.
+   */
+  { name: JOBS.LEDGER_RECONCILE, pattern: '30 4 * * *', tz: 'Asia/Tehran' },
 ];

@@ -17,6 +17,8 @@ import { SettingsService } from '../catalog/settings.service';
 import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
+import { ChannelService } from '../channel/channel.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { ModerationService, type ContentScan } from '../moderation/moderation.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { assertParticipantTransition } from '../participation/state-machine';
@@ -57,6 +59,40 @@ export type BoostKind = 'BOOST' | 'VIP';
 
 export const EVENT_BOOST_REASON = 'event.boost';
 export const EVENT_VIP_REASON = 'event.vip';
+
+/**
+ * The three M22 sinks (phase 5).
+ *
+ * Stable strings, because the admin ledger renders them and a rename would make
+ * every historical row read as something else (ADR-0007).
+ */
+export const EVENT_CREATE_REASON = 'event.created';
+export const EVENT_CHANNEL_POST_REASON = 'event.channel_post';
+export const EVENT_TOP_INVITE_REASON = 'event.invite_top';
+
+/**
+ * The creation charge's exactly-once key.
+ *
+ * Derived from the event, which is allocated inside the same transaction as the
+ * charge — so the two commit together or neither does, and a retry that produces
+ * a *different* event is a different event and pays for itself. What protects a
+ * retry of the *same* intention is plan §6's `Idempotency-Key` header, which the
+ * Mini App sends on this endpoint.
+ */
+export function eventCreateSpendKey(eventId: string): string {
+  return `event-create:${eventId}`;
+}
+
+/**
+ * The paid channel publication's key.
+ *
+ * The event, and nothing else: an event reaches the channel by purchase at most
+ * once, ever. A host who pays twice for the same event is a host who tapped
+ * twice, and the second tap must cost nothing.
+ */
+export function channelPostSpendKey(eventId: string): string {
+  return `channel-post:${eventId}`;
+}
 
 /**
  * The boost spend's exactly-once key, derived from the window it buys.
@@ -223,6 +259,16 @@ export class EventService {
     private readonly catalog: CatalogService,
     private readonly settings: SettingsService,
     private readonly moderation: ModerationService,
+    private readonly channel: ChannelService,
+    /**
+     * The channel-membership gate (M22 phase 6).
+     *
+     * Here rather than in a route guard, which is the requirement's own
+     * instruction: a guard protects the routes somebody remembered to decorate,
+     * and this protects the operation — including from the bot handler and from
+     * whatever calls it next.
+     */
+    private readonly membership: ChannelMembershipService,
     private readonly coins: CoinService,
     private readonly penalties: PenaltyService,
     private readonly chat: ChatService,
@@ -241,11 +287,34 @@ export class EventService {
    * The scan and the row commit together. Publishing first and scanning after
    * would mean a crash in between leaves banned content live with nothing
    * recording that it was ever judged.
+   *
+   * ── What it costs, and when (M22 phase 5) ──────────────────────────────────
+   *
+   * `economy.event_create_coins`, charged **inside this transaction**. That is
+   * the whole of the "never charge for something that did not happen"
+   * requirement: a host who cannot afford it gets `INSUFFICIENT_COINS` and the
+   * event row rolls back with the charge, so there is no state where one exists
+   * without the other.
+   *
+   * It is charged for **every** verdict, including BLOCK. The event exists, it
+   * consumed a slot of the daily quota, and it is queued for a human to read —
+   * all three happened. A moderator who then rejects it can reverse the charge
+   * through `coin.adjust`, which is a decision somebody signs for rather than an
+   * automatic refund for content the blacklist objected to.
+   *
+   * Zero means free and writes no ledger row at all: `coin_ledger.amount` may not
+   * be zero, and a row claiming somebody paid nothing is worse than no row.
    */
   async create(hostUserId: string, input: CreateEventInput): Promise<EventDetail> {
     const now = this.clock.now();
     this.assertScheduleSane(input.startsAt, input.endsAt, now);
     await this.assertHostCanAuthor(hostUserId);
+    await this.membership.assertAllowed(hostUserId, 'EVENT_CREATE');
+
+    // Read before the transaction: it is one indexed lookup, and taking a
+    // connection for it while holding the outer one is what `SettingsService`
+    // warns about (pool exhaustion under concurrency).
+    const createCost = await this.settings.getInt('economy.event_create_coins');
 
     const created = await this.prisma.$transaction(async (tx) => {
       await this.assertWithinQuota(tx, hostUserId, now);
@@ -330,6 +399,36 @@ export class EventService {
         });
       }
 
+      /**
+       * The charge, last, and inside the same transaction (M22 phase 5).
+       *
+       * Last so that a validation refusal above costs nothing and takes no lock
+       * on the coin account; inside so that `INSUFFICIENT_COINS` rolls the event
+       * back rather than leaving one an unpaying host created.
+       *
+       * Lock ordering: nothing else is held here — `assertWithinQuota` and the
+       * catalog reads take no row locks — so `CoinService`'s `FOR UPDATE` on the
+       * account is the only one, which keeps this consistent with ADR-0006's
+       * user-then-account rule.
+       */
+      const charge =
+        createCost > 0
+          ? await this.coins.apply(
+              {
+                userId: hostUserId,
+                amount: -createCost,
+                type: 'EVENT_CREATE_SPEND',
+                reasonCode: EVENT_CREATE_REASON,
+                idempotencyKey: eventCreateSpendKey(event.id),
+                actorType: 'USER',
+                actorId: hostUserId,
+                refType: 'event',
+                refId: event.id,
+              },
+              tx,
+            )
+          : null;
+
       await this.audit.record(
         {
           actorType: 'USER',
@@ -337,7 +436,11 @@ export class EventService {
           action: 'event.created',
           targetType: 'event',
           targetId: event.id,
-          after: auditFacts(scan, outcome),
+          after: {
+            ...auditFacts(scan, outcome),
+            coinsCharged: charge === null ? 0 : createCost,
+            ...(charge !== null ? { balance: charge.balance } : {}),
+          },
         },
         tx,
       );
@@ -662,6 +765,88 @@ export class EventService {
               targetId: locked.id,
               before: { isVip: current.isVip, boostedUntil: current.boostedUntil?.toISOString() },
               after: { coinsSpent: spend.amount, balance: movement.balance },
+            },
+            tx,
+          );
+        }
+
+        return locked.id;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+
+    const event = await this.prisma.event.findUniqueOrThrow({
+      where: { id },
+      include: EVENT_INCLUDE,
+    });
+    return toEventDetail(event, this.clock.now());
+  }
+
+  /**
+   * Buy one publication in the channel (M22 phase 5).
+   *
+   * The third coin sink, and the one that needed a fourth `channel_post_kind`:
+   * `UNIQUE (event_id, kind)` is what makes a purchase exactly-once, so folding
+   * this into `BOOSTED` would have meant a host who boosted could not also buy a
+   * post — and the ledger could no longer say which of the two they bought.
+   *
+   * Both writes are in one transaction under the event lock. The coins leave and
+   * the claim row appears together, or neither does: a charge without a claim is a
+   * host who paid for nothing, and a claim without a charge is a free post.
+   *
+   * **Nothing is sent here.** The row lands unposted and the five-minute channel
+   * sweep is what talks to Telegram (ADR-0005, invariant 11). A failure there does
+   * *not* release this claim — unlike VIP or trending, it is the record that
+   * somebody paid, and the next sweep retries it.
+   */
+  async publishToChannel(hostUserId: string, publicId: string): Promise<EventDetail> {
+    const now = this.clock.now();
+    await this.membership.assertAllowed(hostUserId, 'EVENT_CHANNEL_SEND');
+    const cost = await this.settings.getInt('economy.event_channel_send_coins');
+
+    const id = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await lockEventByPublicIdForUpdate(tx, publicId);
+        // Not-yours and not-found answer identically (T3.3).
+        if (!locked || locked.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+        if (locked.hostUserId !== hostUserId) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+
+        // Publishing something nobody can join, or that has already started,
+        // spends coins on an advertisement for nothing.
+        if (locked.status !== 'PUBLISHED') throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
+        if (locked.startsAt <= now) throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
+
+        // Claimed **before** the charge, so a second purchase is refused rather
+        // than charged and then refunded. The unique index is the guard.
+        const claimed = await this.channel.claimPaidPublication(tx, locked.id);
+        if (!claimed) throw new AppError(ErrorCode.EVENT_ALREADY_IN_CHANNEL);
+
+        if (cost > 0) {
+          const movement = await this.coins.apply(
+            {
+              userId: hostUserId,
+              amount: -cost,
+              type: 'CHANNEL_POST_SPEND',
+              reasonCode: EVENT_CHANNEL_POST_REASON,
+              // The event, and nothing else: an event reaches the channel by
+              // purchase at most once, ever.
+              idempotencyKey: channelPostSpendKey(locked.id),
+              actorType: 'USER',
+              actorId: hostUserId,
+              refType: 'event',
+              refId: locked.id,
+            },
+            tx,
+          );
+
+          await this.audit.record(
+            {
+              actorType: 'USER',
+              actorId: hostUserId,
+              action: 'event.channel_post_purchased',
+              targetType: 'event',
+              targetId: locked.id,
+              after: { coinsSpent: cost, balance: movement.balance },
             },
             tx,
           );
@@ -1112,7 +1297,7 @@ function outcomeFor(decision: ContentScan['decision']): Outcome {
   }
 }
 
-function auditFacts(scan: ContentScan, outcome: Outcome): Prisma.InputJsonValue {
+function auditFacts(scan: ContentScan, outcome: Outcome): Record<string, Prisma.InputJsonValue> {
   return {
     status: outcome.status,
     moderationStatus: outcome.moderationStatus,

@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { PERMISSIONS, type AdminUserDetailView, type SetUserStatusRequest } from '@payetam/shared';
+import {
+  PERMISSIONS,
+  foldedIncludes,
+  type AdminPlacesResponse,
+  type AdminUpdateProfileRequest,
+  type AdminUserDetailView,
+  type ProfileView,
+  type SetUserStatusRequest,
+  type TelegramIdentityView,
+} from '@payetam/shared';
 import { messageOf, newIdempotencyKey, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
@@ -186,6 +195,175 @@ async function submitAdjust(): Promise<void> {
   }
 }
 
+// ── Correcting the profile (M22 phase 2) ────────────────────────────────────
+
+/**
+ * Editing somebody else's profile, behind `user.profile.edit`.
+ *
+ * `SUPPORT` holds `user.read` and deliberately **not** this: reading a record and
+ * rewriting it are different acts, and the role most exposed to "please just
+ * change it for me" is the one that must not be able to. The panel hides the
+ * button for anybody else and the service refuses it regardless — hiding a button
+ * is a courtesy, not a control.
+ *
+ * The form sends a **diff**, like the Mini App's own edit screen: an absent field
+ * is left alone, so a moderator fixing a display name cannot blank a bio they
+ * never looked at.
+ *
+ * ── Why the city picker is conditional ───────────────────────────────────────
+ *
+ * Changing somebody's city needs the city list, and that list is behind
+ * `catalog.manage`. Rather than widen either permission so one screen can borrow
+ * the other's data, the control simply is not offered to a session that cannot
+ * read the list. In practice both keys sit with `SUPER_ADMIN`, so the case is
+ * rare — and when it happens, an absent control is a better answer than a select
+ * with nothing in it.
+ */
+const editing = ref(false);
+const editBusy = ref(false);
+const editError = ref<string | null>(null);
+const editReason = ref('');
+const editForm = ref({
+  displayName: '',
+  gender: '' as '' | 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY',
+  birthYear: '' as number | '',
+  cityId: '',
+  districtId: '',
+  bio: '',
+});
+
+const places = ref<AdminPlacesResponse | null>(null);
+const citySearch = ref('');
+
+const canEditProfile = computed(() => session.can(PERMISSIONS.USER_PROFILE_EDIT));
+const canPickCity = computed(() => canEditProfile.value && session.can(PERMISSIONS.CATALOG_MANAGE));
+
+/** Active cities only, filtered by the same folding the Mini App's picker uses. */
+const cityOptions = computed(() => {
+  const all = (places.value?.cities ?? []).filter((city) => city.isActive);
+  const matched =
+    citySearch.value.trim() === ''
+      ? all
+      : all.filter((city) => foldedIncludes(city.nameFa, citySearch.value));
+  return matched.slice(0, 80);
+});
+
+async function openEdit(): Promise<void> {
+  if (!detail.value) return;
+  editError.value = null;
+  editReason.value = '';
+  editForm.value = {
+    displayName: detail.value.displayName ?? '',
+    gender: '',
+    birthYear: detail.value.birthYear ?? '',
+    cityId: '',
+    districtId: '',
+    // Deliberately blank rather than pre-filled: `detail.bio` arrives with contact
+    // details already masked («حذف شد»), so pre-filling it and saving would write
+    // the *mask* back over the user's own words. An admin who wants to clear a bio
+    // ticks the box below; one who wants to rewrite it types the whole thing.
+    bio: '',
+  };
+  editing.value = true;
+
+  if (canPickCity.value && places.value === null) {
+    try {
+      places.value = await request<AdminPlacesResponse>('/places');
+    } catch {
+      // A picker that could not load is a picker that is not offered. The rest of
+      // the form still works, which is the point of failing quietly here.
+      places.value = { provinces: [], cities: [] };
+    }
+  }
+}
+
+const clearBio = ref(false);
+
+const editValid = computed(() => editReason.value.trim().length >= 3);
+
+/** Only what the operator actually changed. An empty diff is not a request. */
+function buildProfilePatch(): AdminUpdateProfileRequest | null {
+  if (!detail.value) return null;
+  const body: Record<string, unknown> = { reason: editReason.value.trim() };
+
+  const name = editForm.value.displayName.trim();
+  if (name !== '' && name !== detail.value.displayName) body['displayName'] = name;
+  if (editForm.value.gender !== '') body['gender'] = editForm.value.gender;
+  if (editForm.value.birthYear !== '' && editForm.value.birthYear !== detail.value.birthYear) {
+    body['birthYear'] = editForm.value.birthYear;
+  }
+  if (editForm.value.cityId !== '') body['cityId'] = editForm.value.cityId;
+  if (editForm.value.districtId !== '') body['districtId'] = editForm.value.districtId;
+  if (clearBio.value) body['bio'] = null;
+  else if (editForm.value.bio.trim() !== '') body['bio'] = editForm.value.bio.trim();
+
+  return Object.keys(body).length > 1 ? (body as AdminUpdateProfileRequest) : null;
+}
+
+async function submitProfileEdit(): Promise<void> {
+  if (editBusy.value || !editValid.value) return;
+  const body = buildProfilePatch();
+  if (!body) {
+    editError.value = 'هیچ تغییری وارد نشده است.';
+    return;
+  }
+
+  editBusy.value = true;
+  editError.value = null;
+  try {
+    await request<{ profile: ProfileView }>(`/users/${publicId.value}/profile`, {
+      method: 'PATCH',
+      body,
+    });
+    editing.value = false;
+    clearBio.value = false;
+    notice.value = 'پروفایل کاربر اصلاح شد و در گزارش رخدادها ثبت شد.';
+    // Re-read rather than patch locally: the panel's view of a user is a
+    // projection the server builds, and half of it (the masked bio) is not
+    // derivable from what was sent.
+    await load();
+  } catch (cause) {
+    editError.value = messageOf(cause, 'اصلاح پروفایل انجام نشد.');
+  } finally {
+    editBusy.value = false;
+  }
+}
+
+// ── Telegram identity (M22 phase 12) ────────────────────────────────────────
+
+/**
+ * The one place in the panel that can see a Telegram id.
+ *
+ * Behind `user.telegram.read`, which `SUPER_ADMIN` alone holds, and **loaded on
+ * demand rather than with the page**. That is not laziness: the API writes an
+ * audit row on every read, so fetching it with the rest of the profile would
+ * record "looked at somebody's Telegram id" every time anybody opened a user —
+ * which would make the trail useless for the question it exists to answer.
+ *
+ * When there is no username there is no link, and the screen says so. A
+ * `tg://user?id=…` would resolve only for a client that already knows the peer;
+ * offering one that silently does nothing is worse than offering none, and the
+ * answer in that case is to send a message from the panel instead.
+ */
+const telegram = ref<TelegramIdentityView | null>(null);
+const telegramError = ref<string | null>(null);
+const telegramBusy = ref(false);
+
+const canSeeTelegram = computed(() => session.can(PERMISSIONS.USER_TELEGRAM_READ));
+
+async function revealTelegram(): Promise<void> {
+  if (telegramBusy.value) return;
+  telegramBusy.value = true;
+  telegramError.value = null;
+  try {
+    telegram.value = await request<TelegramIdentityView>(`/users/${publicId.value}/telegram`);
+  } catch (cause) {
+    telegramError.value = messageOf(cause, 'شناسهٔ تلگرام خوانده نشد.');
+  } finally {
+    telegramBusy.value = false;
+  }
+}
+
 /** «۳ درخواست پذیرفته‌شده، ۱ عدم حضور» — the sparse tally, rendered. */
 const participationRows = computed(() =>
   Object.entries(detail.value?.participations ?? {}).sort(([a], [b]) => a.localeCompare(b)),
@@ -224,6 +402,15 @@ onMounted(load);
             @click="openAdjust('trust')"
           >
             اصلاح امتیاز اعتماد
+          </button>
+          <button
+            v-if="canEditProfile"
+            type="button"
+            class="min-h-10 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
+            :disabled="!session.canMutate"
+            @click="openEdit"
+          >
+            اصلاح پروفایل
           </button>
         </div>
 
@@ -321,6 +508,196 @@ onMounted(load);
             انصراف
           </button>
         </div>
+      </section>
+
+      <!-- ── Correcting the profile (M22 phase 2) ─────────────────────── -->
+      <section v-if="editing" class="rounded-xl border border-line bg-surface p-4">
+        <h2 class="text-sm font-semibold">اصلاح پروفایل کاربر</h2>
+        <p class="mt-1 text-xs leading-relaxed text-ink-faint">
+          فقط فیلدهایی که پر می‌کنید تغییر می‌کنند؛ بقیه دست‌نخورده می‌مانند. دلیل الزامی است و
+          همراه مقدار پیشین و تازه در گزارش رخدادها ثبت می‌شود. سن زیر ۱۸ سال از این‌جا هم پذیرفته
+          نمی‌شود.
+        </p>
+
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <label class="flex flex-col gap-1">
+            <span class="text-sm text-ink-soft">نام نمایشی</span>
+            <input
+              v-model="editForm.displayName"
+              type="text"
+              maxlength="40"
+              class="min-h-10 rounded-lg border border-line bg-surface px-3"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1">
+            <span class="text-sm text-ink-soft">سال تولد (میلادی)</span>
+            <input
+              v-model.number="editForm.birthYear"
+              type="number"
+              min="1900"
+              max="2200"
+              class="min-h-10 rounded-lg border border-line bg-surface px-3"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1">
+            <span class="text-sm text-ink-soft">جنسیت</span>
+            <select
+              v-model="editForm.gender"
+              class="min-h-10 rounded-lg border border-line bg-surface px-3"
+            >
+              <option value="">بدون تغییر</option>
+              <option value="FEMALE">زن</option>
+              <option value="MALE">مرد</option>
+              <option value="PREFER_NOT_SAY">ترجیح می‌دهد نگوید</option>
+            </select>
+          </label>
+
+          <template v-if="canPickCity">
+            <label class="flex flex-col gap-1">
+              <span class="text-sm text-ink-soft">جست‌وجوی شهر</span>
+              <input
+                v-model="citySearch"
+                type="search"
+                class="min-h-10 rounded-lg border border-line bg-surface px-3"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-sm text-ink-soft">شهر</span>
+              <select
+                v-model="editForm.cityId"
+                class="min-h-10 rounded-lg border border-line bg-surface px-3"
+              >
+                <option value="">بدون تغییر</option>
+                <option v-for="city in cityOptions" :key="city.id" :value="city.id">
+                  {{ city.nameFa }}
+                </option>
+              </select>
+            </label>
+          </template>
+
+          <label class="flex flex-col gap-1 sm:col-span-2">
+            <span class="text-sm text-ink-soft">دربارهٔ من — بازنویسی کامل (اختیاری)</span>
+            <textarea
+              v-model="editForm.bio"
+              rows="3"
+              maxlength="300"
+              placeholder="خالی بگذارید تا دست‌نخورده بماند"
+              class="rounded-lg border border-line bg-surface p-3"
+            ></textarea>
+            <!--
+              Not pre-filled on purpose: what the panel shows is the *masked* bio,
+              and saving that back would replace the user's own words with «حذف شد».
+            -->
+            <span class="text-xs text-ink-faint">
+              متن نمایش‌داده‌شده در این صفحه ماسک‌شده است، پس این کادر خالی باز می‌شود. برای پاک
+              کردن کامل، گزینهٔ زیر را بزنید.
+            </span>
+          </label>
+
+          <label class="flex items-center gap-2 sm:col-span-2">
+            <input v-model="clearBio" type="checkbox" class="size-4" />
+            <span class="text-sm text-ink-soft">دربارهٔ من پاک شود</span>
+          </label>
+
+          <label class="flex flex-col gap-1 sm:col-span-2">
+            <span class="text-sm text-ink-soft">دلیل (دست‌کم ۳ نویسه)</span>
+            <input
+              v-model="editReason"
+              type="text"
+              maxlength="280"
+              class="min-h-10 rounded-lg border border-line bg-surface px-3"
+            />
+          </label>
+        </div>
+
+        <p v-if="editError" class="mt-2 text-sm text-danger" role="alert">{{ editError }}</p>
+
+        <div class="mt-3 flex gap-2">
+          <button
+            type="button"
+            class="min-h-10 rounded-lg bg-brand px-4 text-sm text-brand-ink disabled:opacity-40"
+            :disabled="!editValid || editBusy"
+            @click="submitProfileEdit"
+          >
+            {{ editBusy ? 'در حال ثبت…' : 'ثبت اصلاح' }}
+          </button>
+          <button
+            type="button"
+            class="min-h-10 rounded-lg border border-line px-4 text-sm"
+            @click="editing = false"
+          >
+            انصراف
+          </button>
+        </div>
+      </section>
+
+      <!-- ── Telegram identity (M22 phase 12) ─────────────────────────── -->
+      <section v-if="canSeeTelegram" class="rounded-xl border border-line bg-surface p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold">هویت تلگرام</h2>
+          <button
+            v-if="telegram === null"
+            type="button"
+            class="min-h-9 rounded-lg border border-line px-3 text-xs disabled:opacity-40"
+            :disabled="telegramBusy"
+            @click="revealTelegram"
+          >
+            {{ telegramBusy ? 'در حال خواندن…' : 'نمایش' }}
+          </button>
+        </div>
+
+        <p v-if="telegram === null && telegramError === null" class="mt-1 text-xs text-ink-faint">
+          این اطلاعات به‌صورت پیش‌فرض بارگذاری نمی‌شود. هر بار نمایش، یک ردیف در گزارش رخدادها ثبت
+          می‌کند.
+        </p>
+        <p v-if="telegramError" class="mt-2 text-sm text-danger" role="alert">
+          {{ telegramError }}
+        </p>
+
+        <dl v-if="telegram" class="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          <div>
+            <dt class="inline text-ink-soft">شناسهٔ عددی:</dt>
+            <dd class="inline">
+              <bdi class="font-mono">{{ telegram.telegramUserId }}</bdi>
+            </dd>
+          </div>
+          <div>
+            <dt class="inline text-ink-soft">نام کاربری:</dt>
+            <dd class="inline">
+              <bdi v-if="telegram.username" class="font-mono">@{{ telegram.username }}</bdi>
+              <span v-else class="text-ink-faint">ندارد</span>
+            </dd>
+          </div>
+          <div>
+            <dt class="inline text-ink-soft">ربات را بلاک کرده:</dt>
+            <dd class="inline">{{ telegram.botBlocked ? 'بله' : 'خیر' }}</dd>
+          </div>
+          <div>
+            <dt class="inline text-ink-soft">آخرین حضور:</dt>
+            <dd class="inline">{{ formatDate(telegram.lastSeenAt) }}</dd>
+          </div>
+          <div class="sm:col-span-2">
+            <!--
+              `rel="noopener noreferrer"` because this leaves the panel, and
+              `target="_blank"` without it hands the opened tab a reference back.
+            -->
+            <a
+              v-if="telegram.directLink"
+              :href="telegram.directLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-brand underline"
+            >
+              باز کردن گفت‌وگو در تلگرام
+            </a>
+            <p v-else class="text-xs text-ink-faint">
+              این کاربر نام کاربری عمومی ندارد، پس پیوند مستقیمی وجود ندارد که تلگرام بتواند باز
+              کند. برای تماس، از بخش «پیام‌ها» استفاده کنید.
+            </p>
+          </div>
+        </dl>
       </section>
 
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

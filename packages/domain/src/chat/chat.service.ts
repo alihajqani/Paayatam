@@ -394,6 +394,16 @@ export class ChatService {
             senderName: senderDisplayName(context.me),
             eventTitle: context.chat.event.title,
             recipientUserPublicId: context.counterpartUserPublicId,
+            /**
+             * Whether the recipient may share contact details from the bot yet
+             * (report 6).
+             *
+             * `shareContact` is OPEN-only (ADR-0009): before acceptance there is
+             * no meeting to arrange. The template renders the share button from
+             * this rather than always, because a button that answers «گفتگو باز
+             * نیست» is a control the product knew would fail before it drew it.
+             */
+            chatOpen: context.chat.status === 'OPEN',
           },
         },
         tx,
@@ -472,6 +482,11 @@ export class ChatService {
             chatPublicId: context.chat.publicId,
             seq: existing.seq,
             senderAlias: context.me.alias,
+            // Same flag the new-message relay carries, so `relayed()` behaves the
+            // same on all three templates. Without it the contact-sharing button
+            // would be missing here for no reason anybody decided — a difference
+            // by omission is the kind that is hard to reason about later.
+            chatOpen: context.chat.status === 'OPEN',
             /**
              * Who the message is from and what it is about (ADR-0014).
              *
@@ -532,6 +547,7 @@ export class ChatService {
           payload: {
             chatPublicId: context.chat.publicId,
             seq: existing.seq,
+            chatOpen: context.chat.status === 'OPEN',
             senderName: senderDisplayName(context.me),
             eventTitle: context.chat.event.title,
             recipientUserPublicId: context.counterpartUserPublicId,

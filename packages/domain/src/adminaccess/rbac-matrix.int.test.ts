@@ -8,6 +8,7 @@ import {
   TEST_CHAT_ENCRYPTION_KEY,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { CatalogService } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { MessageCipher } from '../chat/message-cipher';
 import { CoinService } from '../economy/coin.service';
@@ -19,6 +20,13 @@ import { ChatUnsealService } from './chat-unseal.service';
 import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
+import { ProfileService } from '../profile/profile.service';
+import { MessagingService } from '../messaging/messaging.service';
+import { ChannelConfigService } from '../channel/channel-config.service';
+import { ChannelAdminService } from './channel-admin.service';
+import { GeographyAdminService } from './geography-admin.service';
+import { MessagingAdminService } from './messaging-admin.service';
+import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import {
   PERMISSIONS,
@@ -64,14 +72,49 @@ const cipher = new MessageCipher(env);
 // The matrix never authenticates, so Redis is never reached. A stub rather than a
 // live connection keeps this suite about authorisation and nothing else.
 const redis = { client: {} } as unknown as RedisService;
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, settings, catalogEnv);
+// Only `APP_TIMEZONE` is read, and only by the 18+ check on a profile edit.
+const envForProfile: Env = { ...env, APP_TIMEZONE: 'Asia/Tehran' };
 
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
-const operations = new AdminOperationsService(service, clock, access, coins, trust, audit);
+const profiles = new ProfileService(
+  service,
+  clock,
+  envForProfile,
+  catalog,
+  settings,
+  coins,
+  trust,
+  audit,
+);
+const operations = new AdminOperationsService(
+  service,
+  clock,
+  access,
+  coins,
+  trust,
+  audit,
+  profiles,
+);
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);
 const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);
 const referrals = new ReferralAdminService(service, clock, access, audit);
 const insight = new AdminInsightService(service, clock, access);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
+const policyAdmin = new PolicyAdminService(service, clock, access, audit);
+const geography = new GeographyAdminService(service, access, audit);
+const channelAdmin = new ChannelAdminService(
+  access,
+  new ChannelConfigService(service, clock, audit),
+);
+const messaging = new MessagingService(service, clock, audit);
+const messagingAdmin = new MessagingAdminService(service, access, messaging, audit);
 
 /**
  * One admin operation, and the permission it demands.
@@ -345,6 +388,149 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.CATALOG_MANAGE,
     run: (session) => catalogAdmin.listPlaces(session),
   },
+  {
+    name: 'PATCH /admin/v1/users/:publicId/profile',
+    permission: PERMISSIONS.USER_PROFILE_EDIT,
+    run: (session) =>
+      operations.updateUserProfile(session, NO_SUCH_ID, {
+        displayName: 'نام تازه',
+        reason: 'اصلاح به درخواست کاربر',
+      }),
+  },
+  {
+    name: 'GET /admin/v1/policies',
+    permission: PERMISSIONS.POLICY_READ,
+    run: (session) => policyAdmin.list(session),
+  },
+  {
+    name: 'GET /admin/v1/policies/:id',
+    permission: PERMISSIONS.POLICY_READ,
+    run: (session) => policyAdmin.get(session, NO_SUCH_ID),
+  },
+  {
+    name: 'POST /admin/v1/policies',
+    permission: PERMISSIONS.POLICY_MANAGE,
+    run: (session) =>
+      policyAdmin.createDraft(session, {
+        type: 'COMMUNITY',
+        titleFa: 'پیش‌نویس',
+        contentMd: 'x'.repeat(60),
+      }),
+  },
+  {
+    name: 'PATCH /admin/v1/policies/:id',
+    permission: PERMISSIONS.POLICY_MANAGE,
+    run: (session) => policyAdmin.updateDraft(session, NO_SUCH_ID, { expectedRevision: 0 }),
+  },
+  {
+    name: 'POST /admin/v1/policies/:id/publish',
+    permission: PERMISSIONS.POLICY_PUBLISH,
+    run: (session) =>
+      policyAdmin.publish(session, NO_SUCH_ID, { confirmVersion: 1, reason: 'انتشار' }),
+  },
+  {
+    name: 'POST /admin/v1/policies/:id/archive',
+    permission: PERMISSIONS.POLICY_PUBLISH,
+    run: (session) => policyAdmin.archive(session, NO_SUCH_ID, 'بایگانی'),
+  },
+  {
+    name: 'GET /admin/v1/policy-consents',
+    permission: PERMISSIONS.POLICY_CONSENT_READ,
+    run: (session) => policyAdmin.listConsents(session),
+  },
+  {
+    name: 'GET /admin/v1/provinces',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.listProvinces(session),
+  },
+  {
+    name: 'POST /admin/v1/provinces',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.createProvince(session, { slug: 'no-such', nameFa: 'آزمایشی' }),
+  },
+  {
+    name: 'PATCH /admin/v1/provinces/:id',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.updateProvince(session, NO_SUCH_ID, { isActive: false }),
+  },
+  {
+    name: 'GET /admin/v1/cities',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.listCities(session),
+  },
+  {
+    name: 'POST /admin/v1/cities',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.createCity(session, { slug: 'no-such-city', nameFa: 'آزمایشی' }),
+  },
+  {
+    name: 'PATCH /admin/v1/cities/:id',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.updateCity(session, NO_SUCH_ID, { isActive: false }),
+  },
+  {
+    name: 'POST /admin/v1/cities/reorder',
+    permission: PERMISSIONS.CATALOG_MANAGE,
+    run: (session) => geography.reorderCities(session, [NO_SUCH_ID]),
+  },
+  {
+    // A one-user audience is the narrow case, so `message.send` alone covers it.
+    name: 'POST /admin/v1/messages/preview (one recipient)',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) =>
+      messagingAdmin.preview(session, {
+        audience: { userPublicIds: [NO_SUCH_ID] },
+        bodyText: 'سلام',
+      }),
+  },
+  {
+    // A filter is a broadcast, whatever its size, and needs the wider key.
+    name: 'POST /admin/v1/messages/preview (a filter)',
+    permission: PERMISSIONS.MESSAGE_BROADCAST,
+    run: (session) =>
+      messagingAdmin.preview(session, { audience: { everyone: true }, bodyText: 'سلام' }),
+  },
+  {
+    name: 'POST /admin/v1/messages',
+    permission: PERMISSIONS.MESSAGE_BROADCAST,
+    run: (session) =>
+      messagingAdmin.create(session, {
+        kind: 'BROADCAST',
+        bodyText: 'سلام',
+        audience: { everyone: true },
+        idempotencyKey: 'matrix-create-key',
+      }),
+  },
+  {
+    name: 'POST /admin/v1/messages/:publicId/confirm',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) => messagingAdmin.confirm(session, NO_SUCH_ID),
+  },
+  {
+    name: 'POST /admin/v1/messages/:publicId/cancel',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) => messagingAdmin.cancel(session, NO_SUCH_ID),
+  },
+  {
+    name: 'GET /admin/v1/messages',
+    permission: PERMISSIONS.MESSAGE_SEND,
+    run: (session) => messagingAdmin.list(session),
+  },
+  {
+    name: 'GET /admin/v1/users/:publicId/telegram',
+    permission: PERMISSIONS.USER_TELEGRAM_READ,
+    run: (session) => messagingAdmin.telegramIdentity(session, NO_SUCH_ID),
+  },
+  {
+    name: 'GET /admin/v1/channel-config',
+    permission: PERMISSIONS.CHANNEL_MANAGE,
+    run: (session) => channelAdmin.get(session),
+  },
+  {
+    name: 'PUT /admin/v1/channel-config',
+    permission: PERMISSIONS.CHANNEL_MANAGE,
+    run: (session) => channelAdmin.update(session, { membershipRequired: false }),
+  },
 ];
 
 /** A well-formed UUID that addresses nothing, so a permitted call reaches 404. */
@@ -382,7 +568,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(41);
+    expect(OPERATIONS).toHaveLength(65);
   });
 
   for (const role of ROLES) {

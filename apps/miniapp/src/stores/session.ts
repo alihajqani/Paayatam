@@ -6,10 +6,14 @@ import type {
   CompleteProfileRequest,
   CompleteProfileResponse,
   MeResponse,
+  MyPoliciesResponse,
   PolicyView,
+  ProfileView,
   SessionUser,
+  UpdateProfileRequest,
 } from '@payetam/shared';
 import { request, setAccessToken } from '@/api/client';
+import { useMembershipStore } from '@/stores/membership';
 import { webApp } from '@/telegram/webapp';
 
 /**
@@ -35,6 +39,18 @@ export const useSessionStore = defineStore('session', () => {
    */
   const authUser = ref<SessionUser | null>(null);
   const policies = ref<PolicyView[]>([]);
+  /**
+   * Documents this user has not accepted yet (M22 phase 8).
+   *
+   * Loaded on sign-in and after every acceptance, and read by the router: a
+   * non-empty list routes to `/terms` however far through the product the user
+   * was. It is a **navigation aid**, not the control — `@RequiresCurrentPolicies()`
+   * re-checks on the server for every protected write, because a client that skips
+   * a screen is not a client that skipped the rule.
+   */
+  const pendingPolicies = ref<PolicyView[]>([]);
+  /** What they have already agreed to, and when. Shown on the terms screen. */
+  const acceptedPolicies = ref<MyPoliciesResponse['accepted']>([]);
   const catalog = ref<CatalogResponse | null>(null);
   const ready = ref(false);
 
@@ -70,6 +86,42 @@ export const useSessionStore = defineStore('session', () => {
    */
   async function loadMeIfPermitted(state: SessionUser['onboardingState']): Promise<void> {
     if (state !== 'NEW') await refreshMe();
+    // Unconditional, unlike `/me`: `/me/policies` carries `@AllowPendingTerms`
+    // precisely so a `NEW` user can be told what they are being asked to accept.
+    await loadMyPolicies();
+
+    /**
+     * The channel requirement, loaded before `ready` flips (v0.3.1).
+     *
+     * The router reads `blocksApp` on the very first navigation, so this has to
+     * have settled by then — otherwise a blocked user gets one frame of the home
+     * screen before being bounced, which reads as a glitch rather than a gate.
+     *
+     * Only for a user who has finished onboarding: somebody still on the terms or
+     * the profile step has a screen of their own to be on, and asking Telegram
+     * about a channel is a round trip that would sit in front of it. `load()`
+     * swallows its own failures, so this cannot fail sign-in.
+     */
+    if (state === 'PROFILE_COMPLETE') await useMembershipStore().load();
+  }
+
+  /**
+   * What this user still owes.
+   *
+   * Deliberately swallows its failure. The router reads `pendingPolicies` to decide
+   * where to send somebody, and a network blip on this one call must not strand a
+   * signed-in user on a screen they cannot leave — the server refuses the protected
+   * writes either way, with a Persian message that says why.
+   */
+  async function loadMyPolicies(): Promise<void> {
+    try {
+      const response = await request<MyPoliciesResponse>('/me/policies');
+      pendingPolicies.value = response.pending;
+      acceptedPolicies.value = response.accepted;
+    } catch {
+      pendingPolicies.value = [];
+      acceptedPolicies.value = [];
+    }
   }
 
   async function signIn(): Promise<void> {
@@ -134,7 +186,10 @@ export const useSessionStore = defineStore('session', () => {
       method: 'POST',
       body: { policyVersionIds: policies.value.map((policy) => policy.id) },
     });
+    // Both, and in this order: `/me` for the onboarding state the router reads
+    // first, then the standing that decides whether the gate is still closed.
     await refreshMe();
+    await loadMyPolicies();
   }
 
   async function loadCatalog(): Promise<void> {
@@ -150,6 +205,28 @@ export const useSessionStore = defineStore('session', () => {
     return response;
   }
 
+  /**
+   * Edit an existing profile (M22 phase 2).
+   *
+   * `PATCH`, carrying only the fields that changed — the server leaves an absent
+   * one alone, so a screen that renders four inputs cannot clear a fifth it never
+   * showed.
+   *
+   * The response is written straight into `me` rather than merged, and then `/me`
+   * is **not** re-fetched: the server has just told us the whole profile it
+   * stored, so asking again would be a second round trip to learn the same thing.
+   * Nothing is applied optimistically — the store is updated after the server
+   * agrees, so a failed request leaves the screen showing what is actually saved.
+   */
+  async function updateProfile(input: UpdateProfileRequest): Promise<ProfileView> {
+    const response = await request<{ profile: ProfileView }>('/me/profile', {
+      method: 'PATCH',
+      body: input,
+    });
+    if (me.value) me.value = { ...me.value, profile: response.profile };
+    return response.profile;
+  }
+
   return {
     me,
     // `refreshToken` is deliberately not returned: nothing outside this store needs
@@ -158,14 +235,18 @@ export const useSessionStore = defineStore('session', () => {
     onboardingState,
     expiresInSeconds,
     policies,
+    pendingPolicies,
+    acceptedPolicies,
     catalog,
     ready,
     signIn,
     renew,
     refreshMe,
     loadPolicies,
+    loadMyPolicies,
     acceptTerms,
     loadCatalog,
     completeProfile,
+    updateProfile,
   };
 });

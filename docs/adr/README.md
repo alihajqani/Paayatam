@@ -22,6 +22,7 @@ one.** Superseding is done by writing a new record that says so.
 | [0014](0014-conversation-titles-and-reputation-display.md) | Conversations titled «who — which event»; Trust Score shown to the counterparty | — | — (amends ADR-0009 layer 3) |
 | [0015](0015-gift-codes.md) | Gift codes as a sibling of the referral, over the one coin ledger | — | — (bound by 2, 3, 12; management surface amended by 0016) |
 | [0016](0016-gift-code-campaigns-and-admin-panel.md) | A gift code is a bearer secret: `public_id` routing, masked reads, bulk minting, `per_user_limit = 1`; and the admin panel | — | — (amends 0015; bound by 2, 3, 7, 12) |
+| [0017](0017-conversation-wizards-and-bot-state.md) | Forms move into the chat: an explicit step machine in Postgres, not grammY `conversations`; consent and profile move first, the Mini App retires last | — | A step is reachable only by its owner; a redelivered update advances it once |
 
 ## The twelve invariants
 

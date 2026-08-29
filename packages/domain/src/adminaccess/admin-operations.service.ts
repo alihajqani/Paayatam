@@ -8,6 +8,7 @@ import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
 import { assertEventTransition } from '../events/state-machine';
 import { SETTING_DEFAULTS, type SettingKey } from '../catalog/settings.service';
+import { ProfileService, type ProfileDetail } from '../profile/profile.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
 import { PERMISSIONS, ROLE_PERMISSIONS, type RoleKey } from './permissions';
 
@@ -44,6 +45,15 @@ export class AdminOperationsService {
     private readonly coins: CoinService,
     private readonly trust: TrustService,
     private readonly audit: AuditService,
+    /**
+     * The **same** service a user's own edit goes through (M22 phase 2).
+     *
+     * Injected rather than reimplemented, so the 18+ check, the city/district
+     * pairing and the interest allowlist cannot hold for a user and not for
+     * staff. What this class adds is the permission check and the reason — the
+     * two things a self-edit does not need.
+     */
+    private readonly profiles: ProfileService,
   ) {}
 
   /** The moderation queue, oldest first — a queue nobody works from the bottom. */
@@ -337,6 +347,64 @@ export class AdminOperationsService {
         tx,
       );
     });
+  }
+
+  /**
+   * Edit somebody else's profile (M22 phase 2).
+   *
+   * Behind `user.profile.edit`, which `SUPPORT` deliberately does not hold: the
+   * role most exposed to "please just change it for me" is the one that must not
+   * be able to. Reading the same record is `user.read`, and support keeps that.
+   *
+   * The validation is not restated here. It belongs to `ProfileService.update`,
+   * which is the path a user's own edit takes — so an admin cannot set a birth
+   * year that makes somebody sixteen, cannot pair a district with the wrong city,
+   * and cannot select a deactivated interest, for exactly the reasons a user
+   * cannot.
+   *
+   * What this adds is the audit row, and it is richer than a self-edit's: old and
+   * new values for the fields a support conversation is about, plus the reason the
+   * admin typed. `ProfileService` writes it, because it is the only code that has
+   * seen both sides inside one transaction — writing it here would mean reading
+   * the row again afterwards and recording a "before" that may already have moved.
+   */
+  async updateUserProfile(
+    session: AdminSession,
+    userPublicId: string,
+    input: {
+      displayName?: string | undefined;
+      gender?: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null | undefined;
+      birthYear?: number | undefined;
+      cityId?: string | undefined;
+      districtId?: string | null | undefined;
+      bio?: string | null | undefined;
+      reason: string;
+    },
+  ): Promise<ProfileDetail> {
+    this.access.assertPermission(session, PERMISSIONS.USER_PROFILE_EDIT);
+    if (input.reason.trim().length < 3) throw new AppError(ErrorCode.VALIDATION_FAILED);
+
+    const user = await this.prisma.user.findUnique({
+      where: { publicId: userPublicId },
+      select: { id: true },
+    });
+    if (!user) throw new AppError(ErrorCode.NOT_FOUND);
+
+    // Key by key rather than a spread: `exactOptionalPropertyTypes` treats an
+    // explicit `undefined` as a *present* key, and a parsed body carries one for
+    // every field the panel left alone — which would read as "clear it".
+    return this.profiles.update(
+      user.id,
+      {
+        ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+        ...(input.gender !== undefined ? { gender: input.gender } : {}),
+        ...(input.birthYear !== undefined ? { birthYear: input.birthYear } : {}),
+        ...(input.cityId !== undefined ? { cityId: input.cityId } : {}),
+        ...(input.districtId !== undefined ? { districtId: input.districtId } : {}),
+        ...(input.bio !== undefined ? { bio: input.bio } : {}),
+      },
+      { kind: 'ADMIN', adminUserId: session.adminUserId, reason: input.reason.trim() },
+    );
   }
 
   /**

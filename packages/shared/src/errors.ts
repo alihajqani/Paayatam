@@ -64,6 +64,17 @@ export const ErrorCode = {
   ALREADY_REFERRED: 'ALREADY_REFERRED',
   EVENT_NOT_BOOSTABLE: 'EVENT_NOT_BOOSTABLE',
   /**
+   * The event cannot receive paid invitations right now (M22 phase 11).
+   *
+   * Its own code rather than a reuse of `EVENT_NOT_BOOSTABLE`, because the two
+   * lead to different sentences: one is about promotion and one is about people,
+   * and a host reading «قابل نردبان کردن نیست» after pressing «دعوت» would be
+   * reading about a different feature.
+   */
+  EVENT_NOT_INVITABLE: 'EVENT_NOT_INVITABLE',
+  /** This event has already been bought a place in the channel (M22 phase 5). */
+  EVENT_ALREADY_IN_CHANNEL: 'EVENT_ALREADY_IN_CHANNEL',
+  /**
    * Gift codes (M18). Four codes rather than one, because the four are things a
    * user can act on differently: retype it, ask for a new one, stop trying, or
    * find out they already have the coins. A single «کد معتبر نیست» would be an
@@ -97,6 +108,50 @@ export const ErrorCode = {
   UNSEAL_GRANT_EXPIRED: 'UNSEAL_GRANT_EXPIRED',
   FOUR_EYES_REQUIRED: 'FOUR_EYES_REQUIRED',
 
+  // Legal documents (M22 phase 8)
+  /**
+   * One open draft per document type, at a time.
+   *
+   * Two drafts of the terms is a question about which one is "the" next version,
+   * and the answer would be whichever got published first — which is not a
+   * decision anybody made.
+   */
+  POLICY_DRAFT_EXISTS: 'POLICY_DRAFT_EXISTS',
+  /** A published or archived version cannot be edited. That is what makes consent mean something. */
+  POLICY_NOT_EDITABLE: 'POLICY_NOT_EDITABLE',
+  /** The version typed back to confirm publication did not match the draft. */
+  POLICY_CONFIRMATION_MISMATCH: 'POLICY_CONFIRMATION_MISMATCH',
+  /** Archiving the current version would leave the type with none, and lock out onboarding. */
+  POLICY_IS_CURRENT: 'POLICY_IS_CURRENT',
+
+  // Outbound messaging (M22 phase 4)
+  /**
+   * The body is empty, too long, or carries markup Telegram will not accept.
+   *
+   * Refused rather than sanitised: an operator who pasted markup from a document
+   * should find out before four thousand people receive something mangled, and a
+   * sanitiser that drops half a tag produces a message nobody wrote. `details`
+   * carries every problem so the panel can name them all at once.
+   */
+  MESSAGE_FORMAT_INVALID: 'MESSAGE_FORMAT_INVALID',
+  /** A rehearsal cannot be promoted into a send. Compose it again for real. */
+  MESSAGE_DRY_RUN: 'MESSAGE_DRY_RUN',
+
+  // The event channel (M22 phase 6)
+  /**
+   * The user has to join the channel before this operation is available.
+   *
+   * `details.joinUrl` carries where to send them, so the client renders a working
+   * button rather than a sentence about a channel it cannot name.
+   */
+  CHANNEL_MEMBERSHIP_REQUIRED: 'CHANNEL_MEMBERSHIP_REQUIRED',
+  /**
+   * A membership requirement with nothing behind it, refused from either end:
+   * turning it on with no reachable channel, or removing the last one while it
+   * is on. `details.reason` distinguishes them.
+   */
+  CHANNEL_NOT_CONFIGURED: 'CHANNEL_NOT_CONFIGURED',
+
   // Catalog administration (M21)
   /** Two categories cannot share a slug — it is the identifier code refers to. */
   CATALOG_SLUG_TAKEN: 'CATALOG_SLUG_TAKEN',
@@ -108,6 +163,16 @@ export const ErrorCode = {
    * `is_active` exists exactly so neither has to happen (migration 0003).
    */
   CATALOG_TAG_IN_USE: 'CATALOG_TAG_IN_USE',
+  /**
+   * Deactivating a city that profiles or events point at, without confirming.
+   *
+   * Not a refusal — a **second step**. The details carry the counts so the panel
+   * can say «۲۳۴ پروفایل و ۱۲ فعالیت» rather than «مطمئنید؟», and the same request
+   * with `confirmReferences` goes through. Turning a city off is a real operation
+   * with real consequences for people already in it, and finding that out from the
+   * support queue is the failure this exists to prevent (M22 phase 9).
+   */
+  CITY_HAS_REFERENCES: 'CITY_HAS_REFERENCES',
 
   // Platform
   FORBIDDEN: 'FORBIDDEN',
@@ -147,7 +212,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   EVENT_QUOTA_EXCEEDED: 'به سقف ساخت فعالیت در روز رسیده‌اید.',
   CONTENT_BLOCKED: 'متن واردشده با قوانین انتشار مطابقت ندارد. لطفاً آن را ویرایش کنید.',
   CAPACITY_BELOW_ACCEPTED: 'ظرفیت نمی‌تواند کمتر از تعداد افراد پذیرفته‌شده باشد.',
-  CONFLICT_STALE_VERSION: 'این فعالیت در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
+  CONFLICT_STALE_VERSION: 'این مورد در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
   EVENT_ALREADY_STARTED: 'این فعالیت شروع شده است و دیگر نمی‌توان آن را لغو کرد.',
 
   DUPLICATE_REQUEST: 'شما قبلاً برای این فعالیت درخواست داده‌اید.',
@@ -171,6 +236,9 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   SELF_REFERRAL: 'نمی‌توانید کد دعوت خودتان را استفاده کنید.',
   ALREADY_REFERRED: 'شما قبلاً با کد دعوت دیگری ثبت شده‌اید.',
   EVENT_NOT_BOOSTABLE: 'این فعالیت قابل نردبان کردن نیست.',
+  EVENT_NOT_INVITABLE:
+    'برای این فعالیت نمی‌توان دعوت‌نامه فرستاد. فعالیت باید منتشر شده و هنوز شروع نشده باشد.',
+  EVENT_ALREADY_IN_CHANNEL: 'این فعالیت پیش‌تر برای انتشار در کانال ثبت شده است.',
   GIFT_CODE_INVALID: 'این کد هدیه معتبر نیست.',
   GIFT_CODE_EXPIRED: 'مهلت استفاده از این کد هدیه به پایان رسیده است.',
   GIFT_CODE_ALREADY_REDEEMED: 'شما پیش‌تر از این کد هدیه استفاده کرده‌اید.',
@@ -192,9 +260,33 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   UNSEAL_GRANT_EXPIRED: 'مهلت دسترسی به این گفتگو به پایان رسیده است.',
   FOUR_EYES_REQUIRED: 'این تغییر به تأیید یک مدیر دیگر نیاز دارد.',
 
+  POLICY_DRAFT_EXISTS: 'برای این سند از قبل یک پیش‌نویس باز وجود دارد. همان را ویرایش کنید.',
+  POLICY_NOT_EDITABLE: 'نسخهٔ منتشرشده قابل ویرایش نیست. نسخهٔ تازه‌ای بسازید.',
+  POLICY_CONFIRMATION_MISMATCH: 'شمارهٔ نسخه‌ای که وارد کردید با پیش‌نویس هم‌خوانی ندارد.',
+  POLICY_IS_CURRENT: 'نسخهٔ جاری را نمی‌توان بایگانی کرد. ابتدا نسخهٔ تازه‌ای منتشر کنید.',
+
+  // Plural since v0.3.1: the requirement is a list, and «کانال پایه‌تَم» would be
+  // an instruction somebody cannot follow when they have joined one of three.
+  // Which ones are outstanding is in `details.channels`; this is the fallback the
+  // client renders when it has nothing better.
+  CHANNEL_MEMBERSHIP_REQUIRED:
+    'برای انجام این کار، ابتدا در کانال‌های پایه‌تَم عضو شوید و سپس دوباره تلاش کنید.',
+  // Two situations, one sentence, because both are the same mistake seen from
+  // different ends: a requirement with nothing behind it. `details.reason` says
+  // which — `NO_JOIN_LINK` or `LAST_ACTIVE_CHANNEL` — and the panel renders it.
+  CHANNEL_NOT_CONFIGURED:
+    'برای اجباری کردن عضویت، دست‌کم یک کانال فعال با پیوند عضویت لازم است. ' +
+    'تا وقتی چنین کانالی وجود ندارد، این تنظیم ممکن نیست.',
+
+  MESSAGE_FORMAT_INVALID: 'متن پیام برای تلگرام معتبر نیست. طول و قالب‌بندی را بررسی کنید.',
+  MESSAGE_DRY_RUN:
+    'این یک پیش‌نمایش است و قابل ارسال نیست. پیام را دوباره برای ارسال واقعی بسازید.',
+
   CATALOG_SLUG_TAKEN: 'این شناسه پیش‌تر برای تفریح دیگری ثبت شده است.',
   CATALOG_TAG_IN_USE:
     'این تفریح در فعالیت‌های ثبت‌شده استفاده شده است؛ به‌جای حذف، آن را غیرفعال کنید.',
+  CITY_HAS_REFERENCES:
+    'این شهر در پروفایل‌ها یا فعالیت‌های ثبت‌شده استفاده شده است. برای غیرفعال کردن، تأیید کنید.',
 
   FORBIDDEN: 'شما به این بخش دسترسی ندارید.',
   NOT_FOUND: 'مورد درخواستی یافت نشد.',
@@ -211,6 +303,17 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   UNAUTHENTICATED: 401,
   USER_BANNED: 403,
   TERMS_NOT_ACCEPTED: 403,
+  /**
+   * 403, alongside `TERMS_NOT_ACCEPTED` rather than defaulting to 400 (M22).
+   *
+   * From M22 this code has two callers, and both are refusals of the same kind:
+   * `ConsentService.acceptPolicies` rejecting a submission against superseded
+   * versions, and the `@RequiresCurrentPolicies()` gate refusing a write until the
+   * new version is accepted. "You may not do this yet" is 403; a 400 would say the
+   * request was malformed, which it is not. Clients branch on `code`, never on the
+   * status, so nothing that worked before reads differently.
+   */
+  POLICY_VERSION_STALE: 403,
   FORBIDDEN: 403,
   HOST_CANNOT_JOIN: 403,
   TRUST_TOO_LOW: 403,
@@ -234,7 +337,16 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   CONFLICT_STALE_VERSION: 409,
   CATALOG_SLUG_TAKEN: 409,
   CATALOG_TAG_IN_USE: 409,
+  CITY_HAS_REFERENCES: 409,
+  MESSAGE_FORMAT_INVALID: 422,
+  CHANNEL_MEMBERSHIP_REQUIRED: 403,
+  CHANNEL_NOT_CONFIGURED: 409,
+  MESSAGE_DRY_RUN: 409,
+  POLICY_DRAFT_EXISTS: 409,
+  POLICY_NOT_EDITABLE: 409,
+  POLICY_IS_CURRENT: 409,
   EVENT_ALREADY_STARTED: 409,
+  EVENT_ALREADY_IN_CHANNEL: 409,
   INVALID_STATE_TRANSITION: 409,
   REVIEW_NOT_EDITABLE: 409,
   RATE_LIMITED: 429,

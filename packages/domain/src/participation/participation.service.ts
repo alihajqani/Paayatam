@@ -6,6 +6,7 @@ import { CLOCK, ENV, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
+import { ChannelMembershipService } from '../channel/membership.service';
 import { ChatService } from '../chat/chat.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import {
@@ -37,6 +38,23 @@ export interface ParticipationDetail {
    * (plan §2.5). Null only for participations created before M8 existed.
    */
   chatPublicId: string | null;
+}
+
+/**
+ * A request as it appears in the requester's **own list**.
+ *
+ * Carries the event it is for, which `ParticipationDetail` deliberately does not:
+ * the three action paths (`join`, `accept`, `cancel`) return a single request to
+ * a caller who just named the event and has it on screen already, and loading a
+ * title to hand back to somebody who supplied it would be work for nobody.
+ *
+ * A **list** is the case where that stops being true. Without a title, three
+ * pending requests render as three identical «در انتظار» cards, and the only way
+ * to tell them apart is to open each one — which is what both surfaces did until
+ * this existed.
+ */
+export interface MyParticipation extends ParticipationDetail {
+  event: { publicId: string; title: string; startsAt: Date };
 }
 
 /** What the host sees about somebody who asked to join. */
@@ -95,6 +113,8 @@ export class ParticipationService {
     private readonly outbox: OutboxService,
     private readonly chat: ChatService,
     private readonly penalties: PenaltyService,
+    /** The channel-membership gate (M22 phase 6), in the service that owns the act. */
+    private readonly membership: ChannelMembershipService,
   ) {}
 
   /**
@@ -108,6 +128,9 @@ export class ParticipationService {
    */
   async join(userId: string, eventPublicId: string): Promise<ParticipationDetail> {
     const now = this.clock.now();
+    // The channel-membership gate (M22 phase 6), before anything is read or
+    // locked: refusing early costs nothing and takes no row lock.
+    await this.membership.assertAllowed(userId, 'EVENT_JOIN');
     const joiner = await this.loadJoiner(userId);
 
     const [hostResponseHours, minHoursBefore] = await Promise.all([
@@ -588,15 +611,27 @@ export class ParticipationService {
     return new Map(rows.map((row) => [row.userId, row.score]));
   }
 
-  /** Everything this user has asked to join. */
-  async listMine(userId: string): Promise<ParticipationDetail[]> {
+  /** Everything this user has asked to join, each naming the event it is for. */
+  async listMine(userId: string): Promise<MyParticipation[]> {
     const rows = await this.prisma.eventParticipant.findMany({
       where: { userId },
       orderBy: { requestedAt: 'desc' },
-      include: { ...PARTICIPANT_CHAT, event: { select: { publicId: true } } },
+      include: {
+        ...PARTICIPANT_CHAT,
+        event: { select: { publicId: true, title: true, startsAt: true } },
+      },
     });
 
-    return Promise.all(rows.map((row) => this.toDetail(row, row.event.publicId, this.prisma)));
+    return Promise.all(
+      rows.map(async (row) => ({
+        ...(await this.toDetail(row, row.event.publicId, this.prisma)),
+        event: {
+          publicId: row.event.publicId,
+          title: row.event.title,
+          startsAt: row.event.startsAt,
+        },
+      })),
+    );
   }
 
   // ── waitlist promotion (ADR-0011, D8) ──────────────────────────────────────

@@ -180,6 +180,22 @@ services:
     <<: *hardening
     env_file:
       - ../.env
+    environment:
+      # The release string, so the API can answer `GET /api/v1/version` (M22
+      # phase 10). Here rather than in `.env` deliberately: `deploy.sh` already
+      # exports `PAYETAM_VERSION` from `.deploy/current-release`, and reading it
+      # from the same shell that tags the image on the line above is what stops
+      # the version the API reports from drifting away from the image actually
+      # running. A line in `.env` would be a second place to remember on every
+      # release, and the release it gets forgotten on is the one where the
+      # question matters.
+      #
+      # `environment` beats `env_file` in Compose, so a stale `PAYETAM_VERSION`
+      # left behind in `.env` cannot win over the real one.
+      #
+      # Not repeated on `worker`: nothing in the worker reads it, and config a
+      # process ignores is config that goes stale without anyone noticing.
+      PAYETAM_VERSION: ${PAYETAM_VERSION:-local}
     depends_on:
       postgres:
         condition: service_healthy
@@ -267,6 +283,18 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       target: web
+      args:
+        # The release string, compiled into both bundles (M22 phase 10). The tag
+        # on the line below and the version on the user's screen are then the same
+        # value from the same shell — which is the only way "what version are you
+        # on?" and "what did we deploy?" can be checked against each other.
+        #
+        # Only this target takes it. The API gets the same string through
+        # `environment` above and reads it at runtime, so baking it into that
+        # image would fix a release label into a layer for no gain and invalidate
+        # its build cache on every release. A Vite bundle has no such option: it
+        # is static files, and the string has to be compiled in.
+        PAYETAM_VERSION: ${PAYETAM_VERSION:-local}
     image: payetam/web:${PAYETAM_VERSION:-local}
     restart: unless-stopped
     security_opt:

@@ -519,7 +519,55 @@ The message should appear in the group. What arrives there afterwards: jobs that
 exhausted their retries, failed backups, failed deploys, and rollbacks. Nothing
 routine — a channel that fires on the ordinary is a channel people mute.
 
-### 11.2 What to look at
+### 11.2 What the worker alerts on
+
+Five sources, and no others. Each one is a thing a person has to do something
+about:
+
+| Alert key | Raised when | What it means |
+| --- | --- | --- |
+| `job-exhausted:<queue>:<job>` | A job used its last retry | The queue is dropping work |
+| `job-failure-write` | The failed-job record itself could not be written | The failure log has a hole in it |
+| `campaign-paused:<id>` | A campaign was rate-limited three times in a row | The breaker tripped; the campaign is paused, not lost |
+| `ledger.drift` | A coin balance disagrees with its ledger (nightly, 04:30) | Something wrote to `coin_account` outside `CoinService` |
+| `outbox.stale` | The oldest undelivered outbox row is over 15 minutes old | Notifications are silently not being delivered |
+
+The last two are sweeps rather than reactions, because both failures are
+**invisible**: nobody complains about a notification they were never told
+existed, and a drifted balance is discovered by a user disputing it weeks later.
+Neither writes anything — a drift is reported, never "corrected", because
+choosing between overwriting a balance somebody is holding and writing a plug
+entry into an append-only ledger is a judgement call with money attached.
+
+Every alert carries `severity`, `service`, `env`, a stable `code` and a UTC
+timestamp, and **none of them carries a user id, a phone number or a message
+body**. If you need to know *which* accounts drifted, the panel's
+**دفتر سکه → «تطبیق موجودی‌ها با دفتر»** button asks the same question behind
+`ledger.read` — because a person asking is an authorised, audited read, and an
+alert is a Telegram group.
+
+Four knobs, all in `.env` and all read by the worker at start-up:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `MONITORING_CHAT_ID` | *(empty)* | Where alerts go. Empty disables delivery. |
+| `MONITORING_ENABLED` | `1` | Kill switch. `0` silences delivery without clearing the chat id. |
+| `MONITORING_MIN_LEVEL` | `warn` | Floor: `info` \| `warn` \| `error`. |
+| `MONITORING_ALERT_COOLDOWN_SECONDS` | `300` | Shortest gap between two alerts sharing a key. |
+| `MONITORING_ENVIRONMENT` | `NODE_ENV` | Stamped on every alert. Set it once staging also alerts. |
+
+Turning alerting off — by either the chat id or the kill switch — **loses
+delivery, not information**. Everything still goes to the container log at its
+own level, so `./scripts/compose.sh logs worker | grep -i alert` is the offline
+version of the group.
+
+After changing any of them:
+
+```bash
+./scripts/compose.sh up -d worker
+```
+
+### 11.3 What to look at
 
 ```bash
 ./scripts/compose.sh ps                          # health of every service
@@ -570,6 +618,48 @@ Check what Telegram thinks:
 The script never prints the secret path — it is a credential, and printing it
 puts it in your scrollback.
 
+### Migration 0025 and the conversation store
+
+ADR-0017 adds `conversation_state`, which holds a user's half-filled bot form.
+Nothing about the deploy changes — the migration is additive, so the previous
+release runs unchanged against the new schema — but two operational facts are
+worth knowing:
+
+- **It is in the daily backup already.** `backup.sh` dumps the whole database;
+  there is no table list to add to. A restore brings drafts back with everything
+  else, and a draft older than seven days is swept on the next run regardless.
+- **The sweep is `CONVERSATION_PURGE`, daily at 04:15 Tehran**, just after the
+  retention purge. If the worker is down, drafts simply live longer; nothing
+  else depends on the sweep having run.
+
+The table is small — one row per user *currently filling in a form* — and
+`form_data_ciphertext` is encrypted under `CHAT_ENCRYPTION_KEY`. **A restore into
+an environment with a different key cannot read existing drafts**; they are
+discarded on read and the user starts their form again, which is why this is a
+note rather than a warning.
+
+### The command menu
+
+The webhook is what lets the bot *hear*; `setMyCommands` is what lets anybody
+*find* what to say. Without it Telegram's "/" autocomplete and the blue Menu
+button are empty, and every command is invisible unless the user has already
+read `/help` — which they could only find by guessing.
+
+```bash
+pnpm set-bot-commands            # publish what BOT_COMMANDS says
+pnpm set-bot-commands --info     # read back what Telegram currently has
+```
+
+Run it **once per bot**, and again whenever `BOT_COMMANDS` changes. It is not a
+per-deploy step: the list is global to the token rather than to a deployment, so
+two environments sharing a token would overwrite each other on every restart —
+which is why this is a script rather than something the API does at boot.
+
+The list comes from `packages/telegram/src/commands.ts`, the same array `/help`
+renders from, so the menu and the help text cannot disagree. Telegram validates
+the whole array and rejects **all** of it for one bad entry; `commands.test.ts`
+checks the shape before it ever gets there.
+
 ---
 
 ## 13. Deploying again
@@ -607,6 +697,36 @@ What happens, in order — and the order is the point:
 
 Expect a few seconds of downtime at step 6. Telegram redelivers webhook updates
 it could not deliver, and the outbox lives in Postgres, so nothing queued is lost.
+
+### Confirming which release is actually running
+
+From M22 the release string is visible in three places, and they are the same
+string: `deploy.sh` exports `PAYETAM_VERSION` from the tag, Compose tags every
+image with it, passes it into the `web` build so both bundles are compiled with
+it, and hands it to the API through `environment:`.
+
+```bash
+curl -s https://app.paayatam.online/api/v1/version    # {"version":"v0.3.0"}
+```
+
+`smoke-tests.sh` asserts this automatically and fails the deploy if it disagrees
+with the release being deployed — which is the one symptom of a container that
+was never actually replaced.
+
+The two frontends show it too: the foot of the Mini App's home screen, and the
+foot of the panel's sidebar. The panel shows the API's release beside its own,
+because the two roll separately — nginx serves the new bundle as soon as its
+container is up while the API is behind its own start-up and its own migration
+step. A minute of disagreement there is normal; a persistent one is not.
+
+The Mini App additionally tells a user when their bundle is behind the server,
+because a Telegram WebView caches hard and reopens without asking. That is the
+state that makes a bug report unreproducible, so it says so on the screen rather
+than leaving it to be worked out.
+
+**If nothing was passed**, all of it reads `local` — which is a wrong answer to
+"which release is this" and a deliberate one: it is obviously fake, where a blank
+or a literal `${PAYETAM_VERSION}` is just confusing.
 
 ---
 

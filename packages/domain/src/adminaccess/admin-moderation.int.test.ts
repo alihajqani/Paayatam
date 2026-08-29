@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import type { Env } from '@payetam/config';
 import type { PrismaClient, PrismaService } from '@payetam/db';
 import { FakeClock, type RedisService } from '@payetam/platform';
 import {
@@ -10,9 +11,11 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { CatalogService } from '../catalog/catalog.service';
 import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
+import { ProfileService } from '../profile/profile.service';
 import { normalize } from '../moderation/persian-normalizer';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
@@ -44,8 +47,35 @@ const credentials = new AdminCredentials({
   CHAT_ENCRYPTION_KEY: TEST_CHAT_ENCRYPTION_KEY,
 } as never);
 const redis = { client: {} } as unknown as RedisService;
+/**
+ * `CatalogService` reads `TELEGRAM_BOT_USERNAME` for the deep link the Mini App
+ * builds (report 6). Never the token — there is no code path here that reads one.
+ */
+const catalogEnv = { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env;
+
+const catalog = new CatalogService(service, settings, catalogEnv);
+// Only `APP_TIMEZONE` is read, and only by the 18+ check on a profile edit.
+const envForProfile = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
-const operations = new AdminOperationsService(service, clock, access, coins, trust, audit);
+const profiles = new ProfileService(
+  service,
+  clock,
+  envForProfile,
+  catalog,
+  settings,
+  coins,
+  trust,
+  audit,
+);
+const operations = new AdminOperationsService(
+  service,
+  clock,
+  access,
+  coins,
+  trust,
+  audit,
+  profiles,
+);
 
 let fixture: CatalogFixture;
 let SUPER: AdminSession;

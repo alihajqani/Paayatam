@@ -5,9 +5,11 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -18,21 +20,37 @@ import {
   AdminAccessService,
   AdminInsightService,
   CatalogAdminService,
+  ChannelAdminService,
   AdminOperationsService,
   ChatUnsealService,
+  GeographyAdminService,
   GiftCodeAdminService,
+  MessagingAdminService,
+  PolicyAdminService,
   ReferralAdminService,
   type AdminSession,
+  type ChannelConfigStatus,
+  type RequiredChannelRecord,
+  type CitySummary,
+  type ConsentRecord,
+  type MessageCampaignSummary,
   type EventSummary,
   type GiftCodeSummary,
+  type PolicySummary,
+  type ProvinceSummary,
+  type TelegramIdentity,
   type ReferralReview,
   type UserSummary,
 } from '@payetam/domain';
-import { PiiHasher } from '@payetam/platform';
-import { AppError, ErrorCode } from '@payetam/shared';
+import type { Env } from '@payetam/config';
+import { ENV, JOBS, PiiHasher, QUEUES, QueueService, jobId } from '@payetam/platform';
+import { AppError, ErrorCode, resolveVersion } from '@payetam/shared';
 import {
   adjustCoinsRequest,
   adjustTrustRequest,
+  adminCityListQuery,
+  adminPolicyListQuery,
+  adminUpdateProfileRequest,
   adminAuditQuery,
   adminEventListQuery,
   adminLedgerQuery,
@@ -55,9 +73,56 @@ import {
   setUserStatusRequest,
   unsealChatRequest,
   updateGiftCodeRequest,
+  createCityRequest,
+  createMessageRequest,
+  createPolicyDraftRequest,
+  createProvinceRequest,
+  policyConsentQuery,
+  updateChannelConfigRequest,
+  createRequiredChannelRequest,
+  updateRequiredChannelRequest,
+  reorderRequiredChannelsRequest,
+  previewMessageRequest,
+  reorderCitiesRequest,
+  updateCityRequest,
+  updateProvinceRequest,
+  publishPolicyRequest,
+  updatePolicyDraftRequest,
   updateSettingRequest,
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
+  type AdminCityListQuery,
+  type ChannelConfigView,
+  type RequiredChannelView,
+  type CreateRequiredChannelRequest,
+  type UpdateRequiredChannelRequest,
+  type ReorderRequiredChannelsRequest,
+  type UpdateChannelConfigRequest,
+  type AdminCityListResponse,
+  type AdminCityView,
+  type AdminPolicyListQuery,
+  type AdminProvinceListResponse,
+  type AdminProvinceView,
+  type AdminPolicyListResponse,
+  type AdminPolicyView,
+  type AdminUpdateProfileRequest,
+  type CreateCityRequest,
+  type CreateMessageRequest,
+  type CreatePolicyDraftRequest,
+  type CreateProvinceRequest,
+  type ReorderCitiesRequest,
+  type UpdateCityRequest,
+  type UpdateProvinceRequest,
+  type MessageCampaignListResponse,
+  type MessageCampaignView,
+  type MessagePreviewResponse,
+  type PolicyConsentQuery,
+  type PolicyConsentResponse,
+  type PreviewMessageRequest,
+  type TelegramIdentityView,
+  type ProfileView,
+  type PublishPolicyRequest,
+  type UpdatePolicyDraftRequest,
   type AdminLoginRequest,
   type AdminAuditQuery,
   type AdminAuditResponse,
@@ -147,6 +212,9 @@ import {
 @Controller('admin/v1')
 @UseGuards(AdminAuthGuard)
 export class AdminController {
+  /** The release string, resolved once at construction. See `version()` below. */
+  private readonly release: string;
+
   constructor(
     private readonly access: AdminAccessService,
     private readonly operations: AdminOperationsService,
@@ -154,6 +222,10 @@ export class AdminController {
     private readonly giftCodes: GiftCodeAdminService,
     private readonly referrals: ReferralAdminService,
     private readonly catalog: CatalogAdminService,
+    private readonly geography: GeographyAdminService,
+    private readonly channel: ChannelAdminService,
+    private readonly messaging: MessagingAdminService,
+    private readonly policies: PolicyAdminService,
     private readonly insight: AdminInsightService,
     /**
      * The same readiness check `/ready` uses, folded into the dashboard.
@@ -164,7 +236,20 @@ export class AdminController {
      */
     private readonly health: HealthService,
     private readonly pii: PiiHasher,
-  ) {}
+    /**
+     * Only ever to *enqueue*. The API never processes a job (ADR-0005), and the
+     * one thing it produces here is the nudge that starts a confirmed campaign
+     * without waiting for the next scheduled pass.
+     */
+    private readonly queues: QueueService,
+    /** Only for the release string; nothing else in this controller reads it. */
+    @Inject(ENV) env: Env,
+  ) {
+    // Resolved once: it cannot change while the process lives, and the shape rule
+    // is `resolveVersion()`'s, so the panel and the Mini App are told the same
+    // thing about the same deployment.
+    this.release = resolveVersion(env.PAYETAM_VERSION);
+  }
 
   /**
    * Email, password and TOTP — all three, always (D11).
@@ -595,6 +680,51 @@ export class AdminController {
     return toReferralReviewView(await this.referrals.reinstate(admin, id, body.note));
   }
 
+  /**
+   * Correct somebody else's profile (M22 phase 2).
+   *
+   * Behind `user.profile.edit`, asserted in the service — not here. This
+   * controller has no permission check in it, and that is ADR-0010 rule 2 rather
+   * than an omission: the same service is reached by jobs and scripts that do not
+   * pass through a controller at all.
+   *
+   * `PATCH`, so an absent field is left alone and a panel that renders four inputs
+   * cannot clear the fifth it never showed. The `reason` is required by the
+   * schema — an unexplained edit to another person's record is not reviewable six
+   * weeks later, which is the only time anybody will need it to be.
+   */
+  @Patch('users/:publicId/profile')
+  @HttpCode(HttpStatus.OK)
+  async updateUserProfile(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(adminUpdateProfileRequest)) body: AdminUpdateProfileRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<{ profile: ProfileView }> {
+    const profile = await this.operations.updateUserProfile(admin, publicId, {
+      ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      ...(body.birthYear !== undefined ? { birthYear: body.birthYear } : {}),
+      ...(body.cityId !== undefined ? { cityId: body.cityId } : {}),
+      ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
+      ...(body.bio !== undefined ? { bio: body.bio } : {}),
+      reason: body.reason,
+    });
+
+    return {
+      profile: {
+        displayName: profile.displayName,
+        gender: profile.gender,
+        birthYear: profile.birthYear,
+        city: profile.city,
+        district: profile.district,
+        bio: profile.bio,
+        interests: profile.interests,
+        inviteOptOut: profile.inviteOptOut,
+        completedAt: profile.completedAt?.toISOString() ?? null,
+      },
+    };
+  }
+
   @Post('users/:publicId/status')
   @HttpCode(HttpStatus.NO_CONTENT)
   async setUserStatus(
@@ -644,6 +774,25 @@ export class AdminController {
       },
       health: health.checks,
     };
+  }
+
+  /**
+   * Which release the API is running (M22 phase 10, plan §4).
+   *
+   * The same string `/api/v1/version` returns, behind the admin session rather
+   * than public — not because the value is sensitive on this side and not on the
+   * other, but because there is no reason for the panel to talk to an endpoint
+   * outside its own prefix: `/admin/v1` is what nginx proxies for this bundle and
+   * what the session cookie is scoped to.
+   *
+   * No permission check, and that is on purpose. Every other handler in this file
+   * hands a session to a service that decides; this one has nothing to decide —
+   * an `ANALYST` who can see the dashboard can see which release produced it, and
+   * a release tag is not a fact any role is kept from.
+   */
+  @Get('version')
+  version(): { version: string } {
+    return { version: this.release };
   }
 
   // ── Users ──────────────────────────────────────────────────────────────────
@@ -925,6 +1074,517 @@ export class AdminController {
    * back on from, and hiding them would make that impossible from the panel that
    * owns the list.
    */
+  // ── Legal documents (M22 phase 8) ──────────────────────────────────────────
+
+  /**
+   * Every version of every document, drafts included.
+   *
+   * Behind `policy.read`, which `SUPPORT` and `MODERATOR` hold: answering "what
+   * do the current terms say?" is half of what support does, and it is not the
+   * same capability as writing new ones.
+   */
+  @Get('policies')
+  async listPolicies(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminPolicyListQuery)) query: AdminPolicyListQuery,
+  ): Promise<AdminPolicyListResponse> {
+    const rows = await this.policies.list(admin, {
+      ...(query.type !== undefined ? { type: query.type } : {}),
+      ...(query.status !== undefined ? { status: query.status } : {}),
+    });
+    return { policies: rows.map(toAdminPolicyView) };
+  }
+
+  @Get('policies/:id')
+  async getPolicy(
+    @Param('id') id: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(await this.policies.get(admin, id));
+  }
+
+  /** Start the next version of a document. The number is the server's to allocate. */
+  @Post('policies')
+  @HttpCode(HttpStatus.CREATED)
+  async createPolicyDraft(
+    @Body(new ZodValidationPipe(createPolicyDraftRequest)) body: CreatePolicyDraftRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(
+      await this.policies.createDraft(admin, {
+        type: body.type,
+        titleFa: body.titleFa,
+        contentMd: body.contentMd,
+        ...(body.summaryFa !== undefined ? { summaryFa: body.summaryFa } : {}),
+        ...(body.changeSummaryFa !== undefined ? { changeSummaryFa: body.changeSummaryFa } : {}),
+      }),
+    );
+  }
+
+  /**
+   * Edit a draft.
+   *
+   * `expectedRevision` is required by the schema, not optional. Two people editing
+   * one legal document is the ordinary case, and last-write-wins silently discards
+   * whichever of them saved first.
+   */
+  @Patch('policies/:id')
+  async updatePolicyDraft(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updatePolicyDraftRequest)) body: UpdatePolicyDraftRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(
+      await this.policies.updateDraft(admin, id, {
+        expectedRevision: body.expectedRevision,
+        ...(body.titleFa !== undefined ? { titleFa: body.titleFa } : {}),
+        ...(body.contentMd !== undefined ? { contentMd: body.contentMd } : {}),
+        ...(body.summaryFa !== undefined ? { summaryFa: body.summaryFa } : {}),
+        ...(body.changeSummaryFa !== undefined ? { changeSummaryFa: body.changeSummaryFa } : {}),
+      }),
+    );
+  }
+
+  /**
+   * Publish, behind `policy.publish` and behind a typed-back version number.
+   *
+   * The confirmation is a number rather than a boolean because a boolean is a
+   * checkbox and a checkbox is a reflex. Reading the version off the screen and
+   * repeating it is the cheapest defence available against publishing the wrong
+   * draft on a page showing three.
+   */
+  @Post('policies/:id/publish')
+  @HttpCode(HttpStatus.OK)
+  async publishPolicy(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(publishPolicyRequest)) body: PublishPolicyRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(await this.policies.publish(admin, id, body));
+  }
+
+  @Post('policies/:id/archive')
+  @HttpCode(HttpStatus.OK)
+  async archivePolicy(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(publishPolicyRequest.pick({ reason: true })))
+    body: { reason: string },
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminPolicyView> {
+    return toAdminPolicyView(await this.policies.archive(admin, id, body.reason));
+  }
+
+  /**
+   * Who accepted what, and when.
+   *
+   * Behind `policy.consent.read` — per-user evidence is a different capability
+   * from reading the document. The projection carries a public id and never an
+   * `ip_hash`: the hash exists for abuse investigation, and a screen is not that.
+   */
+  @Get('policy-consents')
+  async listPolicyConsents(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(policyConsentQuery)) query: PolicyConsentQuery,
+  ): Promise<PolicyConsentResponse> {
+    const page = await this.policies.listConsents(admin, {
+      ...(query.policyVersionId !== undefined ? { policyVersionId: query.policyVersionId } : {}),
+      ...(query.userPublicId !== undefined ? { userPublicId: query.userPublicId } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { consents: page.rows.map(toPolicyConsentView), total: page.total };
+  }
+
+  // ── Outbound messaging (M22 phase 4) ───────────────────────────────────────
+
+  /**
+   * How many people an audience reaches. **Nothing is written and nothing is sent.**
+   *
+   * A `POST` because the audience is a structured body rather than a query string,
+   * not because it changes anything — and the service refuses to return a list, so
+   * this cannot become a way to enumerate users by city or activity.
+   */
+  @Post('messages/preview')
+  @HttpCode(HttpStatus.OK)
+  async previewMessage(
+    @Body(new ZodValidationPipe(previewMessageRequest)) body: PreviewMessageRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessagePreviewResponse> {
+    const preview = await this.messaging.preview(admin, {
+      audience: body.audience,
+      bodyText: body.bodyText,
+      ...(body.parseMode !== undefined ? { parseMode: body.parseMode } : {}),
+    });
+    return {
+      recipients: preview.recipients,
+      appliedFilters: preview.appliedFilters,
+      bodyText: preview.bodyText,
+      parseMode: preview.parseMode,
+    };
+  }
+
+  /**
+   * Compose a campaign. It lands as `DRAFT` and **this call sends nothing.**
+   *
+   * A dry run finishes here at `COMPLETED` with its recipients counted and no job
+   * ever enqueued; migration 0021's CHECK is what makes it impossible to promote
+   * one afterwards.
+   */
+  @Post('messages')
+  @HttpCode(HttpStatus.CREATED)
+  async createMessage(
+    @Body(new ZodValidationPipe(createMessageRequest)) body: CreateMessageRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    const campaign = await this.messaging.create(admin, {
+      // One recipient is a direct message; anything else is a broadcast, and the
+      // service demands the wider permission for it.
+      kind:
+        body.audience.userPublicIds?.length === 1 && Object.keys(body.audience).length === 1
+          ? 'DIRECT'
+          : 'BROADCAST',
+      bodyText: body.bodyText,
+      ...(body.parseMode !== undefined ? { parseMode: body.parseMode } : {}),
+      audience: body.audience,
+      ...(body.dryRun !== undefined ? { dryRun: body.dryRun } : {}),
+      idempotencyKey: body.idempotencyKey,
+    });
+    return toMessageCampaignView(campaign);
+  }
+
+  @Get('messages')
+  async listMessages(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(pageQuery)) query: PageQuery,
+  ): Promise<MessageCampaignListResponse> {
+    const page = await this.messaging.list(admin, {
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { campaigns: page.rows.map(toMessageCampaignView), total: page.total };
+  }
+
+  @Get('messages/:publicId')
+  async getMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    return toMessageCampaignView(await this.messaging.get(admin, publicId));
+  }
+
+  /**
+   * The second button, and the only edge into delivery.
+   *
+   * Nudges the dispatch queue as soon as the transition commits, so a confirmed
+   * campaign starts in seconds rather than waiting out the minute-by-minute
+   * schedule. The API enqueues and never processes (ADR-0005) — the nudge is a
+   * `queue.add`, and the schedule is still the guarantee.
+   */
+  @Post('messages/:publicId/confirm')
+  @HttpCode(HttpStatus.OK)
+  async confirmMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    const campaign = await this.messaging.confirm(admin, publicId);
+    await this.queues.enqueue(
+      QUEUES.SCHEDULED,
+      JOBS.CAMPAIGN_DISPATCH,
+      jobId('campaign-dispatch', campaign.publicId.replaceAll('-', '')),
+      {},
+    );
+    return toMessageCampaignView(campaign);
+  }
+
+  /**
+   * Stop a campaign.
+   *
+   * Every recipient still pending becomes `SKIPPED`, which is what makes this mean
+   * something: the dispatcher selects on `PENDING`, and a send job already sitting
+   * in Redis finds its recipient resolved and returns without sending. Anything
+   * already delivered stays delivered — nothing can recall a Telegram message.
+   */
+  @Post('messages/:publicId/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    return toMessageCampaignView(await this.messaging.cancel(admin, publicId));
+  }
+
+  /** Resume one the circuit breaker paused, once Telegram has calmed down. */
+  @Post('messages/:publicId/resume')
+  @HttpCode(HttpStatus.OK)
+  async resumeMessage(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<MessageCampaignView> {
+    const campaign = await this.messaging.resume(admin, publicId);
+    await this.queues.enqueue(
+      QUEUES.SCHEDULED,
+      JOBS.CAMPAIGN_DISPATCH,
+      jobId('campaign-dispatch', campaign.publicId.replaceAll('-', ''), 'resume'),
+      {},
+    );
+    return toMessageCampaignView(campaign);
+  }
+
+  /**
+   * A user's Telegram id and username (M22 phase 12).
+   *
+   * The one documented exception to ADR-0009's rule that only the identity module
+   * reads `telegram_account`. Behind `user.telegram.read`, which `SUPER_ADMIN`
+   * alone holds, and **every call writes an audit row** — a permission says who may
+   * look, and only the row says who did.
+   */
+  @Get('users/:publicId/telegram')
+  async userTelegramIdentity(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<TelegramIdentityView> {
+    return toTelegramIdentityView(await this.messaging.telegramIdentity(admin, publicId));
+  }
+
+  // ── The event channel (M22 phase 6) ────────────────────────────────────────
+
+  /**
+   * The channel's public face, the requirement, and whether it is safe to switch on.
+   *
+   * `warnings` is the point of the status shape: turning the requirement on with a
+   * channel the bot cannot see locks out every user at once, so the reasons not to
+   * are returned *with* the configuration rather than discovered afterwards.
+   *
+   * No token appears here. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL_ID` stay in
+   * the environment; a posting destination editable from a web session is one an
+   * attacker with a session can redirect.
+   */
+  @Get('channel-config')
+  async channelConfig(@CurrentAdmin() admin: AdminSession): Promise<ChannelConfigView> {
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /**
+   * Change it, behind `channel.manage`.
+   *
+   * The invite link is validated and **rebuilt** server-side — `https://t.me/…`
+   * only, no query, no fragment — because this value becomes an `href` in a button
+   * every user sees, and an unvalidated one is a phishing link the product would be
+   * hosting.
+   */
+  @Put('channel-config')
+  async updateChannelConfig(
+    @Body(new ZodValidationPipe(updateChannelConfigRequest)) body: UpdateChannelConfigRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    return toChannelConfigView(
+      await this.channel.update(admin, {
+        ...(body.membershipRequired !== undefined
+          ? { membershipRequired: body.membershipRequired }
+          : {}),
+        ...(body.requiredActions !== undefined ? { requiredActions: body.requiredActions } : {}),
+        ...(body.verifyViaTelegram !== undefined
+          ? { verifyViaTelegram: body.verifyViaTelegram }
+          : {}),
+      }),
+    );
+  }
+
+  /**
+   * Add a channel to the list users are required to join (v0.3.1).
+   *
+   * The invite link is validated and **rebuilt** server-side — `https://t.me/…`
+   * only, no query, no fragment — because this value becomes an `href` in a button
+   * every user sees, and an unvalidated one is a phishing link the product would be
+   * hosting.
+   *
+   * The whole configuration comes back rather than just the new row: adding a
+   * channel changes `warnings`, `hasJoinLink` and `canVerify`, and a panel that had
+   * to re-fetch to learn that would render a stale warning block in between.
+   */
+  @Post('channel-config/channels')
+  @HttpCode(HttpStatus.CREATED)
+  async createRequiredChannel(
+    @Body(new ZodValidationPipe(createRequiredChannelRequest)) body: CreateRequiredChannelRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.createChannel(admin, {
+      title: body.title,
+      ...(body.chatIdentifier !== undefined ? { chatIdentifier: body.chatIdentifier } : {}),
+      ...(body.publicUsername !== undefined ? { publicUsername: body.publicUsername } : {}),
+      ...(body.inviteUrl !== undefined ? { inviteUrl: body.inviteUrl } : {}),
+      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+    });
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /** Edit one. An absent key leaves the field alone; an explicit null clears it. */
+  @Patch('channel-config/channels/:id')
+  async updateRequiredChannel(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateRequiredChannelRequest)) body: UpdateRequiredChannelRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.updateChannel(admin, id, {
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      ...(body.chatIdentifier !== undefined ? { chatIdentifier: body.chatIdentifier } : {}),
+      ...(body.publicUsername !== undefined ? { publicUsername: body.publicUsername } : {}),
+      ...(body.inviteUrl !== undefined ? { inviteUrl: body.inviteUrl } : {}),
+      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+    });
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /**
+   * Remove one.
+   *
+   * Refused when it is the last active channel and the requirement is on: that
+   * combination is a gate with nothing behind it, which tells users to join
+   * something and shows them no button. Switching the requirement off first is one
+   * click away and is the operator saying what they mean.
+   */
+  @Delete('channel-config/channels/:id')
+  async deleteRequiredChannel(
+    @Param('id') id: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.deleteChannel(admin, id);
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  /** The order of joining and of display, which the requirement states matters. */
+  @Put('channel-config/channels/order')
+  async reorderRequiredChannels(
+    @Body(new ZodValidationPipe(reorderRequiredChannelsRequest))
+    body: ReorderRequiredChannelsRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ChannelConfigView> {
+    await this.channel.reorderChannels(admin, body.ids);
+    return toChannelConfigView(await this.channel.get(admin));
+  }
+
+  // ── Geography (M22 phase 9) ────────────────────────────────────────────────
+
+  /**
+   * The 31 provinces, with how many cities each holds and how many are served.
+   *
+   * `GET /places` already returns provinces and cities for the activity-tag
+   * picker and stays exactly as it was. This is a different read: it carries the
+   * counts an operator needs to *manage* the list rather than pick from it, and
+   * widening `/places` would have made the picker pay for them.
+   */
+  @Get('provinces')
+  async listProvinces(@CurrentAdmin() admin: AdminSession): Promise<AdminProvinceListResponse> {
+    const rows = await this.geography.listProvinces(admin);
+    return { provinces: rows.map(toAdminProvinceView) };
+  }
+
+  @Post('provinces')
+  @HttpCode(HttpStatus.CREATED)
+  async createProvince(
+    @Body(new ZodValidationPipe(createProvinceRequest)) body: CreateProvinceRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminProvinceView> {
+    return toAdminProvinceView(
+      await this.geography.createProvince(admin, {
+        slug: body.slug,
+        nameFa: body.nameFa,
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+      }),
+    );
+  }
+
+  @Patch('provinces/:id')
+  async updateProvince(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateProvinceRequest)) body: UpdateProvinceRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminProvinceView> {
+    return toAdminProvinceView(
+      await this.geography.updateProvince(admin, id, {
+        ...(body.nameFa !== undefined ? { nameFa: body.nameFa } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+      }),
+    );
+  }
+
+  /**
+   * A page of cities, searched and filtered on the server.
+   *
+   * Paged rather than returned whole, unlike every other catalog read in this
+   * controller: there are 1,252 of them, they carry reference counts, and the
+   * inactive ones are included — which is data no client should hold in memory.
+   */
+  @Get('cities')
+  async listCities(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminCityListQuery)) query: AdminCityListQuery,
+  ): Promise<AdminCityListResponse> {
+    const page = await this.geography.listCities(admin, {
+      ...(query.query !== undefined ? { query: query.query } : {}),
+      ...(query.provinceId !== undefined ? { provinceId: query.provinceId } : {}),
+      ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { cities: page.rows.map(toAdminCityView), total: page.total };
+  }
+
+  @Post('cities')
+  @HttpCode(HttpStatus.CREATED)
+  async createCity(
+    @Body(new ZodValidationPipe(createCityRequest)) body: CreateCityRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminCityView> {
+    return toAdminCityView(
+      await this.geography.createCity(admin, {
+        slug: body.slug,
+        nameFa: body.nameFa,
+        ...(body.provinceId !== undefined ? { provinceId: body.provinceId } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+      }),
+    );
+  }
+
+  /**
+   * Rename, re-file, reorder, activate or deactivate one city.
+   *
+   * There is no `DELETE`, and the omission is the design: `is_active` exists so a
+   * retired city keeps the profiles and events pointing at it intact (migration
+   * 0003), and the foreign keys are `RESTRICT`. Deactivating one that anything
+   * references answers `CITY_HAS_REFERENCES` with the counts until the same
+   * request carries `confirmReferences`.
+   */
+  @Patch('cities/:id')
+  async updateCity(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateCityRequest)) body: UpdateCityRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<AdminCityView> {
+    return toAdminCityView(
+      await this.geography.updateCity(admin, id, {
+        ...(body.nameFa !== undefined ? { nameFa: body.nameFa } : {}),
+        ...(body.provinceId !== undefined ? { provinceId: body.provinceId } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+        ...(body.confirmReferences !== undefined
+          ? { confirmReferences: body.confirmReferences }
+          : {}),
+      }),
+    );
+  }
+
+  @Post('cities/reorder')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async reorderCities(
+    @Body(new ZodValidationPipe(reorderCitiesRequest)) body: ReorderCitiesRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<void> {
+    await this.geography.reorderCities(admin, body.order);
+  }
+
   @Get('activity-tags')
   async listActivityTags(@CurrentAdmin() admin: AdminSession): Promise<ActivityTagsResponse> {
     return { tags: await this.catalog.listTags(admin) };
@@ -1195,5 +1855,166 @@ function toAdminEventView(event: EventSummary): AdminEventView {
     requestCount: event.requestCount,
     reportCount: event.reportCount,
     createdAt: event.createdAt.toISOString(),
+  };
+}
+
+/**
+ * One legal version, field by field (M22 phase 8).
+ *
+ * `contentMd` is projected in full and deliberately: a legal document is short,
+ * and the screen that lists versions is the screen somebody compares two of them
+ * on. A second fetch per row would make "what changed?" a chore.
+ */
+function toAdminPolicyView(policy: PolicySummary): AdminPolicyView {
+  return {
+    id: policy.id,
+    type: policy.type,
+    version: policy.version,
+    status: policy.status,
+    titleFa: policy.titleFa,
+    contentMd: policy.contentMd,
+    summaryFa: policy.summaryFa,
+    changeSummaryFa: policy.changeSummaryFa,
+    isCurrent: policy.isCurrent,
+    revision: policy.revision,
+    createdByAdminId: policy.createdByAdminId,
+    publishedByAdminId: policy.publishedByAdminId,
+    createdAt: policy.createdAt.toISOString(),
+    updatedAt: policy.updatedAt.toISOString(),
+    publishedAt: policy.publishedAt?.toISOString() ?? null,
+    archivedAt: policy.archivedAt?.toISOString() ?? null,
+    acceptanceCount: policy.acceptanceCount,
+  };
+}
+
+/**
+ * One acceptance.
+ *
+ * `ip_hash` and `user_agent_hash` exist on the row and are **not** here. They are
+ * an HMAC kept for abuse investigation; putting them on a screen would turn them
+ * into a value somebody could correlate across users, which is the one thing
+ * hashing them was supposed to prevent (ADR-0009).
+ */
+function toPolicyConsentView(record: ConsentRecord): PolicyConsentResponse['consents'][number] {
+  return {
+    userPublicId: record.userPublicId,
+    policyVersionId: record.policyVersionId,
+    label: record.label,
+    context: record.context,
+    acceptedAt: record.acceptedAt.toISOString(),
+    appVersion: record.appVersion,
+    requestId: record.requestId,
+  };
+}
+
+/** Field by field, never a spread (§3.6 layer 2). */
+function toAdminProvinceView(province: ProvinceSummary): AdminProvinceView {
+  return {
+    id: province.id,
+    slug: province.slug,
+    nameFa: province.nameFa,
+    isActive: province.isActive,
+    sortOrder: province.sortOrder,
+    cityCount: province.cityCount,
+    activeCityCount: province.activeCityCount,
+  };
+}
+
+/**
+ * One city, with the counts that decide whether deactivating it is safe.
+ *
+ * The counts are aggregates, never rows: "234 profiles" says enough to make the
+ * decision and names nobody.
+ */
+function toAdminCityView(city: CitySummary): AdminCityView {
+  return {
+    id: city.id,
+    slug: city.slug,
+    nameFa: city.nameFa,
+    isActive: city.isActive,
+    sortOrder: city.sortOrder,
+    provinceId: city.provinceId,
+    provinceNameFa: city.provinceNameFa,
+    districtCount: city.districtCount,
+    profileCount: city.profileCount,
+    eventCount: city.eventCount,
+  };
+}
+
+/**
+ * One campaign, field by field (§3.6 layer 2).
+ *
+ * `appliedFilters` rather than the audience itself: the panel needs to say which
+ * filters were used, and a raw list of city ids in a response is a list somebody
+ * exports. The counts come from the service, which reads them from the recipient
+ * rows rather than from a number anybody maintained by hand.
+ */
+function toMessageCampaignView(campaign: MessageCampaignSummary): MessageCampaignView {
+  return {
+    publicId: campaign.publicId,
+    kind: campaign.kind,
+    status: campaign.status,
+    bodyText: campaign.bodyText,
+    parseMode: campaign.parseMode,
+    dryRun: campaign.dryRun,
+    estimatedRecipients: campaign.estimatedRecipients,
+    counts: campaign.counts,
+    appliedFilters: Object.keys(campaign.audience),
+    eventPublicId: campaign.eventPublicId,
+    pausedAt: campaign.pausedAt?.toISOString() ?? null,
+    pauseReason: campaign.pauseReason,
+    createdAt: campaign.createdAt.toISOString(),
+    confirmedAt: campaign.confirmedAt?.toISOString() ?? null,
+    startedAt: campaign.startedAt?.toISOString() ?? null,
+    finishedAt: campaign.finishedAt?.toISOString() ?? null,
+    cancelledAt: campaign.cancelledAt?.toISOString() ?? null,
+  };
+}
+
+/** The Telegram id as a string — see the contract for why that is deliberate. */
+function toTelegramIdentityView(identity: TelegramIdentity): TelegramIdentityView {
+  return {
+    telegramUserId: identity.telegramUserId,
+    username: identity.username,
+    directLink: identity.directLink,
+    linkUnavailableReason: identity.linkUnavailableReason,
+    botBlocked: identity.botBlocked,
+    lastSeenAt: identity.lastSeenAt.toISOString(),
+  };
+}
+
+/** Field by field (§3.6 layer 2). Nothing here can carry a token. */
+function toChannelConfigView(config: ChannelConfigStatus): ChannelConfigView {
+  return {
+    membershipRequired: config.membershipRequired,
+    requiredActions: config.requiredActions,
+    verifyViaTelegram: config.verifyViaTelegram,
+    updatedAt: config.updatedAt.toISOString(),
+    channels: config.channels.map(toRequiredChannelView),
+    allChannels: config.allChannels.map(toRequiredChannelView),
+    hasJoinLink: config.hasJoinLink,
+    canVerify: config.canVerify,
+    warnings: config.warnings,
+  };
+}
+
+/**
+ * One channel, field by field.
+ *
+ * `chatIdentifier` **is** projected here, unlike on the user-facing membership
+ * view: the operator typed it and has to be able to correct it, and this route is
+ * behind `channel.manage`. It is still not a secret — it is the same `@payetam`
+ * that appears in the channel's public URL.
+ */
+function toRequiredChannelView(channel: RequiredChannelRecord): RequiredChannelView {
+  return {
+    id: channel.id,
+    title: channel.title,
+    chatIdentifier: channel.chatIdentifier,
+    publicUsername: channel.publicUsername,
+    inviteUrl: channel.inviteUrl,
+    joinUrl: channel.joinUrl,
+    sortOrder: channel.sortOrder,
+    isActive: channel.isActive,
   };
 }

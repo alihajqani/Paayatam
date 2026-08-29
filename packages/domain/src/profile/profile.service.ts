@@ -21,6 +21,40 @@ export interface CompleteProfileInput {
   interestIds: string[];
 }
 
+/**
+ * A partial edit of a profile that already exists (M22 phase 2).
+ *
+ * Every field is `T | undefined` and three of them are `T | null | undefined`,
+ * spelled out rather than `Partial<…>` because the workspace runs
+ * `exactOptionalPropertyTypes`: under that flag `bio?: string | null` accepts an
+ * absent key and rejects an explicit `bio: undefined`, and a Zod-parsed body
+ * hands over exactly the latter.
+ *
+ * The three-way distinction is the contract: **absent** leaves the column alone,
+ * **null** clears it, and a value sets it.
+ */
+export interface UpdateProfileInput {
+  displayName?: string | undefined;
+  gender?: Gender | null | undefined;
+  birthYear?: number | undefined;
+  cityId?: string | undefined;
+  districtId?: string | null | undefined;
+  bio?: string | null | undefined;
+  interestIds?: string[] | undefined;
+  inviteOptOut?: boolean | undefined;
+}
+
+/**
+ * Who is making the edit.
+ *
+ * The domain method is one method for both, because a validation rule that holds
+ * for a user and not for staff is a rule somebody will find the other way round.
+ * What differs is only the audit row — and that difference is exactly what this
+ * discriminant exists to record.
+ */
+export type ProfileEditor =
+  { kind: 'USER' } | { kind: 'ADMIN'; adminUserId: string; reason: string };
+
 export interface ProfileDetail {
   displayName: string;
   gender: Gender | null;
@@ -29,6 +63,8 @@ export interface ProfileDetail {
   district: NamedRef | null;
   bio: string | null;
   interests: NamedRef[];
+  /** Whether this user has asked not to receive event invitations (M22). */
+  inviteOptOut: boolean;
   completedAt: Date | null;
 }
 
@@ -105,8 +141,173 @@ export class ProfileService {
       district: profile.district,
       bio: profile.bio,
       interests: interests.map((row) => row.interest),
+      inviteOptOut: profile.inviteOptOut,
       completedAt: profile.completedAt,
     };
+  }
+
+  /**
+   * Applies a partial edit to a profile that already exists (M22 phase 2).
+   *
+   * Separate from `complete` rather than folded into it, and the separation is
+   * the point. `complete` is an onboarding step: it takes a whole profile,
+   * advances `onboarding_state`, grants coins and moves the Trust Score. None of
+   * that may happen again when somebody fixes a typo in their bio — and the way
+   * to guarantee it does not is for the edit path to have no code that could.
+   *
+   * ── The rules it does keep ──────────────────────────────────────────────────
+   *
+   * **Age is re-checked whenever a birth year is sent**, on the server clock, by
+   * the same `isOldEnough` the onboarding path uses (invariant 9). Editing your
+   * way under eighteen has to be as impossible as signing up under eighteen.
+   *
+   * **The city and the district are resolved together, always.** A district only
+   * means something inside its city, so sending a new city without a district
+   * clears the district rather than leaving one that now belongs somewhere else.
+   * Sending a district alone resolves it against the city already stored.
+   *
+   * **`completed_at` and `onboarding_state` are never touched.** A later edit is
+   * an edit, not a second completion — which is what the column's own comment has
+   * said since M3 and what nothing enforced until now.
+   *
+   * One transaction, so a partial write cannot leave a profile whose interests
+   * belong to the edit and whose city does not.
+   */
+  async update(
+    userId: string,
+    input: UpdateProfileInput,
+    editor: ProfileEditor = { kind: 'USER' },
+  ): Promise<ProfileDetail> {
+    const now = this.clock.now();
+
+    // Before the transaction, and only when a year was actually sent: refusing
+    // an under-age edit should not depend on having taken a lock first, and the
+    // overwhelming majority of edits do not touch the year at all.
+    if (input.birthYear !== undefined) {
+      const minAge = await this.settings.getInt('profile.min_age_years');
+      if (!isOldEnough(input.birthYear, minAge, now, this.env.APP_TIMEZONE)) {
+        throw new AppError(ErrorCode.AGE_BELOW_MINIMUM);
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.userProfile.findUnique({
+        where: { userId },
+        select: {
+          displayName: true,
+          gender: true,
+          birthYear: true,
+          cityId: true,
+          districtId: true,
+          bio: true,
+          inviteOptOut: true,
+        },
+      });
+      // Editing something that was never created is not an edit. The Mini App
+      // routes an unfinished user to onboarding; this is the same refusal for
+      // anybody who reaches the endpoint another way.
+      if (!existing) throw new AppError(ErrorCode.PROFILE_INCOMPLETE);
+
+      const data: {
+        displayName?: string;
+        gender?: Gender | null;
+        birthYear?: number;
+        cityId?: string;
+        districtId?: string | null;
+        bio?: string | null;
+        inviteOptOut?: boolean;
+      } = {};
+
+      if (input.displayName !== undefined) data.displayName = input.displayName;
+      if (input.gender !== undefined) data.gender = input.gender;
+      if (input.birthYear !== undefined) data.birthYear = input.birthYear;
+      if (input.bio !== undefined) data.bio = input.bio;
+      if (input.inviteOptOut !== undefined) data.inviteOptOut = input.inviteOptOut;
+
+      /**
+       * The city/district pair, resolved as a pair.
+       *
+       * Checked inside the transaction against the live catalog, so an admin
+       * deactivating a city while this runs cannot be beaten by a request that
+       * read the catalog five minutes ago — the same reason `complete` resolves
+       * here rather than at the edge.
+       */
+      if (input.cityId !== undefined || input.districtId !== undefined) {
+        const cityId = input.cityId ?? existing.cityId;
+        // A new city with no district named clears the old one: a district that
+        // belongs to the city somebody just left is not a place they are.
+        const districtId =
+          input.districtId !== undefined
+            ? input.districtId
+            : input.cityId !== undefined && input.cityId !== existing.cityId
+              ? null
+              : existing.districtId;
+
+        const location = await this.catalog.resolveLocation(cityId, districtId ?? undefined, tx);
+        data.cityId = location.cityId;
+        data.districtId = location.districtId;
+      }
+
+      if (Object.keys(data).length > 0) {
+        await tx.userProfile.update({ where: { userId }, data });
+      }
+
+      let interestIds: string[] | null = null;
+      if (input.interestIds !== undefined) {
+        interestIds = await this.catalog.assertInterestsSelectable(input.interestIds, tx);
+        // Drop-then-add, exactly as `complete` does it and for the same reason:
+        // delete-all-then-insert makes two concurrent identical edits collide on
+        // the primary key and abort the loser's whole transaction.
+        await tx.userInterest.deleteMany({ where: { userId, interestId: { notIn: interestIds } } });
+        await tx.userInterest.createMany({
+          data: interestIds.map((interestId) => ({ userId, interestId })),
+          skipDuplicates: true,
+        });
+      }
+
+      /**
+       * What the audit row says, and what it deliberately does not.
+       *
+       * A user editing their own profile gets **field names only** — that is the
+       * discipline `complete` already follows, and ADR-0009's reason holds: the
+       * trail records that a change happened, not a second copy of the content.
+       *
+       * An **admin** editing somebody else's profile gets old and new values for
+       * the fields a support conversation is about, because an unexplained change
+       * to another person's record is not reviewable later. The bio is the one
+       * exception on both sides: it is free text a user wrote, `user.read` already
+       * masks it for staff, and copying it verbatim into a table staff export
+       * would put it somewhere the masking does not reach. Its lengths go in
+       * instead, which is enough to see that something was removed.
+       */
+      const changed = fieldsChanged(existing, data, interestIds);
+
+      await this.audit.record(
+        {
+          actorType: editor.kind === 'ADMIN' ? 'ADMIN' : 'USER',
+          actorId: editor.kind === 'ADMIN' ? editor.adminUserId : userId,
+          action: editor.kind === 'ADMIN' ? 'admin.profile.updated' : 'profile.updated',
+          targetType: 'user_profile',
+          targetId: userId,
+          ...(editor.kind === 'ADMIN'
+            ? {
+                before: valueSnapshot(existing),
+                after: {
+                  ...valueSnapshot({ ...existing, ...data }),
+                  reason: editor.reason,
+                  changedFields: changed,
+                },
+              }
+            : { after: { changedFields: changed } }),
+        },
+        tx,
+      );
+    });
+
+    const profile = await this.find(userId);
+    // Unreachable: the transaction above refused when there was none.
+    if (!profile) throw new AppError(ErrorCode.INTERNAL_ERROR);
+    return profile;
   }
 
   /**
@@ -281,4 +482,42 @@ export class ProfileService {
       trustScore: result.trustScore,
     };
   }
+}
+
+/**
+ * Which fields this edit actually moved.
+ *
+ * Compared rather than assumed, so "changed the display name" is not recorded for
+ * a request that sent the same display name back. An audit trail full of edits
+ * that changed nothing is one nobody reads.
+ */
+function fieldsChanged(
+  before: Record<string, unknown>,
+  data: Record<string, unknown>,
+  interestIds: string[] | null,
+): string[] {
+  const changed = Object.keys(data).filter((key) => before[key] !== data[key]);
+  if (interestIds !== null) changed.push('interestIds');
+  return changed;
+}
+
+/**
+ * The allowlisted before/after an admin edit records.
+ *
+ * An allowlist rather than a spread, like every other audit shape in this
+ * codebase: `before`/`after` are a read surface staff export, and "it happened to
+ * be safe when I wrote it" does not survive somebody adding a column.
+ *
+ * The bio is a **length**, never the text. See the note at the call site.
+ */
+function valueSnapshot(row: Record<string, unknown>): Record<string, string | number | null> {
+  const bio = row['bio'];
+  return {
+    displayName: typeof row['displayName'] === 'string' ? row['displayName'] : null,
+    gender: typeof row['gender'] === 'string' ? row['gender'] : null,
+    birthYear: typeof row['birthYear'] === 'number' ? row['birthYear'] : null,
+    cityId: typeof row['cityId'] === 'string' ? row['cityId'] : null,
+    districtId: typeof row['districtId'] === 'string' ? row['districtId'] : null,
+    bioLength: typeof bio === 'string' ? bio.length : 0,
+  };
 }

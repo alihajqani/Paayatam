@@ -1,14 +1,20 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
 import { CoinService, ConsentService, ProfileService, UserService } from '@payetam/domain';
 import {
   acceptConsentRequest,
   completeProfileRequest,
+  updateProfileRequest,
   type CompleteProfileRequest,
   type CompleteProfileResponse,
   type MeResponse,
+  type MyPoliciesResponse,
   type PolicyView,
+  type ProfileView,
+  type UpdateProfileRequest,
 } from '@payetam/shared';
+import { currentRequestContext } from '@payetam/platform';
 import type { FastifyRequest } from 'fastify';
+import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AllowPendingTerms, CurrentUser, Public, type AuthenticatedUser } from '../auth/auth.guard';
 import { toProfileView } from './profile.view';
@@ -58,6 +64,32 @@ export class OnboardingController {
   }
 
   /**
+   * What this user still has to accept, and what they already have (M22 phase 8).
+   *
+   * `@AllowPendingTerms` for the same reason `POST /onboarding/consent` has it:
+   * the whole point of this endpoint is to be reachable by somebody who has not
+   * accepted anything yet.
+   *
+   * `pending` is what the Mini App routes on. It is **not** the authority — the
+   * `@RequiresCurrentPolicies()` guard re-checks on every protected write, because
+   * a client that skips a screen is not a client that skipped the rule.
+   */
+  @AllowPendingTerms()
+  @Get('me/policies')
+  async myPolicies(@CurrentUser() current: AuthenticatedUser): Promise<MyPoliciesResponse> {
+    const internalId = await this.users.resolveInternalId(current.publicId);
+    const standing = await this.consent.standingFor(internalId);
+
+    return {
+      pending: standing.pending,
+      accepted: standing.accepted.map((entry) => ({
+        policy: entry.policy,
+        acceptedAt: entry.acceptedAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
    * Records acceptance and advances onboarding.
    *
    * `@AllowPendingTerms` because this is the endpoint that resolves the pending
@@ -79,11 +111,21 @@ export class OnboardingController {
   ): Promise<{ onboardingState: string }> {
     const user = await this.users.findByPublicId(current.publicId);
     const internalId = await this.users.resolveInternalId(user.publicId);
+    // The same id `x-request-id` echoes back and every log line for this request
+    // carries, so an acceptance can be found in the access log by one string.
+    const requestId = currentRequestContext()?.requestId;
 
     await this.consent.acceptPolicies(internalId, body.policyVersionIds, {
       // Hashed with a server pepper before storage; the raw values never persist.
       ...(request.ip ? { ipAddress: request.ip } : {}),
       ...(request.headers['user-agent'] ? { userAgent: request.headers['user-agent'] } : {}),
+      // Correlation id and a release string (M22). Both go in clear, because
+      // neither identifies a person: one ties the record to the access log, the
+      // other says which build of the app the document was read in.
+      ...(requestId !== undefined ? { requestId } : {}),
+      ...(typeof request.headers['x-app-version'] === 'string'
+        ? { appVersion: request.headers['x-app-version'].slice(0, 32) }
+        : {}),
     });
 
     const updated = await this.users.findByPublicId(current.publicId);
@@ -125,5 +167,50 @@ export class OnboardingController {
       rewardGranted: completion.rewardGranted,
       trustScore: completion.trustScore,
     };
+  }
+
+  /**
+   * Edit the signed-in user's own profile (M22 phase 2).
+   *
+   * `PATCH`, and the verb is the contract: an absent field is left alone, so a
+   * client that only changed the bio sends only the bio and cannot accidentally
+   * clear the interests it did not render. `POST /onboarding/profile` stays
+   * exactly as it was — it is the onboarding step, it takes a whole profile, and
+   * it is the only path that grants coins.
+   *
+   * **Authorisation is structural rather than checked.** The user id comes from
+   * the session, never from the body or the path, so there is no parameter a
+   * caller could point at somebody else's profile. Editing another user is an
+   * admin capability behind `user.profile.edit`, on a different route.
+   *
+   * Behind the terms gate like every other authenticated route, and behind the
+   * global rate limiter's `PROFILE_UPDATE` bucket — a profile edit is a write a
+   * script could run in a loop, and the moderation surface it feeds (display
+   * name, bio) is exactly what makes that worth bounding.
+   */
+  @Patch('me/profile')
+  @RateLimit('PROFILE_UPDATE')
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(
+    @Body(new ZodValidationPipe(updateProfileRequest)) body: UpdateProfileRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<{ profile: ProfileView }> {
+    const internalId = await this.users.resolveInternalId(current.publicId);
+
+    // Rebuilt key by key rather than spread, because `exactOptionalPropertyTypes`
+    // distinguishes an absent key from an explicit `undefined` — and a parsed Zod
+    // body carries the second for every field the client omitted.
+    const profile = await this.profiles.update(internalId, {
+      ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      ...(body.birthYear !== undefined ? { birthYear: body.birthYear } : {}),
+      ...(body.cityId !== undefined ? { cityId: body.cityId } : {}),
+      ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
+      ...(body.bio !== undefined ? { bio: body.bio } : {}),
+      ...(body.interestIds !== undefined ? { interestIds: body.interestIds } : {}),
+      ...(body.inviteOptOut !== undefined ? { inviteOptOut: body.inviteOptOut } : {}),
+    });
+
+    return { profile: toProfileView(profile) };
   }
 }

@@ -92,6 +92,17 @@ code="$(status_of "$APP_HOST" /health)"
 body="$(fetch "$APP_HOST" /health 2> /dev/null || echo '')"
 [[ "$body" == *'"status":"ok"'* ]] && pass "/health reports ok" || bad "/health body was: ${body:-empty}"
 
+# The check that tells you *which* release answered, not just that something did
+# (M22 phase 10). `PAYETAM_VERSION` is exported by deploy.sh before it builds, so
+# the tag being deployed, the image tag and this answer are the same string — and
+# a mismatch here is the one symptom of a container that was never replaced.
+body="$(fetch "$APP_HOST" /api/v1/version 2> /dev/null || echo '')"
+if [[ "$body" == *"\"version\":\"${PAYETAM_VERSION:-local}\""* ]]; then
+    pass "/api/v1/version reports ${PAYETAM_VERSION:-local}"
+else
+    bad "/api/v1/version said ${body:-nothing}, expected ${PAYETAM_VERSION:-local}"
+fi
+
 code="$(status_of "$APP_HOST" /)"
 [[ "$code" == '200' ]] && pass "the Mini App bundle is served" || bad "GET / → ${code} (expected 200)"
 
@@ -108,6 +119,29 @@ fi
 # History-mode routing: an unknown path must return the SPA, not a 404.
 code="$(status_of "$APP_HOST" /some/client/route)"
 [[ "$code" == '200' ]] && pass "history-mode routing falls back to index.html" || bad "an unknown path → ${code} (expected 200)"
+
+# ── The legal documents (v0.3.1, report 1) ───────────────────────────────────
+#
+# `/api/v1/policies/current` is the one authenticated-product endpoint that is
+# deliberately `@Public()`: the terms have to be readable before anybody has a
+# reason to sign in. It is checked here because it is the endpoint the *whole of
+# report 1* rests on — a user refused with POLICY_VERSION_STALE is sent to a
+# screen that renders whatever this returns, so a 500 or a proxy rule that never
+# reached it turns the gate into the dead end this release exists to close.
+#
+# It is **not** asserted to be non-empty. A deployment whose legal text is still
+# in draft correctly returns `{"policies":[]}`, nothing is gated in that state,
+# and failing the deploy over it would be this check inventing a requirement.
+# What the count is, is *reported*, because "how many current policies does
+# production have?" is the question the deploy runbook asks first.
+body="$(fetch "$APP_HOST" /api/v1/policies/current 2> /dev/null || echo '')"
+if grep -q '"policies"' <<< "$body"; then
+    count="$(grep -o '"type"' <<< "$body" | wc -l | tr -d ' ')"
+    pass "/api/v1/policies/current answers — ${count} current document(s)"
+    [[ "$count" == '0' ]] && log "  note: no published policy. Nothing is gated; the terms screen says so."
+else
+    bad "/api/v1/policies/current returned ${body:-nothing} — the terms screen has nothing to render"
+fi
 
 # ── The closed endpoints ─────────────────────────────────────────────────────
 #

@@ -73,6 +73,75 @@ export const PERMISSIONS = {
    * a signal nobody can act on are the same bug seen from two sides.
    */
   REFERRAL_MANAGE: 'referral.manage',
+  /**
+   * Edit another user's profile (M22 phase 2).
+   *
+   * Its own permission rather than a widening of `user.read`, because the two are
+   * a read and a write over the same rows — and `SUPPORT`, the role most exposed
+   * to "please just change it for me", is exactly the role that must hold the
+   * first and not the second. `SUPER_ADMIN` alone, for the reason `coin.adjust`
+   * is: the request that arrives most often as social engineering is the one that
+   * asks somebody to alter another person's record.
+   */
+  USER_PROFILE_EDIT: 'user.profile.edit',
+  /**
+   * See a user's Telegram id and username (M22 phase 12).
+   *
+   * The highest-value PII in the product, which is why `telegram_account` is its
+   * own table that only the identity module reads (ADR-0009). This permission is
+   * the one documented exception, it is `SUPER_ADMIN` only, and every use writes
+   * an audit row naming the admin and the user they looked at.
+   */
+  USER_TELEGRAM_READ: 'user.telegram.read',
+  /**
+   * Send a Telegram message to one named user (M22 phase 4).
+   *
+   * Not part of user management: reading somebody's record and writing to their
+   * private messages are different acts with different consequences, and the
+   * second one is visible to the user.
+   */
+  MESSAGE_SEND: 'message.send',
+  /**
+   * Send to a filtered set of users at once (M22 phase 4).
+   *
+   * Separate from `message.send` because the blast radius is different by orders
+   * of magnitude. A mistake in the first reaches one person; a mistake in the
+   * second reaches everybody, cannot be recalled, and is the fastest way to get
+   * a bot restricted by Telegram.
+   */
+  MESSAGE_BROADCAST: 'message.broadcast',
+  /**
+   * Read legal documents and their drafts in the panel (M22 phase 8).
+   *
+   * Split from `policy.manage` so support staff can answer "what do the current
+   * terms say?" without holding the ability to write new ones.
+   */
+  POLICY_READ: 'policy.read',
+  /**
+   * Publish a legal version, making it the one users must accept (M22 phase 8).
+   *
+   * The legally significant act, and therefore separate from `policy.manage`,
+   * which now means "write and edit drafts". Drafting is reversible; publishing
+   * changes what every user is being asked to agree to and produces consent
+   * records that are immutable by design.
+   */
+  POLICY_PUBLISH: 'policy.publish',
+  /**
+   * Read who accepted which version and when (M22 phase 8).
+   *
+   * Per-user evidence rather than aggregate, so it is its own key rather than
+   * part of `policy.read` — the question "did this person accept v3?" is a
+   * question about a person.
+   */
+  POLICY_CONSENT_READ: 'policy.consent.read',
+  /**
+   * Configure the event channel and whether joining it is required (M22 phase 6).
+   *
+   * Its own permission because switching the requirement on with a misconfigured
+   * channel locks out every user of the product at once. That is a bigger button
+   * than anything else behind `settings.manage`.
+   */
+  CHANNEL_MANAGE: 'channel.manage',
   /** Read the audit trail. */
   AUDIT_READ: 'audit.read',
   /** Request or approve a role change. Four-eyes applies on top (rule 4). */

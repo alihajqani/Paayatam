@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
 import { ChatService, ParticipationService, normalize } from '@payetam/domain';
+import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { TEMPLATES } from '@payetam/telegram';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
@@ -342,6 +343,298 @@ describe('/start', () => {
 });
 
 /**
+ * The read-only commands.
+ *
+ * Every one of these answers something the Mini App also answers, and the point
+ * is the round trip it removes: checking a balance was previously open the app,
+ * wait for the home screen, read one number.
+ *
+ * They are asserted through the webhook rather than against `BotService`, because
+ * what matters is that a command produces exactly one deduped `notification` row
+ * — the same delivery path as every other message — and a unit test on the
+ * service would assert the call and not the row.
+ */
+describe('commands', () => {
+  it('answers /help with the capability list', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/help') }));
+
+    expect(await replyTo(HOST_TELEGRAM_ID)).toEqual([
+      { templateKey: TEMPLATES.BOT_WELCOME, text: '' },
+      { templateKey: TEMPLATES.BOT_HELP, text: '' },
+    ]);
+  });
+
+  /** No coin account yet is a zero balance, not an error — accounts are lazy. */
+  it('answers /balance with zero for an account that has never moved', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/balance') }));
+
+    const rows = await prisma.notification.findMany({
+      where: { templateKey: TEMPLATES.BOT_BALANCE },
+      select: { payload: true },
+    });
+
+    expect(rows).toHaveLength(1);
+    expect((rows[0]?.payload as Record<string, unknown>)['balance']).toBe(0);
+  });
+
+  it('reports the balance the ledger actually holds', async () => {
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await prisma.coinAccount.create({ data: { userId: guestId, balance: 42 } });
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/balance') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_BALANCE },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['balance']).toBe(42);
+  });
+
+  /**
+   * The unknown-command reply used to send people back to `/start`, which told
+   * them nothing they had not already read. It names `/help` now.
+   */
+  it('points an unknown command at /help rather than at /start', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/nonsense') }));
+
+    const replies = await replyTo(HOST_TELEGRAM_ID);
+    expect(replies).toHaveLength(2);
+    expect(replies[1]?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
+    expect(replies[1]?.text).toContain('/help');
+  });
+
+  it('answers /requests with nothing asked for yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/requests') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REQUESTS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز درخواستی نداده‌اید');
+  });
+
+  /**
+   * The point of the command: a list that names the events, because «در انتظار»
+   * three times over tells somebody nothing about which request is which.
+   */
+  it('names the event each request is for', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/requests') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REQUESTS },
+      select: { payload: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    const title = (
+      await prisma.event.findUniqueOrThrow({
+        where: { publicId: eventPublicId },
+        select: { title: true },
+      })
+    ).title;
+
+    expect(text).toContain(title);
+    expect(text).toContain('در انتظار پاسخ میزبان');
+  });
+
+  it('answers /myevents with nothing hosted yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/myevents') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_MY_EVENTS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز رویدادی نساخته‌اید');
+  });
+
+  /** The seats are the point: "do I still need people" without opening anything. */
+  it('names the event and how full it is', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/myevents') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_MY_EVENTS },
+      select: { payload: true },
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { title: true },
+    });
+
+    expect(String((row.payload as Record<string, unknown>)['text'])).toContain(event.title);
+  });
+
+  it('answers /chats with nothing open yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/chats') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CHATS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('گفتگوی بازی ندارید');
+  });
+
+  /**
+   * The command's reason for existing: `ambiguityAdvice` tells somebody with two
+   * live chats to reply to the right message, which assumed they could see which
+   * conversations those were without opening the Mini App.
+   */
+  it('names the counterpart and the event for each open conversation', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/chats') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CHATS },
+      select: { payload: true },
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { title: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    expect(text).toContain(event.title);
+    // The host's display name, which ADR-0014 already discloses on both surfaces.
+    expect(text).toContain('میزبان');
+  });
+
+  /**
+   * A live conversation is `ANONYMOUS` until contact is shared, and that is the
+   * status most rows carry. It must read as Persian, not as the enum.
+   */
+  it('renders an anonymous conversation in Persian, not as ANONYMOUS', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/chats') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CHATS },
+      select: { payload: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    expect(text).toContain('ناشناس');
+    expect(text).not.toContain('ANONYMOUS');
+  });
+
+  /**
+   * The first surface in the product that shows a user their own Trust Score.
+   * `GET /me/trust` has existed since M18; no Mini App view renders it.
+   */
+  it('answers /profile with the name, the city and the trust score', async () => {
+    await seedHostAndEvent();
+
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/profile') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_PROFILE },
+      select: { payload: true },
+    });
+
+    const payload = row.payload as Record<string, unknown>;
+    expect(payload['displayName']).toBe('میزبان');
+    expect(typeof payload['cityName']).toBe('string');
+    expect(typeof payload['trustScore']).toBe('number');
+  });
+
+  /** A card of empty fields is worse than a sentence saying where to fill them in. */
+  it('sends somebody with no profile to the app rather than an empty card', async () => {
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/profile') }));
+
+    expect(await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_PROFILE } })).toBe(
+      0,
+    );
+    const notice = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_NOTICE },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect((notice.payload as Record<string, unknown>)['text']).toContain(
+      'هنوز نمایه‌ای نساخته‌اید',
+    );
+  });
+
+  /**
+   * The product's core question, answered without opening anything. The city is
+   * the sender's own, which is what makes the command single-turn.
+   */
+  it('answers /discover with activities in the sender’s city', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/discover') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+      select: { payload: true },
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { title: true },
+    });
+
+    const text = String((row.payload as Record<string, unknown>)['text']);
+    expect(text).toContain(event.title);
+    // The liability statement, over every list that has anything in it.
+    expect(text).toContain(EVENT_DISCLAIMER_SHORT_FA);
+  });
+
+  /** No profile means no city, and «فعالیتی پیدا نشد» would be a false answer. */
+  it('asks for a profile before answering /discover without one', async () => {
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/discover') }));
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_DISCOVER } }),
+    ).toBe(0);
+  });
+
+  it('answers /reviews with nothing owed yet', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/reviews') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REVIEWS },
+      select: { payload: true },
+    });
+
+    expect((row.payload as Record<string, unknown>)['text']).toContain('نظر منتظری ندارید');
+  });
+
+  /** A command is a command, not chat text: it is never relayed to a stranger. */
+  it('does not relay a command into an open conversation', async () => {
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/help') }));
+
+    expect(await prisma.chatMessage.count()).toBe(0);
+  });
+});
+
+/**
  * The relay: a message typed into the bot's DM, delivered into a conversation.
  *
  * This is M8's release gate reduced to what an automated test can reach. The gate
@@ -669,6 +962,119 @@ describe('callback_query', () => {
   });
 
   /**
+   * Sharing contact details from inside the bot (report 6).
+   *
+   * Two taps, and the first one **must not disclose anything**. That is the
+   * property this pair of tests exists for: consent to disclose is the one
+   * decision in this product that has to be unambiguous (ADR-0009), and the whole
+   * reason `share` and `shareyes` are separate actions is that a message arriving
+   * unbidden must not be one tap away from an irreversible disclosure.
+   *
+   * What it replaces is a trip to a different application for a confirmation that
+   * was always going to be a confirmation.
+   */
+  describe('sharing contact details', () => {
+    async function openChat(): Promise<{ chatPublicId: string; guestUserId: string }> {
+      const { eventPublicId, hostId } = await seedHostAndEvent();
+      const guestUserId = await seedGuest(GUEST_TELEGRAM_ID);
+      const joined = await participation.join(guestUserId, eventPublicId);
+      // Only an accepted conversation may exchange contact details.
+      await participation.accept(hostId, joined.publicId);
+
+      return { chatPublicId: joined.chatPublicId ?? '', guestUserId };
+    }
+
+    it('discloses nothing when the first button is tapped', async () => {
+      const { chatPublicId, guestUserId } = await openChat();
+
+      await post(
+        update({
+          callback_query: {
+            id: 'q-share',
+            from: sender(GUEST_TELEGRAM_ID),
+            data: `chat:share:${chatPublicId}`,
+          },
+        }),
+      );
+
+      const shared = await prisma.chatParticipant.count({
+        where: { userId: guestUserId, contactSharedAt: { not: null } },
+      });
+      expect(shared).toBe(0);
+    });
+
+    it('records the decision when the confirmation is tapped', async () => {
+      const { chatPublicId, guestUserId } = await openChat();
+
+      await post(
+        update({
+          callback_query: {
+            id: 'q-shareyes',
+            from: sender(GUEST_TELEGRAM_ID),
+            data: `chat:shareyes:${chatPublicId}`,
+          },
+        }),
+      );
+
+      const shared = await prisma.chatParticipant.count({
+        where: { userId: guestUserId, contactSharedAt: { not: null } },
+      });
+      expect(shared).toBe(1);
+    });
+
+    /**
+     * The bot reaches the same service the Mini App does, so it inherits the same
+     * idempotency: pressing the button twice is one decision, not two.
+     */
+    it('treats a second confirmation as the same decision', async () => {
+      const { chatPublicId, guestUserId } = await openChat();
+
+      for (const id of ['q-yes-1', 'q-yes-2']) {
+        await post(
+          update({
+            callback_query: {
+              id,
+              from: sender(GUEST_TELEGRAM_ID),
+              data: `chat:shareyes:${chatPublicId}`,
+            },
+          }),
+        );
+      }
+
+      const consents = await prisma.chatParticipant.findMany({
+        where: { userId: guestUserId },
+        select: { contactSharedAt: true },
+      });
+      expect(consents.filter((row) => row.contactSharedAt !== null)).toHaveLength(1);
+    });
+
+    /**
+     * `callback_data` is client input. A tap naming somebody else's conversation
+     * must be refused by the service, not by the button.
+     */
+    it('refuses a confirmation from somebody who is not in the conversation', async () => {
+      const { chatPublicId } = await openChat();
+      const stranger = 900_222_000;
+      await seedGuest(stranger);
+
+      await post(
+        update({
+          callback_query: {
+            id: 'q-stranger',
+            from: sender(stranger),
+            data: `chat:shareyes:${chatPublicId}`,
+          },
+        }),
+      );
+
+      const shared = await prisma.chatParticipant.count({
+        where: { contactSharedAt: { not: null } },
+      });
+      expect(shared).toBe(0);
+    });
+  });
+
+  /**
    * **The button carries no authority.**
    *
    * `callback_data` is client input, so a tap can name any public id; the refusal
@@ -852,3 +1258,461 @@ async function internalIdOf(telegramUserId: number): Promise<string> {
   });
   return account.userId;
 }
+
+/**
+ * `/create_event`, from the first question to a row in `event` (ADR-0017).
+ *
+ * The end-to-end test the brief asked for, and it is written through the webhook
+ * rather than against `ConversationService` on purpose: what is being checked is
+ * that a *Telegram update* reaches the wizard, that its buttons decode, that the
+ * assembled form satisfies the same contract the API uses, and that an event
+ * comes out the other end. A service-level test would prove none of the wiring.
+ */
+describe('POST /telegram/:secret — creating an event in the chat', () => {
+  /**
+   * The shared fixture's cities have no province, because nothing needed one
+   * until the wizard asked. Added here rather than in `seedCatalog` so no other
+   * suite's expectations move.
+   */
+  async function seedProvince(): Promise<string> {
+    const province = await prisma.province.create({
+      data: { slug: 'tehran-province', nameFa: 'تهران', isActive: true },
+    });
+    await prisma.city.update({
+      where: { id: fixture.tehranId },
+      data: { provinceId: province.id },
+    });
+    return province.id;
+  }
+
+  /** The next `update_id`, so every step is a distinct update as Telegram sends them. */
+  let sequence = 5000;
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  it('walks the core path and creates the event', async () => {
+    const provinceId = await seedProvince();
+    const hostId = await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    // Creating an event costs `economy.event_create_coins` (M22 phase 5), charged
+    // inside the same transaction. The wizard does not change that, and a host
+    // who cannot afford it is refused here exactly as they would be in the app.
+    await prisma.coinAccount.upsert({
+      where: { userId: hostId },
+      create: { userId: hostId, balance: 100 },
+      update: { balance: 100 },
+    });
+
+    await type(HOST_TELEGRAM_ID, '/create_event');
+    await type(HOST_TELEGRAM_ID, 'کوهنوردی صبح جمعه');
+    await type(HOST_TELEGRAM_ID, 'از دربند تا شیرپلا، صبح زود راه می‌افتیم.');
+    await tap(HOST_TELEGRAM_ID, `wz:cat:${fixture.categoryId}`);
+    await tap(HOST_TELEGRAM_ID, `wz:prov:${provinceId}`);
+    await tap(HOST_TELEGRAM_ID, `wz:city:${fixture.tehranId}`);
+    await tap(HOST_TELEGRAM_ID, 'wz:skip:');
+
+    // Far enough ahead that the calendar would have offered it.
+    const day = new Date(Date.now() + 21 * 86_400_000).toISOString().slice(0, 10);
+    await tap(HOST_TELEGRAM_ID, `wz:day:${day}`);
+    await tap(HOST_TELEGRAM_ID, 'wz:hour:18');
+    await tap(HOST_TELEGRAM_ID, 'wz:dur:3');
+    await tap(HOST_TELEGRAM_ID, 'wz:cap:6');
+    await tap(HOST_TELEGRAM_ID, 'wz:cost:FREE');
+
+    // Everything required is answered: the summary is showing, and «ثبت» commits.
+    await tap(HOST_TELEGRAM_ID, 'wz:confirm:');
+
+    const event = await prisma.event.findFirstOrThrow({
+      where: { hostUserId: hostId },
+      select: { title: true, capacity: true, costType: true, cityId: true, startsAt: true },
+    });
+    expect(event.title).toBe('کوهنوردی صبح جمعه');
+    expect(event.capacity).toBe(6);
+    expect(event.costType).toBe('FREE');
+    expect(event.cityId).toBe(fixture.tehranId);
+
+    // 18:00 Tehran is 14:30 UTC. The wizard commits an instant, not a wall clock.
+    expect(event.startsAt.toISOString()).toContain('T14:30:00');
+
+    // The draft is gone: a submitted form is not a form in progress.
+    expect(await prisma.conversationState.count({ where: { userId: hostId } })).toBe(0);
+  });
+
+  /** A refusal holds the step; it does not advance past the question. */
+  it('refuses a title that is too short and stays on the step', async () => {
+    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await type(HOST_TELEGRAM_ID, '/create_event');
+    await type(HOST_TELEGRAM_ID, 'ab');
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.step).toBe('title');
+  });
+
+  /**
+   * The ordering that matters most in the whole wiring: text typed into an open
+   * wizard is an *answer*, never a message relayed to a stranger.
+   */
+  it('does not relay wizard text into an open chat', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await type(GUEST_TELEGRAM_ID, 'این نام فعالیت است، نه پیام');
+
+    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
+  });
+
+  /** Telegram retries any webhook call that did not answer 200. */
+  it('does not advance twice on a redelivered update', async () => {
+    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await type(HOST_TELEGRAM_ID, '/create_event');
+
+    const replayed = update({
+      update_id: 9001,
+      message: textMessage(sender(HOST_TELEGRAM_ID), 'کوهنوردی صبح جمعه'),
+    });
+    await post(replayed);
+    await post(replayed);
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    // One advance, not two: still on the description, not past it.
+    expect(state.step).toBe('desc');
+  });
+
+  it('closes the form on «انصراف»', async () => {
+    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await type(HOST_TELEGRAM_ID, '/create_event');
+    await tap(HOST_TELEGRAM_ID, 'wz:cancel:');
+
+    expect(await prisma.conversationState.count()).toBe(0);
+  });
+});
+
+/**
+ * `/edit_profile` — the wizard ADR-0017 puts on the critical path.
+ *
+ * A user who cannot complete a profile cannot do anything, so this has to work
+ * before the Mini App can be switched off.
+ */
+describe('POST /telegram/:secret — editing a profile in the chat', () => {
+  let sequence = 7000;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  it('changes only the fields that were answered', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID, 'نام قدیمی');
+    const before = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
+
+    await type(GUEST_TELEGRAM_ID, '/edit_profile');
+    await type(GUEST_TELEGRAM_ID, 'نام تازه');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // birth year
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // province
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // city
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // bio
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const after = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
+    expect(after.displayName).toBe('نام تازه');
+    // A skipped step means "leave this alone", not "clear it".
+    expect(after.birthYear).toBe(before.birthYear);
+    expect(after.cityId).toBe(before.cityId);
+  });
+
+  /**
+   * The mistake this product will actually see: a Persian speaker types their
+   * Jalali birth year. The refusal has to name the conversion, or they retype
+   * the same number.
+   */
+  it('explains the Jalali year rather than only refusing it', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID, 'نام');
+
+    await type(GUEST_TELEGRAM_ID, '/edit_profile');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // name
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
+    await type(GUEST_TELEGRAM_ID, '۱۳۷۰');
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    // Held on the same step rather than advanced past a value it refused.
+    expect(state.step).toBe('birth');
+  });
+});
+
+/**
+ * The consent gate, on the surface that never had one (ADR-0017).
+ *
+ * The policy gate has always lived in `AuthGuard`, applied per route. **The bot
+ * does not pass through `AuthGuard`** — `BotService` calls domain services
+ * directly — so every write the bot could do bypassed it: relaying a chat
+ * message, accepting a request, sharing contact details. That hole predates the
+ * wizards; the wizards are what made it worth finding.
+ */
+describe('POST /telegram/:secret — the consent gate', () => {
+  let sequence = 8000;
+
+  async function publish(type: 'TERMS' | 'PRIVACY', version: number): Promise<string> {
+    await prisma.policyVersion.updateMany({
+      where: { type, isCurrent: true },
+      data: { isCurrent: false },
+    });
+    const row = await prisma.policyVersion.create({
+      data: {
+        type,
+        version,
+        status: 'PUBLISHED',
+        isCurrent: true,
+        titleFa: type === 'TERMS' ? 'قوانین' : 'حریم خصوصی',
+        summaryFa: 'خلاصهٔ سند',
+        contentMd: '# سند',
+      },
+      select: { id: true },
+    });
+    return row.id;
+  }
+
+  async function requirePolicies(): Promise<void> {
+    await publish('TERMS', 1);
+    await publish('PRIVACY', 1);
+  }
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  it('opens the consent gate instead of the wizard, when policies are owed', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+
+    const state = await prisma.conversationState.findUniqueOrThrow({ where: { userId } });
+    expect(state.kind).toBe('ACCEPT_POLICIES');
+    expect(state.step).toBe('review');
+  });
+
+  it('accepts the policies and clears the gate', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await tap(GUEST_TELEGRAM_ID, 'wz:agree:');
+    expect(await prisma.consent.count({ where: { userId } })).toBe(2);
+    // The gate is over: no conversation is left open.
+    expect(await prisma.conversationState.count({ where: { userId } })).toBe(0);
+  });
+
+  /** A gate has nothing to mistype and nothing to skip. */
+  it('does not advance on anything but «می‌پذیرم»', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await type(GUEST_TELEGRAM_ID, 'باشه');
+
+    expect(await prisma.consent.count({ where: { userId } })).toBe(0);
+    expect(await prisma.conversationState.findUniqueOrThrow({ where: { userId } })).toMatchObject({
+      step: 'review',
+    });
+  });
+
+  /**
+   * The hole this closes, stated as a test. Relaying a message is a write, and
+   * `POST /chats/:id/messages` has carried `@RequiresCurrentPolicies()` since
+   * M22 — the bot's relay never did.
+   */
+  it('refuses to relay a chat message from somebody who owes an acceptance', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+    // Published *after* the join, so the user is mid-conversation and now owes.
+    await requirePolicies();
+
+    await type(GUEST_TELEGRAM_ID, 'سلام');
+
+    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: guestId } }),
+    ).toMatchObject({ kind: 'ACCEPT_POLICIES' });
+  });
+
+  /** A redelivered «می‌پذیرم» is one acceptance, not two. */
+  it('writes one consent row for a redelivered tap', async () => {
+    await requirePolicies();
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+
+    const agree = update({
+      update_id: 8500,
+      callback_query: {
+        id: 'cb-agree',
+        from: sender(GUEST_TELEGRAM_ID),
+        message: { message_id: 1, chat: { id: GUEST_TELEGRAM_ID, type: 'private' } },
+        data: 'wz:agree:',
+      },
+    });
+    await post(agree);
+    await post(agree);
+
+    expect(await prisma.consent.count({ where: { userId } })).toBe(2); // TERMS + PRIVACY, once each
+  });
+
+  /** `/terms` for somebody up to date reports what they signed and when. */
+  it('reports standing on /terms once accepted', async () => {
+    await requirePolicies();
+    await seedGuest(GUEST_TELEGRAM_ID);
+    await type(GUEST_TELEGRAM_ID, '/create_event');
+    await tap(GUEST_TELEGRAM_ID, 'wz:agree:');
+
+    await type(GUEST_TELEGRAM_ID, '/terms');
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_TERMS_STANDING },
+      select: { payload: true },
+    });
+    expect(String((row.payload as Record<string, unknown>)['text'])).toContain('قوانین');
+  });
+});
+
+/**
+ * `/edit_event` — `EditEventView`, as a conversation (ADR-0017).
+ *
+ * The property worth an integration test is **host-only**: the button that
+ * carries an event id was built from the caller's own list, so the only way to
+ * reach a stranger's event is to forge one, and `findOwned` is where that has to
+ * fail.
+ */
+describe('POST /telegram/:secret — editing an event in the chat', () => {
+  let sequence = 9000;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  it('prefills the draft from the chosen event', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await type(HOST_TELEGRAM_ID, '/edit_event');
+    await tap(HOST_TELEGRAM_ID, `wz:pick:${eventPublicId}`);
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.kind).toBe('EDIT_EVENT');
+    // The target is recorded, which is what `submitEventEdit` addresses.
+    expect(state.targetPublicId).toBe(eventPublicId);
+  });
+
+  it('changes only what the host walked through', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const before = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
+
+    await type(HOST_TELEGRAM_ID, '/edit_event');
+    await tap(HOST_TELEGRAM_ID, `wz:pick:${eventPublicId}`);
+    await type(HOST_TELEGRAM_ID, 'نام تازهٔ فعالیت');
+    // Skip the remaining ten steps; each means "leave this as it is".
+    for (let i = 0; i < 12; i += 1) await tap(HOST_TELEGRAM_ID, 'wz:skip:');
+    await tap(HOST_TELEGRAM_ID, 'wz:confirm:');
+
+    const after = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
+    expect(after.title).toBe('نام تازهٔ فعالیت');
+    // Prefilled and written back unchanged, which is a no-op rather than a loss.
+    expect(after.capacity).toBe(before.capacity);
+    expect(after.startsAt.toISOString()).toBe(before.startsAt.toISOString());
+    expect(await prisma.conversationState.count()).toBe(0);
+  });
+
+  /** A forged id names an event the caller does not host. */
+  it('does not prefill from an event the caller does not host', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/edit_event');
+    // The guest hosts nothing, so the command refuses before a wizard opens.
+    expect(await prisma.conversationState.count()).toBe(0);
+
+    // And even driven directly, the host's event is not reachable.
+    await tap(GUEST_TELEGRAM_ID, `wz:pick:${eventPublicId}`);
+    const event = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
+    expect(event.title).not.toBe('');
+  });
+
+  it('says so when there is nothing to edit', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/edit_event');
+
+    const notice = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_NOTICE },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect(String((notice.payload as Record<string, unknown>)['text'])).toContain(
+      'فعالیتی برای ویرایش ندارید',
+    );
+  });
+});
