@@ -36,18 +36,23 @@ describe('notification deep links', () => {
 
   it.each(templates)('%s resolves to a real screen', (templateKey) => {
     /**
-     * A payload rich enough that every branch renders a button. `chatPublicId`
-     * is the one field a relay template needs before it will build a keyboard;
-     * the rest are ignored by templates that do not read them.
+     * A payload rich enough that every branch names its deep link. `chatPublicId`
+     * is the one field a relay template needs before it builds one; the rest are
+     * ignored by templates that do not read them.
+     *
+     * No template renders an *open-app* button any more (v0.4.6), and the deep
+     * link is kept anyway — this check is the reason. It is what caught two
+     * templates pointing at a `/participants` route that never existed, and it
+     * would catch the next one whether or not a button spends the target.
      */
-    const rendered = render(
-      templateKey,
-      { chatPublicId: 'abcd2345', text: 'متن', eventPublicId: 'efgh6789' },
-      'payetam_bot',
-    );
+    const rendered = render(templateKey, {
+      chatPublicId: 'abcd2345',
+      text: 'متن',
+      eventPublicId: 'efgh6789',
+    });
 
     // A template that renders nothing at all is a separate bug, and one the
-    // escaping test already covers. Here it simply has no button to check.
+    // escaping test already covers. Here it simply has no target to check.
     if (rendered?.deepLink === undefined) return;
 
     // `chats/<id>` and the like: the allowlist keys the fixed prefix, and the
