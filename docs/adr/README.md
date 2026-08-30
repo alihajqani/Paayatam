@@ -23,6 +23,7 @@ one.** Superseding is done by writing a new record that says so.
 | [0015](0015-gift-codes.md) | Gift codes as a sibling of the referral, over the one coin ledger | — | — (bound by 2, 3, 12; management surface amended by 0016) |
 | [0016](0016-gift-code-campaigns-and-admin-panel.md) | A gift code is a bearer secret: `public_id` routing, masked reads, bulk minting, `per_user_limit = 1`; and the admin panel | — | — (amends 0015; bound by 2, 3, 7, 12) |
 | [0017](0017-conversation-wizards-and-bot-state.md) | Forms move into the chat: an explicit step machine in Postgres, not grammY `conversations`; consent and profile move first, the Mini App retires last | — | A step is reachable only by its owner; a redelivered update advances it once |
+| [0018](0018-admin-moderation-in-the-bot.md) | A moderator's Telegram identity: a granted, audited link that opens a moderation queue in the bot and nothing else | — | The bot's admin session is a role's permissions ∩ a hard-coded allowlist (amends 0010) |
 
 ## The twelve invariants
 
@@ -40,6 +41,8 @@ Collected from the ADRs above. Violating any of these is a bug regardless of wha
 10. Every state transition goes through `assertTransition()` and writes `audit_log`.
 11. Every outbound Telegram call goes through the `telegram-send` queue, never inline (ADR-0005).
 12. Every mutating admin action is authorised **in the service layer** and audited (ADR-0010).
+    This is what let the bot become a fourth admin caller without a fourth copy of the rules: a
+    check in `BotService` would have protected `BotService` (ADR-0018).
 
 ## Template for new ADRs
 

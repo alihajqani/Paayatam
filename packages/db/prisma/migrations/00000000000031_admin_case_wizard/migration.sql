@@ -1,0 +1,13 @@
+-- Migration 0031: the moderation-decision wizard's `conversation_kind` (v0.6.3).
+--
+-- Its own file because `ALTER TYPE … ADD VALUE` cannot run inside a transaction
+-- in Postgres — the same reason 0022, 0023 and 0029 are separate. It is not
+-- rolled back by a later failure; additive-only, so a partial apply is safe.
+--
+-- A decision is a form and not a tap, and deliberately: `decideCase` requires a
+-- note of at least three characters, because §7 says terminal states carry
+-- `decided_by` *and* `decision_note` — a decision nobody signed and nobody
+-- explained is not reviewable later. Collecting that note is what a wizard is
+-- for, and it reuses the machinery every other bot form already goes through:
+-- `last_update_id` idempotency, the single edited message, the seven-day sweep.
+ALTER TYPE "conversation_kind" ADD VALUE IF NOT EXISTS 'ADMIN_CASE';

@@ -21,6 +21,7 @@ import { editEventWizard } from './wizards/edit-event';
 import { editProfileWizard } from './wizards/edit-profile';
 import { writeReviewWizard } from './wizards/write-review';
 import { fileReportWizard } from './wizards/file-report';
+import { adminCaseWizard } from './wizards/admin-case';
 
 /**
  * Where the machine records which fields the user answered.
@@ -47,6 +48,14 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
   FILE_REPORT: fileReportWizard as unknown as WizardDefinition<Record<string, unknown>>,
   ACCEPT_POLICIES: acceptPoliciesWizard as unknown as WizardDefinition<Record<string, unknown>>,
   EDIT_EVENT: editEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  /**
+   * A moderator's decision (ADR-0018). Registered here like every other wizard,
+   * which is the point: the staff form goes through the same idempotency, the
+   * same single edited message and the same seven-day sweep as a user's, and
+   * **authorisation is not in it** — `BotService` resolves an admin session for
+   * every step and `AdminOperationsService` asserts the permission at submit.
+   */
+  ADMIN_CASE: adminCaseWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
 
 export interface ConversationSnapshot {

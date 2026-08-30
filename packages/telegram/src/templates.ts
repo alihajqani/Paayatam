@@ -111,6 +111,14 @@ export const TEMPLATES = {
   BOT_SETTINGS: 'bot.settings',
   /** Who is coming to one activity, with the host's actions on each of them. */
   BOT_PARTICIPANTS: 'bot.participants',
+  /**
+   * The moderation queue, for a linked moderator (v0.6.3, ADR-0018).
+   *
+   * A notification like any other, which is what puts it through the same
+   * dedupe, the same rate limit and the same outbox as everything else the bot
+   * says — invariant 11 has no staff exception.
+   */
+  BOT_ADMIN_CASES: 'bot.admin_cases',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -704,6 +712,20 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * an activity would silently discard the draft.
      */
     case TEMPLATES.BOT_SETTINGS: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    /**
+     * The moderation queue, with one button per case.
+     *
+     * No deep link: the panel is not a Mini App route, and a staff screen is the
+     * last thing that should carry a button into an end-user application.
+     */
+    case TEMPLATES.BOT_ADMIN_CASES: {
       const keyboard = parseKeyboard(payload);
       return {
         text: prerendered(payload),

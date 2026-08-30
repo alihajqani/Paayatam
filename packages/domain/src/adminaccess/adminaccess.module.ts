@@ -10,6 +10,7 @@ import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
 import { AdminInsightService } from './admin-insight.service';
 import { AdminOperationsService } from './admin-operations.service';
+import { AdminTelegramService } from './admin-telegram.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { ChannelAdminService } from './channel-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
@@ -52,6 +53,7 @@ import { ReferralAdminService } from './referral-admin.service';
     AdminAccessService,
     ChatUnsealService,
     AdminOperationsService,
+    AdminTelegramService,
     AdminInsightService,
     GiftCodeAdminService,
     ReferralAdminService,
@@ -66,6 +68,7 @@ import { ReferralAdminService } from './referral-admin.service';
     AdminAccessService,
     ChatUnsealService,
     AdminOperationsService,
+    AdminTelegramService,
     AdminInsightService,
     GiftCodeAdminService,
     ReferralAdminService,

@@ -1937,6 +1937,7 @@ model AdminUser {
   policiesPublished PolicyVersion[]     @relation("PolicyPublishedBy")
   channelConfigs    EventChannelConfig[]
   requiredChannels  RequiredChannel[]
+  telegramLink      AdminTelegramLink?
 
   @@index([status])
   @@map("admin_user")
@@ -1989,6 +1990,50 @@ model AdminUserRole {
 
   @@id([adminUserId, roleId])
   @@map("admin_user_role")
+}
+
+/// A moderator's Telegram identity (v0.6.3, ADR-0018).
+///
+/// ADR-0010 says admin access must **not** follow from a staff member's personal
+/// Telegram being taken over. A moderation queue inside the bot needs exactly
+/// that correspondence, so this table is the documented exception and ADR-0018
+/// is the argument for it. Four things bound the trade:
+///
+///  1. **Granted, never derived.** A row is written by an admin holding
+///     `role.manage`, with a reason, and is audited. Nothing about signing into
+///     the panel creates one.
+///  2. **The bot session is a hard-coded subset** — the moderation queue and
+///     nothing else. A taken-over Telegram account reaches a case list; it
+///     cannot move coins, adjust Trust Score, unseal a conversation, change a
+///     role, ban an account or edit a setting.
+///  3. **No foreign key to `user`.** The Telegram id is carried directly, so the
+///     two identity systems remain disjoint tables.
+///  4. **Revocation is a delete**, as a role revocation is, and `audit_log`
+///     carries the history.
+///
+/// `telegramUserId` is invariant 7's column: it never appears in an API
+/// response, a log line or a frontend bundle.
+model AdminTelegramLink {
+  id          String @id @default(uuid(7))
+  adminUserId String @unique @map("admin_user_id")
+
+  /// The Telegram account that may open the moderation queue in the bot.
+  telegramUserId BigInt @unique @map("telegram_user_id")
+
+  /// The admin who granted it. No foreign key, exactly as `audit_log.actor_id`
+  /// has none: losing the record of who signed for a capability because their
+  /// own account was deleted is the wrong failure.
+  grantedById String @map("granted_by_id")
+  /// Why. Required for the reason `decision_note` is: a grant nobody explained
+  /// is not reviewable later.
+  reason      String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@map("admin_telegram_link")
 }
 
 enum RoleChangeStatus {
@@ -2568,6 +2613,11 @@ enum ConversationKind {
   /// `file` — no update path — so the description is collected before the row
   /// exists, which is what makes this a form rather than a follow-up.
   FILE_REPORT
+  /// A moderator's decision on one case, from inside the bot (v0.6.3, ADR-0018).
+  /// A form rather than a tap because `decideCase` requires a note: §7 says a
+  /// terminal state carries `decided_by` *and* `decision_note`, and a decision
+  /// nobody explained is not reviewable later.
+  ADMIN_CASE
 
   @@map("conversation_kind")
 }

@@ -26,6 +26,7 @@ import {
   genderLabel,
   reviewTagLabel,
   reportReasonLabelFa,
+  adminDecisionLabelFa,
   zonedTimeToUtc,
   type ConversationSnapshot,
   type CreateEventInput,
@@ -41,6 +42,10 @@ import {
   SettingsService,
   TrustService,
   UserService,
+  AdminOperationsService,
+  AdminTelegramService,
+  type AdminCaseForm,
+  type AdminSession,
 } from '@payetam/domain';
 import {
   ENV,
@@ -68,9 +73,14 @@ import {
   formatReferral,
   formatSettings,
   settingsRows,
+  parseAdminCallback,
   parseSettingCallback,
   parseStartPayload,
+  adminQueueRows,
+  formatAdminCasePrompt,
+  formatAdminQueue,
   isNotificationField,
+  MODERATION_MENU_COMMAND,
   SETTING_FIELDS,
   SETTING_LANGUAGE,
   SETTING_PRIVACY,
@@ -113,6 +123,7 @@ import {
   type ReportCallback,
   type ReportTargetLetter,
   type ReportReasonValue,
+  type AdminCallback,
   type ParsedUpdate,
   type SettingCallback,
   type StartLink,
@@ -134,6 +145,17 @@ type ReplyPayload = Record<string, string | number | boolean>;
 interface BotUser {
   id: string;
   publicId: string;
+  /**
+   * The sender's Telegram id, carried so a handler can ask whether they are a
+   * linked moderator (ADR-0018).
+   *
+   * **It never leaves this process.** Invariant 7 says `telegram_user_id` does
+   * not appear in an API response, a log line or a frontend bundle, and nothing
+   * below puts it in one — `reply` and the wizard jobs carry the *internal*
+   * `user_id` and the worker resolves the Telegram id at delivery, exactly as
+   * notifications do.
+   */
+  telegramUserId: bigint;
 }
 
 /**
@@ -195,6 +217,17 @@ export class BotService {
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
     private readonly limiter: RateLimitService,
+    /**
+     * The moderation queue in the bot (ADR-0018).
+     *
+     * Two services, and the split is the security boundary. `AdminTelegramService`
+     * answers *who is asking* — and answers null for almost everybody.
+     * `AdminOperationsService` answers *may they do this*, in the service layer,
+     * which is invariant 12 and is why this class holds no permission check of
+     * its own beyond having a session at all.
+     */
+    private readonly adminTelegram: AdminTelegramService,
+    private readonly admins: AdminOperationsService,
   ) {}
 
   /**
@@ -772,13 +805,47 @@ export class BotService {
         return this.notice(updateId, user, 'لغو شد.');
       }
 
+      /**
+       * The moderation queue (ADR-0018).
+       *
+       * **Not in `BOT_COMMANDS`**, and that is the whole design of it. The
+       * command list is published to Telegram with `setMyCommands` and rendered
+       * by `/help`, both of which every user reads — advertising a staff command
+       * to everybody would turn "is there an admin surface?" into a question the
+       * bot answers on request. The way in is the menu button, which only a
+       * linked moderator's keyboard carries.
+       *
+       * A non-moderator who guesses the word gets **the unknown-command
+       * sentence**, byte for byte. That is deliberate: distinguishing «you are
+       * not a moderator» from «no such command» tells a stranger that the
+       * command exists, which is the first thing worth knowing about a surface
+       * you want to attack.
+       */
+      case MODERATION_MENU_COMMAND: {
+        const session = await this.adminTelegram.sessionFor(user.telegramUserId);
+        if (session === null) return this.unknownCommand(updateId, user);
+        return this.drawModerationQueue(updateId, user, session);
+      }
+
       default:
-        return this.notice(
-          updateId,
-          user,
-          'این فرمان را نمی‌شناسم. برای دیدن فهرست فرمان‌ها /help را بفرستید.',
-        );
+        return this.unknownCommand(updateId, user);
     }
+  }
+
+  /**
+   * The answer to a command this bot does not have.
+   *
+   * A method rather than a literal because **two** paths must produce it
+   * identically: a genuine typo, and `moderate` sent by somebody with no
+   * moderator link. If those two ever diverge by a character, the difference is
+   * an oracle for whether a staff surface exists.
+   */
+  private async unknownCommand(updateId: number, user: BotUser): Promise<void> {
+    return this.notice(
+      updateId,
+      user,
+      'این فرمان را نمی‌شناسم. برای دیدن فهرست فرمان‌ها /help را بفرستید.',
+    );
   }
 
   /**
@@ -796,7 +863,11 @@ export class BotService {
   private async onStart(updateId: number, from: BotSender, payload: string | null): Promise<void> {
     const created = await this.users.findOrCreateByTelegram(from);
     const userId = await this.users.resolveInternalId(created.publicId);
-    const user: BotUser = { id: userId, publicId: created.publicId };
+    const user: BotUser = {
+      id: userId,
+      publicId: created.publicId,
+      telegramUserId: from.telegramUserId,
+    };
 
     /**
      * A channel post's button, tried before the referral claim.
@@ -839,7 +910,7 @@ export class BotService {
      * up to date — a returning user pressing `/start` gets the welcome and
      * nothing else.
      */
-    await this.gateAfterWelcome(updateId, { id: userId, publicId: created.publicId });
+    await this.gateAfterWelcome(updateId, user);
   }
 
   /**
@@ -1089,6 +1160,30 @@ export class BotService {
       await this.answer(callbackQueryId, '');
       await this.drawWizard(update.updateId, user, outcome, wizardCallback);
       return;
+    }
+
+    /**
+     * A moderation button (ADR-0018).
+     *
+     * Tried early and told apart by prefix like every other protocol, and it is
+     * the one branch that resolves an **admin session** before it does anything.
+     * A tap with no link answers the same «این دکمه دیگر کار نمی‌کند» a stale or
+     * tampered button gets, so guessing the prefix reveals nothing.
+     *
+     * No `mayWrite`: the consent gate is about a *user's* acceptance of the
+     * terms, and a moderator working a queue is not acting as one. Sending a
+     * moderator the consent wizard in the middle of an incident would be the
+     * gate refusing the person whose job is to fix things.
+     */
+    const adminCallback = parseAdminCallback(data);
+    if (adminCallback !== null) {
+      const session = await this.adminTelegram.sessionFor(user.telegramUserId);
+      if (session === null) {
+        await this.answer(callbackQueryId, 'این دکمه دیگر کار نمی‌کند.');
+        return;
+      }
+      await this.answer(callbackQueryId, '');
+      return this.onAdminCallback(update.updateId, user, session, adminCallback);
     }
 
     /**
@@ -1676,6 +1771,201 @@ export class BotService {
    * and reject, and an accepted guest gets a no-show only once there is
    * something to have been absent from.
    */
+  // ── admin moderation in the bot (ADR-0018) ─────────────────────────────────
+
+  /**
+   * A `ad:` tap, with the session already resolved by the caller.
+   *
+   * The session is passed in rather than re-read: it was needed to decide
+   * whether the button was answerable at all, and reading it twice would be two
+   * chances for a revocation to land between them — which is a race with no
+   * right answer. What matters is that it is re-read on **every update**, so a
+   * revoked link stops working on the moderator's next tap.
+   */
+  private async onAdminCallback(
+    updateId: number,
+    user: BotUser,
+    session: AdminSession,
+    callback: AdminCallback,
+  ): Promise<void> {
+    if (callback.action === 'list' || callback.id === null) {
+      return this.drawModerationQueue(updateId, user, session);
+    }
+
+    /**
+     * Opening a case **is** starting the decision form.
+     *
+     * There is no read-only case screen in between, because there is nothing a
+     * moderator would do on one except decide — and `conversation_state.user_id`
+     * is UNIQUE, so a screen that later started a wizard would be two chances to
+     * discard whatever else was open rather than one.
+     */
+    if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+
+    let detail;
+    try {
+      detail = await this.admins.caseForReview(session, callback.id);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+
+    /**
+     * A decided case is not re-decidable, and saying so beats opening a form the
+     * submit will refuse.
+     *
+     * `decideCase` enforces this itself — it is the authority — so this is the
+     * second line rather than the first. What it buys is that a moderator who
+     * taps a stale queue does not write a note into a form that cannot land.
+     */
+    if (!OPEN_CASE_STATUSES.has(detail.status)) {
+      return this.notice(updateId, user, 'این پرونده پیش‌تر تصمیم‌گیری شده است.');
+    }
+
+    const outcome = await this.conversations.start(user.id, 'ADMIN_CASE', updateId, detail.id, {
+      /**
+       * The case as the moderator will read it, rendered **now** and carried in
+       * the draft.
+       *
+       * A step's `prompt` is pure and cannot read a database, and a redelivery
+       * re-renders without advancing — so a headline re-read on every draw would
+       * be a query per redraw and, worse, could change under somebody mid-form.
+       * Plain text, because `renderStep` escapes what it is given.
+       */
+      headline: formatAdminCasePrompt({
+        id: detail.id,
+        subjectType: detail.subjectType,
+        status: detail.status,
+        trigger: detail.trigger,
+        reportCount: detail.reportCount,
+        createdAt: detail.createdAt,
+        eventTitle: detail.eventTitle,
+        eventDescription: detail.eventDescription,
+        eventStatus: detail.eventStatus,
+        reportReasons: detail.reportReasons,
+        matchedTermCount: detail.matchedTermCount,
+      }),
+      // Seeded so the false-positive step can ask `when` it applies, which is
+      // only where the automation is the thing being judged (ADR-0012).
+      trigger: detail.trigger,
+    });
+    return this.drawWizard(updateId, user, outcome);
+  }
+
+  /**
+   * The queue, oldest first — a queue nobody works from the bottom.
+   *
+   * `listCases` asserts `event.moderate` in the service layer, which is where
+   * invariant 12 puts it: this method holds no check of its own beyond having a
+   * session at all, and that is on purpose. A read guarded here and nowhere else
+   * would be a read the next caller forgets to guard.
+   */
+  private async drawModerationQueue(
+    updateId: number,
+    user: BotUser,
+    session: AdminSession,
+  ): Promise<void> {
+    let cases;
+    try {
+      cases = await this.admins.listCases(session);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+
+    /**
+     * The event titles, in one query rather than one per case.
+     *
+     * `listCases` takes up to a hundred rows and the digest shows far fewer, but
+     * the read happens before the cap — so a per-case lookup would be a hundred
+     * round trips to render ten lines.
+     */
+    const eventIds = cases.filter((row) => row.subjectType === 'EVENT').map((row) => row.subjectId);
+    const titles = await this.admins.eventTitlesFor(session, eventIds);
+
+    const lines = cases
+      .filter((row) => isPublicId(row.id))
+      .map((row) => ({
+        id: row.id,
+        subjectType: row.subjectType,
+        status: row.status,
+        trigger: row.trigger,
+        reportCount: row.reportCount,
+        createdAt: row.createdAt,
+        eventTitle: titles.get(row.subjectId) ?? null,
+      }));
+
+    const rows = adminQueueRows(lines);
+    await this.reply(updateId, user.id, TEMPLATES.BOT_ADMIN_CASES, {
+      text: formatAdminQueue(lines),
+      ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+    });
+  }
+
+  /**
+   * The decision, once the form is filled in.
+   *
+   * **The session is resolved again here**, and that is the load-bearing line of
+   * this whole feature. A wizard can be open for seven days; a link can be
+   * revoked, an admin suspended, a role removed. Deciding from the session that
+   * opened the form would let a revoked moderator finish work they started
+   * before losing access — which is exactly the failure a revocation exists to
+   * prevent.
+   *
+   * `decideCase` then asserts `event.moderate` for itself and writes the audit
+   * row naming `session.adminUserId`. That is invariant 12: the check is in the
+   * service, so it holds for this caller and for every caller that does not
+   * exist yet.
+   */
+  private async submitAdminCase(
+    updateId: number,
+    user: BotUser,
+    snapshot: ConversationSnapshot,
+  ): Promise<void> {
+    const form = snapshot.form as AdminCaseForm;
+    const caseId = snapshot.targetPublicId;
+
+    const session = await this.adminTelegram.sessionFor(user.telegramUserId);
+    if (session === null || caseId === null) {
+      await this.conversations.clear(user.id);
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.FORBIDDEN]);
+    }
+
+    const decision =
+      form.decision === 'APPROVED' || form.decision === 'REJECTED' ? form.decision : null;
+    if (decision === null || form.note === undefined) {
+      // A form that reaches here incomplete means a step was skipped that should
+      // not have been, and inventing a decision for it would close somebody's
+      // case on nobody's judgement.
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.VALIDATION_FAILED]);
+    }
+
+    try {
+      await this.admins.decideCase(session, caseId, {
+        decision,
+        note: form.note,
+        ...(form.falsePositive !== undefined ? { falsePositive: form.falsePositive } : {}),
+      });
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.conversations.clear(user.id);
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+
+    await this.conversations.clear(user.id);
+    await this.notice(
+      updateId,
+      user,
+      decision === 'APPROVED'
+        ? 'پرونده بسته شد: محتوا تأیید شد. ✅'
+        : 'پرونده بسته شد: محتوا رد شد. ⛔️',
+    );
+    // Straight back to the queue, because a moderator with one case has
+    // usually got several — and a decision that ends in a dead end is a
+    // decision somebody has to find their way back from.
+    return this.drawModerationQueue(updateId, user, session);
+  }
+
   /**
    * One activity in full, and the buttons that belong to whoever is reading it.
    *
@@ -2165,6 +2455,8 @@ export class BotService {
             return this.submitReport(updateId, user, outcome.snapshot);
           case 'EDIT_EVENT':
             return this.submitEventEdit(updateId, user, outcome.snapshot);
+          case 'ADMIN_CASE':
+            return this.submitAdminCase(updateId, user, outcome.snapshot);
           default:
             return this.submitWizard(updateId, user, outcome.snapshot.form);
         }
@@ -2199,6 +2491,29 @@ export class BotService {
             value: form.description ?? 'بدون توضیح',
           });
           const screen = renderSummary(lines, false, 'فرستادن گزارش');
+          return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+        }
+        /**
+         * A moderator reviews what they are about to write into a permanent
+         * record, exactly as a host reviews an event before publishing it.
+         *
+         * The case's own text is deliberately **not** repeated here: it was the
+         * question on the first step and it is long, and a summary that scrolls
+         * past the «ثبت» button is a summary nobody reads to the end of.
+         */
+        if (outcome.snapshot.kind === 'ADMIN_CASE') {
+          const form = outcome.snapshot.form as AdminCaseForm;
+          const lines: SummaryLine[] = [
+            { label: 'تصمیم', value: adminDecisionLabelFa(form.decision ?? '—') },
+          ];
+          if (form.falsePositive !== undefined) {
+            lines.push({
+              label: 'هشدار خودکار',
+              value: form.falsePositive ? 'اشتباه بود' : 'درست بود',
+            });
+          }
+          lines.push({ label: 'توضیح', value: form.note ?? '—' });
+          const screen = renderSummary(lines, false, 'ثبت تصمیم');
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
         if (outcome.snapshot.kind === 'WRITE_REVIEW') {
@@ -3048,7 +3363,11 @@ export class BotService {
     const user = await this.users.findByTelegramId(from.telegramUserId);
     if (!user || user.status === 'BANNED' || user.status === 'DELETED') return null;
 
-    return { id: await this.users.resolveInternalId(user.publicId), publicId: user.publicId };
+    return {
+      id: await this.users.resolveInternalId(user.publicId),
+      publicId: user.publicId,
+      telegramUserId: from.telegramUserId,
+    };
   }
 
   /**
@@ -3103,6 +3422,16 @@ const RECEIVED_REVIEW_LIMIT = 15;
  * drawn rather than drawn and refused.
  */
 const OPEN_EVENT_STATUSES = new Set(['DRAFT', 'PUBLISHED']);
+
+/**
+ * The case statuses a decision may still be taken on (ADR-0018).
+ *
+ * The same three `listCases` queues by default and the same three `decideCase`
+ * admits. It is checked before the form opens as well as inside the service —
+ * the service is the authority, and this saves a moderator writing a note into a
+ * form whose submit cannot land.
+ */
+const OPEN_CASE_STATUSES = new Set(['OPEN', 'IN_REVIEW', 'ESCALATED']);
 
 /**
  * What «امروز» and «این هفته» mean, in Tehran.

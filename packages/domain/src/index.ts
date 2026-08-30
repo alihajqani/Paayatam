@@ -216,6 +216,8 @@ export {
 export type { EditProfileForm } from './conversation/wizards/edit-profile';
 export { writeReviewWizard, reviewTagLabel } from './conversation/wizards/write-review';
 export { fileReportWizard, reportReasonLabelFa } from './conversation/wizards/file-report';
+export { adminCaseWizard, adminDecisionLabelFa } from './conversation/wizards/admin-case';
+export type { AdminCaseForm } from './conversation/wizards/admin-case';
 export type { FileReportForm } from './conversation/wizards/file-report';
 export type { WriteReviewForm } from './conversation/wizards/write-review';
 export type { EncryptedBody } from './chat/message-cipher';
@@ -290,7 +292,8 @@ export {
 } from './adminaccess/admin-access.service';
 export type { AdminSession, LoginResult } from './adminaccess/admin-access.service';
 export { AdminOperationsService, adminAdjustmentKey } from './adminaccess/admin-operations.service';
-export type { CaseSummary } from './adminaccess/admin-operations.service';
+export type { CaseDetail, CaseSummary } from './adminaccess/admin-operations.service';
+export { AdminTelegramService, BOT_PERMISSIONS } from './adminaccess/admin-telegram.service';
 export {
   GiftCodeAdminService,
   GIFT_CODE_DEFAULT_LENGTH,

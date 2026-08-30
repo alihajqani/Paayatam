@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
+  AdminTelegramService,
   ChannelService,
   ChatService,
   CoinService,
@@ -106,6 +107,16 @@ export class Processors implements OnModuleInit {
      * is the API's, because it is the process the update arrives at.
      */
     private readonly conversations: ConversationService,
+    /**
+     * Whether the recipient is a linked moderator (ADR-0018).
+     *
+     * Asked here because here is where the persistent menu is attached, and the
+     * menu is per-recipient. One indexed count against a table with a handful of
+     * rows, on a path already bounded by Telegram's ~30/s — so it is not cached,
+     * and a revoked link therefore stops showing the button on the very next
+     * message rather than a minute later.
+     */
+    private readonly adminTelegram: AdminTelegramService,
   ) {}
 
   /**
@@ -269,11 +280,23 @@ export class Processors implements OnModuleInit {
      * The menu persists on the client between them, so re-attaching it is belt
      * and braces for a client that missed the first one.
      */
+    /**
+     * The moderation button, for the accounts that have one (ADR-0018).
+     *
+     * Only asked when a menu is actually going out — a message with inline
+     * buttons carries no menu, `reply_markup` holding one thing, so there is
+     * nothing to decide and no reason to spend a query deciding it.
+     */
+    const menu =
+      message.keyboard === undefined
+        ? menuKeyboard(await this.adminTelegram.isLinked(notification.telegramUserId))
+        : undefined;
+
     const outcome = await this.telegram.send(
       notification.telegramUserId,
       message.text,
       message.keyboard,
-      { parseMode: 'HTML', menu: message.keyboard === undefined ? menuKeyboard() : undefined },
+      { parseMode: 'HTML', menu },
     );
 
     switch (outcome.kind) {

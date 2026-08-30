@@ -71,6 +71,9 @@ function buildProcessors(options: {
     {} as never, // CoinService
     {} as never, // TelegramLoggerService
     {} as never, // ConversationService
+    // AdminTelegramService: nobody here is a moderator, so the menu carries no
+    // moderation button.
+    { isLinked: () => Promise.resolve(false) } as never,
   );
 
   return { processors, send, markSuppressed };

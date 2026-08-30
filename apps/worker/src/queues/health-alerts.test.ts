@@ -52,6 +52,9 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     (overrides.coins ?? {}) as never,
     alerts as never,
     {} as never, // ConversationService — this suite never reaches a wizard
+    // AdminTelegramService: nobody here is a moderator, so the menu carries no
+    // moderation button.
+    { isLinked: () => Promise.resolve(false) } as never,
   );
 }
 

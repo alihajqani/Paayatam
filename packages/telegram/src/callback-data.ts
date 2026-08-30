@@ -495,3 +495,60 @@ export function parseSettingCallback(data: string): SettingCallback | null {
 
   return { field, value: value === '1' };
 }
+
+/**
+ * The moderation protocol: `ad:<action>:<case id | x>` (v0.6.3, ADR-0018).
+ *
+ * ── Why moderation gets its own namespace ───────────────────────────────────
+ *
+ * For the reason every other prefix here exists, and one more. The ids are
+ * **moderation case ids**, which are neither a participant, a chat, an event nor
+ * a report — a parser that accepted two of those would be one mistake away from
+ * passing a case id where an event id belongs, and the service on the other side
+ * of that mistake decides content.
+ *
+ * The one more: these buttons are the only ones in the product that appear under
+ * a **staff** screen, and keeping them behind their own prefix means the bot's
+ * dispatcher can answer "is this an admin action?" before it looks at anything
+ * else. Every `ad:` callback resolves an admin session first and refuses without
+ * one — and the refusal is the same sentence an unknown button gets, so a
+ * stranger who guesses the prefix learns nothing.
+ *
+ * **Authorisation is not in the button**, as everywhere else and more so here:
+ * `AdminOperationsService` asserts `event.moderate` in the service layer
+ * (invariant 12), so a tampered id names a case the service refuses.
+ *
+ * `list` carries no id and spends the slot on `x`, because the three-part shape
+ * is what every parser in this file expects.
+ */
+export const ADMIN_CALLBACK_ACTIONS = ['list', 'open'] as const;
+export type AdminCallbackAction = (typeof ADMIN_CALLBACK_ACTIONS)[number];
+
+export interface AdminCallback {
+  action: AdminCallbackAction;
+  /** A moderation case id for `open`; null for `list`. */
+  id: string | null;
+}
+
+const ADMIN_PREFIX = 'ad';
+const NO_ID = 'x';
+
+export function encodeAdminCallback(action: AdminCallbackAction, id: string | null): string {
+  const data = `${ADMIN_PREFIX}:${action}:${id ?? NO_ID}`;
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+export function parseAdminCallback(data: string): AdminCallback | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, action, id] = parts;
+  if (prefix !== ADMIN_PREFIX || id === undefined) return null;
+  if (!ADMIN_CALLBACK_ACTIONS.some((candidate) => candidate === action)) return null;
+
+  if (action === 'list') return id === NO_ID ? { action: 'list', id: null } : null;
+  return isPublicId(id) ? { action: 'open', id } : null;
+}

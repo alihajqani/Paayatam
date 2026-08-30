@@ -3095,3 +3095,257 @@ describe('POST /telegram/:secret — editing an event in the chat', () => {
     );
   });
 });
+
+/**
+ * Admin moderation in the bot (v0.6.3, ADR-0018).
+ *
+ * ADR-0010 says admin access must **not** follow from a staff member's personal
+ * Telegram being taken over, and this feature is the documented exception. So
+ * what this suite asserts is the *bound*: who reaches the queue, who cannot see
+ * that it exists, and that a decision taken here is the same decision the panel
+ * takes — the same service, the same permission check, the same audit row.
+ */
+describe('POST /telegram/:secret — moderating from the bot', () => {
+  let sequence = 12_000;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  /** A staff account with roles, without going through the password path. */
+  async function seedAdmin(email: string, roleKey: string): Promise<string> {
+    const admin = await prisma.adminUser.create({
+      data: {
+        email,
+        passwordHash: 'not-a-real-hash',
+        totpSecretEnc: 'not-a-real-secret',
+        displayName: email,
+      },
+      select: { id: true },
+    });
+    const role = await prisma.role.upsert({
+      where: { key: roleKey },
+      create: { key: roleKey, name: roleKey },
+      update: {},
+      select: { id: true },
+    });
+    await prisma.adminUserRole.create({ data: { adminUserId: admin.id, roleId: role.id } });
+    return admin.id;
+  }
+
+  /** A linked moderator whose Telegram account is also an ordinary bot user. */
+  async function seedModerator(telegramUserId: number): Promise<string> {
+    await seedGuest(telegramUserId, 'ناظر');
+    const adminId = await seedAdmin(`mod-${String(telegramUserId)}@payetam.test`, 'MODERATOR');
+    await prisma.adminTelegramLink.create({
+      data: {
+        adminUserId: adminId,
+        telegramUserId: BigInt(telegramUserId),
+        grantedById: adminId,
+        reason: 'test fixture',
+      },
+    });
+    return adminId;
+  }
+
+  /** An open case over a real event, which is what the queue renders a title from. */
+  async function seedCase(): Promise<{ caseId: string; eventId: string }> {
+    const { eventPublicId } = await seedHostAndEvent();
+    /**
+     * `PENDING_MODERATION`, which is what a BLOCK verdict actually leaves behind
+     * — `applyEventDecision` only moves an event out of `HIDDEN` or
+     * `PENDING_MODERATION`, because an event the host has since cancelled is not
+     * resurrected by a moderator agreeing with them.
+     */
+    const event = await prisma.event.update({
+      where: { publicId: eventPublicId },
+      data: { status: 'PENDING_MODERATION', moderationStatus: 'FLAGGED' },
+      select: { id: true },
+    });
+    const opened = await prisma.moderationCase.create({
+      data: {
+        subjectType: 'EVENT',
+        subjectId: event.id,
+        trigger: 'AUTO_BLACKLIST',
+        status: 'OPEN',
+        blacklistVersion: 1,
+        matchedTerms: [{ id: 't-1', term: 'x', patternType: 'WORD', severity: 'FLAG' }],
+      },
+      select: { id: true },
+    });
+    return { caseId: opened.id, eventId: event.id };
+  }
+
+  async function lastReply(telegramUserId: number): Promise<{ templateKey: string } | undefined> {
+    const rows = await prisma.notification.findMany({
+      where: { user: { telegramAccount: { telegramUserId: BigInt(telegramUserId) } } },
+      orderBy: { createdAt: 'desc' },
+      take: 1,
+      select: { templateKey: true },
+    });
+    return rows[0];
+  }
+
+  /**
+   * The surface must not announce itself.
+   *
+   * Distinguishing «you are not a moderator» from «no such command» tells a
+   * stranger that the command exists, which is the first thing worth knowing
+   * about a surface you want to attack. The two answers are the same sentence.
+   */
+  it('answers an ordinary user exactly as it answers a typo', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/moderate');
+    const refused = await replyTo(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/notacommand');
+    const typo = await replyTo(GUEST_TELEGRAM_ID);
+
+    expect(refused[0]?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
+    expect(typo[1]?.text).toBe(refused[0]?.text);
+    expect(await prisma.moderationCase.count()).toBe(0);
+  });
+
+  /**
+   * The menu label is resolvable for everybody and authorised for nobody. If it
+   * were unresolvable, a stranger who typed it would have it **relayed into an
+   * anonymous chat** — the one thing `onText` must never do with a menu label.
+   */
+  it('does not relay the moderation label typed by a stranger', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '🛡 داوری');
+
+    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
+    expect((await lastReply(GUEST_TELEGRAM_ID))?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
+  });
+
+  it('opens the queue from the menu label, not only from a command', async () => {
+    await seedModerator(GUEST_TELEGRAM_ID);
+    await seedCase();
+
+    await type(GUEST_TELEGRAM_ID, '🛡 داوری');
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_ADMIN_CASES },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const payload = row.payload as Record<string, unknown>;
+    // The title is what makes a queue row decidable at a glance.
+    expect(String(payload['text'])).toContain('دورهمی بازی رومیزی');
+    expect(String(payload['keyboard'])).toContain('ad:open:');
+  });
+
+  /**
+   * The whole path, and the property that matters: the decision the bot takes is
+   * the decision the panel takes — same service, same permission check in the
+   * service layer (invariant 12), same audit row.
+   */
+  it('decides a case, closes it, and writes the audit row', async () => {
+    const adminId = await seedModerator(GUEST_TELEGRAM_ID);
+    const { caseId, eventId } = await seedCase();
+
+    await type(GUEST_TELEGRAM_ID, '🛡 داوری');
+    await tap(GUEST_TELEGRAM_ID, `ad:open:${caseId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:verdict:REJECTED');
+    await type(GUEST_TELEGRAM_ID, 'تبلیغ آشکار یک خدمت پولی.');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const decided = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(decided.status).toBe('REJECTED');
+    expect(decided.decidedBy).toBe(adminId);
+    expect(decided.decisionNote).toBe('تبلیغ آشکار یک خدمت پولی.');
+
+    // The content goes with the decision, which is `applyEventDecision`'s job and
+    // is reached through exactly the same call the panel makes.
+    const event = await prisma.event.findUniqueOrThrow({ where: { id: eventId } });
+    expect(event.status).toBe('REJECTED');
+
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'moderation.case_decided' },
+    });
+    expect(entry.actorType).toBe('ADMIN');
+    expect(entry.actorId).toBe(adminId);
+
+    // The form is gone, so the next thing this moderator types is not an answer
+    // to a step they have already finished.
+    expect(await prisma.conversationState.count()).toBe(0);
+  });
+
+  /**
+   * `falsePositive` is what turns ADR-0012's tuning from an impression into a
+   * number, and it is asked only where the automation is the thing being judged.
+   */
+  it('asks whether the scanner was wrong, but only when approving an automatic case', async () => {
+    await seedModerator(GUEST_TELEGRAM_ID);
+    const { caseId } = await seedCase();
+
+    await type(GUEST_TELEGRAM_ID, '🛡 داوری');
+    await tap(GUEST_TELEGRAM_ID, `ad:open:${caseId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:verdict:APPROVED');
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.step).toBe('falsepos');
+
+    await tap(GUEST_TELEGRAM_ID, 'wz:falsepos:yes');
+    await type(GUEST_TELEGRAM_ID, 'هشدار روی یک واژهٔ بی‌ضرر افتاده بود.');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const decided = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(decided.status).toBe('APPROVED');
+    expect(decided.falsePositive).toBe(true);
+  });
+
+  /**
+   * **The load-bearing assertion of the whole feature.** A wizard can be open for
+   * seven days. Deciding from the session that opened the form would let a
+   * revoked moderator finish work they started before losing access — which is
+   * exactly the failure a revocation exists to prevent.
+   */
+  it('refuses the submit when the link was revoked mid-form', async () => {
+    const adminId = await seedModerator(GUEST_TELEGRAM_ID);
+    const { caseId } = await seedCase();
+
+    await type(GUEST_TELEGRAM_ID, '🛡 داوری');
+    await tap(GUEST_TELEGRAM_ID, `ad:open:${caseId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:verdict:REJECTED');
+    await type(GUEST_TELEGRAM_ID, 'تبلیغ آشکار یک خدمت پولی.');
+
+    await prisma.adminTelegramLink.delete({ where: { adminUserId: adminId } });
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const untouched = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(untouched.status).toBe('OPEN');
+    expect(await prisma.conversationState.count()).toBe(0);
+  });
+
+  /** A tampered or guessed button reveals nothing, because the session is resolved first. */
+  it('answers a stranger tapping a moderation button as a dead button', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const { caseId } = await seedCase();
+
+    await tap(GUEST_TELEGRAM_ID, `ad:open:${caseId}`);
+
+    expect(await prisma.conversationState.count()).toBe(0);
+    const decided = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(decided.status).toBe('OPEN');
+  });
+});

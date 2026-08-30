@@ -198,6 +198,25 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
+ * The moderation button, and why it is not in the map above (ADR-0018).
+ *
+ * `MENU_COMMANDS` is what every user's keyboard is built from and what
+ * `menuCommandFor` resolves a tap against. This label is in *neither* list by
+ * default: it is appended to the keyboard only for a Telegram account that has
+ * a moderator link, and `menuCommandFor` resolves it for anybody — because
+ * resolving it is not authorising it.
+ *
+ * That split matters. If the label were unresolvable for a non-moderator, a
+ * stranger who typed it would have it **relayed into an anonymous chat** — the
+ * one thing `onText` must never do with a menu label. So it always resolves to
+ * `moderate`, and `moderate` answers the same «این فرمان را نمی‌شناسم» as any
+ * unknown command when there is no link. A stranger who guesses the label learns
+ * exactly nothing, and a moderator's guest never sees the button.
+ */
+export const MODERATION_MENU_LABEL = '🛡 داوری';
+export const MODERATION_MENU_COMMAND = 'moderate';
+
+/**
  * The persistent menu, in rows of two.
  *
  * `is_persistent` keeps it open rather than collapsing to an icon the moment
@@ -211,8 +230,14 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
  *
  * Chunked rather than sliced by hand, so adding a seventh label lays itself out.
  */
-export function menuKeyboard(): ReplyKeyboard {
+export function menuKeyboard(moderator = false): ReplyKeyboard {
   const labels = [...MENU_COMMANDS.keys()];
+  // Appended rather than woven in, so it lands on a row of its own when the
+  // count is even — a staff control beside «گفتگوها» is a mis-tap waiting to
+  // happen, and this is the only button on the keyboard that opens somebody
+  // else's content.
+  if (moderator) labels.push(MODERATION_MENU_LABEL);
+
   const rows: ReplyButton[][] = [];
   for (let index = 0; index < labels.length; index += 2) {
     rows.push(labels.slice(index, index + 2).map((text) => ({ text })));
@@ -228,5 +253,9 @@ export function menuKeyboard(): ReplyKeyboard {
  * the other party would receive «🎟 فعالیت‌های من» from a stranger.
  */
 export function menuCommandFor(text: string): string | null {
-  return MENU_COMMANDS.get(text.trim()) ?? null;
+  const trimmed = text.trim();
+  // Resolved for everybody, authorised for nobody — see `MODERATION_MENU_LABEL`.
+  // A label that failed to resolve would be relayed into an anonymous chat.
+  if (trimmed === MODERATION_MENU_LABEL) return MODERATION_MENU_COMMAND;
+  return MENU_COMMANDS.get(trimmed) ?? null;
 }

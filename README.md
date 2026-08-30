@@ -489,9 +489,10 @@ injection silently yields `undefined` and the app fails at request time rather t
 
 ## The bot
 
-Nine read-only commands and two conversation wizards. The list lives in
+**The whole product, in a chat.** The list of commands lives in
 `packages/telegram/src/commands.ts` and is the single source for Telegram's menu,
-for `/help`, and for the test that keeps both honest.
+for `/help`, and for the test that keeps both honest — but the commands are the
+fallback path, not the main one. See *Buttons first* below.
 
 | Command | What it does |
 |---|---|
@@ -509,10 +510,56 @@ for `/help`, and for the test that keeps both honest.
 | `/edit_event` | **Wizard.** Changes an event you host |
 | `/edit_profile` | **Wizard.** Changes any part of your profile |
 | `/cancel` | Closes an open wizard |
+| `/settings` | Notifications, privacy and language |
+| `/wallet`, `/referral`, `/gift`, `/trust`, `/myreviews` | The economy and reputation reads |
 
 Every write goes through the consent gate first. A user who owes a policy
 acceptance gets the gate *where the action would have happened*, one button from
 being able to continue — the bot never simply refuses.
+
+### Buttons first; commands are the fallback
+
+**Nothing in the bot requires typing a command.** The persistent keyboard under
+the compose box carries the seven things people open the bot intending to do, and
+every screen the product has is reachable from a button on another one:
+
+| To get to | Tap |
+|---|---|
+| Settings — notifications, privacy, language | «⚙️ تنظیمات» on the menu. Every row is a switch; nothing there tells you to send a command |
+| One activity in full | «🔎 دیدن فعالیت‌ها», then the activity's own button — or «👀 مشاهده در ربات» under a channel post |
+| Joining | «➕ پیوستن» on the detail screen, or «✅ شرکت می‌کنم» under a channel post |
+| Who is coming, and recording a no-show | «🎟 فعالیت‌های من» → «👥 مهمان‌ها», or the same button on your own activity's detail screen |
+| The moderation queue *(linked moderators only)* | «🛡 داوری», which only a linked moderator's keyboard carries — see [ADR-0018](docs/adr/0018-admin-moderation-in-the-bot.md) |
+
+The commands above still work and are still published to Telegram's menu, because
+somebody who has learned one should not be told to go and find a button. They are
+the fallback, not the path.
+
+`moderate` is the one command deliberately **not** in `BOT_COMMANDS`: publishing a
+staff command to every user would make "is there an admin surface?" a question the
+bot answers on request. A non-moderator who guesses it gets the same
+unknown-command sentence a typo gets, byte for byte.
+
+### The moderation queue
+
+A staff account can be linked to one Telegram account, which opens a moderation
+queue in the bot and **nothing else**:
+
+```bash
+pnpm link-admin-telegram --by boss@example.com \
+  --email mod@example.com --telegram 573914882 \
+  --reason 'on-call moderation from a phone'
+
+pnpm link-admin-telegram --by boss@example.com \
+  --email mod@example.com --revoke --reason 'left the team'
+```
+
+The bot session is the moderator's real permissions **intersected** with a
+hard-coded allowlist — `event.moderate` and `report.review`. A `SUPER_ADMIN` on
+the bot is a moderator and no more: no coin adjustment, no Trust Score, no chat
+unseal, no role change, no ban, no setting. Revocation takes effect on their next
+tap. [ADR-0018](docs/adr/0018-admin-moderation-in-the-bot.md) has the argument,
+including what it costs.
 
 ### Publishing the command menu
 

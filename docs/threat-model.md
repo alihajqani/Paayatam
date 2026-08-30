@@ -52,6 +52,9 @@ Status legend: **✅ designed** (control specified, milestone assigned) · **⏳
 | T1.4 | Stolen access token | 15-minute expiry; refresh rotation with reuse detection revoking the family | M2 | ✅ |
 | T1.5 | Webhook forgery | Secret path + `X-Telegram-Bot-Api-Secret-Token` (constant-time) + optional CIDR allowlist | M2 | ✅ |
 | T1.6 | Webhook probing to enumerate users | Handler **always** returns 200 regardless of internal outcome | M2 | ✅ |
+| T1.7 | **A Telegram account authenticating as staff** (ADR-0018) | A Telegram id is only ever staff when `admin_telegram_link` says so, and that row is granted by an admin holding `role.manage`, with a reason, in an audit row, by a **different** account. The id itself is verified by the webhook secret and by Telegram on every update — there is no session token to steal, because the session is derived per update | v0.6.3 | ✅ |
+| T1.8 | **A taken-over moderator Telegram account** | Bounded rather than prevented: `BOT_PERMISSIONS` is a hard-coded allowlist of `event.moderate` + `report.review`, and the bot session is the role's permissions **intersected** with it. A `SUPER_ADMIN` on the bot is a moderator and no more. Every act is audited under the moderator's name and the link is revoked by one command that takes effect on the next tap. See R14 | v0.6.3 | ⚠️ |
+| T1.9 | Probing the bot for a staff surface | `moderate` is not in `BOT_COMMANDS`, so it is in neither `setMyCommands` nor `/help`. A non-moderator who guesses it gets **the unknown-command sentence, byte for byte** — both paths go through one method — and an `ad:` callback answers the same «این دکمه دیگر کار نمی‌کند» a stale button gets | v0.6.3 | ✅ |
 
 ### Anonymity (A1, A2) — the highest-priority group
 
@@ -71,6 +74,8 @@ Status legend: **✅ designed** (control specified, milestone assigned) · **⏳
 
 | ID | Threat | Control | Milestone | Status |
 |---|---|---|---|---|
+| T3.7 | **A revoked moderator finishing work started before revocation** (ADR-0018) | The admin session is resolved again at wizard submit, not carried from the tap that opened the form. A wizard lives seven days; a link does not have to | v0.6.3 | ✅ |
+| T3.8 | A bot handler forgetting an admin permission check | It cannot: `BotService` holds none. `AdminOperationsService.listCases`, `caseForReview`, `eventTitlesFor` and `decideCase` each assert `event.moderate` in the service layer, which is invariant 12 and is exactly why the bot could become a fourth admin caller without a fourth copy of the rules | v0.6.3 | ✅ |
 | T3.1 | IDOR — reading another user's chat, participation, coins, reviews | Every query scoped by actor; random `public_id` in URLs; ownership asserted in the **service** layer | M6, M8 | ✅ |
 | T3.2 | Non-host accepts/rejects/edits an event | Host ownership asserted in the service | M6 | ✅ |
 | T3.3 | Enumeration of users or events by sequential id | UUID `public_id`; internal ids never exposed | M2+ | ✅ |
@@ -148,6 +153,7 @@ none has one** — it is the item that has been open longest, and M19 added two 
 | R8 | **A host can tell that the same person asked to join two of their events** | The participant list has given a host every requester's display name since M6, so this was never prevented — the per-chat alias only made the host's *conversation list* unreadable while the correlation stayed available one screen away. ADR-0014 (M18) accepts the risk explicitly and titles conversations «name — event»; **M19 discloses it to the user** in `ChatsView` rather than accepting it silently on their behalf, and `cross-event-correlation.int.test.ts` pins the boundary in both directions — what a host can see across their own two queues, and the absence that keeps it local: **no query in the product turns a person into the list of events they touched.** Discovery filters on place, time, cost and eligibility and on no identity; a revealed review names neither the event nor the reviewer; a chat summary carries the counterpart's name and no identifier behind it; the participant list is host-only and answers `EVENT_NOT_FOUND` to anybody else. Aliases are numbered per event, so the pseudonym itself is not a correlation key. What remains protected, and is unaffected, is everything in `telegram_account` (T2.4, invariant 7) |
 | R9 | **The admin panel is protected by a login and nothing else** | It is not tunnelled, has no `allowedHosts` and is `noindex` — but none of those is a network control. A production deployment should put an IP allowlist or a VPN in front of it *in addition to* the login. Named here because it is a deployment decision, not a code one, and it currently has no owner |
 | R10 | **A bulk-minted batch of gift codes is unrecoverable** | Deliberate: the plaintext is returned once and stored nowhere the panel can read, which is what makes a stolen session unable to spend it (ADR-0016). An operator who loses a batch disables it by `batchId` and mints another. The cost is real and is the price of the property |
+| R14 | **A linked moderator's Telegram account is a second front door, with no second factor** | ADR-0018 amends ADR-0010's clause that *"admin access does not follow from a staff member's personal Telegram being taken over"*, and this is the residue. Telegram account security is the moderator's own and the product cannot enforce a policy on it. Bounded by scope rather than by strength: the allowlist is `event.moderate` + `report.review`, nothing behind it is irreversible, nothing behind it is private user data, every act is audited under the moderator's name, and revocation takes effect on the next tap. Accepted because the alternative — a case queue nobody works until somebody reaches a laptop — is a safety control that exists on paper. **The named upgrade is a one-time code typed into the bot to prove panel identity**, which is the second factor this trade currently lacks |
 
 ---
 
@@ -265,6 +271,36 @@ the form is submitted or cancelled. The brief asked for both "delete after 24 ho
 | # | Risk | Rationale |
 |---|---|---|
 | R13 | **A draft survives a refused submission** | When `EventService.create` refuses (insufficient coins, a blacklisted term), the draft is kept so the user can correct one field rather than retype fifteen answers. The residual risk is that abandoned near-complete drafts live up to seven days holding text the user decided not to publish. Accepted: the alternative costs every refused user their whole form, and the retention sweep bounds it |
+
+## 4c. ADR-0018 review — a Telegram account as a staff authenticator
+
+§6's trigger list names "a new admin capability is added". This is that review, and
+the honest framing is that ADR-0018 **spends** a control rather than adding one:
+ADR-0010's separation of the two identity systems was itself the control, and a
+moderation queue in the bot needs the correspondence that separation forbade.
+
+### What is spent, and what is kept
+
+| Kept | Spent |
+|---|---|
+| `admin_user` still has **no foreign key** to `user`. The link carries a Telegram id directly, so the two identity systems remain disjoint tables | A Telegram account can now authenticate as staff — for a bounded set of acts |
+| The Redis session namespace is untouched; the bot holds no admin session at all | — |
+| Every admin act still asserts its permission in the service layer and writes `audit_log` (invariant 12) | — |
+| `telegram_user_id` still never reaches an API response, a log line or a frontend bundle — deliberately including the audit row, which `MODERATOR` can read | The id is now in a second table besides `telegram_account` |
+
+### Findings
+
+| # | Finding | Resolution |
+|---|---|---|
+| D1 | An admin endpoint taking a Telegram id would put invariant 7's value in request logs, browser history and a Vue bundle | **There is no such endpoint.** Linking is `tools/link-admin-telegram.ts`, run on a host that already holds the database. A capability of this shape should be hard to grant and easy to audit |
+| D2 | A grant somebody makes to themselves is not a four-eyes decision | The tool requires `--by` and `--email` to be different accounts, and `link` asserts `role.manage` — which only `SUPER_ADMIN` holds |
+| D3 | A queue rendered into a chat message can be forwarded out of it | The queue shows an event's own public title and description, **report reasons counted rather than quoted**, and **blacklist matches counted rather than named**. A `MESSAGE` case carries nothing and says so — break-glass is a permission, a case, a reason and a fifteen-minute clock, and a bot is not the surface for one |
+| D4 | «You are not a moderator» is an oracle for whether the surface exists | Both refusals share one method, so they cannot drift by a character |
+| D5 | A menu label that failed to resolve would be relayed into an anonymous chat | `menuCommandFor` resolves «🛡 داوری» for everybody and authorises nobody. Resolving is not authorising |
+
+### Added to §4
+
+R14, above.
 
 ## 5. Legal questions requiring human review
 

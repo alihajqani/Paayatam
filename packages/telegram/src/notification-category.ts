@@ -81,6 +81,15 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.BOT_TRUST]: 'essential',
   [TEMPLATES.BOT_REPORT_REASONS]: 'essential',
   [TEMPLATES.BOT_RECEIVED_REVIEWS]: 'essential',
+  /**
+   * A moderator asked for their queue and must get it (ADR-0018).
+   *
+   * `essential` like every other answer to a command the sender typed: a
+   * preference silences things the product decided to say, never a reply to a
+   * request. A moderation queue suppressed by somebody's notification settings
+   * would be a safety control switched off by a toggle about advertising.
+   */
+  [TEMPLATES.BOT_ADMIN_CASES]: 'essential',
 };
 
 /**

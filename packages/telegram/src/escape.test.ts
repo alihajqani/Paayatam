@@ -116,6 +116,9 @@ describe('no template emits injected markup', () => {
     TEMPLATES.BOT_RECEIVED_REVIEWS,
     TEMPLATES.BOT_SETTINGS,
     TEMPLATES.BOT_PARTICIPANTS,
+    // The moderation queue, built by `formatAdminQueue`, which escapes every
+    // event title it interpolates — `admin-cases.test.ts` is the proof.
+    TEMPLATES.BOT_ADMIN_CASES,
   ];
 
   it.each(Object.values(TEMPLATES).filter((key) => !PRE_RENDERED.includes(key)))(
@@ -138,6 +141,7 @@ describe('no template emits injected markup', () => {
   it('exempts exactly the pre-rendered bodies', () => {
     expect([...PRE_RENDERED].sort()).toEqual(
       [
+        TEMPLATES.BOT_ADMIN_CASES,
         TEMPLATES.BOT_CHATS,
         TEMPLATES.BOT_DISCOVER,
         TEMPLATES.BOT_MY_EVENTS,

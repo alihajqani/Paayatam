@@ -22,6 +22,40 @@ export interface CaseSummary {
   createdAt: Date;
 }
 
+/**
+ * One case, with the context a moderator needs to decide it (v0.6.3, ADR-0018).
+ *
+ * ── Why this is not just `CaseSummary` with the subject attached ────────────
+ *
+ * The bot renders this, and the bot's session holds `event.moderate` and
+ * `report.review` and **nothing else** — no `chat.read`, no `user.read`. So what
+ * is carried here is bounded by that, deliberately:
+ *
+ *  * **An event's own title and description**, because they are already public:
+ *    the event is on a discovery screen and possibly in a channel, and judging
+ *    it against the rules is exactly what `event.moderate` is for.
+ *  * **The reasons attached to the reports**, counted. That is `report.review`,
+ *    and counts rather than the reporters' free text — a moderator sorting a
+ *    queue needs to know that six people said «کلاهبرداری», and the paragraphs
+ *    behind that belong on a screen that is not a forwardable chat message.
+ *  * **How many blacklist terms matched**, never which text they matched. The
+ *    same rule `matched_terms` already follows.
+ *
+ * A `MESSAGE` case carries none of it, and says so. Private conversations are
+ * behind break-glass — a permission, a case, a reason and a fifteen-minute clock
+ * — and no amount of convenience makes a bot the right surface for one.
+ */
+export interface CaseDetail extends CaseSummary {
+  /** The event's own words, when the subject is an event. Null otherwise. */
+  eventTitle: string | null;
+  eventDescription: string | null;
+  eventStatus: string | null;
+  /** `{ reason, count }`, never the reporters' descriptions. */
+  reportReasons: { reason: string; count: number }[];
+  /** How many blacklist terms matched, never which text they matched. */
+  matchedTermCount: number;
+}
+
 /** The exactly-once key for an admin's hand-written balance change. */
 export function adminAdjustmentKey(reference: string): string {
   return `admin-adjust:${reference}`;
@@ -76,6 +110,94 @@ export class AdminOperationsService {
     });
 
     return rows;
+  }
+
+  /**
+   * The titles of the events a queue's cases are about, in one query.
+   *
+   * `EVENT_MODERATE` guards it like every other read here. It exists because the
+   * bot's queue renders a title per row and `listCases` returns up to a hundred:
+   * a lookup per case would be a hundred round trips to draw ten lines.
+   *
+   * Keyed by the **internal** event id, because that is what
+   * `moderation_case.subject_id` holds for an `EVENT` case — a moderation case
+   * is an admin-side row and has never carried a public id. The map is consumed
+   * inside this process and nothing puts a key of it into a message.
+   */
+  async eventTitlesFor(
+    session: AdminSession,
+    eventIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    this.access.assertPermission(session, PERMISSIONS.EVENT_MODERATE);
+    if (eventIds.length === 0) return new Map();
+
+    const rows = await this.prisma.event.findMany({
+      where: { id: { in: [...eventIds] } },
+      select: { id: true, title: true },
+    });
+    return new Map(rows.map((row) => [row.id, row.title]));
+  }
+
+  /**
+   * One case, with what the deciding surface is allowed to show (v0.6.3).
+   *
+   * `EVENT_MODERATE` guards it, exactly as `listCases` and `decideCase` are
+   * guarded — invariant 12 does not have a read exemption, and this read is what
+   * a decision is made from.
+   *
+   * The event lookup is by `subject_id`, which for an `EVENT` case is the
+   * event's **internal** id: a moderation case is an admin-side row and has
+   * never carried a public one. Nothing here returns that id.
+   */
+  async caseForReview(session: AdminSession, caseId: string): Promise<CaseDetail> {
+    this.access.assertPermission(session, PERMISSIONS.EVENT_MODERATE);
+
+    const row = await this.prisma.moderationCase.findUnique({
+      where: { id: caseId },
+      select: {
+        id: true,
+        subjectType: true,
+        subjectId: true,
+        status: true,
+        trigger: true,
+        reportCount: true,
+        createdAt: true,
+        matchedTerms: true,
+      },
+    });
+    if (!row) throw new AppError(ErrorCode.NOT_FOUND);
+
+    const event =
+      row.subjectType === 'EVENT'
+        ? await this.prisma.event.findUnique({
+            where: { id: row.subjectId },
+            select: { title: true, description: true, status: true },
+          })
+        : null;
+
+    const grouped = await this.prisma.report.groupBy({
+      by: ['reason'],
+      where: { moderationCaseId: caseId },
+      _count: { reason: true },
+    });
+
+    return {
+      id: row.id,
+      subjectType: row.subjectType,
+      subjectId: row.subjectId,
+      status: row.status,
+      trigger: row.trigger,
+      reportCount: row.reportCount,
+      createdAt: row.createdAt,
+      eventTitle: event?.title ?? null,
+      eventDescription: event?.description ?? null,
+      eventStatus: event?.status ?? null,
+      reportReasons: grouped
+        .map((entry) => ({ reason: entry.reason, count: entry._count.reason }))
+        .sort((a, b) => b.count - a.count),
+      // A count, never the terms and never the text they matched.
+      matchedTermCount: Array.isArray(row.matchedTerms) ? row.matchedTerms.length : 0,
+    };
   }
 
   /**
