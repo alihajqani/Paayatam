@@ -406,7 +406,7 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
 /**
  * The settings protocol: `st:<field><value>:x`.
  *
- * ── Why a toggle and not a wizard ───────────────────────────────────────────
+ * ── Why a board and not a wizard ────────────────────────────────────────────
  *
  * A wizard walks somebody through a sequence and ends. Settings are not a
  * sequence — they are a board you glance at, change one thing on, and leave.
@@ -421,18 +421,63 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
  *
  * The value slot is unused (`x`) because the three-part shape is what every
  * parser here expects and a fourth field would need a separator they all refuse.
+ *
+ * ── Why five letters and not three ──────────────────────────────────────────
+ *
+ * The board shows three things — notifications, privacy and language — and until
+ * v0.6.3 only the first was tappable. The other two were **sentences telling the
+ * reader to send a command**: «برای تغییر این مورد، /edit_profile را بفرستید».
+ * A settings screen that answers a tap with homework is a settings screen that
+ * has given up, and the whole point of this surface is that nothing here needs a
+ * command.
+ *
+ * So the letters cover all three, and where a value lives is the *bot's*
+ * problem rather than the protocol's:
+ *
+ *  * `c` `e` `m` — the three columns of `user_settings`.
+ *  * `p` — **privacy**, which is `user_profile.invite_opt_out` and has been
+ *    since M22. Not copied into `user_settings`: a setting with two homes is a
+ *    setting that will disagree with itself.
+ *  * `g` — **language**, which is `user.locale` and has exactly one value. The
+ *    button exists so the row is not the one dead thing on a board of live
+ *    ones; it answers with a sentence rather than changing anything.
+ *
+ * `p` is sent as **what the reader sees** — «دریافت دعوت», the inverse of
+ * `invite_opt_out` — because a button whose label and payload disagree is the
+ * one place an inversion bug hides. The bot flips it once, at the write.
  */
 export const SETTING_FIELDS = { c: 'notifyChat', e: 'notifyEvents', m: 'notifyCampaigns' } as const;
 export type SettingFieldLetter = keyof typeof SETTING_FIELDS;
 
+/** Privacy — `user_profile.invite_opt_out`, carried as its positive reading. */
+export const SETTING_PRIVACY = 'p';
+/** Language — `user.locale`, which the product has exactly one of. */
+export const SETTING_LANGUAGE = 'g';
+/** Finishing a profile, offered where the privacy switch would be if there were one. */
+export const SETTING_PROFILE = 'n';
+
+export const SETTING_LETTERS = [
+  ...(Object.keys(SETTING_FIELDS) as SettingFieldLetter[]),
+  SETTING_PRIVACY,
+  SETTING_LANGUAGE,
+  SETTING_PROFILE,
+] as const;
+
+export type SettingLetter = (typeof SETTING_LETTERS)[number];
+
 export interface SettingCallback {
-  field: SettingFieldLetter;
+  field: SettingLetter;
   value: boolean;
+}
+
+/** Whether this letter names one of the three `user_settings` columns. */
+export function isNotificationField(field: SettingLetter): field is SettingFieldLetter {
+  return Object.hasOwn(SETTING_FIELDS, field);
 }
 
 const SETTING_PREFIX = 'st';
 
-export function encodeSettingCallback(field: SettingFieldLetter, value: boolean): string {
+export function encodeSettingCallback(field: SettingLetter, value: boolean): string {
   return `${SETTING_PREFIX}:${field}${value ? '1' : '0'}:x`;
 }
 
@@ -443,10 +488,10 @@ export function parseSettingCallback(data: string): SettingCallback | null {
   const [prefix, action] = parts;
   if (prefix !== SETTING_PREFIX || action === undefined || action.length !== 2) return null;
 
-  const field = action.slice(0, 1);
+  const field = SETTING_LETTERS.find((candidate) => candidate === action.slice(0, 1));
   const value = action.slice(1);
-  if (!Object.hasOwn(SETTING_FIELDS, field)) return null;
+  if (field === undefined) return null;
   if (value !== '0' && value !== '1') return null;
 
-  return { field: field as SettingFieldLetter, value: value === '1' };
+  return { field, value: value === '1' };
 }

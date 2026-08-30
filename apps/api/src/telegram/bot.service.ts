@@ -69,7 +69,11 @@ import {
   formatSettings,
   settingsRows,
   parseSettingCallback,
+  isNotificationField,
   SETTING_FIELDS,
+  SETTING_LANGUAGE,
+  SETTING_PRIVACY,
+  SETTING_PROFILE,
   formatStanding,
   formatTrust,
   formatWallet,
@@ -109,6 +113,7 @@ import {
   type ReportTargetLetter,
   type ReportReasonValue,
   type ParsedUpdate,
+  type SettingCallback,
   type SummaryLine,
   type WizardScreen,
 } from '@payetam/telegram';
@@ -1027,11 +1032,7 @@ export class BotService {
      */
     const settingCallback = parseSettingCallback(data);
     if (settingCallback !== null) {
-      await this.userSettings.update(user.id, {
-        [SETTING_FIELDS[settingCallback.field]]: settingCallback.value,
-      });
-      await this.answer(callbackQueryId, settingCallback.value ? 'روشن شد' : 'خاموش شد');
-      return this.drawSettings(update.updateId, user);
+      return this.onSettingCallback(update.updateId, user, callbackQueryId, settingCallback);
     }
 
     /**
@@ -1724,6 +1725,103 @@ export class BotService {
   }
 
   /**
+   * A tap on the settings board.
+   *
+   * ── Why one handler and not three ───────────────────────────────────────────
+   *
+   * Every row on this board is a `st:` button and every one of them ends with the
+   * same act — write, then redraw — so the branch is over *where the value
+   * lives*, which is the only thing that actually differs. Three handlers would
+   * be three copies of the redraw.
+   *
+   * The three stores are deliberate and are not going to be merged. Copying
+   * `invite_opt_out` into `user_settings` would give the invitation pool two
+   * sources of truth for whether somebody wants to hear from hosts, and the pool
+   * reads the profile.
+   *
+   * ── Privacy is inverted exactly once ────────────────────────────────────────
+   *
+   * The button carries «دریافت دعوت» — the positive reading the user sees — and
+   * the column is `invite_opt_out`. The negation happens here, at the write, and
+   * nowhere else; a payload that already carried the stored polarity would make
+   * the label and the data disagree, which is where an inversion bug hides.
+   *
+   * ── A refusal is a toast, not a wall ────────────────────────────────────────
+   *
+   * `ProfileService.update` answers `PROFILE_INCOMPLETE` for somebody with no
+   * profile row, which the board avoids by offering the profile form instead of
+   * the switch. The catch is still here because the board is a message that can
+   * be tapped long after it was drawn, and a stale button should cost a toast.
+   */
+  private async onSettingCallback(
+    updateId: number,
+    user: BotUser,
+    callbackQueryId: string,
+    callback: SettingCallback,
+  ): Promise<void> {
+    if (isNotificationField(callback.field)) {
+      await this.userSettings.update(user.id, {
+        [SETTING_FIELDS[callback.field]]: callback.value,
+      });
+      await this.answer(callbackQueryId, callback.value ? 'روشن شد' : 'خاموش شد');
+      return this.drawSettings(updateId, user);
+    }
+
+    if (callback.field === SETTING_PRIVACY) {
+      try {
+        // The same method the profile wizard submits through, so the invitation
+        // pool cannot see one answer from one surface and another from the other.
+        await this.profiles.update(user.id, { inviteOptOut: !callback.value });
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+        await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+        return this.drawSettings(updateId, user);
+      }
+      await this.answer(
+        callbackQueryId,
+        callback.value ? 'دعوت‌ها روشن شد' : 'دیگر دعوتی دریافت نمی‌کنید',
+      );
+      return this.drawSettings(updateId, user);
+    }
+
+    /**
+     * The profile form, opened from the row that would have been the privacy
+     * switch.
+     *
+     * A wizard replaces whatever was open — `conversation_state.user_id` is
+     * UNIQUE — which is the same rule every other entry point follows, so the
+     * toast says where the tap has taken them rather than leaving a form to
+     * appear unexplained.
+     */
+    if (callback.field === SETTING_PROFILE) {
+      if (!this.env.ENABLE_CONVERSATION_WIZARD) {
+        await this.answer(callbackQueryId, 'این بخش موقتاً در دسترس نیست.');
+        return;
+      }
+      if (!(await this.mayWrite(updateId, user))) {
+        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        return;
+      }
+      await this.answer(callbackQueryId, 'فرم نمایه باز شد');
+      const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+      return this.drawWizard(updateId, user, outcome);
+    }
+
+    /**
+     * Language, which is a fact rather than a choice.
+     *
+     * `user.locale` is fa-IR for everybody and every template, date format and
+     * error message in the product is written in it. The button exists so the row
+     * is not the one dead thing on a board of live ones, and it answers where the
+     * tap happened instead of leaving a line of italics to be read.
+     */
+    if (callback.field === SETTING_LANGUAGE) {
+      await this.answer(callbackQueryId, 'فعلاً فقط فارسی در دسترس است.');
+      return;
+    }
+  }
+
+  /**
    * The settings board, drawn from the three places its state actually lives.
    *
    * Notifications are `user_settings`; privacy is `user_profile.invite_opt_out`,
@@ -1744,6 +1842,9 @@ export class BotService {
       // No profile yet means nothing has opted out, which is the default.
       inviteOptOut: profile?.inviteOptOut ?? false,
       locale: this.env.APP_LOCALE,
+      // Distinct from `inviteOptOut === false`: somebody with no profile row has
+      // no flag to flip, and `update` refuses rather than creating one.
+      hasProfile: profile !== null,
     };
 
     await this.reply(updateId, user.id, TEMPLATES.BOT_SETTINGS, {

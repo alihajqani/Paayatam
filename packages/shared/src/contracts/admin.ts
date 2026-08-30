@@ -1648,6 +1648,21 @@ export const updateNotificationSettingsRequest = z.object({
   notifyChat: z.boolean().optional(),
   notifyEvents: z.boolean().optional(),
   notifyCampaigns: z.boolean().optional(),
+  /**
+   * Privacy, which lives on the profile and is written through `ProfileService`
+   * (v0.6.3).
+   *
+   * Accepted *here* because the settings screen is where a person looks for it —
+   * the bot's board shows notifications, privacy and language together, and an
+   * API that covered one third of its own screen would make every client
+   * assemble the other two from `PATCH /me/profile` by hand.
+   *
+   * **Not stored here.** `user_settings` has no such column and will not grow
+   * one: `user_profile.invite_opt_out` is what the invitation pool reads, and a
+   * second copy is a second answer to "does this person want to hear from
+   * hosts".
+   */
+  inviteOptOut: z.boolean().optional(),
 });
 export type UpdateNotificationSettingsRequest = z.infer<typeof updateNotificationSettingsRequest>;
 
@@ -1655,5 +1670,24 @@ export const notificationSettingsView = z.object({
   notifyChat: z.boolean(),
   notifyEvents: z.boolean(),
   notifyCampaigns: z.boolean(),
+  /** `user_profile.invite_opt_out`. False when there is no profile row yet. */
+  inviteOptOut: z.boolean(),
+  /**
+   * `user.locale`, read-only.
+   *
+   * The product is fa-IR only and the response says so rather than offering a
+   * field a client could write — a language picker with one entry is not a
+   * feature, and a writable one would be an endpoint that accepts a value
+   * nothing in the product honours.
+   */
+  locale: z.string(),
+  /**
+   * Whether a `user_profile` row exists to hold `inviteOptOut`.
+   *
+   * Distinct from `inviteOptOut === false`: `ProfileService.update` answers
+   * `PROFILE_INCOMPLETE` when there is no row, so a client that renders a switch
+   * without checking this renders one that cannot be used.
+   */
+  hasProfile: z.boolean(),
 });
 export type NotificationSettingsView = z.infer<typeof notificationSettingsView>;

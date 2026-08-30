@@ -23,8 +23,17 @@ export { formatWallet, ledgerLabelFa } from './wallet';
 export { formatTrust, trustLabelFa } from './trust';
 export { REPORT_REASON_CHOICES, reportPrompt, reportReasonLabel } from './report';
 export { notificationCategory, preferenceKeyFor } from './notification-category';
-export { SETTING_FIELDS, encodeSettingCallback, parseSettingCallback } from './callback-data';
-export type { SettingCallback, SettingFieldLetter } from './callback-data';
+export {
+  SETTING_FIELDS,
+  SETTING_LANGUAGE,
+  SETTING_LETTERS,
+  SETTING_PRIVACY,
+  SETTING_PROFILE,
+  encodeSettingCallback,
+  isNotificationField,
+  parseSettingCallback,
+} from './callback-data';
+export type { SettingCallback, SettingFieldLetter, SettingLetter } from './callback-data';
 export { formatSettings, settingsRows } from './settings';
 export type { SettingsState } from './settings';
 export type { NotificationCategory } from './notification-category';

@@ -1,4 +1,16 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Put, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Patch,
+  Post,
+  Put,
+  Req,
+} from '@nestjs/common';
+import type { Env } from '@payetam/config';
 import {
   CoinService,
   ConsentService,
@@ -21,7 +33,7 @@ import {
   type ProfileView,
   type UpdateProfileRequest,
 } from '@payetam/shared';
-import { currentRequestContext } from '@payetam/platform';
+import { ENV, currentRequestContext } from '@payetam/platform';
 import type { FastifyRequest } from 'fastify';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -36,6 +48,10 @@ export class OnboardingController {
     private readonly profiles: ProfileService,
     private readonly coins: CoinService,
     private readonly userSettings: UserSettingsService,
+    // For `APP_LOCALE`, which `GET /me/settings` reports as the language: it is
+    // configuration rather than a per-user column, and the settings screen is
+    // where somebody looks for it.
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -208,7 +224,7 @@ export class OnboardingController {
   @Get('me/settings')
   async settings(@CurrentUser() current: AuthenticatedUser): Promise<NotificationSettingsView> {
     const userId = await this.users.resolveInternalId(current.publicId);
-    return this.userSettings.get(userId);
+    return this.settingsView(userId);
   }
 
   /**
@@ -228,7 +244,48 @@ export class OnboardingController {
     @CurrentUser() current: AuthenticatedUser,
   ): Promise<NotificationSettingsView> {
     const userId = await this.users.resolveInternalId(current.publicId);
-    return this.userSettings.update(userId, body);
+
+    /**
+     * Two stores, one request, and the profile written **first**.
+     *
+     * `ProfileService.update` is the half that can refuse — `PROFILE_INCOMPLETE`
+     * for somebody with no profile row — and doing it first means a refusal
+     * leaves nothing written. The other order would turn one invalid request into
+     * a half-applied one, with the notification toggles saved and the caller
+     * holding an error that says nothing about them.
+     *
+     * Not a transaction: they are two independent rows in two independent tables,
+     * and the failure this ordering removes is the only one available.
+     */
+    if (body.inviteOptOut !== undefined) {
+      await this.profiles.update(userId, { inviteOptOut: body.inviteOptOut });
+    }
+    await this.userSettings.update(userId, body);
+    return this.settingsView(userId);
+  }
+
+  /**
+   * The whole settings screen, from the three places its state lives.
+   *
+   * Notifications are `user_settings`, privacy is `user_profile.invite_opt_out`,
+   * language is `user.locale` — and nothing is copied between them, which is why
+   * this assembles rather than reads. The bot's board is drawn from exactly the
+   * same three reads, so the two surfaces cannot show a user different answers.
+   */
+  private async settingsView(userId: string): Promise<NotificationSettingsView> {
+    const [settings, profile] = await Promise.all([
+      this.userSettings.get(userId),
+      this.profiles.find(userId),
+    ]);
+
+    return {
+      ...settings,
+      // No profile row means nothing has opted out, which is the default — but
+      // `hasProfile` keeps that distinguishable from a flag somebody set.
+      inviteOptOut: profile?.inviteOptOut ?? false,
+      locale: this.env.APP_LOCALE,
+      hasProfile: profile !== null,
+    };
   }
 
   @Patch('me/profile')
