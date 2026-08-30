@@ -8,6 +8,7 @@ import {
   CoinService,
   ConversationService,
   DiscoveryService,
+  EventLifecycleService,
   EventService,
   GiftCodeService,
   InvitationService,
@@ -58,6 +59,8 @@ import {
   discoverFilterRows,
   formatDiscovered,
   formatEventDetail,
+  formatParticipants,
+  encodeChatCallback,
   parseDiscoverCallback,
   formatJalali,
   formatPolicies,
@@ -180,6 +183,7 @@ export class BotService {
     private readonly invitations: InvitationService,
     private readonly reports: ReportService,
     private readonly userSettings: UserSettingsService,
+    private readonly lifecycle: EventLifecycleService,
     private readonly settings: SettingsService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
@@ -527,6 +531,7 @@ export class BotService {
           (event) => isPublicId(event.publicId) && OPEN_EVENT_STATUSES.has(event.status),
         );
         const rows = actionable.map((event) => [
+          { text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) },
           { text: '📣 کانال', callbackData: encodeEventCallback('post', event.publicId) },
           { text: '🚀 ارتقا', callbackData: encodeEventCallback('boost', event.publicId) },
           { text: '👥 دعوت', callbackData: encodeEventCallback('invite', event.publicId) },
@@ -1276,25 +1281,44 @@ export class BotService {
              * chat. Reporting was the last user-facing safety control with no bot
              * surface at all.
              */
-            keyboard: JSON.stringify([
-              [
-                {
-                  text: '➕ پیوستن به این فعالیت',
-                  callbackData: encodeEventCallback('join', callback.id),
-                },
-              ],
-              [
-                { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', callback.id) },
-                ...(isPublicId(event.hostPublicId)
-                  ? [
+            /**
+             * The host sees their own activity differently.
+             *
+             * Joining is refused for them by `HOST_CANNOT_JOIN`, and reporting
+             * your own content by `CANNOT_REPORT_OWN_CONTENT` — so offering
+             * either would be two buttons that exist to be declined. What a host
+             * wants from this screen is who is coming.
+             */
+            keyboard: JSON.stringify(
+              event.hostPublicId === user.publicId
+                ? [
+                    [
                       {
-                        text: '🚩 گزارش میزبان',
-                        callbackData: encodeReportAsk('u', event.hostPublicId),
+                        text: '👥 مهمان‌ها',
+                        callbackData: encodeEventCallback('who', callback.id),
                       },
-                    ]
-                  : []),
-              ],
-            ]),
+                    ],
+                  ]
+                : [
+                    [
+                      {
+                        text: '➕ پیوستن به این فعالیت',
+                        callbackData: encodeEventCallback('join', callback.id),
+                      },
+                    ],
+                    [
+                      { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', callback.id) },
+                      ...(isPublicId(event.hostPublicId)
+                        ? [
+                            {
+                              text: '🚩 گزارش میزبان',
+                              callbackData: encodeReportAsk('u', event.hostPublicId),
+                            },
+                          ]
+                        : []),
+                    ],
+                  ],
+            ),
           });
         }
 
@@ -1424,6 +1448,46 @@ export class BotService {
         case 'dropyes':
           await this.events.cancelByHost(user.id, callback.id);
           await this.answer(callbackQueryId, 'فعالیت لغو شد');
+          return;
+
+        /**
+         * Who is coming — the screen three earlier batches needed.
+         *
+         * `markNoShow` takes a participant public id and the bot had no way to
+         * name one: `/myevents` counted guests and said nothing about who, so a
+         * host could not record that somebody did not turn up.
+         *
+         * `listForEvent` refuses an event that is not the caller's, and answers
+         * not-yours and not-found identically (T3.3) — so this needs no
+         * ownership check of its own.
+         */
+        case 'who': {
+          await this.answer(callbackQueryId, '');
+          return this.drawParticipants(updateId, user, callback.id);
+        }
+
+        /**
+         * A no-show, asked before it is recorded.
+         *
+         * It moves somebody's Trust Score down and there is no undo in the bot,
+         * which is the same bar the paid actions clear with two taps.
+         */
+        case 'noshow': {
+          await this.answer(callbackQueryId, '');
+          return this.confirmSpend(
+            updateId,
+            user,
+            `<b>ثبت غیبت</b>\n\n` +
+              `این کار امتیاز اعتماد این نفر را کم می‌کند و به او اطلاع داده می‌شود.\n\n` +
+              `<i>فقط وقتی ثبت کنید که واقعاً نیامده باشد.</i>`,
+            '🚫 بله، غایب بود',
+            encodeEventCallback('noshowyes', callback.id),
+          );
+        }
+
+        case 'noshowyes':
+          await this.lifecycle.markNoShow(user.id, callback.id);
+          await this.answer(callbackQueryId, 'غیبت ثبت شد');
           return;
       }
     } catch (error) {
@@ -1590,6 +1654,73 @@ export class BotService {
       if (!(error instanceof AppError)) throw error;
       await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
     }
+  }
+
+  /**
+   * Who is coming to one activity, with the host's actions on each of them.
+   *
+   * ── Why no-show is offered only after the event ends ────────────────────────
+   *
+   * `markNoShow` refuses while `endsAt` is in the future, and a button that
+   * exists to be refused is worse than no button. So the row a guest gets
+   * depends on where the activity is in its life: a pending request gets accept
+   * and reject, and an accepted guest gets a no-show only once there is
+   * something to have been absent from.
+   */
+  private async drawParticipants(
+    updateId: number,
+    user: BotUser,
+    eventPublicId: string,
+  ): Promise<void> {
+    let event;
+    try {
+      event = await this.events.findOwned(user.id, eventPublicId);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+
+    const participants = await this.participation.listForEvent(user.id, eventPublicId);
+    const text = formatParticipants(
+      event.title,
+      participants.map((row) => ({
+        displayName: row.displayName,
+        trustScore: row.trustScore,
+        status: row.status,
+        waitlistRank: row.waitlistRank,
+      })),
+    );
+
+    const ended = event.endsAt <= new Date();
+    const rows = participants
+      .filter((row) => isPublicId(row.publicId))
+      .map((row, index) => {
+        const number = toPersianDigits(String(index + 1));
+        if (row.status === 'PENDING' || row.status === 'WAITLISTED') {
+          return [
+            {
+              text: `${number} ✅ پذیرش`,
+              callbackData: encodeChatCallback('accept', row.publicId),
+            },
+            { text: `${number} ✖️ رد`, callbackData: encodeChatCallback('reject', row.publicId) },
+          ];
+        }
+        if (row.status === 'ACCEPTED' && ended) {
+          return [
+            {
+              text: `${number} 🚫 غایب بود`,
+              callbackData: encodeEventCallback('noshow', row.publicId),
+            },
+          ];
+        }
+        return [];
+      })
+      .filter((row) => row.length > 0);
+
+    await this.reply(updateId, user.id, TEMPLATES.BOT_PARTICIPANTS, {
+      text,
+      ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+    });
   }
 
   /**

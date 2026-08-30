@@ -109,6 +109,8 @@ export const TEMPLATES = {
   BOT_RECEIVED_REVIEWS: 'bot.received_reviews',
   /** The settings board: three switches, and what is not switchable. */
   BOT_SETTINGS: 'bot.settings',
+  /** Who is coming to one activity, with the host's actions on each of them. */
+  BOT_PARTICIPANTS: 'bot.participants',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -705,6 +707,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const keyboard = parseKeyboard(payload);
       return {
         text: prerendered(payload),
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    /** Who is coming, with a row of actions per guest. */
+    case TEMPLATES.BOT_PARTICIPANTS: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `my-events`,
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
     }

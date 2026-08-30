@@ -28,6 +28,8 @@ export type { SettingCallback, SettingFieldLetter } from './callback-data';
 export { formatSettings, settingsRows } from './settings';
 export type { SettingsState } from './settings';
 export type { NotificationCategory } from './notification-category';
+export { formatParticipants } from './participants';
+export type { ParticipantLine } from './participants';
 export { formatReceivedReviews } from './received-reviews';
 export type { ReceivedReviewLine } from './received-reviews';
 export type { TrustLine } from './trust';

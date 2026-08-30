@@ -1749,7 +1749,7 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     return row.payload as Record<string, unknown>;
   }
 
-  it('offers channel, boost, invite and cancel on every open event', async () => {
+  it('offers guests, channel, boost, invite and cancel on every open event', async () => {
     const { eventPublicId } = await seedHostAndEvent();
 
     await type(HOST_TELEGRAM_ID, '/myevents');
@@ -1760,11 +1760,110 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     }[][];
     expect(rows).toHaveLength(1);
     expect(rows[0]?.map((button) => button.callbackData)).toEqual([
+      `ev:who:${eventPublicId}`,
       `ev:post:${eventPublicId}`,
       `ev:boost:${eventPublicId}`,
       `ev:invite:${eventPublicId}`,
       `ev:drop:${eventPublicId}`,
     ]);
+  });
+
+  /**
+   * Who is coming — the screen `markNoShow` needed and three batches could not
+   * build, because the bot had no way to name a participant.
+   */
+  it('lists the guests, with accept and reject on a pending one', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان یکم');
+    await participation.join(guestId, eventPublicId);
+
+    await tap(HOST_TELEGRAM_ID, `ev:who:${eventPublicId}`);
+
+    const payload = await latest(TEMPLATES.BOT_PARTICIPANTS);
+    expect(String(payload['text'])).toContain('میهمان یکم');
+    // The one piece of reputation a host is given, and «تازه‌وارد» rather than a
+    // zero for somebody who has never been judged.
+    expect(String(payload['text'])).toContain('تازه‌وارد');
+
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { userId: guestId },
+      select: { publicId: true },
+    });
+    const rows = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
+    expect(rows[0]?.map((button) => button.callbackData)).toEqual([
+      `chat:accept:${participant.publicId}`,
+      `chat:reject:${participant.publicId}`,
+    ]);
+  });
+
+  /**
+   * `markNoShow` refuses while the activity has not ended, so the button is not
+   * drawn — one that exists to be refused is worse than no button.
+   */
+  it('offers no no-show before the activity has ended', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.accept(hostId, joined.publicId);
+
+    await tap(HOST_TELEGRAM_ID, `ev:who:${eventPublicId}`);
+
+    const payload = await latest(TEMPLATES.BOT_PARTICIPANTS);
+    // The whole payload, because a keyboard-less board has no key to read.
+    expect(JSON.stringify(payload)).not.toContain('ev:noshow');
+  });
+
+  it('records a no-show once the activity is over and the host confirms', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.accept(hostId, joined.publicId);
+    // Move the activity into the past, which is what makes a no-show meaningful.
+    await prisma.event.update({
+      where: { publicId: eventPublicId },
+      data: {
+        startsAt: new Date(Date.now() - 7_200_000),
+        endsAt: new Date(Date.now() - 3_600_000),
+      },
+    });
+
+    await tap(HOST_TELEGRAM_ID, `ev:who:${eventPublicId}`);
+    const rows = JSON.parse(String((await latest(TEMPLATES.BOT_PARTICIPANTS))['keyboard'])) as {
+      callbackData: string;
+    }[][];
+    expect(rows[0]?.[0]?.callbackData).toBe(`ev:noshow:${joined.publicId}`);
+
+    // Asked first: it moves a Trust Score down and the bot has no undo.
+    await tap(HOST_TELEGRAM_ID, `ev:noshow:${joined.publicId}`);
+    expect(
+      await prisma.eventParticipant.findUniqueOrThrow({
+        where: { publicId: joined.publicId },
+        select: { status: true },
+      }),
+    ).toMatchObject({ status: 'ACCEPTED' });
+
+    await tap(HOST_TELEGRAM_ID, `ev:noshowyes:${joined.publicId}`);
+    expect(
+      await prisma.eventParticipant.findUniqueOrThrow({
+        where: { publicId: joined.publicId },
+        select: { status: true },
+      }),
+    ).toMatchObject({ status: 'NO_SHOW' });
+  });
+
+  /** Not-yours and not-found answer identically, and neither lists anybody. */
+  it("refuses the guest list of somebody else's activity", async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const before = await prisma.notification.count({
+      where: { templateKey: TEMPLATES.BOT_PARTICIPANTS },
+    });
+
+    await tap(GUEST_TELEGRAM_ID, `ev:who:${eventPublicId}`);
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_PARTICIPANTS } }),
+    ).toBe(before);
   });
 
   /** Boost names both the price and the duration, and both are settings. */

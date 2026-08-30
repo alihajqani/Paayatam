@@ -115,6 +115,7 @@ describe('no template emits injected markup', () => {
     TEMPLATES.BOT_REPORT_REASONS,
     TEMPLATES.BOT_RECEIVED_REVIEWS,
     TEMPLATES.BOT_SETTINGS,
+    TEMPLATES.BOT_PARTICIPANTS,
   ];
 
   it.each(Object.values(TEMPLATES).filter((key) => !PRE_RENDERED.includes(key)))(
@@ -140,6 +141,7 @@ describe('no template emits injected markup', () => {
         TEMPLATES.BOT_CHATS,
         TEMPLATES.BOT_DISCOVER,
         TEMPLATES.BOT_MY_EVENTS,
+        TEMPLATES.BOT_PARTICIPANTS,
         TEMPLATES.BOT_REQUESTS,
         TEMPLATES.BOT_REVIEWS,
         TEMPLATES.BOT_CONFIRM_SPEND,

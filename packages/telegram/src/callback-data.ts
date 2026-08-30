@@ -115,6 +115,19 @@ export const EVENT_CALLBACK_ACTIONS = [
   /** One activity in full, before deciding to spend an evening on it. */
   'show',
   /**
+   * Who is coming, and recording that somebody did not turn up.
+   *
+   * `who` carries an **event** public id; `noshow` and `noshowyes` carry a
+   * **participant** one — the same split `join`/`cancel` already has, and the
+   * reason both parsers refuse to guess at a target from an id alone.
+   *
+   * Two steps for the same reason the paid actions have two: a no-show moves
+   * somebody's Trust Score down and cannot be undone from the bot.
+   */
+  'who',
+  'noshow',
+  'noshowyes',
+  /**
    * The host's paid actions, each in two steps — the ask and the act.
    *
    * `post` asks and `postyes` does; `invite` asks and `inviteyes` does; `drop`
