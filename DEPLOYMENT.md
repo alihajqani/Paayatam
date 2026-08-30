@@ -638,6 +638,72 @@ an environment with a different key cannot read existing drafts**; they are
 discarded on read and the user starts their form again, which is why this is a
 note rather than a warning.
 
+### Migrations 0029–0031 and what they switch on
+
+Three additive migrations, and **two of them are inert on the day they land**.
+
+| # | What it adds | Effect on deploy day |
+|---|---|---|
+| 0029 | `EVENT_JOIN_SPEND` on `coin_ledger_type` | **None.** `economy.event_join_coins` defaults to `0`, and the service writes no ledger row at zero — `coin_ledger.amount` may not be zero, and a row claiming somebody paid nothing is worse than no row |
+| 0030 | `admin_telegram_link` | **None until a row exists**, and no row exists until somebody runs the linking tool below |
+| 0031 | `ADMIN_CASE` on `conversation_kind` | **None.** A value nothing writes until a moderator is linked |
+
+**0029 and 0031 are `ALTER TYPE … ADD VALUE`, which Postgres cannot run inside a
+transaction.** That is why they are separate files, and why a later failure does
+not roll them back. They are additive-only, so a partial apply is safe — but the
+runbook has to say so rather than leave somebody to discover it during an
+incident.
+
+#### Charging for a join, if you ever want to
+
+`economy.event_join_coins` is the price of *asking* to join, and it is `0`
+everywhere until an operator changes it. It exists because the channel post's
+«شرکت می‌کنم» button reaches the same `ParticipationService.join` the in-bot
+button does: shipping a non-zero default would have started charging for every
+join on every surface as a side effect of adding a button to a channel post.
+
+Setting it is one row and needs no deploy — the admin panel's settings screen, or:
+
+```sql
+INSERT INTO app_setting (key, value, updated_at)
+VALUES ('economy.event_join_coins', '15'::jsonb, now())
+ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now();
+```
+
+A waitlisted request is charged like a seated one — what is paid for is the ask,
+which consumes a host's attention whether or not a seat was free. There is no
+refund on rejection; making it one would be a deposit, which is a different
+product decision.
+
+#### Linking a moderator to Telegram
+
+Optional, and nothing else in the release depends on it. It is what makes the
+«🛡 داوری» menu button appear for one staff member.
+[ADR-0018](docs/adr/0018-admin-moderation-in-the-bot.md) is the argument,
+including what it costs — it qualifies ADR-0010's clause that admin access does
+not follow from a staff member's personal Telegram being taken over.
+
+```bash
+cd /srv/payetam
+pnpm link-admin-telegram --by boss@example.com \
+  --email mod@example.com --telegram 573914882 \
+  --reason 'on-call moderation from a phone'
+```
+
+- `--by` and `--email` must be **different accounts**, and `--by` must hold
+  `role.manage`. Nobody grants themselves a capability.
+- The numeric Telegram user id, not an `@username`: a username is changeable by
+  its owner and by whoever releases one, so it is an identifier that can be
+  acquired rather than proven. The moderator can read theirs from any of the
+  several bots that report it.
+- Under `NODE_ENV=production` it asks you to type `link` before writing, the same
+  rail every other production write script has.
+- Revoke with `--revoke` and a reason. It takes effect on their **next tap** —
+  the session is derived per update and nothing is cached.
+
+What the link grants inside the bot is a hard-coded allowlist: `event.moderate`
+and `report.review`. A `SUPER_ADMIN` on the bot is a moderator and no more.
+
 ### The command menu
 
 The webhook is what lets the bot *hear*; `setMyCommands` is what lets anybody

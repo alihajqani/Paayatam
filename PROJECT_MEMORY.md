@@ -5,7 +5,7 @@ knowledge — it points at where the knowledge already lives.** The repo carries
 ~600 KB of maintained documentation; duplicating any of it here would only give
 it a second place to go stale.
 
-Last verified against `feature/bot-commands` on 2026-08-28.
+Last verified against `master` on 2026-08-30.
 
 ---
 
@@ -25,7 +25,7 @@ Docker Compose, live in production at **`v0.4.2`** (deployed 2026-08-29).
 |---|---|
 | What exists today, every route/table/flow | `docs/project-review.md` (52 K) |
 | The master plan, frozen decisions, milestones | `docs/implementation-plan.md` (174 K) |
-| Why a decision is what it is | `docs/adr/` (18 ADRs, index in `README.md`) |
+| Why a decision is what it is | `docs/adr/` (18 ADRs, index in its own `README.md`) |
 | Setup, ports, testing inside Telegram | `README.md` §Local Development |
 | Bare VPS → verified deploy | `DEPLOYMENT.md` (33 K) |
 | Attack surface + accepted risks | `docs/threat-model.md`, `SECURITY.md` |
@@ -56,8 +56,8 @@ no HTTP framework and no grammY.** `apps/api` and `apps/worker` are thin adapter
 over the same services. That is what stops the bot and the Mini App from drifting
 apart — treat it as an invariant, not a preference.
 
-Scale: 52 Prisma models · 25 migrations · 15 API controllers · 42 domain services
-· 20 domain modules · 15 Mini App views · 1309 unit/component tests.
+Scale: 54 Prisma models · 30 migrations · 15 API controllers · 49 domain services
+· 19 domain modules · 15 Mini App views · 1431 unit/component tests.
 
 ## 4. The twelve invariants
 
@@ -73,7 +73,9 @@ The four that catch people out most often:
 - **11** — every outbound Telegram call goes through the queue, never inline in a
   request. One documented exception: `apps/api/src/telegram/membership.probe.ts`.
 - **12** — every mutating admin action is authorised **in the service layer**,
-  not only in a guard, and audited.
+  not only in a guard, and audited. This is what let the bot become a *fourth*
+  admin caller in v0.6.3 without a fourth copy of the rules: `BotService` holds
+  no permission check of its own (ADR-0018).
 
 ## 5. Working rules in force
 
@@ -422,6 +424,108 @@ a fact about the thing rather than a relationship between two people.
 `deepLinkTarget()` — the payload is attacker-supplied. Pinned by
 `apps/miniapp/src/telegram/deep-links.test.ts`, which renders every template and
 checks its target. It found two that had never worked.
+
+## 10b. v0.6.3 — buttons everywhere, and a staff surface in the chat
+
+Four things, and the thread running through all of them is that **a command is a
+fallback now, not a path**. The persistent keyboard plus a button on every screen
+is how the product is reached; `/settings`, `/discover` and the rest still work
+because somebody who has learned one should not be told to go and find a button.
+
+### Settings became a board where every row is a switch
+
+Two of the three areas used to be *sentences telling the reader to send a
+command* — «برای تغییر این مورد، /edit_profile را بفرستید» under privacy, and an
+italic line under language. Both true, both the wrong shape: a board of switches
+where two rows answer a tap with homework teaches the reader that the rows are
+decoration.
+
+Three areas, three stores, **nothing copied between them**:
+
+| Area | Where it lives |
+|---|---|
+| Notifications | `user_settings` (migration 0028) |
+| Privacy | `user_profile.invite_opt_out`, which the invitation pool already reads |
+| Language | `user.locale`, one value, fa-IR |
+
+Privacy is carried in the callback as **what the reader sees** («دریافت دعوت»)
+and inverted once, at the write. A payload already in the column's polarity is
+where that bug hides. Somebody with no profile row has no flag to flip and
+`ProfileService.update` refuses — so the switch is replaced by the button that
+opens the profile form. **A switch that exists to be refused is worse than the
+button that fixes the reason.**
+
+`GET`/`PUT /api/v1/me/settings` covers the same three areas, assembled from the
+same three reads, and the PUT writes the profile first because that is the half
+that can refuse.
+
+### The channel post got two buttons, and both reach the bot
+
+The single one opened the **Mini App** — the application v0.4.6 spent a release
+removing every other button to. «👀 مشاهده در ربات» and «✅ شرکت می‌کنم», both
+`?start=` links, and the link form is not stylistic:
+
+> **The bot cannot message somebody who has never opened a chat with it.** A
+> `callback_query` from a channel reader could be answered with a toast and
+> nothing else — no acknowledgement, no host notification, no explanation of a
+> refusal. Following a link opens the chat, which is what makes every message
+> after it deliverable. It also survives a post forwarded out of the channel.
+
+`parseStartPayload` runs *before* the referral claim and is told apart by shape,
+so a channel tap does not log a refused referral. A reader who owes an acceptance
+gets the welcome, the activity **with its join button**, and the consent screen —
+stopping at the gate would leave them having accepted the policies with no way
+back to the activity, because the post is in a channel they have now left.
+Nothing is remembered; the id is in the button.
+
+**`economy.event_join_coins` ships at 0.** The button reaches the same
+`ParticipationService.join` the in-bot one does, so a non-zero default would have
+started charging for every join on every surface as a side effect of adding a
+button to a channel post. The mechanism is there; the price is one row in
+`app_setting`.
+
+### Admin moderation in the bot (ADR-0018)
+
+**This spends a control rather than adding one.** ADR-0010's separation of the
+two identity systems *was* the control, and its second decision says admin access
+must not follow from a staff member's personal Telegram being taken over. Read
+the ADR before touching any of it; what follows is the map.
+
+Four properties bound the trade, and each is enforced rather than described:
+
+1. **Granted, never derived, and never by yourself.** `admin_telegram_link` is
+   written by an admin holding `role.manage`, with a reason, in an audit row.
+   `tools/link-admin-telegram.ts` refuses when `--by` and `--email` match. There
+   is deliberately **no admin endpoint** — a route taking a Telegram id would put
+   invariant 7's value in request logs, browser history and a Vue bundle at once.
+2. **The session is an intersection.** `BOT_PERMISSIONS` is a hard-coded
+   allowlist — `event.moderate`, `report.review` — and a `SUPER_ADMIN` on the bot
+   is a moderator and no more. **A list in code because it is the boundary of a
+   channel rather than a job.** Adding a line is another ADR.
+3. **No foreign key to `user`.** The Telegram id is carried directly, so the two
+   identity systems stay disjoint tables.
+4. **The submit resolves the session again.** A wizard lives seven days; deciding
+   from the session that opened the form would let a revoked moderator finish
+   work they started before losing access. That is the load-bearing test.
+
+`moderate` is **not** in `BOT_COMMANDS` — publishing a staff command to everyone
+makes "is there an admin surface?" a question the bot answers on request. A
+stranger who guesses it gets the unknown-command sentence *byte for byte*,
+through the same method, so the two cannot drift apart. And «🛡 داوری» resolves
+for everybody and authorises nobody, because a menu label that failed to resolve
+would be **relayed into an anonymous chat** (trap 9's shape).
+
+What the queue may show is bounded twice — by the two permissions, and by the
+fact that a chat message can be forwarded out of the chat it was sent to. Report
+reasons counted, never quoted; blacklist matches counted, never named; a
+`MESSAGE` case carries nothing and says so.
+
+### Who is coming, and the no-show
+
+Already built in v0.6.2 and reachable from `/myevents`; v0.6.3 pinned the other
+route — a host opening their **own** activity's detail screen gets «👥 مهمان‌ها»
+where a guest gets «پیوستن», and neither joining nor reporting, both of which the
+services would refuse.
 
 ## 10a. v0.4.0 / v0.4.1 — the bot wizards
 

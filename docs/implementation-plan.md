@@ -450,6 +450,9 @@ status='WAITLISTED'`.
 10. Every state transition goes through `assertTransition()` and writes `audit_log`.
 11. Every outbound Telegram call goes through the `telegram-send` queue, never inline in a request.
 12. Every mutating admin action requires a permission check **in the service layer** and writes `audit_log`.
+    v0.6.3 is where this stopped being a preference: the bot became a fourth admin caller
+    (ADR-0018) and needed no fourth copy of the rules, because `BotService` holds no permission
+    check of its own — the assertions are in `AdminOperationsService`, where every caller meets them.
 
 ---
 
@@ -2136,6 +2139,7 @@ working system, timed and documented; (32) every job produces the same end state
 | Review window | opens T+24 h, deadline T+7 d, edit window 1 h |
 | **Gift codes (M18)** | **Not in `app_setting`.** Every number that decides a redemption — the coins, the global cap, the per-user limit, the window, the kill switch — is a **column on `gift_code`**, because they are per-campaign rather than per-platform. A single shared default would make two simultaneous campaigns impossible. Minted through `/admin/v1/gift-codes` (ADR-0015). **M19 added two *platform* limits that do live here**, because they bound what a campaign may be rather than what one is: `giftcode.max_batch_size` (1000) and `giftcode.max_per_user_limit` (1) |
 | Gift-code redemption rate limit | **10/hour per user** — the tightest bucket in the product, because this is the only endpoint where guessing pays (T6.7) |
+| **Joining an activity (v0.6.3)** | `economy.event_join_coins` = **0**, and the zero is the decision. Joining has been free on every surface since M6, and the channel post's «شرکت می‌کنم» button reaches the same `ParticipationService.join` the in-bot button does — so a non-zero default would have started charging for every join everywhere as a side effect of adding a button to a channel post. The mechanism exists so an operator can set a price without a deploy; a waitlisted request is charged like a seated one, because what is paid for is the *ask*, and there is no refund on rejection (that would make it a deposit, which is a different product decision) |
 
 ---
 
