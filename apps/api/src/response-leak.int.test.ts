@@ -1237,6 +1237,31 @@ beforeAll(async () => {
       url: '/api/v1/me/profile',
       body: { bio: 'اهل کوه و کتاب' },
     },
+    /**
+     * The settings screen, both halves (v0.6.1, listed in v0.6.3).
+     *
+     * **These shipped uncovered**, which is the failure this test exists to make
+     * impossible: the endpoints went out in v0.6.1 and were never added here, so
+     * the scan reported green over two responses it had never read. The rule the
+     * repository states — every new endpoint is added to this list — was the one
+     * thing that would have caught it, and it was skipped.
+     *
+     * Nothing in them was leaking. `GET` returns three booleans, a locale and a
+     * flag; `PUT` returns the same. But "nothing was leaking" is a fact somebody
+     * had to establish afterwards, and the whole point of the list is that it is
+     * established before the deploy.
+     *
+     * The `PUT` body carries `inviteOptOut` because that is the field which
+     * reaches a *second* service (`ProfileService.update`) and therefore a second
+     * response shape — a settings write that answered with a profile would be
+     * exactly the accidental widening this scan is for.
+     */
+    { method: 'GET', url: '/api/v1/me/settings' },
+    {
+      method: 'PUT',
+      url: '/api/v1/me/settings',
+      body: { notifyCampaigns: false, inviteOptOut: true },
+    },
     // Phase 6. Both fail open when no channel is configured, which is the state
     // this test runs in — and a fail-open answer is still a response to read.
     { method: 'GET', url: '/api/v1/me/channel-membership' },

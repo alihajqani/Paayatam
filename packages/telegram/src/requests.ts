@@ -2,6 +2,7 @@ import { PARTICIPANT_STATUS_GUEST_FA, type ParticipantStatus } from '@payetam/sh
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
+import { menuLabelFor } from './keyboards';
 
 /** One line of the digest: the event, when it is, and where the request stands. */
 export interface MyRequestLine {
@@ -49,7 +50,7 @@ export function formatMyRequests(lines: readonly MyRequestLine[]): string {
 
   return buildDigest({
     title: 'درخواست‌های شما',
-    empty: 'هنوز درخواستی نداده‌اید. از «دیدن رویدادها» شروع کنید.',
+    empty: `هنوز درخواستی نداده‌اید. از دکمهٔ «${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}» شروع کنید.`,
     entries,
   });
 }

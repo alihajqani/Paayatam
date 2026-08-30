@@ -255,9 +255,22 @@ suite was green through all of them.
     existed and would have failed on the fix. When a walkthrough disagrees with a
     green test, the test is a suspect too.
 19. **`ALTER TYPE … ADD VALUE` cannot run in a transaction** in Postgres, which is
-   why migrations 0022 and 0023 are separate files. They are not rolled back by a
-   later failure — additive-only, so a partial apply is safe, but the runbook
-   must say so.
+   why migrations 0022, 0023, 0029 and 0031 are separate files. They are not
+   rolled back by a later failure — additive-only, so a partial apply is safe,
+   but the runbook must say so.
+20. **A totality test stays red for a whole release if nobody runs its suite.**
+   `response-leak.int.test.ts` asserts that every route the app registers is in
+   its scan list, and v0.6.1 shipped `GET`/`PUT /api/v1/me/settings` without
+   adding them — so the test that exists to make "an endpoint nobody scanned" a
+   build failure was itself failing, in production, for two releases. It was
+   found in v0.6.3 by running the integration suite, which is a **32-minute** job
+   and is therefore the one check that gets skipped when a change "obviously
+   cannot have broken anything".
+   Nothing was leaking. That is not the point: "nothing was leaking" became a
+   fact somebody established *afterwards*, and the whole value of the list is
+   that it is established before the deploy. **The general shape: a check that
+   only fails in the slowest suite is a check that is off by default.** Run the
+   integration suite before tagging, not after.
 
 ## 8. Deliberate design positions — do not "fix" these
 

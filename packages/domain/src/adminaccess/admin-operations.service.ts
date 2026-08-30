@@ -152,6 +152,22 @@ export class AdminOperationsService {
   async caseForReview(session: AdminSession, caseId: string): Promise<CaseDetail> {
     this.access.assertPermission(session, PERMISSIONS.EVENT_MODERATE);
 
+    /**
+     * The report breakdown is `report.review`, and it **shapes** the response
+     * rather than gating it.
+     *
+     * `can` rather than `assertPermission`, which is what this codebase already
+     * does for a read whose contents depend on a second capability: refusing the
+     * whole case to a moderator who may judge content but not work the report
+     * queue would be a stricter rule than either permission states, and would
+     * make one permission silently imply the other.
+     *
+     * Empty rather than absent, so a caller cannot tell "no reports" from "not
+     * allowed to see them" by the shape of the object — and so the renderer needs
+     * no branch for a field that might not be there.
+     */
+    const mayReadReports = this.access.can(session, PERMISSIONS.REPORT_REVIEW);
+
     const row = await this.prisma.moderationCase.findUnique({
       where: { id: caseId },
       select: {
@@ -175,11 +191,13 @@ export class AdminOperationsService {
           })
         : null;
 
-    const grouped = await this.prisma.report.groupBy({
-      by: ['reason'],
-      where: { moderationCaseId: caseId },
-      _count: { reason: true },
-    });
+    const grouped = mayReadReports
+      ? await this.prisma.report.groupBy({
+          by: ['reason'],
+          where: { moderationCaseId: caseId },
+          _count: { reason: true },
+        })
+      : [];
 
     return {
       id: row.id,

@@ -695,7 +695,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return opened(
         `<b>فعالیت ثبت شد</b> ✅\n\n` +
           `«${str(payload, 'title')}» ساخته شد. ` +
-          `از «رویدادهای من» می‌توانید درخواست‌ها را ببینید و پاسخ بدهید.`,
+          `از دکمهٔ «${menuLabelFor('myevents') ?? 'فعالیت‌های من'}» می‌توانید ` +
+          `درخواست‌ها را ببینید و پاسخ بدهید.`,
         `my-events`,
       );
 

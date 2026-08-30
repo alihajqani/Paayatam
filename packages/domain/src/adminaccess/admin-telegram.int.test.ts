@@ -179,6 +179,34 @@ describe('resolving a Telegram account to a staff session', () => {
   });
 });
 
+describe('what the bot session can actually reach', () => {
+  /**
+   * The allowlist is not decoration: it is the answer to "what does an attacker
+   * who has taken over a moderator's Telegram get?", and the answer has to be
+   * checkable rather than asserted in a comment.
+   */
+  it('holds exactly the two permissions the channel is bounded to', () => {
+    expect([...BOT_PERMISSIONS].sort()).toEqual(
+      [PERMISSIONS.EVENT_MODERATE, PERMISSIONS.REPORT_REVIEW].sort(),
+    );
+  });
+
+  /**
+   * The four capabilities ADR-0010 spends the most words protecting, named one
+   * by one so that adding any of them to the allowlist fails here rather than
+   * shipping.
+   */
+  it.each([
+    PERMISSIONS.COIN_ADJUST,
+    PERMISSIONS.TRUST_ADJUST,
+    PERMISSIONS.CHAT_READ,
+    PERMISSIONS.ROLE_MANAGE,
+    PERMISSIONS.USER_TELEGRAM_READ,
+  ])('never reaches %s from the bot', (permission) => {
+    expect(BOT_PERMISSIONS).not.toContain(permission);
+  });
+});
+
 describe('granting and revoking the link', () => {
   /** Invariant 12: a permission check in the service layer, and an audit row. */
   it('refuses an admin without role.manage, and writes nothing', async () => {
