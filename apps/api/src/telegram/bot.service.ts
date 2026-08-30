@@ -69,6 +69,7 @@ import {
   formatSettings,
   settingsRows,
   parseSettingCallback,
+  parseStartPayload,
   isNotificationField,
   SETTING_FIELDS,
   SETTING_LANGUAGE,
@@ -114,6 +115,7 @@ import {
   type ReportReasonValue,
   type ParsedUpdate,
   type SettingCallback,
+  type StartLink,
   type SummaryLine,
   type WizardScreen,
 } from '@payetam/telegram';
@@ -794,6 +796,20 @@ export class BotService {
   private async onStart(updateId: number, from: BotSender, payload: string | null): Promise<void> {
     const created = await this.users.findOrCreateByTelegram(from);
     const userId = await this.users.resolveInternalId(created.publicId);
+    const user: BotUser = { id: userId, publicId: created.publicId };
+
+    /**
+     * A channel post's button, tried before the referral claim.
+     *
+     * Told apart by shape rather than by trying each in turn: a referral code is
+     * a fixed alphabet with no underscore in it, and `parseStartPayload` answers
+     * null for anything that is not `event_<uuid>` or `join_<uuid>`. Attempting
+     * the referral claim first would log a refusal for every channel tap.
+     */
+    if (payload !== null) {
+      const link = parseStartPayload(payload);
+      if (link !== null) return this.onStartLink(updateId, user, link);
+    }
 
     if (payload !== null) {
       try {
@@ -824,6 +840,67 @@ export class BotService {
      * nothing else.
      */
     await this.gateAfterWelcome(updateId, { id: userId, publicId: created.publicId });
+  }
+
+  /**
+   * A reader arriving from the channel (v0.6.3).
+   *
+   * ── Why the two actions are not one screen ──────────────────────────────────
+   *
+   * «مشاهده در ربات» is for somebody deciding and «شرکت می‌کنم» for somebody who
+   * has decided. Collapsing them into "open the detail, then press join" would
+   * put a screen between a reader and the decision they had already made, which
+   * is the detour the second button exists to remove.
+   *
+   * ── The gate, and the reason joining does not simply refuse ─────────────────
+   *
+   * `mayWrite` opens the consent wizard where a refused write would have
+   * happened, and a brand-new reader from the channel has accepted nothing — so
+   * that is the *usual* path here, not the exception. Stopping at the wizard
+   * would leave them with an accepted set of policies and no way back to the
+   * activity they came for, because the post is in a channel they have now left.
+   *
+   * So a gated join draws the activity **with its join button** underneath the
+   * consent screen. Nothing is remembered — the id is in the button, exactly as
+   * it is everywhere else in this bot — and the reader finishes the acceptance
+   * and taps once more. A stored "pending join" would be state this surface has
+   * spent two releases not keeping.
+   *
+   * The welcome is sent only to somebody who owes an acceptance, which is the
+   * closest this service has to "has not been here before": a returning user
+   * tapping a post wants the activity, not an introduction.
+   */
+  private async onStartLink(updateId: number, user: BotUser, link: StartLink): Promise<void> {
+    const consented = await this.consent.hasAcceptedCurrentPolicies(user.id);
+    if (!consented) await this.reply(updateId, user.id, TEMPLATES.BOT_WELCOME, {});
+
+    if (link.action === 'join' && consented) {
+      try {
+        const participation = await this.participation.join(user.id, link.id);
+        return this.notice(
+          updateId,
+          user,
+          participation.status === 'WAITLISTED'
+            ? 'ظرفیت تکمیل بود، پس در لیست انتظار ثبت شدید ⏳ اگر جایی باز شود خبرتان می‌کنیم.'
+            : 'درخواست شما فرستاده شد ✅ منتظر پاسخ میزبان بمانید.',
+        );
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+        /**
+         * The refusal, then the activity itself.
+         *
+         * A bare «ظرفیت تکمیل است» to somebody who has just arrived from a
+         * channel tells them nothing about what they tapped. The detail screen
+         * below it is what makes the refusal legible, and it carries the buttons
+         * that are still legal — cancelling, reporting, or joining once the
+         * reason has passed.
+         */
+        await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      }
+    }
+
+    await this.drawEventDetail(updateId, user, link.id);
+    if (!consented) await this.gateAfterWelcome(updateId, user);
   }
 
   /**
@@ -1250,77 +1327,8 @@ export class BotService {
          * spent the day removing.
          */
         case 'show': {
-          const event = await this.discovery.findPublished(callback.id);
           await this.answer(callbackQueryId, '');
-          return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
-            text: formatEventDetail({
-              title: event.title,
-              description: event.description,
-              categoryName: event.customCategoryLabel ?? event.categoryNameFa,
-              where:
-                event.districtNameFa === null
-                  ? event.cityNameFa
-                  : `${event.cityNameFa} — ${event.districtNameFa}`,
-              startsAt: event.startsAt,
-              endsAt: event.endsAt,
-              capacity: event.capacity,
-              acceptedCount: event.acceptedCount,
-              costType: event.costType,
-              costAmount: event.costAmount,
-              costNote: event.costNote,
-              minAge: event.minAge,
-              maxAge: event.maxAge,
-              hostDisplayName: event.hostDisplayName,
-              hostTrustScore: event.hostTrustScore,
-            }),
-            /**
-             * Joining, then the two ways to say something is wrong.
-             *
-             * The host is reportable from here because this is the one screen
-             * that names them — `hostPublicId` is on the event, and everywhere
-             * else in the product they are a display name behind an anonymous
-             * chat. Reporting was the last user-facing safety control with no bot
-             * surface at all.
-             */
-            /**
-             * The host sees their own activity differently.
-             *
-             * Joining is refused for them by `HOST_CANNOT_JOIN`, and reporting
-             * your own content by `CANNOT_REPORT_OWN_CONTENT` — so offering
-             * either would be two buttons that exist to be declined. What a host
-             * wants from this screen is who is coming.
-             */
-            keyboard: JSON.stringify(
-              event.hostPublicId === user.publicId
-                ? [
-                    [
-                      {
-                        text: '👥 مهمان‌ها',
-                        callbackData: encodeEventCallback('who', callback.id),
-                      },
-                    ],
-                  ]
-                : [
-                    [
-                      {
-                        text: '➕ پیوستن به این فعالیت',
-                        callbackData: encodeEventCallback('join', callback.id),
-                      },
-                    ],
-                    [
-                      { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', callback.id) },
-                      ...(isPublicId(event.hostPublicId)
-                        ? [
-                            {
-                              text: '🚩 گزارش میزبان',
-                              callbackData: encodeReportAsk('u', event.hostPublicId),
-                            },
-                          ]
-                        : []),
-                    ],
-                  ],
-            ),
-          });
+          return this.drawEventDetail(updateId, user, callback.id);
         }
 
         /**
@@ -1668,6 +1676,103 @@ export class BotService {
    * and reject, and an accepted guest gets a no-show only once there is
    * something to have been absent from.
    */
+  /**
+   * One activity in full, and the buttons that belong to whoever is reading it.
+   *
+   * `findPublished` is the same read `GET /events/:publicId` makes, and it
+   * answers 404 identically for "not published" and "does not exist", so this is
+   * not an existence oracle either (T3.3).
+   *
+   * ── Why the keyboard depends on who is asking ───────────────────────────────
+   *
+   * The **host** sees who is coming. Joining is refused for them by
+   * `HOST_CANNOT_JOIN` and reporting their own content by
+   * `CANNOT_REPORT_OWN_CONTENT`, so offering either would be two buttons that
+   * exist to be declined.
+   *
+   * Everybody else sees joining, and the two ways to say something is wrong. The
+   * host is reportable from here because this is the one screen that names them —
+   * everywhere else in the product they are a display name behind an anonymous
+   * chat — and reporting was the last user-facing safety control with no bot
+   * surface at all.
+   *
+   * ── Why it is a method and not a `case` ─────────────────────────────────────
+   *
+   * Two callers now: the `ev:show` button, and a reader arriving from a channel
+   * post. A second copy would be a second answer to "what does a guest see about
+   * an activity", and the copy is the one that would fall behind.
+   *
+   * A refusal is a `notice` rather than a toast, because this caller may have no
+   * callback query to answer: somebody following a `?start=` link pressed a link,
+   * not a button.
+   */
+  private async drawEventDetail(
+    updateId: number,
+    user: BotUser,
+    eventPublicId: string,
+  ): Promise<void> {
+    let event;
+    try {
+      event = await this.discovery.findPublished(eventPublicId);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+
+    return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
+      text: formatEventDetail({
+        title: event.title,
+        description: event.description,
+        categoryName: event.customCategoryLabel ?? event.categoryNameFa,
+        where:
+          event.districtNameFa === null
+            ? event.cityNameFa
+            : `${event.cityNameFa} — ${event.districtNameFa}`,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        capacity: event.capacity,
+        acceptedCount: event.acceptedCount,
+        costType: event.costType,
+        costAmount: event.costAmount,
+        costNote: event.costNote,
+        minAge: event.minAge,
+        maxAge: event.maxAge,
+        hostDisplayName: event.hostDisplayName,
+        hostTrustScore: event.hostTrustScore,
+      }),
+      keyboard: JSON.stringify(
+        event.hostPublicId === user.publicId
+          ? [
+              [
+                {
+                  text: '👥 مهمان‌ها',
+                  callbackData: encodeEventCallback('who', eventPublicId),
+                },
+              ],
+            ]
+          : [
+              [
+                {
+                  text: '➕ پیوستن به این فعالیت',
+                  callbackData: encodeEventCallback('join', eventPublicId),
+                },
+              ],
+              [
+                { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', eventPublicId) },
+                ...(isPublicId(event.hostPublicId)
+                  ? [
+                      {
+                        text: '🚩 گزارش میزبان',
+                        callbackData: encodeReportAsk('u', event.hostPublicId),
+                      },
+                    ]
+                  : []),
+              ],
+            ],
+      ),
+    });
+  }
+
   private async drawParticipants(
     updateId: number,
     user: BotUser,

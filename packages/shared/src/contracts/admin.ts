@@ -642,6 +642,9 @@ const coinLedgerTypeForAdmin = z.enum([
   'EVENT_CREATE_SPEND',
   'CHANNEL_POST_SPEND',
   'INVITE_SPEND',
+  // Asking to join an activity (v0.6.3). `economy.event_join_coins` is 0 by
+  // default, so no live ledger carries this yet.
+  'EVENT_JOIN_SPEND',
   'CANCELLATION_PENALTY',
   'NO_SHOW_PENALTY',
   'HOST_CANCELLATION_REFUND',

@@ -114,6 +114,7 @@ const participation = new ParticipationService(
   chat,
   penalties,
   membership,
+  coins,
 );
 
 const STARTS_AT = new Date('2026-09-20T15:00:00.000Z');

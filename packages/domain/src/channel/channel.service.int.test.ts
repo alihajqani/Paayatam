@@ -402,8 +402,15 @@ describe('the post body carries no host identity', () => {
     },
   );
 
-  /** Report 7: the post is reachable *from*, by a button rather than a blue word. */
-  it('carries one inline button that deep-links to the event', () => {
+  /**
+   * Report 7: the post is reachable *from*, by a button rather than a blue word.
+   *
+   * Two buttons since v0.6.3, and both into the **bot**: the single one used to
+   * open the Mini App, which v0.4.6 removed every other button to. A reader who
+   * has decided should not have to open a detail screen to act, so «شرکت می‌کنم»
+   * is its own row.
+   */
+  it('carries the two inline buttons that reach the bot', () => {
     const rendered = renderChannelPost({
       kind: 'PAID',
       title: 'x',
@@ -419,15 +426,22 @@ describe('the post body carries no host identity', () => {
       botUsername: 'payetam_bot',
     });
 
-    expect(rendered.keyboard).toHaveLength(1);
-    expect(rendered.keyboard[0]).toHaveLength(1);
+    expect(rendered.keyboard).toHaveLength(2);
     expect(rendered.keyboard[0]?.[0]?.url).toBe(
-      'https://t.me/payetam_bot?startapp=event_11111111-1111-4111-8111-111111111111',
+      'https://t.me/payetam_bot?start=event_11111111-1111-4111-8111-111111111111',
     );
-    // A URL button, never a callback: a channel post has no session behind a tap,
-    // and `callback_data` from a public channel would reach the bot with nobody
-    // attached to it.
-    expect(rendered.keyboard[0]?.[0]?.callbackData).toBeUndefined();
+    expect(rendered.keyboard[1]?.[0]?.url).toBe(
+      'https://t.me/payetam_bot?start=join_11111111-1111-4111-8111-111111111111',
+    );
+    expect(rendered.keyboard[1]?.[0]?.text).toContain('شرکت می‌کنم');
+
+    // URL buttons, never callbacks: a channel post has no session behind a tap,
+    // and the bot cannot message a reader who has never opened a chat with it —
+    // so a `callback_data` answer would be a toast and nothing else. Following a
+    // link opens the chat, which is what makes every message after it deliverable.
+    for (const row of rendered.keyboard) {
+      for (const button of row) expect(button.callbackData).toBeUndefined();
+    }
   });
 
   /** T9 on the widest audience any host-authored text reaches. */

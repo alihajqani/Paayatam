@@ -354,6 +354,95 @@ describe('/start', () => {
       TEMPLATES.BOT_WELCOME,
     ]);
   });
+
+  /**
+   * The channel post's two buttons (v0.6.3).
+   *
+   * They are `?start=` links rather than callbacks because a channel reader may
+   * never have opened a chat with the bot — and a `callback_query` from one could
+   * be answered with a toast and nothing else. What arrives here is therefore an
+   * ordinary `/start` with a payload, which is why these live beside the referral
+   * claim: the two payload shapes share one entry point and are told apart by
+   * shape, never by trying one and catching the other.
+   */
+  describe('a channel post button', () => {
+    it('opens the activity in the bot', async () => {
+      const { eventPublicId } = await seedHostAndEvent();
+      await seedGuest(GUEST_TELEGRAM_ID);
+
+      await post(
+        update({
+          message: textMessage(sender(GUEST_TELEGRAM_ID), `/start event_${eventPublicId}`),
+        }),
+      );
+
+      expect((await replyTo(GUEST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
+        TEMPLATES.BOT_EVENT_DETAIL,
+      ]);
+      // Reading is not joining. «مشاهده» must not create a request.
+      expect(await prisma.eventParticipant.count()).toBe(0);
+    });
+
+    it('joins the activity, and tells the host', async () => {
+      const { hostId, eventPublicId } = await seedHostAndEvent();
+      const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+      await post(
+        update({ message: textMessage(sender(GUEST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
+      );
+
+      const participant = await prisma.eventParticipant.findFirstOrThrow({
+        select: { userId: true, status: true },
+      });
+      expect(participant).toEqual({ userId: guestId, status: 'PENDING' });
+
+      // The guest hears about it here; the host hears about it through the outbox,
+      // which is invariant 11 — nothing is sent inline from a request.
+      const guestReplies = (await replyTo(GUEST_TELEGRAM_ID)).map((row) => row.templateKey);
+      expect(guestReplies).toContain(TEMPLATES.BOT_NOTICE);
+      expect(
+        await prisma.outboxEvent.count({ where: { eventType: 'participation.requested' } }),
+      ).toBe(1);
+      expect(hostId).toBeTruthy();
+    });
+
+    /**
+     * A tampered or stale link names a resource the service refuses, exactly as a
+     * tampered `callback_data` does — authorisation is never in the button.
+     */
+    it('refuses the host their own activity, and shows it to them anyway', async () => {
+      const { eventPublicId } = await seedHostAndEvent();
+
+      await post(
+        update({ message: textMessage(sender(HOST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
+      );
+
+      expect(await prisma.eventParticipant.count()).toBe(0);
+      // The refusal, then the activity: a bare «نمی‌توانید» tells somebody who has
+      // just arrived from a channel nothing about what they tapped.
+      expect((await replyTo(HOST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
+        TEMPLATES.BOT_NOTICE,
+        TEMPLATES.BOT_EVENT_DETAIL,
+      ]);
+    });
+
+    it('falls through to the welcome for an id that names nothing', async () => {
+      await post(
+        update({
+          message: textMessage(
+            sender(GUEST_TELEGRAM_ID),
+            '/start join_11111111-1111-4111-8111-111111111111',
+          ),
+        }),
+      );
+
+      // `findPublished` answers 404 identically for "not published" and "does not
+      // exist" (T3.3), so this is not an existence oracle either.
+      expect((await replyTo(GUEST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
+        TEMPLATES.BOT_NOTICE,
+      ]);
+    });
+  });
 });
 
 /**
@@ -1514,15 +1603,76 @@ describe('POST /telegram/:secret — settings', () => {
    * The settings screen states what it cannot change rather than offering a
    * picker with one entry. The product is fa-IR only — every template, every
    * date format, every error message.
+   *
+   * It is a **button** since v0.6.3, and the sentence moved into the toast it
+   * answers with: a row on a board of switches that is a line of italics teaches
+   * the reader that the rows are decoration.
    */
-  it('states the language rather than pretending to offer a choice', async () => {
+  it('states the language on a button rather than pretending to offer a choice', async () => {
     await seedGuest(GUEST_TELEGRAM_ID);
 
     await type(GUEST_TELEGRAM_ID, '/settings');
 
     const text = String((await board())['text']);
     expect(text).toContain('فارسی');
-    expect(text).toContain('فعلاً فقط فارسی در دسترس است');
+
+    const keyboard = JSON.parse(String((await board())['keyboard'])) as {
+      text: string;
+      callbackData: string;
+    }[][];
+    const language = keyboard.flat().find((button) => button.callbackData.startsWith('st:g'));
+    expect(language?.text).toContain('فارسی');
+  });
+
+  /**
+   * Privacy, which is `user_profile.invite_opt_out` and is written through
+   * `ProfileService.update` — the same method the profile wizard submits through.
+   *
+   * The board used to say «برای تغییر این مورد، /edit_profile را بفرستید», which
+   * is a settings screen answering a tap with homework.
+   */
+  it('turns invitations off from the board, without a command', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/settings');
+    const keyboard = JSON.parse(String((await board())['keyboard'])) as {
+      callbackData: string;
+    }[][];
+    // Carried as the reader sees it: invitations are on, so the button turns them
+    // off, and the inversion into `invite_opt_out` happens once, at the write.
+    expect(keyboard.flat().map((button) => button.callbackData)).toContain('st:p0:x');
+
+    await tap(GUEST_TELEGRAM_ID, 'st:p0:x');
+
+    const profile = await prisma.userProfile.findUniqueOrThrow({
+      where: { userId },
+      select: { inviteOptOut: true },
+    });
+    expect(profile.inviteOptOut).toBe(true);
+    // Nothing was copied into `user_settings`: a setting with two homes is a
+    // setting that will disagree with itself.
+    expect(await prisma.userSettings.count({ where: { userId } })).toBe(0);
+
+    const after = JSON.parse(String((await board())['keyboard'])) as { callbackData: string }[][];
+    expect(after.flat().map((button) => button.callbackData)).toContain('st:p1:x');
+  });
+
+  /**
+   * Somebody with no profile row has no flag to flip, and `ProfileService.update`
+   * refuses. A switch that exists to be refused is worse than the button that
+   * fixes the reason.
+   */
+  it('offers the profile form where the privacy switch cannot work', async () => {
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
+
+    await type(GUEST_TELEGRAM_ID, '/settings');
+
+    const keyboard = JSON.parse(String((await board())['keyboard'])) as {
+      callbackData: string;
+    }[][];
+    const data = keyboard.flat().map((button) => button.callbackData);
+    expect(data).not.toContain('st:p0:x');
+    expect(data).toContain('st:n1:x');
   });
 });
 

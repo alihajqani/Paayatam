@@ -53,6 +53,27 @@ export const SETTING_DEFAULTS = {
   'economy.event_channel_send_coins': 15,
   'economy.event_top_invite_coins': 10,
   /**
+   * What asking to join an activity costs (v0.6.3).
+   *
+   * **Zero, and the zero is the point.** Joining has been free on every surface
+   * since M6, and the channel post's «شرکت می‌کنم» button reaches the same
+   * `ParticipationService.join` the in-bot button does — so a non-zero default
+   * would start charging for every join everywhere, on a live product, as a side
+   * effect of adding a button to a channel post.
+   *
+   * The price exists so an operator can set one without a deploy, which is what
+   * §11 puts tunable numbers in the database for. At zero the service writes no
+   * ledger row at all: `coin_ledger.amount` may not be zero, and a row claiming
+   * somebody paid nothing is worse than no row.
+   *
+   * A waitlisted request is charged like an accepted one, and deliberately: what
+   * is being paid for is the *ask*, which consumes a host's attention and a slot
+   * of the daily quota whether or not a seat was free. Refunding a rejection
+   * would make the price a deposit, which is a different product decision and
+   * one nobody has taken.
+   */
+  'economy.event_join_coins': 0,
+  /**
    * How many people one paid invitation reaches (phase 11).
    *
    * A setting rather than the literal 20 the requirement names, because the

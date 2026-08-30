@@ -82,6 +82,7 @@ const participation = new ParticipationService(
   chat,
   penalties,
   membership,
+  coins,
 );
 
 let fixture: CatalogFixture;

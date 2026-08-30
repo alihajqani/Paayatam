@@ -47,6 +47,7 @@ const LEDGER_TYPE_FA: Record<string, string> = {
   EVENT_CREATE_SPEND: 'ساختن فعالیت',
   CHANNEL_POST_SPEND: 'انتشار در کانال',
   INVITE_SPEND: 'دعوت از افراد',
+  EVENT_JOIN_SPEND: 'درخواست شرکت',
   CANCELLATION_PENALTY: 'جریمهٔ لغو',
   NO_SHOW_PENALTY: 'جریمهٔ غیبت',
   HOST_CANCELLATION_REFUND: 'بازگشت وجه لغو میزبان',

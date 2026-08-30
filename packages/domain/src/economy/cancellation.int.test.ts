@@ -72,6 +72,7 @@ const participation = new ParticipationService(
   chat,
   penalties,
   membership,
+  coins,
 );
 
 /** Far enough out that a fresh request is never refused for being too close. */

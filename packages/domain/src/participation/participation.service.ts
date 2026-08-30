@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
 import { ChannelMembershipService } from '../channel/membership.service';
 import { ChatService } from '../chat/chat.service';
+import { CoinService } from '../economy/coin.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import {
   lockEventByParticipantPublicIdForUpdate,
@@ -17,6 +18,25 @@ import {
 import { OutboxService } from '../outbox/outbox.service';
 import { ageFromBirthYear } from '../profile/age';
 import { assertParticipantTransition, holdsSeat } from './state-machine';
+
+/**
+ * The reason code a join charge carries (v0.6.3).
+ *
+ * A stable string, because the admin ledger renders it and a rename would make
+ * every historical row read as something else (ADR-0007).
+ */
+export const EVENT_JOIN_REASON = 'participation.requested';
+
+/**
+ * The exactly-once key for a join charge.
+ *
+ * `(event, user)` rather than the participant id, because it has to be
+ * computable before the row is read back and because the pair is already unique:
+ * `createMany` with `skipDuplicates` means one participation per pair, ever.
+ */
+export function eventJoinSpendKey(eventId: string, userId: string): string {
+  return `join:${eventId}:${userId}`;
+}
 
 export interface ParticipationDetail {
   publicId: string;
@@ -115,6 +135,11 @@ export class ParticipationService {
     private readonly penalties: PenaltyService,
     /** The channel-membership gate (M22 phase 6), in the service that owns the act. */
     private readonly membership: ChannelMembershipService,
+    /**
+     * For `economy.event_join_coins` (v0.6.3), charged inside the join
+     * transaction so an unaffordable request rolls back with its charge.
+     */
+    private readonly coins: CoinService,
   ) {}
 
   /**
@@ -133,9 +158,10 @@ export class ParticipationService {
     await this.membership.assertAllowed(userId, 'EVENT_JOIN');
     const joiner = await this.loadJoiner(userId);
 
-    const [hostResponseHours, minHoursBefore] = await Promise.all([
+    const [hostResponseHours, minHoursBefore, joinCost] = await Promise.all([
       this.settings.getInt('participation.host_response_hours'),
       this.settings.getInt('participation.min_hours_before_event'),
+      this.settings.getInt('economy.event_join_coins'),
     ]);
 
     return this.prisma.$transaction(
@@ -227,6 +253,50 @@ export class ParticipationService {
           },
           tx,
         );
+
+        /**
+         * What asking costs, charged **inside this transaction** (v0.6.3).
+         *
+         * Last, so every refusal above — a cancelled event, a full one that is
+         * also past its cutoff, an age bound, a duplicate — costs nothing and
+         * takes no lock on the coin account. Inside, so `INSUFFICIENT_COINS`
+         * rolls the participation back rather than leaving a request somebody
+         * did not pay for: there is no state where one exists without the other.
+         *
+         * **Zero is the shipped default and writes no row at all.**
+         * `coin_ledger.amount` may not be zero, and a row claiming somebody paid
+         * nothing is worse than no row — the same rule `EventService.create`
+         * follows for a free event.
+         *
+         * A waitlisted request is charged like a seated one. What is paid for is
+         * the *ask*: it consumes a host's attention and a slot of the daily
+         * request quota whether or not a seat was free. Refunding a rejection
+         * would make this a deposit, which is a different product decision.
+         *
+         * Lock ordering: the **event** row is held by this transaction and
+         * `CoinService` takes the coin account second, which is ADR-0006's
+         * event → user → coin-account order — the same one `EventService.boost`
+         * set.
+         */
+        if (joinCost > 0) {
+          await this.coins.apply(
+            {
+              userId,
+              amount: -joinCost,
+              type: 'EVENT_JOIN_SPEND',
+              reasonCode: EVENT_JOIN_REASON,
+              // Deterministic and exactly-once by construction: `createMany` with
+              // `skipDuplicates` above means one row per (event, user) ever, so
+              // this key can never name two different requests.
+              idempotencyKey: eventJoinSpendKey(event.id, userId),
+              actorType: 'USER',
+              actorId: userId,
+              refType: 'event_participant',
+              refId: participant.id,
+            },
+            tx,
+          );
+        }
 
         return this.toDetail(
           { ...participant, chat: { publicId: chat.publicId } },

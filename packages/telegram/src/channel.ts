@@ -1,7 +1,8 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
-import { openAppButton, type InlineKeyboard } from './keyboards';
+import { botStartUrl, encodeStartPayload } from './deep-link';
+import { type InlineKeyboard } from './keyboards';
 
 /** What a channel post is rendered from. Note what is absent: the host. */
 export interface ChannelPostContent {
@@ -47,10 +48,10 @@ export interface RenderedChannelPost {
   /**
    * The inline keyboard Telegram draws under the post.
    *
-   * Never absent: `openAppButton` degrades to the bot's own link when a deep-link
-   * payload will not fit Telegram's charset, so the reader always has somewhere to
-   * tap. A post with no button is a post the channel cannot be reached *from*,
-   * which is the whole of report 7.
+   * Never absent, and never fewer than one button: a post with no button is a
+   * post the channel cannot be reached *from*, which is the whole of report 7.
+   * `renderChannelPost` degrades to the bot's plain link if a public id ever
+   * fails the charset check, so the reader always has somewhere to tap.
    */
   keyboard: InlineKeyboard;
 }
@@ -78,6 +79,31 @@ export interface RenderedChannelPost {
  * it. An inline button is a control — full width, at the bottom of the post,
  * where every Telegram user already expects one. Same deep link, same public id,
  * so nothing about what is exposed changes.
+ *
+ * ── One button became two, and both point at the bot (v0.6.3) ────────────────
+ *
+ * The single button opened the **Mini App** (`?startapp=`), which v0.4.6 spent a
+ * release removing every other button to. So the channel — the one surface that
+ * reaches people who have never met this product — was still sending them to the
+ * application being retired, and it sent them there to *read*: the post named no
+ * way to act on the activity it was advertising.
+ *
+ * Two buttons now, and the split is the reader's own two questions. «مشاهده در
+ * ربات» opens the activity in full — description, cost, age range, the host's
+ * Trust Score — for somebody deciding. «شرکت می‌کنم» is for somebody who has
+ * already decided, and asks to join without a detail screen in between.
+ *
+ * Both are `?start=` links rather than callback buttons, and that is not a
+ * stylistic choice: the bot cannot send a message to somebody who has never
+ * opened a chat with it, so a callback from a reader who has not started the bot
+ * could be answered with a toast and **nothing else** — no acknowledgement, no
+ * host notification, no explanation of a refusal. Following a link opens the
+ * chat, which is what makes every message after it deliverable. It also keeps
+ * working on a post forwarded out of the channel.
+ *
+ * **Joining is still refused by the service**, exactly as it is from every other
+ * surface: a full event, a cancelled one, the reader's own, one they have already
+ * asked to join. The button says what it does; the answer is the product's.
  *
  * ── The disclaimer (report 8) ────────────────────────────────────────────────
  *
@@ -116,18 +142,34 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
     `👥 ${toPersianDigits(seatsLeft)} جای خالی از ${toPersianDigits(content.capacity)}`,
   ].join('\n');
 
-  return {
-    text,
-    // Built from the *public* id, which is the only identifier that ever appears
-    // outside the backend (invariant 7).
-    keyboard: [
+  /**
+   * Built from the *public* id, which is the only identifier that ever appears
+   * outside the backend (invariant 7).
+   *
+   * `encodeStartPayload` throws on anything Telegram would refuse, and a throw
+   * inside a renderer fails the send job — which retries, and fails again. So a
+   * malformed id costs the two actions and leaves the plain bot link, exactly as
+   * `isPublicId` protects the keyboards that carry `callback_data`.
+   */
+  let keyboard: InlineKeyboard;
+  try {
+    keyboard = [
       [
-        openAppButton(
-          'مشاهده و درخواست پیوستن',
-          content.botUsername,
-          `event_${content.eventPublicId}`,
-        ),
+        {
+          text: '👀 مشاهده در ربات',
+          url: botStartUrl(content.botUsername, encodeStartPayload('event', content.eventPublicId)),
+        },
       ],
-    ],
-  };
+      [
+        {
+          text: '✅ شرکت می‌کنم',
+          url: botStartUrl(content.botUsername, encodeStartPayload('join', content.eventPublicId)),
+        },
+      ],
+    ];
+  } catch {
+    keyboard = [[{ text: '👀 مشاهده در ربات', url: `https://t.me/${content.botUsername}` }]];
+  }
+
+  return { text, keyboard };
 }

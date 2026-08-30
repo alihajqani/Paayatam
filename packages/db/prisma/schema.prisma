@@ -513,6 +513,11 @@ enum CoinLedgerType {
   EVENT_CREATE_SPEND
   CHANNEL_POST_SPEND
   INVITE_SPEND
+  /// Asking to join an activity (v0.6.3). Its own value for the reason the three
+  /// above are separate: "they asked to join something" is a different question
+  /// in an audit from "they made an event". `economy.event_join_coins` defaults
+  /// to 0, so nothing is written until an operator sets a price.
+  EVENT_JOIN_SPEND
   CANCELLATION_PENALTY
   NO_SHOW_PENALTY
   HOST_CANCELLATION_REFUND

@@ -1,0 +1,34 @@
+-- Migration 0029: a ledger type for joining an activity (v0.6.3).
+--
+-- **Additive, and inert on its own.** One enum value, no table touched, and
+-- `economy.event_join_coins` defaults to **0** — so nothing is charged until an
+-- operator sets a price, and the deploy changes what nobody pays.
+--
+-- ── Why a value rather than reusing one ────────────────────────────────────
+--
+-- The same reason `GIFT_CODE_REDEEM` is not `ADMIN_ADJUSTMENT` and the three
+-- M22 sinks are not one `SPEND`: "they asked to join something" answers a
+-- different question in an audit from "they made an event" or "they pushed one
+-- to the channel", and has a different person to ask about it. A shared value
+-- would make the ledger unreadable at exactly the point somebody is asking
+-- where their coins went.
+--
+-- ── Why the default is zero ────────────────────────────────────────────────
+--
+-- Joining has been free on every surface since M6, and the channel's «شرکت
+-- می‌کنم» button reaches `ParticipationService.join` — the same method the
+-- in-bot join button calls. Shipping a non-zero default would charge for every
+-- join everywhere, on a live product, as a side effect of adding a button.
+--
+-- Zero is a first-class value here, exactly as it is for `event_create_coins`:
+-- the service skips the ledger write entirely, so a free join leaves no row
+-- claiming somebody paid nothing. Setting the price is one row in `app_setting`
+-- and needs no deploy — which is the whole reason §11 puts tunable numbers in
+-- the database.
+--
+-- ── Why this is its own migration file ─────────────────────────────────────
+--
+-- `ALTER TYPE … ADD VALUE` cannot run inside a transaction in Postgres, which is
+-- why 0022 and 0023 are also separate. It is not rolled back by a later failure;
+-- additive-only, so a partial apply is safe, and the runbook says so.
+ALTER TYPE "coin_ledger_type" ADD VALUE IF NOT EXISTS 'EVENT_JOIN_SPEND';

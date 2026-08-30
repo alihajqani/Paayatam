@@ -2,6 +2,8 @@ export { escapeHtml, toPersianDigits } from './escape';
 export { TEMPLATES, render } from './templates';
 export type { TemplateKey, RenderedMessage } from './templates';
 export { renderChannelPost } from './channel';
+export { START_ACTIONS, botStartUrl, encodeStartPayload, parseStartPayload } from './deep-link';
+export type { StartAction, StartLink } from './deep-link';
 export type { ChannelPostContent, RenderedChannelPost } from './channel';
 export { renderEventInvitation } from './invitation';
 export { formatMyRequests } from './requests';
