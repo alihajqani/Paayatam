@@ -2587,6 +2587,32 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     expect(text).not.toContain('۰ از ۱۰۰');
   });
 
+  /**
+   * The detail screen is a different screen for the host, and the difference is
+   * the route to «who is coming».
+   *
+   * Joining is refused for them by `HOST_CANNOT_JOIN` and reporting their own
+   * content by `CANNOT_REPORT_OWN_CONTENT`, so offering either would be two
+   * buttons that exist to be declined. What a host wants from this screen is the
+   * guest list — which is the only path to recording a no-show that does not go
+   * through `/myevents`.
+   */
+  it('offers the host the guest list where a guest is offered joining', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await tap(HOST_TELEGRAM_ID, `ev:show:${eventPublicId}`);
+
+    const detail = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const keyboard = String((detail.payload as Record<string, unknown>)['keyboard']);
+    expect(keyboard).toContain(`ev:who:${eventPublicId}`);
+    expect(keyboard).not.toContain('ev:join:');
+    expect(keyboard).not.toContain('rp:');
+  });
+
   /** A tampered id names an event the service declines. Authorisation is not in the button. */
   it('refuses a join for an event that does not exist', async () => {
     await seedGuest(GUEST_TELEGRAM_ID);
