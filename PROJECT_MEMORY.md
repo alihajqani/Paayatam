@@ -17,7 +17,7 @@ join; they negotiate anonymously in a Telegram chat before either knows who the
 other is. Coins price the scarce actions, Trust Score prices the people.
 
 Not a bot script. A **NestJS modular monolith** deployed on a single VPS via
-Docker Compose, live in production at **`v0.4.2`** (deployed 2026-08-29).
+Docker Compose, live in production at **`v0.6.3`** (deployed 2026-08-30).
 
 ## 2. Read these, in this order
 
@@ -439,6 +439,19 @@ a fact about the thing rather than a relationship between two people.
 checks its target. It found two that had never worked.
 
 ## 10b. v0.6.3 — buttons everywhere, and a staff surface in the chat
+
+**Deployed 2026-08-30**, commit `4420c70`, from v0.6.1 — v0.6.2 was tagged and
+never deployed, so this release carried it too. 27/27 smoke checks; migrations
+0029, 0030 and 0031 applied; every data-integrity count identical to the
+pre-deploy baseline (1 admin, 3 users, 4 events, 10 ledger rows, 0 moderation
+cases, 0 Telegram links). The two warnings are the standing ones in §11 —
+`MONITORING_CHAT_ID` empty and backups plaintext and single-host — not anything
+this release introduced.
+
+Two things are shipped **off**, deliberately, and both are one row away from on:
+`economy.event_join_coins` has no `app_setting` row (so joining is free, as it
+has been since M6), and `admin_telegram_link` is empty (so no moderation queue
+is reachable from any Telegram account).
 
 Four things, and the thread running through all of them is that **a command is a
 fallback now, not a path**. The persistent keyboard plus a button on every screen
