@@ -103,4 +103,36 @@ describe('one case, as the wizard asks about it', () => {
   it('emits no markup, because the wizard renderer escapes what it is given', () => {
     expect(formatAdminCasePrompt(detail)).not.toMatch(/<[^>]+>/);
   });
+
+  /**
+   * Trap 6's shape. Past Telegram's 4096 `sendMessage` answers 400, `classify()`
+   * reads a bare 400 as retryable, and the message is retried until it
+   * dead-letters — so a moderator taps «بررسی» and never hears back.
+   */
+  it('stays inside one Telegram message however long the event is', () => {
+    const prompt = formatAdminCasePrompt({
+      ...detail,
+      // The contract's own ceiling for a description, which escaping can nearly
+      // double on the way into an HTML message.
+      eventDescription: 'ب'.repeat(2000),
+      eventTitle: 'ت'.repeat(500),
+      reportReasons: [
+        { reason: 'SPAM', count: 3 },
+        { reason: 'HARASSMENT', count: 2 },
+        { reason: 'INAPPROPRIATE', count: 1 },
+        { reason: 'SCAM', count: 1 },
+        { reason: 'IMPERSONATION', count: 1 },
+        { reason: 'SAFETY', count: 1 },
+        { reason: 'OTHER', count: 1 },
+      ],
+    });
+
+    // Half the limit, because the wizard renderer adds its own progress line and
+    // Telegram counts the whole message.
+    expect(prompt.length).toBeLessThanOrEqual(2048);
+    expect(prompt).toContain('بریده شد');
+    // The one line on the screen that cannot be lost to a ceiling: without it a
+    // moderator is looking at evidence over two unexplained buttons.
+    expect(prompt.endsWith('تصمیم شما چیست؟')).toBe(true);
+  });
 });

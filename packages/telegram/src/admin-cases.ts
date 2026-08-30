@@ -2,6 +2,7 @@ import { encodeAdminCallback } from './callback-data';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { formatTehran } from './datetime';
+import { TELEGRAM_MESSAGE_LIMIT } from './digest';
 
 /**
  * The moderation queue, in the bot (v0.6.3, ADR-0018).
@@ -121,6 +122,31 @@ const REPORT_REASON_FA: Record<string, string> = {
 };
 
 /**
+ * How much of a case may reach one Telegram message.
+ *
+ * An event description is up to 2000 characters of host-authored text, and
+ * escaping can nearly double that — `&amp;` is five characters for one. Add the
+ * report breakdown and the wizard's own progress line and keyboard, and the
+ * total can pass Telegram's 4096.
+ *
+ * That failure is the shape trap 6 records and is worth restating: past the
+ * limit `sendMessage` answers **400**, `classify()` reads a bare 400 as
+ * retryable, and the message is retried until it dead-letters — so a moderator
+ * taps «بررسی» and simply never hears back. **Anything rendered into a Telegram
+ * message needs a ceiling at the point of rendering.**
+ *
+ * The description is what gets cut, because it is the only unbounded field and
+ * because the metadata above it is what sorts a queue. A moderator who needs the
+ * whole text has the panel.
+ */
+const DESCRIPTION_BUDGET = 1200;
+
+/** Cut on a whole character, and say that it was cut. */
+function clip(text: string, budget: number): string {
+  return text.length <= budget ? text : `${text.slice(0, budget).trimEnd()}… (بریده شد)`;
+}
+
+/**
  * One case, as the wizard's first question asks about it.
  *
  * **Plain text, not HTML**, because `renderStep` escapes the prompt it is given
@@ -155,8 +181,10 @@ export function formatAdminCasePrompt(detail: AdminCaseDetailLine): string {
 
   if (detail.eventTitle !== null) {
     lines.push('');
-    lines.push(`عنوان: ${detail.eventTitle}`);
-    if (detail.eventDescription !== null) lines.push(`شرح: ${detail.eventDescription}`);
+    lines.push(`عنوان: ${clip(detail.eventTitle, 200)}`);
+    if (detail.eventDescription !== null) {
+      lines.push(`شرح: ${clip(detail.eventDescription, DESCRIPTION_BUDGET)}`);
+    }
   } else if (detail.subjectType !== 'EVENT') {
     // Said rather than left blank: a moderator deciding on metadata alone should
     // know that is what they are doing.
@@ -164,8 +192,22 @@ export function formatAdminCasePrompt(detail: AdminCaseDetailLine): string {
     lines.push('محتوای این پرونده در ربات نشان داده نمی‌شود. برای دیدن آن از پنل استفاده کنید.');
   }
 
-  lines.push('');
-  lines.push('تصمیم شما چیست؟');
+  /**
+   * The last ceiling — over the body, and **not** over the question.
+   *
+   * The per-field budgets above bound the two unbounded fields; this bounds
+   * everything else: seven report reasons, a long category name, a future field
+   * somebody adds without reading this comment. Half the limit, because the
+   * wizard renderer adds its own progress line and Telegram counts the whole
+   * message.
+   *
+   * The question is appended *after* the clip rather than included in it. A
+   * ceiling that could swallow «تصمیم شما چیست؟» would leave a screen of
+   * evidence over two unexplained buttons — which is the one line on it that
+   * cannot be lost.
+   */
+  const question = 'تصمیم شما چیست؟';
+  const budget = Math.floor(TELEGRAM_MESSAGE_LIMIT / 2) - question.length - 2;
 
-  return lines.join('\n');
+  return `${clip(lines.join('\n'), budget)}\n\n${question}`;
 }
