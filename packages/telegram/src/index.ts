@@ -20,6 +20,8 @@ export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export { formatEventDetail } from './event-detail';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa } from './wallet';
+export { formatTrust, trustLabelFa } from './trust';
+export type { TrustLine } from './trust';
 export { formatReferral } from './referral';
 export type { ReferralSummaryLine } from './referral';
 export type { WalletLine } from './wallet';

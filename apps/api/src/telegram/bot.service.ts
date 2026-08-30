@@ -55,6 +55,7 @@ import {
   formatPolicies,
   formatReferral,
   formatStanding,
+  formatTrust,
   formatWallet,
   menuCommandFor,
   formatTehran,
@@ -289,6 +290,29 @@ export class BotService {
       }
 
       /**
+       * `/trust` — the score, and how it got there.
+       *
+       * `/profile` has shown the number since v0.4.x, and ADR-0007's «a score
+       * nobody can account for is a score nobody can appeal» has been true the
+       * whole time. The Mini App never rendered the ledger either — `GET
+       * /me/trust` returned it and no view used it — so this is less a port than
+       * the first place the product keeps that promise.
+       *
+       * A row never names *who*. A `REVIEW` movement means "a review moved
+       * this"; naming the reviewer would undo the double-blind the review pair
+       * exists to hold.
+       */
+      case 'trust': {
+        const [score, history] = await Promise.all([
+          this.trust.scoreOf(user.id),
+          this.trust.historyOf(user.id, TRUST_HISTORY_LIMIT),
+        ]);
+        return this.reply(updateId, user.id, TEMPLATES.BOT_TRUST, {
+          text: formatTrust(score, history),
+        });
+      }
+
+      /**
        * `/referral` — the caller's code, and what it has earned.
        *
        * The bot is one step shorter than the screen this replaces: a referral
@@ -414,6 +438,7 @@ export class BotService {
         );
         const rows = actionable.map((event) => [
           { text: '📣 کانال', callbackData: encodeEventCallback('post', event.publicId) },
+          { text: '🚀 ارتقا', callbackData: encodeEventCallback('boost', event.publicId) },
           { text: '👥 دعوت', callbackData: encodeEventCallback('invite', event.publicId) },
           { text: '✖️ لغو', callbackData: encodeEventCallback('drop', event.publicId) },
         ]);
@@ -1196,6 +1221,28 @@ export class BotService {
         case 'postyes':
           await this.events.publishToChannel(user.id, callback.id);
           await this.answer(callbackQueryId, 'در کانال منتشر شد 📣');
+          return;
+
+        case 'boost': {
+          const [cost, hours] = await Promise.all([
+            this.settings.getInt('economy.boost_coins'),
+            this.settings.getInt('economy.boost_duration_hours'),
+          ]);
+          await this.answer(callbackQueryId, '');
+          return this.confirmSpend(
+            updateId,
+            user,
+            `<b>ارتقای فعالیت</b>\n\n` +
+              `این فعالیت به مدت ${toPersianDigits(String(hours))} ساعت بالاتر از بقیه ` +
+              `دیده می‌شود و <b>${toPersianDigits(String(cost))} سکه</b> از موجودی شما کم می‌شود.`,
+            '🚀 بله، ارتقا بده',
+            encodeEventCallback('boostyes', callback.id),
+          );
+        }
+
+        case 'boostyes':
+          await this.events.boost(user.id, callback.id, 'BOOST');
+          await this.answer(callbackQueryId, 'فعالیت ارتقا یافت 🚀');
           return;
 
         /**
@@ -2318,6 +2365,9 @@ const DISCOVER_LIMIT = 5;
  * more and truncating it.
  */
 const WALLET_HISTORY_LIMIT = 20;
+
+/** The same reasoning as `WALLET_HISTORY_LIMIT`: what fits in one message. */
+const TRUST_HISTORY_LIMIT = 20;
 
 /**
  * The statuses a host may still act on.

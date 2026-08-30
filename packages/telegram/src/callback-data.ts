@@ -130,6 +130,8 @@ export const EVENT_CALLBACK_ACTIONS = [
    */
   'post',
   'postyes',
+  'boost',
+  'boostyes',
   'invite',
   'inviteyes',
   'drop',

@@ -101,6 +101,8 @@ export const TEMPLATES = {
   BOT_CONFIRM_SPEND: 'bot.confirm_spend',
   /** One activity in full, with the button that joins it. */
   BOT_EVENT_DETAIL: 'bot.event_detail',
+  /** `/trust` — the score, and every movement behind it. */
+  BOT_TRUST: 'bot.trust',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -669,6 +671,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
 
     case TEMPLATES.BOT_REFERRAL:
       return opened(prerendered(payload), `home`);
+
+    /** `/trust` — the score and its ledger, built by `formatTrust`. */
+    case TEMPLATES.BOT_TRUST:
+      return opened(prerendered(payload), `profile/edit`);
 
     /**
      * A host's paid action, asked before it is done.

@@ -2,7 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
-import { ChatService, CoinService, ParticipationService, normalize } from '@payetam/domain';
+import {
+  ChatService,
+  CoinService,
+  ParticipationService,
+  TrustService,
+  normalize,
+} from '@payetam/domain';
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { TEMPLATES } from '@payetam/telegram';
 import {
@@ -56,6 +62,7 @@ let app: NestFastifyApplication;
 let participation: ParticipationService;
 let chats: ChatService;
 let coins: CoinService;
+let trust: TrustService;
 let fixture: CatalogFixture;
 
 /** Distinctive, and shaped like a real Telegram id — the leak assertions hunt for it. */
@@ -138,6 +145,7 @@ beforeAll(async () => {
   participation = app.get(ParticipationService);
   chats = app.get(ChatService);
   coins = app.get(CoinService);
+  trust = app.get(TrustService);
 }, 120_000);
 
 afterAll(async () => {
@@ -1458,7 +1466,7 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     return row.payload as Record<string, unknown>;
   }
 
-  it('offers channel, invite and cancel on every open event', async () => {
+  it('offers channel, boost, invite and cancel on every open event', async () => {
     const { eventPublicId } = await seedHostAndEvent();
 
     await type(HOST_TELEGRAM_ID, '/myevents');
@@ -1470,9 +1478,22 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.map((button) => button.callbackData)).toEqual([
       `ev:post:${eventPublicId}`,
+      `ev:boost:${eventPublicId}`,
       `ev:invite:${eventPublicId}`,
       `ev:drop:${eventPublicId}`,
     ]);
+  });
+
+  /** Boost names both the price and the duration, and both are settings. */
+  it('names the boost duration as well as its price', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await tap(HOST_TELEGRAM_ID, `ev:boost:${eventPublicId}`);
+
+    const payload = await latest(TEMPLATES.BOT_CONFIRM_SPEND);
+    const rows = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
+    expect(rows[0]?.[0]?.callbackData).toBe(`ev:boostyes:${eventPublicId}`);
+    expect(String(payload['text'])).toContain('ساعت');
   });
 
   /**
@@ -1572,6 +1593,31 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
     // The ledger line, in the language the user reads rather than the enum.
     expect(text).toContain('هدیهٔ خوش‌آمد');
     expect(text).not.toContain('ONBOARDING_REWARD');
+  });
+
+  /**
+   * ADR-0007: «a score nobody can account for is a score nobody can appeal».
+   * `/profile` showed the number; nothing ever showed the movements — the Mini
+   * App did not render `GET /me/trust` either.
+   */
+  it('accounts for the trust score rather than only stating it', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+    await trust.apply({
+      userId,
+      delta: 5,
+      type: 'PROFILE_COMPLETE',
+      reasonCode: 'profile-complete',
+      idempotencyKey: `trust-profile:${userId}`,
+      actorType: 'SYSTEM',
+    });
+
+    await type(GUEST_TELEGRAM_ID, '/trust');
+
+    const text = await bodyOf(TEMPLATES.BOT_TRUST);
+    expect(text).toContain('امتیاز اعتماد شما');
+    // The movement, in the language the user reads rather than the enum.
+    expect(text).toContain('کامل کردن نمایه');
+    expect(text).not.toContain('PROFILE_COMPLETE');
   });
 
   it('gives the referral code as a link somebody can send', async () => {
