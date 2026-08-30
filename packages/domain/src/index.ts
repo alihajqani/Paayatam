@@ -209,6 +209,8 @@ export {
   genderLabel,
 } from './conversation/wizards/edit-profile';
 export type { EditProfileForm } from './conversation/wizards/edit-profile';
+export { writeReviewWizard, reviewTagLabel } from './conversation/wizards/write-review';
+export type { WriteReviewForm } from './conversation/wizards/write-review';
 export type { EncryptedBody } from './chat/message-cipher';
 export {
   CHAT_ANONYMOUS_INTRO,

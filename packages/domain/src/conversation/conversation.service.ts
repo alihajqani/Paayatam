@@ -19,6 +19,7 @@ import { createEventWizard, type CreateEventForm } from './wizards/create-event'
 import { acceptPoliciesWizard } from './wizards/accept-policies';
 import { editEventWizard } from './wizards/edit-event';
 import { editProfileWizard } from './wizards/edit-profile';
+import { writeReviewWizard } from './wizards/write-review';
 
 /**
  * Where the machine records which fields the user answered.
@@ -41,6 +42,7 @@ export const DRAFT_TTL_DAYS = 7;
 const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, unknown>>>> = {
   CREATE_EVENT: createEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
   EDIT_PROFILE: editProfileWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  WRITE_REVIEW: writeReviewWizard as unknown as WizardDefinition<Record<string, unknown>>,
   ACCEPT_POLICIES: acceptPoliciesWizard as unknown as WizardDefinition<Record<string, unknown>>,
   EDIT_EVENT: editEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };

@@ -1687,6 +1687,60 @@ describe('POST /telegram/:secret — rating somebody', () => {
     expect(review.rating).toBe(4);
   });
 
+  /**
+   * The rating is two taps; the tags and the comment are the optional half.
+   *
+   * `ReviewService.edit` replaces the whole review, so the rating written by the
+   * star tap is carried back in unchanged — asking for it again would make the
+   * optional half feel like a second review.
+   */
+  it('opens the detail form after a rating, and amends the review', async () => {
+    const { guestId, participantPublicId } = await seedPending();
+
+    await tap(GUEST_TELEGRAM_ID, `rv:rate5:${participantPublicId}`);
+
+    // The wizard is open, and it knows which participation it is for.
+    const state = await prisma.conversationState.findUniqueOrThrow({
+      where: { userId: guestId },
+      select: { kind: true, targetPublicId: true },
+    });
+    expect(state.kind).toBe('WRITE_REVIEW');
+    expect(state.targetPublicId).toBe(participantPublicId);
+
+    await tap(GUEST_TELEGRAM_ID, 'wz:tag:FRIENDLY');
+    await type(GUEST_TELEGRAM_ID, 'میزبان خوبی بود');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const review = await prisma.review.findFirstOrThrow({
+      where: { reviewerUserId: guestId },
+      select: { rating: true, tags: true, comment: true },
+    });
+    // The rating survives the amendment untouched.
+    expect(review.rating).toBe(5);
+    expect(review.tags).toEqual(['FRIENDLY']);
+    expect(review.comment).toBe('میزبان خوبی بود');
+    // And the form closed.
+    expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(0);
+  });
+
+  /** Skipping both steps leaves the rating alone rather than saying «ثبت شد» twice. */
+  it('adds nothing when both steps are skipped', async () => {
+    const { guestId, participantPublicId } = await seedPending();
+
+    await tap(GUEST_TELEGRAM_ID, `rv:rate3:${participantPublicId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const review = await prisma.review.findFirstOrThrow({
+      where: { reviewerUserId: guestId },
+      select: { rating: true, tags: true, comment: true },
+    });
+    expect(review.rating).toBe(3);
+    expect(review.tags).toEqual([]);
+    expect(review.comment).toBeNull();
+  });
+
   /** A tampered participation is one the service declines. Authorisation is not in the button. */
   it("writes nothing for a participation that is not the caller's", async () => {
     await seedPending();

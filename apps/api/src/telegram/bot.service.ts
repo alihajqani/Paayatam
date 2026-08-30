@@ -21,11 +21,13 @@ import {
   eventChoice,
   touchedFields,
   genderLabel,
+  reviewTagLabel,
   zonedTimeToUtc,
   type ConversationSnapshot,
   type CreateEventInput,
   type EditEventForm,
   type EditProfileForm,
+  type WriteReviewForm,
   type UpdateEventInput,
   type ConversationOutcome,
   type CreateEventForm,
@@ -951,6 +953,25 @@ export class BotService {
           callbackQueryId,
           `نظر شما ثبت شد ✅ (${toPersianDigits(String(reviewCallback.rating))} از ۵)`,
         );
+        /**
+         * The rating is written; the form is the optional half.
+         *
+         * Opened rather than offered as a button, because a wizard is what the
+         * tags and the comment need and `conversation_state.user_id` is UNIQUE —
+         * one at a time, so this replaces whatever was open, which is the same
+         * rule `/create_event` follows. `review.edit_window_minutes` is what
+         * makes amending legal, and `ReviewService.edit` replaces the whole
+         * review with the rating carried back in unchanged.
+         */
+        if (this.env.ENABLE_CONVERSATION_WIZARD) {
+          const outcome = await this.conversations.start(
+            user.id,
+            'WRITE_REVIEW',
+            update.updateId,
+            reviewCallback.id,
+          );
+          await this.drawWizard(update.updateId, user, outcome);
+        }
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
         await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
@@ -1325,6 +1346,8 @@ export class BotService {
             return this.finishConsent(updateId, user);
           case 'EDIT_PROFILE':
             return this.submitProfile(updateId, user, outcome.snapshot.form);
+          case 'WRITE_REVIEW':
+            return this.submitReviewDetail(updateId, user, outcome.snapshot);
           case 'EDIT_EVENT':
             return this.submitEventEdit(updateId, user, outcome.snapshot);
           default:
@@ -1348,6 +1371,20 @@ export class BotService {
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;
           const screen = renderSummary(await this.profileSummaryLines(profile), false, 'ثبت نمایه');
+          return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+        }
+        if (outcome.snapshot.kind === 'WRITE_REVIEW') {
+          const form = outcome.snapshot.form as WriteReviewForm;
+          const lines: SummaryLine[] = [];
+          if (form.tag !== undefined) {
+            lines.push({ label: 'برچسب', value: reviewTagLabel(form.tag) });
+          }
+          if (form.comment !== undefined) lines.push({ label: 'توضیح', value: form.comment });
+          const screen = renderSummary(
+            lines.length > 0 ? lines : [{ label: 'چیزی اضافه نشد', value: 'هر دو مرحله رد شد' }],
+            false,
+            'ثبت نظر',
+          );
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
         const form = asCreateEventForm(outcome.snapshot.form);
@@ -1889,6 +1926,51 @@ export class BotService {
       if (!(error instanceof AppError)) throw error;
       // The draft survives, for the reason it survives a refused event.
       await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+    }
+  }
+
+  /**
+   * The tags and the comment, onto a review whose rating is already in.
+   *
+   * `edit` rather than `submit`, and the rating is **read back rather than
+   * asked for again**: it was written the moment the star was tapped, and asking
+   * somebody to restate it would make the optional half feel like a second
+   * review. `ReviewService.edit` replaces the whole thing, so anything not
+   * carried here is cleared — which is why the rating goes back in unchanged.
+   *
+   * A closed edit window is not an error worth apologising for. The rating stands
+   * and that is the part that matters; the notice says so rather than implying
+   * the whole review was lost.
+   */
+  private async submitReviewDetail(
+    updateId: number,
+    user: BotUser,
+    snapshot: ConversationSnapshot,
+  ): Promise<void> {
+    const form = snapshot.form as WriteReviewForm;
+    const participantPublicId = snapshot.targetPublicId;
+
+    await this.conversations.clear(user.id);
+
+    // Both steps skipped: the rating is already written and there is nothing to
+    // add, so saying «ثبت شد» twice would be the product congratulating itself.
+    if (participantPublicId === null || (form.tag === undefined && form.comment === undefined)) {
+      return;
+    }
+
+    try {
+      const existing = await this.reviews.findOwn(user.id, participantPublicId);
+      if (existing === null) return;
+
+      await this.reviews.edit(user.id, participantPublicId, {
+        rating: existing.rating,
+        ...(form.tag !== undefined ? { tags: [form.tag] } : {}),
+        ...(form.comment !== undefined ? { comment: form.comment } : {}),
+      });
+      await this.notice(updateId, user, 'نظر شما کامل شد ✅');
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.notice(updateId, user, `امتیاز شما ثبت شده است. ${ERROR_MESSAGES_FA[error.code]}`);
     }
   }
 

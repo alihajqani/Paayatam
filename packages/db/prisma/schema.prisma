@@ -2549,6 +2549,9 @@ enum ConversationKind {
   EDIT_PROFILE
   CREATE_EVENT
   EDIT_EVENT
+  /// The tags and the comment on a review whose rating is already in (v0.5.4).
+  /// The rating is one tap from `/reviews`; this is the half that needs a form.
+  WRITE_REVIEW
 
   @@map("conversation_kind")
 }

@@ -1,0 +1,27 @@
+-- Migration 0026: the review wizard's conversation kind.
+--
+-- **One additive statement.** `ALTER TYPE ... ADD VALUE` extends an enum without
+-- touching a row, so the previous release runs unchanged against this schema —
+-- it simply never writes the new value. That is what makes this deploy
+-- reversible without a down migration: `rollback.sh` cannot undo a migration,
+-- and this one does not need undoing.
+--
+-- ── Why a new kind rather than reusing one ─────────────────────────────────
+--
+-- `conversation_state.user_id` is UNIQUE: one wizard at a time, per person. The
+-- kind is what `ConversationService.definitionFor` dispatches on, so a review
+-- collected under `EDIT_PROFILE` would be handed to the profile wizard's steps
+-- and validated against the wrong fields.
+--
+-- ── Why it is safe inside a transaction ────────────────────────────────────
+--
+-- Postgres refused `ALTER TYPE ... ADD VALUE` inside a transaction block before
+-- 12, and Prisma wraps each migration in one. The constraint that remains on 16
+-- is that the new value may not be *used* in the same transaction, and nothing
+-- here uses it — the first write happens when somebody opens the wizard, long
+-- after this has committed. Production is 16 (`postgres:16-alpine`).
+--
+-- `IF NOT EXISTS` so re-running against a database that already has it is a
+-- no-op rather than an error, which is what makes `migrate deploy` idempotent
+-- across a retried deploy.
+ALTER TYPE "conversation_kind" ADD VALUE IF NOT EXISTS 'WRITE_REVIEW';
