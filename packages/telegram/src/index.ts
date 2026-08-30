@@ -21,6 +21,7 @@ export { formatEventDetail } from './event-detail';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa } from './wallet';
 export { formatTrust, trustLabelFa } from './trust';
+export { REPORT_REASON_CHOICES, reportPrompt, reportReasonLabel } from './report';
 export type { TrustLine } from './trust';
 export { formatReferral } from './referral';
 export type { ReferralSummaryLine } from './referral';
@@ -82,6 +83,14 @@ export type { ChatCallback, ChatCallbackAction } from './callback-data';
 export { EVENT_CALLBACK_ACTIONS, encodeEventCallback, parseEventCallback } from './callback-data';
 export type { EventCallback, EventCallbackAction } from './callback-data';
 export { REVIEW_RATINGS, encodeReviewCallback, parseReviewCallback } from './callback-data';
+export {
+  REPORT_REASONS,
+  REPORT_TARGETS,
+  encodeReportAsk,
+  encodeReportReason,
+  parseReportCallback,
+} from './callback-data';
+export type { ReportCallback, ReportReasonValue, ReportTargetLetter } from './callback-data';
 export type { ReviewCallback, ReviewRating } from './callback-data';
 
 export { chatKeyboard, hostDecisionKeyboard, openAppButton } from './keyboards';

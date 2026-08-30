@@ -1,4 +1,4 @@
-import { encodeChatCallback } from './callback-data';
+import { encodeChatCallback, encodeReportAsk } from './callback-data';
 
 /**
  * Inline keyboards (plan §3.2: "grammY composition, keyboards, fa message
@@ -102,7 +102,23 @@ export function chatKeyboard(
      * Telegram — so the button spent a tap target on a detour, which is why it
      * went with the rest of them.
      */
-    [{ text: '🔒 بستن گفتگو', callbackData: encodeChatCallback('close', chatPublicId) }],
+    /**
+     * Closing, and reporting, on the first row.
+     *
+     * Reporting a conversation is the one safety control that has to be where
+     * the harm is happening. It was reachable only from the Mini App, and from
+     * v0.4.6 — when the last button to it went — somebody being harassed in an
+     * anonymous chat had no way to say so from inside Telegram.
+     *
+     * Beside closing rather than below it, because they are the same kind of
+     * decision: this conversation should stop. Closing ends it; reporting also
+     * tells somebody. Neither notifies the other party — that is the single
+     * message this area must never send.
+     */
+    [
+      { text: '🔒 بستن گفتگو', callbackData: encodeChatCallback('close', chatPublicId) },
+      { text: '🚩 گزارش', callbackData: encodeReportAsk('c', chatPublicId) },
+    ],
   ];
 
   /**

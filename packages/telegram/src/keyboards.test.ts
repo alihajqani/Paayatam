@@ -18,15 +18,17 @@ const BOT = 'payetam_bot';
  * button off.
  */
 describe('the chat keyboard', () => {
-  it('offers closing on every live conversation, and nothing else', () => {
+  it('offers closing and reporting on every live conversation', () => {
     const rows = chatKeyboard(CHAT_ID);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toHaveLength(1);
+    expect(rows[0]).toHaveLength(2);
     expect(parseChatCallback(rows[0]?.[0]?.callbackData ?? '')).toEqual({
       action: 'close',
       id: CHAT_ID,
     });
+    // Reporting has to be where the harm is happening. It was Mini-App-only.
+    expect(rows[0]?.[1]?.callbackData).toBe(`rp:askc:${CHAT_ID}`);
   });
 
   /**

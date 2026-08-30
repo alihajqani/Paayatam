@@ -103,6 +103,8 @@ export const TEMPLATES = {
   BOT_EVENT_DETAIL: 'bot.event_detail',
   /** `/trust` — the score, and every movement behind it. */
   BOT_TRUST: 'bot.trust',
+  /** The seven reasons, under the thing being reported. */
+  BOT_REPORT_REASONS: 'bot.report_reasons',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -675,6 +677,22 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     /** `/trust` — the score and its ledger, built by `formatTrust`. */
     case TEMPLATES.BOT_TRUST:
       return opened(prerendered(payload), `profile/edit`);
+
+    /**
+     * The reason menu, under the thing being reported.
+     *
+     * A message rather than a replacement of the keyboard on whatever was tapped:
+     * seven reasons do not fit under a message that is about something else, and
+     * the question deserves its own screen. No deep link — there is nothing in
+     * the Mini App this corresponds to any more.
+     */
+    case TEMPLATES.BOT_REPORT_REASONS: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /**
      * A host's paid action, asked before it is done.

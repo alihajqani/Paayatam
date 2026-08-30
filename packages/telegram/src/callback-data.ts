@@ -220,3 +220,101 @@ export function parseReviewCallback(data: string): ReviewCallback | null {
   const match = REVIEW_RATINGS.find((candidate) => candidate === rating);
   return match === undefined ? null : { rating: match, id };
 }
+
+/**
+ * The reporting protocol: `rp:<target><reason>:<public id>`.
+ *
+ * ── Why the bot needs one at all ────────────────────────────────────────────
+ *
+ * Reporting was the last user-facing safety control with no bot surface. The
+ * four endpoints have existed since M12 and were reachable only from the Mini
+ * App, so from v0.4.6 — when the last button to it went — a user meeting
+ * strangers through this product had no way to say that something was wrong.
+ * That is the one gap in the retirement that was not a convenience.
+ *
+ * ── Why the target type is in the callback ──────────────────────────────────
+ *
+ * `ReportService.file` takes a target *type* and a public id, and public ids do
+ * not carry their table. An event, a conversation and a user are three different
+ * things to a moderator, and guessing between them by trying each lookup in turn
+ * would make a typo in one id resolve as a report against something else.
+ *
+ * One letter, then the reason: `e` event, `c` conversation, `u` user. The widest
+ * is `rp:cIMPERSONATION:<uuid>` at 55 bytes, inside the 64 Telegram allows.
+ *
+ * `ask` is the menu — `rp:aske:<uuid>` — because seven reasons do not fit under
+ * a message that is about something else, and a report filed by a mis-tap is a
+ * report a moderator has to read.
+ *
+ * **Reviews are absent on purpose.** `POST /reviews/:publicId/report` exists,
+ * and the bot has no view of a review you have *received* — so there is nothing
+ * to report from. That view comes first; the target letter is reserved.
+ */
+export const REPORT_TARGETS = { e: 'EVENT', c: 'MESSAGE', u: 'USER' } as const;
+export type ReportTargetLetter = keyof typeof REPORT_TARGETS;
+
+export const REPORT_REASONS = [
+  'SPAM',
+  'HARASSMENT',
+  'INAPPROPRIATE',
+  'SCAM',
+  'IMPERSONATION',
+  'SAFETY',
+  'OTHER',
+] as const;
+export type ReportReasonValue = (typeof REPORT_REASONS)[number];
+
+export interface ReportCallback {
+  /** True for the menu, false for a filed reason. */
+  asking: boolean;
+  target: ReportTargetLetter;
+  /** Absent while asking. */
+  reason: ReportReasonValue | null;
+  id: string;
+}
+
+const REPORT_PREFIX = 'rp';
+
+export function encodeReportAsk(target: ReportTargetLetter, id: string): string {
+  return guardReport(`${REPORT_PREFIX}:ask${target}:${id}`);
+}
+
+export function encodeReportReason(
+  target: ReportTargetLetter,
+  reason: ReportReasonValue,
+  id: string,
+): string {
+  return guardReport(`${REPORT_PREFIX}:${target}${reason}:${id}`);
+}
+
+function guardReport(data: string): string {
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+function isTargetLetter(value: string): value is ReportTargetLetter {
+  return Object.hasOwn(REPORT_TARGETS, value);
+}
+
+export function parseReportCallback(data: string): ReportCallback | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, action, id] = parts;
+  if (prefix !== REPORT_PREFIX || id === undefined || action === undefined) return null;
+  if (!isPublicId(id)) return null;
+
+  if (action.startsWith('ask')) {
+    const target = action.slice(3);
+    return isTargetLetter(target) ? { asking: true, target, reason: null, id } : null;
+  }
+
+  const target = action.slice(0, 1);
+  const reason = action.slice(1);
+  if (!isTargetLetter(target)) return null;
+
+  const match = REPORT_REASONS.find((candidate) => candidate === reason);
+  return match === undefined ? null : { asking: false, target, reason: match, id };
+}

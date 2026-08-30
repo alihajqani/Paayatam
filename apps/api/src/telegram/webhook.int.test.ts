@@ -1428,6 +1428,112 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
 });
 
 /**
+ * Reporting — the last user-facing safety control with no bot surface.
+ *
+ * The four endpoints have existed since M12 and were reachable only from the
+ * Mini App. From v0.4.6 — when the last button to it went — somebody meeting
+ * strangers through this product had no way to say something was wrong.
+ */
+describe('POST /telegram/:secret — reporting', () => {
+  let sequence = 10_600;
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  it('offers all seven reasons, one per row', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `rp:aske:${eventPublicId}`);
+
+    const menu = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REPORT_REASONS },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const rows = JSON.parse(String((menu.payload as Record<string, unknown>)['keyboard'])) as {
+      callbackData: string;
+    }[][];
+    // Seven reasons; they are sentences, not labels, so one per row.
+    expect(rows).toHaveLength(7);
+    expect(rows.every((row) => row.length === 1)).toBe(true);
+    expect(rows[0]?.[0]?.callbackData).toBe(`rp:eSPAM:${eventPublicId}`);
+  });
+
+  it('files a report against an event', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `rp:eHARASSMENT:${eventPublicId}`);
+
+    const report = await prisma.report.findFirstOrThrow({
+      where: { reporterUserId: guestId },
+      select: { targetType: true, reason: true },
+    });
+    expect(report.targetType).toBe('EVENT');
+    expect(report.reason).toBe('HARASSMENT');
+  });
+
+  /**
+   * The target type rides in the callback because a public id does not carry its
+   * table — an event, a conversation and a user are three different things to a
+   * moderator, and guessing between them would let a typo report the wrong thing.
+   */
+  it('files against the user when the target letter says so', async () => {
+    const { hostId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const host = await prisma.user.findUniqueOrThrow({
+      where: { id: hostId },
+      select: { publicId: true },
+    });
+
+    await tap(GUEST_TELEGRAM_ID, `rp:uSCAM:${host.publicId}`);
+
+    const report = await prisma.report.findFirstOrThrow({
+      where: { reporterUserId: guestId },
+      select: { targetType: true },
+    });
+    expect(report.targetType).toBe('USER');
+  });
+
+  /** You cannot report your own activity, and nothing is written when you try. */
+  it('refuses a report against your own content', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await tap(HOST_TELEGRAM_ID, `rp:eSPAM:${eventPublicId}`);
+
+    expect(await prisma.report.count()).toBe(0);
+  });
+
+  /**
+   * **Nobody is notified.** Telling one side of an anonymous chat that the other
+   * reported them is the single message this area must never send — so filing a
+   * report queues nothing for anybody.
+   */
+  it('notifies nobody about a report', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const before = await prisma.notification.count();
+
+    await tap(GUEST_TELEGRAM_ID, `rp:eSAFETY:${eventPublicId}`);
+
+    expect(await prisma.notification.count()).toBe(before);
+  });
+});
+
+/**
  * The host's console: `/myevents` as something you can act on.
  *
  * Publishing to the channel, inviting likely guests and cancelling all lived in

@@ -11,6 +11,7 @@ import {
   EventService,
   GiftCodeService,
   InvitationService,
+  ReportService,
   NotificationService,
   ParticipationService,
   ProfileService,
@@ -68,6 +69,12 @@ import {
   encodeEventCallback,
   parseReviewCallback,
   encodeReviewCallback,
+  parseReportCallback,
+  encodeReportAsk,
+  encodeReportReason,
+  reportPrompt,
+  REPORT_REASON_CHOICES,
+  REPORT_TARGETS,
   REVIEW_RATINGS,
   isPublicId,
   isoDay,
@@ -81,6 +88,7 @@ import {
   type BotInboundText,
   type BotSender,
   type EventCallback,
+  type ReportCallback,
   type ParsedUpdate,
   type SummaryLine,
   type WizardScreen,
@@ -154,6 +162,7 @@ export class BotService {
     private readonly referrals: ReferralService,
     private readonly giftCodes: GiftCodeService,
     private readonly invitations: InvitationService,
+    private readonly reports: ReportService,
     private readonly settings: SettingsService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
@@ -975,6 +984,21 @@ export class BotService {
      * policy gate is applied here or nowhere.
      */
     /**
+     * A report tap — the menu, or a reason.
+     *
+     * First of the four protocols, because it is the one that must work when
+     * everything else about an interaction has gone wrong.
+     */
+    const reportCallback = parseReportCallback(data);
+    if (reportCallback !== null) {
+      if (!(await this.mayWrite(update.updateId, user))) {
+        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        return;
+      }
+      return this.onReportCallback(update.updateId, user, callbackQueryId, reportCallback);
+    }
+
+    /**
      * A rating tap. Before `chat:` and `ev:`, told apart by prefix like the rest.
      */
     const reviewCallback = parseReviewCallback(data);
@@ -1185,12 +1209,32 @@ export class BotService {
               hostDisplayName: event.hostDisplayName,
               hostTrustScore: event.hostTrustScore,
             }),
+            /**
+             * Joining, then the two ways to say something is wrong.
+             *
+             * The host is reportable from here because this is the one screen
+             * that names them — `hostPublicId` is on the event, and everywhere
+             * else in the product they are a display name behind an anonymous
+             * chat. Reporting was the last user-facing safety control with no bot
+             * surface at all.
+             */
             keyboard: JSON.stringify([
               [
                 {
                   text: '➕ پیوستن به این فعالیت',
                   callbackData: encodeEventCallback('join', callback.id),
                 },
+              ],
+              [
+                { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', callback.id) },
+                ...(isPublicId(event.hostPublicId)
+                  ? [
+                      {
+                        text: '🚩 گزارش میزبان',
+                        callbackData: encodeReportAsk('u', event.hostPublicId),
+                      },
+                    ]
+                  : []),
               ],
             ]),
           });
@@ -1348,6 +1392,68 @@ export class BotService {
           'برای پیوستن به فعالیت‌ها نخست نمایه‌تان را کامل کنید — /edit_profile',
         );
       }
+    }
+  }
+
+  /**
+   * Reporting — the menu, then the filing.
+   *
+   * ── What the reporter is told ───────────────────────────────────────────────
+   *
+   * That it was filed. Never how many others reported and never who: a count
+   * would let somebody probe how close a rival's event is to being hidden.
+   * `triggeredReview` says whether this was the report that crossed the
+   * threshold, and even that is rendered as a warmer thank-you rather than as a
+   * number.
+   *
+   * **Nobody is notified.** Telling one side of an anonymous chat that the other
+   * reported them is the single message this area must never send, and the only
+   * thing that leaves here is a toast to the person who tapped.
+   *
+   * A refusal is a toast for the same reason a join refusal is — except
+   * `CANNOT_REPORT_OWN_CONTENT`, which is a mis-tap worth explaining rather than
+   * a policy worth restating.
+   */
+  private async onReportCallback(
+    updateId: number,
+    user: BotUser,
+    callbackQueryId: string,
+    callback: ReportCallback,
+  ): Promise<void> {
+    if (callback.asking) {
+      await this.answer(callbackQueryId, '');
+      // One reason per row: they are sentences, not labels, and a two-column
+      // grid of «آزار و توهین» beside «نگرانی برای ایمنی» is a mis-tap on the
+      // two that matter most.
+      const rows = REPORT_REASON_CHOICES.map((choice) => [
+        {
+          text: choice.label,
+          callbackData: encodeReportReason(callback.target, choice.reason, callback.id),
+        },
+      ]);
+      return this.reply(updateId, user.id, TEMPLATES.BOT_REPORT_REASONS, {
+        text: reportPrompt(callback.target),
+        keyboard: JSON.stringify(rows),
+      });
+    }
+
+    if (callback.reason === null) return;
+
+    try {
+      const filed = await this.reports.file(user.id, {
+        targetType: REPORT_TARGETS[callback.target],
+        targetPublicId: callback.id,
+        reason: callback.reason,
+      });
+      await this.answer(
+        callbackQueryId,
+        filed.triggeredReview
+          ? 'گزارش شما ثبت شد و در حال بررسی است. ممنون که اطلاع دادید.'
+          : 'گزارش شما ثبت شد. ممنون که اطلاع دادید.',
+      );
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
     }
   }
 
