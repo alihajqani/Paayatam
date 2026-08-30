@@ -1658,6 +1658,30 @@ describe('POST /telegram/:secret — settings', () => {
   });
 
   /**
+   * «A limit enforced on one of two surfaces is not a limit» (T12). The privacy
+   * row is the one switch that writes through `ProfileService.update`, so it
+   * spends the same bucket `PATCH /me/profile` does — one `audit_log` row per
+   * tap is exactly what an unbounded write to a moderated table looks like.
+   */
+  it('meters the privacy switch on the bucket the API uses', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    // Twenty an hour is the bucket; the twenty-first is refused.
+    for (let index = 0; index < 21; index += 1) {
+      await tap(GUEST_TELEGRAM_ID, index % 2 === 0 ? 'st:p0:x' : 'st:p1:x');
+    }
+
+    const profile = await prisma.userProfile.findUniqueOrThrow({
+      where: { userId },
+      select: { inviteOptOut: true },
+    });
+    // Twenty writes landed, the last of which was `st:p1:x` — the twenty-first
+    // tap never reached the service.
+    expect(profile.inviteOptOut).toBe(false);
+    expect(await prisma.auditLog.count({ where: { action: 'profile.updated' } })).toBe(20);
+  });
+
+  /**
    * Somebody with no profile row has no flag to flip, and `ProfileService.update`
    * refuses. A switch that exists to be refused is worse than the button that
    * fixes the reason.

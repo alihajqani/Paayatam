@@ -2163,6 +2163,27 @@ export class BotService {
     }
 
     if (callback.field === SETTING_PRIVACY) {
+      /**
+       * The same bucket `PATCH /me/profile` and `PUT /me/settings` spend from,
+       * keyed on the same subject.
+       *
+       * «A limit enforced on one of two surfaces is not a limit» is this file's
+       * own rule about the chat relay (T12), and it applies here for a concrete
+       * reason: this is the one settings row that writes through
+       * `ProfileService.update`, which means one `audit_log` row per tap. The
+       * three notification switches are an upsert of one boolean and write no
+       * audit at all, which is why they are not metered.
+       */
+      const verdict = await this.limiter.consume(
+        'PROFILE_UPDATE',
+        user.publicId,
+        RATE_LIMITS.PROFILE_UPDATE,
+      );
+      if (!verdict.allowed) {
+        await this.answer(callbackQueryId, ERROR_MESSAGES_FA[ErrorCode.RATE_LIMITED]);
+        return;
+      }
+
       try {
         // The same method the profile wizard submits through, so the invitation
         // pool cannot see one answer from one surface and another from the other.
