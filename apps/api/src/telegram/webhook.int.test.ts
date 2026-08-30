@@ -1428,6 +1428,105 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
 });
 
 /**
+ * Settings — and the property that makes them real rather than decorative.
+ */
+describe('POST /telegram/:secret — settings', () => {
+  let sequence = 11_000;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function board(): Promise<Record<string, unknown>> {
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_SETTINGS },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    return row.payload as Record<string, unknown>;
+  }
+
+  /** Reachable from the persistent menu, which is the point of it. */
+  it('opens from the menu label, not only from a command', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '⚙️ تنظیمات');
+
+    expect(String((await board())['text'])).toContain('تنظیمات');
+  });
+
+  it('toggles a switch and redraws the board', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/settings');
+    // Everything on by default, so the button offers to turn it off.
+    const before = JSON.parse(String((await board())['keyboard'])) as {
+      callbackData: string;
+    }[][];
+    expect(before[0]?.[0]?.callbackData).toBe('st:c0:x');
+
+    await tap(GUEST_TELEGRAM_ID, 'st:c0:x');
+
+    const settings = await prisma.userSettings.findUniqueOrThrow({
+      where: { userId },
+      select: { notifyChat: true, notifyEvents: true },
+    });
+    expect(settings.notifyChat).toBe(false);
+    // One toggle changes one thing.
+    expect(settings.notifyEvents).toBe(true);
+    // And the redrawn board now offers to turn it back on.
+    const after = JSON.parse(String((await board())['keyboard'])) as { callbackData: string }[][];
+    expect(after[0]?.[0]?.callbackData).toBe('st:c1:x');
+  });
+
+  /**
+   * A user who has never opened the screen has **no row**, and the service
+   * resolves that to the defaults. So shipping this table changed nothing about
+   * what anybody already receives — no backfill, and no day where notifications
+   * behave differently for people who happened to have visited a screen.
+   */
+  it('has no row until something is changed', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/settings');
+
+    expect(await prisma.userSettings.count({ where: { userId } })).toBe(0);
+    expect(String((await board())['text'])).toContain('روشن');
+  });
+
+  /**
+   * The settings screen states what it cannot change rather than offering a
+   * picker with one entry. The product is fa-IR only — every template, every
+   * date format, every error message.
+   */
+  it('states the language rather than pretending to offer a choice', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/settings');
+
+    const text = String((await board())['text']);
+    expect(text).toContain('فارسی');
+    expect(text).toContain('فعلاً فقط فارسی در دسترس است');
+  });
+});
+
+/**
  * Reporting — the last user-facing safety control with no bot surface.
  *
  * The four endpoints have existed since M12 and were reachable only from the

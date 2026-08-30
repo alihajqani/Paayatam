@@ -389,3 +389,51 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
   if (category === ANY_CATEGORY) return { when, cost, categoryId: null };
   return isPublicId(category) ? { when, cost, categoryId: category } : null;
 }
+
+/**
+ * The settings protocol: `st:<field><value>:x`.
+ *
+ * ── Why a toggle and not a wizard ───────────────────────────────────────────
+ *
+ * A wizard walks somebody through a sequence and ends. Settings are not a
+ * sequence — they are a board you glance at, change one thing on, and leave.
+ * Making them a wizard would mean answering four questions to change the one you
+ * came for, and it would consume the single `conversation_state` slot, so
+ * opening settings mid-way through creating an activity would silently discard
+ * the draft.
+ *
+ * So: a message that redraws itself, with every button carrying the value it
+ * sets. The same shape as the discovery filters, and stateless for the same
+ * reason — a button says what it does, and doing it twice is doing it once.
+ *
+ * The value slot is unused (`x`) because the three-part shape is what every
+ * parser here expects and a fourth field would need a separator they all refuse.
+ */
+export const SETTING_FIELDS = { c: 'notifyChat', e: 'notifyEvents', m: 'notifyCampaigns' } as const;
+export type SettingFieldLetter = keyof typeof SETTING_FIELDS;
+
+export interface SettingCallback {
+  field: SettingFieldLetter;
+  value: boolean;
+}
+
+const SETTING_PREFIX = 'st';
+
+export function encodeSettingCallback(field: SettingFieldLetter, value: boolean): string {
+  return `${SETTING_PREFIX}:${field}${value ? '1' : '0'}:x`;
+}
+
+export function parseSettingCallback(data: string): SettingCallback | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, action] = parts;
+  if (prefix !== SETTING_PREFIX || action === undefined || action.length !== 2) return null;
+
+  const field = action.slice(0, 1);
+  const value = action.slice(1);
+  if (!Object.hasOwn(SETTING_FIELDS, field)) return null;
+  if (value !== '0' && value !== '1') return null;
+
+  return { field: field as SettingFieldLetter, value: value === '1' };
+}

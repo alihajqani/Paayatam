@@ -9,6 +9,7 @@ import {
   InvitationService,
   MessagingService,
   NotificationService,
+  UserSettingsService,
   OutboxRelayService,
   ParticipationService,
   RATE_LIMIT_BREAKER_THRESHOLD,
@@ -18,6 +19,8 @@ import {
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
 import {
   TEMPLATES,
+  notificationCategory,
+  preferenceKeyFor,
   menuKeyboard,
   render,
   renderChannelPost,
@@ -66,6 +69,7 @@ export class Processors implements OnModuleInit {
     private readonly queues: QueueService,
     private readonly relay: OutboxRelayService,
     private readonly notifications: NotificationService,
+    private readonly userSettings: UserSettingsService,
     private readonly telegram: TelegramClient,
     /** For one thing only: decrypting a relayed message at delivery time. */
     private readonly chats: ChatService,
@@ -195,6 +199,38 @@ export class Processors implements OnModuleInit {
     if (notification.telegramUserId === null || notification.botBlocked) {
       await this.notifications.markUndeliverable(notification.id, notification.userId);
       return;
+    }
+
+    /**
+     * What this person has chosen to be told about (v0.6.1).
+     *
+     * ── Why the check is here and not at enqueue ────────────────────────────
+     *
+     * The row is written either way. A preference is about **delivery**, not
+     * about whether something happened: the notification is the product's
+     * record that it had something to say, and «did we tell them?» six weeks
+     * later should answer "we had this, and they had asked us not to" rather
+     * than leaving no trace at all. Checking at enqueue would also mean a
+     * preference change could not affect anything already queued.
+     *
+     * `essential` never consults a preference — consent, moderation outcomes,
+     * account state, and every reply to something the user just did. A
+     * preference that could silence `CONTENT_HIDDEN` would hide a moderation
+     * decision from the person it was made about; one that could silence
+     * `BOT_WALLET` would make the bot look broken to somebody who turned off
+     * campaigns a month ago.
+     *
+     * Marked `SUPPRESSED` rather than failed: nothing went wrong, and a retry
+     * would only reach the same answer more slowly.
+     */
+    const preference = preferenceKeyFor(notificationCategory(notification.templateKey));
+    if (preference !== null) {
+      const settings = await this.userSettings.get(notification.userId);
+      if (!settings[preference]) {
+        await this.notifications.markSuppressed(notification.id);
+        this.logger.log(`Notification ${notification.id}: the recipient has opted out`);
+        return;
+      }
     }
 
     const payload = await this.withMessageBody(

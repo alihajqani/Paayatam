@@ -52,6 +52,7 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'edit_event', description: 'ویرایش فعالیت' },
   { command: 'edit_profile', description: 'ویرایش نمایه' },
   { command: 'terms', description: 'قوانین و حریم خصوصی' },
+  { command: 'settings', description: 'تنظیمات اعلان‌ها و حریم خصوصی' },
 ] as const;
 
 /**

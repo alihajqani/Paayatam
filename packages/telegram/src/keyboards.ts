@@ -159,12 +159,17 @@ export type ReplyKeyboard = readonly (readonly ReplyButton[])[];
 /**
  * What the bottom keyboard offers.
  *
- * ── Why these six ───────────────────────────────────────────────────────────
+ * ── Why these seven ─────────────────────────────────────────────────────────
  *
- * The bot answers twelve commands and this shows six, because a menu that
+ * The bot answers many commands and this shows seven, because a menu that
  * lists everything is a menu nobody reads. These are the ones with a *verb* —
  * things somebody opens the bot intending to do — and the rest stay discoverable
  * through the "/" menu and `/help`.
+ *
+ * «تنظیمات» is the seventh, and it is here rather than behind a command
+ * because that is the whole point of it: a settings screen nobody can find is a
+ * settings screen nobody uses, and `/settings` exists only as a fallback for
+ * somebody who types it.
  *
  * «نمایه من» is the sixth and was the one people asked for. It is not a verb,
  * but it is the answer to "what does this thing know about me, and what is my
@@ -189,6 +194,7 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['📨 درخواست‌های من', 'requests'],
   ['💬 گفتگوها', 'chats'],
   ['👤 نمایه من', 'profile'],
+  ['⚙️ تنظیمات', 'settings'],
 ]);
 
 /**

@@ -6,6 +6,7 @@ import { InitDataReplayGuard } from './replay-guard';
 import { SessionService } from './session.service';
 import { UserService } from './user.service';
 import { ConsentService } from './consent.service';
+import { UserSettingsService } from './user-settings.service';
 
 export const INIT_DATA_VALIDATOR = Symbol('INIT_DATA_VALIDATOR');
 
@@ -36,7 +37,15 @@ export const INIT_DATA_VALIDATOR = Symbol('INIT_DATA_VALIDATOR');
     SessionService,
     UserService,
     ConsentService,
+    UserSettingsService,
   ],
-  exports: [INIT_DATA_VALIDATOR, InitDataReplayGuard, SessionService, UserService, ConsentService],
+  exports: [
+    INIT_DATA_VALIDATOR,
+    InitDataReplayGuard,
+    SessionService,
+    UserService,
+    ConsentService,
+    UserSettingsService,
+  ],
 })
 export class IdentityModule {}

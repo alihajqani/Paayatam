@@ -12,6 +12,7 @@ import {
   GiftCodeService,
   InvitationService,
   ReportService,
+  UserSettingsService,
   NotificationService,
   ParticipationService,
   ProfileService,
@@ -62,6 +63,10 @@ import {
   formatPolicies,
   formatReceivedReviews,
   formatReferral,
+  formatSettings,
+  settingsRows,
+  parseSettingCallback,
+  SETTING_FIELDS,
   formatStanding,
   formatTrust,
   formatWallet,
@@ -174,6 +179,7 @@ export class BotService {
     private readonly giftCodes: GiftCodeService,
     private readonly invitations: InvitationService,
     private readonly reports: ReportService,
+    private readonly userSettings: UserSettingsService,
     private readonly settings: SettingsService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
@@ -361,6 +367,17 @@ export class BotService {
           ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
         });
       }
+
+      /**
+       * The settings board.
+       *
+       * Reached from the persistent menu, which is the whole point: a settings
+       * screen nobody can find is one nobody uses. `/settings` exists as a
+       * fallback for somebody who types it, and the menu label maps to the same
+       * command through `MENU_COMMANDS`.
+       */
+      case 'settings':
+        return this.drawSettings(updateId, user);
 
       /**
        * `/trust` — the score, and how it got there.
@@ -996,6 +1013,23 @@ export class BotService {
      * policy gate is applied here or nowhere.
      */
     /**
+     * A settings toggle: write it, then redraw the board.
+     *
+     * The redraw is a fresh message rather than an edit, for the reason every
+     * other digest is: `BOT_SETTINGS` is a notification row like any other, and
+     * the wizard's edit path belongs to the wizard. The cost is a short trail of
+     * boards in the chat, which is the same cost `/discover` pays for filters.
+     */
+    const settingCallback = parseSettingCallback(data);
+    if (settingCallback !== null) {
+      await this.userSettings.update(user.id, {
+        [SETTING_FIELDS[settingCallback.field]]: settingCallback.value,
+      });
+      await this.answer(callbackQueryId, settingCallback.value ? 'روشن شد' : 'خاموش شد');
+      return this.drawSettings(update.updateId, user);
+    }
+
+    /**
      * A discovery filter tap: run the search the button describes.
      *
      * No `mayWrite` gate — searching is a read, and the policy gate is about
@@ -1556,6 +1590,35 @@ export class BotService {
       if (!(error instanceof AppError)) throw error;
       await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
     }
+  }
+
+  /**
+   * The settings board, drawn from the three places its state actually lives.
+   *
+   * Notifications are `user_settings`; privacy is `user_profile.invite_opt_out`,
+   * which the invitation pool already reads; language is `user.locale`. Nothing
+   * is duplicated into a settings table, because a setting with two homes is a
+   * setting that will disagree with itself.
+   */
+  private async drawSettings(updateId: number, user: BotUser): Promise<void> {
+    const [settings, profile] = await Promise.all([
+      this.userSettings.get(user.id),
+      this.profiles.find(user.id),
+    ]);
+
+    const state = {
+      notifyChat: settings.notifyChat,
+      notifyEvents: settings.notifyEvents,
+      notifyCampaigns: settings.notifyCampaigns,
+      // No profile yet means nothing has opted out, which is the default.
+      inviteOptOut: profile?.inviteOptOut ?? false,
+      locale: this.env.APP_LOCALE,
+    };
+
+    await this.reply(updateId, user.id, TEMPLATES.BOT_SETTINGS, {
+      text: formatSettings(state),
+      keyboard: JSON.stringify(settingsRows(state)),
+    });
   }
 
   /**

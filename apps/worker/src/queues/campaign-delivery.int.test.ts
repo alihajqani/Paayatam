@@ -123,6 +123,7 @@ function buildProcessors(): Processors {
     queues as never,
     {} as never, // OutboxRelayService
     {} as never, // NotificationService
+    {} as never, // UserSettingsService
     telegram as never,
     {} as never, // ChatService
     {} as never, // ParticipationService

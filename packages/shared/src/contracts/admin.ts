@@ -1634,3 +1634,26 @@ export const adminPlacesResponse = z.object({
   ),
 });
 export type AdminPlacesResponse = z.infer<typeof adminPlacesResponse>;
+
+/**
+ * What a person has chosen to be told about (v0.6.1).
+ *
+ * Every field optional so a PUT may carry one toggle. `PUT` rather than `PATCH`
+ * on a resource this small is a deliberate exception to the rule the review
+ * endpoint follows: settings have no partial-update hazard — there is no field
+ * whose absence means anything but "leave it alone" — and the client that writes
+ * them is a row of toggles, each of which sends exactly one.
+ */
+export const updateNotificationSettingsRequest = z.object({
+  notifyChat: z.boolean().optional(),
+  notifyEvents: z.boolean().optional(),
+  notifyCampaigns: z.boolean().optional(),
+});
+export type UpdateNotificationSettingsRequest = z.infer<typeof updateNotificationSettingsRequest>;
+
+export const notificationSettingsView = z.object({
+  notifyChat: z.boolean(),
+  notifyEvents: z.boolean(),
+  notifyCampaigns: z.boolean(),
+});
+export type NotificationSettingsView = z.infer<typeof notificationSettingsView>;

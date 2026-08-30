@@ -210,6 +210,23 @@ export class NotificationService {
    * `telegram_account` is what the Mini App reads to show its re-start banner —
    * the only fix is the user's, and the product cannot make it for them (§12.6).
    */
+  /**
+   * The recipient asked not to receive this category (v0.6.1).
+   *
+   * Terminal, and it touches nothing but this row: an opt-out is not a block,
+   * and `markUndeliverable`'s `bot_blocked` write would suppress every category
+   * rather than one and put a re-start banner in front of somebody whose bot
+   * works fine.
+   *
+   * `attempts` is left alone. Nothing was attempted.
+   */
+  async markSuppressed(id: string): Promise<void> {
+    await this.prisma.notification.update({
+      where: { id },
+      data: { status: 'SUPPRESSED' },
+    });
+  }
+
   async markUndeliverable(id: string, userId: string): Promise<void> {
     await this.prisma.$transaction([
       this.prisma.notification.update({

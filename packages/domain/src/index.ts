@@ -24,6 +24,11 @@ export { OutboxModule } from './outbox/outbox.module';
 export { CatalogService } from './catalog/catalog.service';
 export type { CatalogSnapshot, NamedRef, ResolvedLocation } from './catalog/catalog.service';
 export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';
+export {
+  UserSettingsService,
+  DEFAULT_NOTIFICATION_SETTINGS,
+} from './identity/user-settings.service';
+export type { UserNotificationSettings } from './identity/user-settings.service';
 export type { SettingKey } from './catalog/settings.service';
 export { CatalogModule } from './catalog/catalog.module';
 

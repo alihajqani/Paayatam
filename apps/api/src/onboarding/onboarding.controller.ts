@@ -1,9 +1,18 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
-import { CoinService, ConsentService, ProfileService, UserService } from '@payetam/domain';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Put, Req } from '@nestjs/common';
+import {
+  CoinService,
+  ConsentService,
+  ProfileService,
+  UserService,
+  UserSettingsService,
+} from '@payetam/domain';
 import {
   acceptConsentRequest,
   completeProfileRequest,
+  updateNotificationSettingsRequest,
   updateProfileRequest,
+  type NotificationSettingsView,
+  type UpdateNotificationSettingsRequest,
   type CompleteProfileRequest,
   type CompleteProfileResponse,
   type MeResponse,
@@ -26,6 +35,7 @@ export class OnboardingController {
     private readonly users: UserService,
     private readonly profiles: ProfileService,
     private readonly coins: CoinService,
+    private readonly userSettings: UserSettingsService,
   ) {}
 
   /**
@@ -188,6 +198,39 @@ export class OnboardingController {
    * script could run in a loop, and the moderation surface it feeds (display
    * name, bio) is exactly what makes that worth bounding.
    */
+  /**
+   * `GET /me/settings` — what this person has chosen to be told about.
+   *
+   * Never 404s. Somebody who has never opened the screen has no row, and the
+   * service resolves that to the defaults — so a client renders toggles rather
+   * than having to distinguish "off" from "never asked".
+   */
+  @Get('me/settings')
+  async settings(@CurrentUser() current: AuthenticatedUser): Promise<NotificationSettingsView> {
+    const userId = await this.users.resolveInternalId(current.publicId);
+    return this.userSettings.get(userId);
+  }
+
+  /**
+   * `PUT /me/settings` — change one toggle or several.
+   *
+   * `PUT` on a resource this small rather than `PATCH`: there is no field whose
+   * absence means anything but "leave it alone", and the client is a row of
+   * toggles each of which sends exactly one. It returns the whole resolved
+   * settings so a client never has to merge its own optimistic state.
+   */
+  @Put('me/settings')
+  @RateLimit('PROFILE_UPDATE')
+  @HttpCode(HttpStatus.OK)
+  async updateSettings(
+    @Body(new ZodValidationPipe(updateNotificationSettingsRequest))
+    body: UpdateNotificationSettingsRequest,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<NotificationSettingsView> {
+    const userId = await this.users.resolveInternalId(current.publicId);
+    return this.userSettings.update(userId, body);
+  }
+
   @Patch('me/profile')
   @RateLimit('PROFILE_UPDATE')
   @HttpCode(HttpStatus.OK)

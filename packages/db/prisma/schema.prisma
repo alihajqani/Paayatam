@@ -71,6 +71,7 @@ model User {
   deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(3)
 
   telegramAccount     TelegramAccount?
+  settings            UserSettings?
   consents            Consent[]
   profile             UserProfile?
   interests           UserInterest[]
@@ -2069,6 +2070,12 @@ enum NotificationStatus {
   /// failure to retry — retrying a block burns the global rate budget that other
   /// users' notifications need (ADR-0005).
   UNDELIVERABLE
+  /// The recipient asked not to receive this category (v0.6.1). Terminal, and
+  /// deliberately not UNDELIVERABLE: that one means the bot is blocked and its
+  /// helper sets `telegram_account.bot_blocked`, which would suppress everything
+  /// rather than one kind and show a re-start banner to somebody who had simply
+  /// turned a category off.
+  SUPPRESSED
 
   @@map("notification_status")
 }
@@ -2622,4 +2629,33 @@ model ConversationState {
 
   @@index([expiresAt])
   @@map("conversation_state")
+}
+
+/// What a person has chosen to be told about (v0.6.1).
+///
+/// Only notifications. Language is `user.locale` and privacy is
+/// `user_profile.invite_opt_out`; both predate this table, and duplicating a
+/// setting is how two sources of truth start.
+///
+/// A user who has never opened the settings screen has **no row**, and
+/// `UserSettingsService` resolves that absence to the same defaults declared
+/// here — so the table's existence never silently changes what somebody
+/// receives.
+model UserSettings {
+  id     String @id @default(uuid(7))
+  userId String @unique @map("user_id")
+
+  /// Chat relays: somebody wrote to you in an anonymous conversation.
+  notifyChat Boolean @default(true) @map("notify_chat")
+  /// Activity lifecycle: requests, acceptances, waitlist moves, reminders.
+  notifyEvents Boolean @default(true) @map("notify_events")
+  /// Admin campaigns and paid invitations.
+  notifyCampaigns Boolean @default(true) @map("notify_campaigns")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
 }

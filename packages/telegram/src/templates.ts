@@ -107,6 +107,8 @@ export const TEMPLATES = {
   BOT_REPORT_REASONS: 'bot.report_reasons',
   /** `/myreviews` — what other people wrote about you, once the pair revealed. */
   BOT_RECEIVED_REVIEWS: 'bot.received_reviews',
+  /** The settings board: three switches, and what is not switchable. */
+  BOT_SETTINGS: 'bot.settings',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -687,6 +689,22 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return {
         text: prerendered(payload),
         deepLink: `reviews`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    /**
+     * The settings board — a message that redraws itself.
+     *
+     * Not a wizard: settings are a board you glance at and change one thing on,
+     * not a sequence you complete. A wizard would also consume the single
+     * `conversation_state` slot, so opening settings half-way through creating
+     * an activity would silently discard the draft.
+     */
+    case TEMPLATES.BOT_SETTINGS: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
     }
