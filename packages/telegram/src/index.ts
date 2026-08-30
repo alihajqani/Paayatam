@@ -91,6 +91,9 @@ export {
   parseReportCallback,
 } from './callback-data';
 export type { ReportCallback, ReportReasonValue, ReportTargetLetter } from './callback-data';
+export { encodeDiscoverCallback, parseDiscoverCallback } from './callback-data';
+export { describeFilters, discoverCategoryRows, discoverFilterRows } from './discover-filters';
+export type { DiscoverFilters, DiscoverWhen, DiscoverCost } from './callback-data';
 export type { ReviewCallback, ReviewRating } from './callback-data';
 
 export { chatKeyboard, hostDecisionKeyboard, openAppButton } from './keyboards';

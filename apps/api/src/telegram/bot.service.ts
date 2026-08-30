@@ -52,8 +52,12 @@ import {
 import { AppError, ERROR_MESSAGES_FA, ErrorCode, type CostType } from '@payetam/shared';
 import {
   TEMPLATES,
+  describeFilters,
+  discoverCategoryRows,
+  discoverFilterRows,
   formatDiscovered,
   formatEventDetail,
+  parseDiscoverCallback,
   formatJalali,
   formatPolicies,
   formatReferral,
@@ -90,6 +94,8 @@ import {
   type BotInboundText,
   type BotSender,
   type EventCallback,
+  type DiscoverFilters,
+  type DiscoverWhen,
   type ReportCallback,
   type ReportTargetLetter,
   type ReportReasonValue,
@@ -539,73 +545,21 @@ export class BotService {
        * Somebody with no profile has no city, and «فعالیتی پیدا نشد» would be a
        * false answer to a question that was never asked properly.
        */
-      case 'discover': {
-        const profile = await this.profiles.find(user.id);
-        if (profile === null) {
-          return this.notice(
-            updateId,
-            user,
-            'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را کامل کنید — /edit_profile',
-          );
-        }
-
-        const page = await this.discovery.search(user.id, {
-          cityId: profile.city.id,
-          hasCapacity: true,
-          limit: DISCOVER_LIMIT,
-        });
-        const text = formatDiscovered(
-          page.events.map((event) => ({
-            title: event.title,
-            categoryName: event.customCategoryLabel ?? event.categoryNameFa,
-            where:
-              event.districtNameFa === null
-                ? event.cityNameFa
-                : `${event.cityNameFa} — ${event.districtNameFa}`,
-            startsAt: event.startsAt,
-            // Subtracted here because the domain row carries the two counts and
-            // only the wire contract precomputes the difference.
-            remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
-          })),
-        );
-        /**
-         * A «پیوستن» button per event, numbered to match the digest.
-         *
-         * Built here because only the handler holds the public ids — the
-         * formatter takes a view model deliberately free of them, so a digest
-         * cannot leak an id into its text. Two per row: the labels are short and
-         * a five-row column of identical-width buttons is harder to hit than a
-         * grid.
-         *
-         * `isPublicId` guards each one rather than trusting the row: a malformed
-         * id would make `encodeEventCallback` throw *inside* `render`, and a
-         * renderer that throws fails the send job and every retry of it.
-         */
-        const joinable = page.events.filter((event) => isPublicId(event.publicId));
-        /**
-         * One row per event: read it, then join it.
-         *
-         * «جزئیات» comes first because it is the one that should be tapped
-         * first. Four lines is a scanning list, and joining an activity without
-         * having read what it is, what it costs or who is hosting it is a
-         * decision nobody should be asked to make from a digest.
-         */
-        const rows = joinable.map((event, index) => [
-          {
-            text: `${toPersianDigits(String(index + 1))} جزئیات`,
-            callbackData: encodeEventCallback('show', event.publicId),
-          },
-          {
-            text: `${toPersianDigits(String(index + 1))} پیوستن`,
-            callbackData: encodeEventCallback('join', event.publicId),
-          },
-        ]);
-
-        return this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, {
-          text,
-          ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
-        });
-      }
+      /**
+       * `/discover` — the product's core question, answered without opening it.
+       *
+       * The city comes from the sender's own profile, which is what makes this
+       * single-turn. Since v0.5.9 the *other* filters are in the buttons rather
+       * than in a query nobody could build: `DiscoveryQuery` has fourteen
+       * fields, three of them fit in a 64-byte callback, and those three are the
+       * ones a person actually asks at the door — when, how much, what kind.
+       *
+       * The ranking, the capacity filter and the visibility rules stay
+       * `DiscoveryService`'s. The bot chooses no events; it renders the ones the
+       * same search the Mini App runs returns.
+       */
+      case 'discover':
+        return this.discoverWith(updateId, user, { when: 'a', cost: 'a', categoryId: null });
 
       /**
        * `/reviews` — what the sender still owes, and by when.
@@ -987,6 +941,18 @@ export class BotService {
      * other button does — the bot does not pass through `AuthGuard`, so the
      * policy gate is applied here or nowhere.
      */
+    /**
+     * A discovery filter tap: run the search the button describes.
+     *
+     * No `mayWrite` gate — searching is a read, and the policy gate is about
+     * writes. It is the one callback in this handler that changes nothing.
+     */
+    const discoverCallback = parseDiscoverCallback(data);
+    if (discoverCallback !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.discoverWith(update.updateId, user, discoverCallback);
+    }
+
     /**
      * A report tap — the menu, or a reason.
      *
@@ -1536,6 +1502,107 @@ export class BotService {
       if (!(error instanceof AppError)) throw error;
       await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
     }
+  }
+
+  /**
+   * One search, for `/discover` and for every filter tap.
+   *
+   * ── Why the filters live in the buttons ─────────────────────────────────────
+   *
+   * The bot holds no per-user query state, and `/discover` was city-only since
+   * M13 for exactly that reason: asking for a filter would mean keeping a
+   * half-built search between two updates. It does not have to — the whole set
+   * fits in a callback, so each button carries the complete query it produces
+   * and this handler stays as stateless as it was.
+   *
+   * The city is still the profile's. A filter for it would be asking somebody
+   * where they are when the product already knows.
+   *
+   * ── Why the filters are named in the body ───────────────────────────────────
+   *
+   * «فعالیتی پیدا نشد» under an active filter reads as "your city is empty",
+   * which is a different and much more discouraging claim than "nothing free
+   * today". The digest says what it searched for whenever that is not
+   * everything.
+   */
+  private async discoverWith(
+    updateId: number,
+    user: BotUser,
+    filters: DiscoverFilters,
+  ): Promise<void> {
+    const profile = await this.profiles.find(user.id);
+    if (profile === null) {
+      return this.notice(
+        updateId,
+        user,
+        'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را کامل کنید — /edit_profile',
+      );
+    }
+
+    const now = new Date();
+    const range = dateRangeFor(filters.when, now);
+    const catalog = await this.catalog.snapshot();
+    const category =
+      filters.categoryId === null
+        ? null
+        : (catalog.categories.find((row) => row.id === filters.categoryId) ?? null);
+
+    const page = await this.discovery.search(user.id, {
+      cityId: profile.city.id,
+      hasCapacity: true,
+      limit: DISCOVER_LIMIT,
+      ...(range !== null ? { dateFrom: range.from, dateTo: range.to } : {}),
+      ...(filters.cost === 'f' ? { costType: 'FREE' as const } : {}),
+      // A category that no longer exists is dropped rather than searched for: an
+      // operator can deactivate one while somebody holds a button naming it.
+      ...(category !== null ? { categoryId: category.id } : {}),
+    });
+
+    const text =
+      formatDiscovered(
+        page.events.map((event) => ({
+          title: event.title,
+          categoryName: event.customCategoryLabel ?? event.categoryNameFa,
+          where:
+            event.districtNameFa === null
+              ? event.cityNameFa
+              : `${event.cityNameFa} — ${event.districtNameFa}`,
+          startsAt: event.startsAt,
+          remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
+        })),
+      ) + describeFilters(filters, category?.nameFa ?? null);
+
+    const joinable = page.events.filter((event) => isPublicId(event.publicId));
+    const eventRows = joinable.map((event, index) => [
+      {
+        text: `${toPersianDigits(String(index + 1))} جزئیات`,
+        callbackData: encodeEventCallback('show', event.publicId),
+      },
+      {
+        text: `${toPersianDigits(String(index + 1))} پیوستن`,
+        callbackData: encodeEventCallback('join', event.publicId),
+      },
+    ]);
+
+    /**
+     * The events first, then the filters.
+     *
+     * A keyboard is read top-down and the events are what somebody came for; a
+     * filter row above them would make the list look like a settings screen.
+     */
+    const rows = [
+      ...eventRows,
+      ...discoverFilterRows(filters),
+      ...discoverCategoryRows(
+        filters,
+        catalog.categories.map((row) => ({ id: row.id, label: row.nameFa })),
+      ),
+    ];
+
+    await this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, {
+      text,
+      keyboard: JSON.stringify(rows),
+    });
   }
 
   /**
@@ -2579,6 +2646,33 @@ const TRUST_HISTORY_LIMIT = 20;
  * drawn rather than drawn and refused.
  */
 const OPEN_EVENT_STATUSES = new Set(['DRAFT', 'PUBLISHED']);
+
+/**
+ * What «امروز» and «این هفته» mean, in Tehran.
+ *
+ * `dateFrom` is **now** rather than the start of the day: an activity that began
+ * two hours ago is not something anybody can still join, and a "today" that
+ * listed it would be answering a different question. `dateTo` is the end of the
+ * window, so «امروز» ends at midnight Tehran rather than twenty-four hours out —
+ * a person asking what is on today means the day, not the next day either.
+ */
+function dateRangeFor(when: DiscoverWhen, now: Date): { from: Date; to: Date } | null {
+  if (when === 'a') return null;
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TEHRAN,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  // Midnight *tonight* in Tehran, expressed as the instant the next day starts.
+  const endOfToday = new Date(`${parts}T23:59:59.999+03:30`);
+
+  return {
+    from: now,
+    to: when === 't' ? endOfToday : new Date(endOfToday.getTime() + 6 * 86_400_000),
+  };
+}
 
 /**
  * Is this letter one the report protocol knows?

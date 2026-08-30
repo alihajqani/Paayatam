@@ -318,3 +318,75 @@ export function parseReportCallback(data: string): ReportCallback | null {
   const match = REPORT_REASONS.find((candidate) => candidate === reason);
   return match === undefined ? null : { asking: false, target, reason: match, id };
 }
+
+/**
+ * The discovery filter protocol: `dc:<when><cost>:<category>`.
+ *
+ * ── Why the state is in the button and not in a draft ───────────────────────
+ *
+ * `/discover` has been city-only since M13, and the reason given was honest: the
+ * bot holds no per-user query state, so asking for even one of `DiscoveryQuery`'s
+ * fourteen filters would mean keeping a half-built search between two updates.
+ *
+ * It does not have to. **The whole filter set fits in the callback**, so every
+ * button carries the complete query it would produce and the bot stays as
+ * stateless as it was. A tap is not "add a filter to what I remember about you",
+ * it is "run *this* search" — which also means a button from a message three
+ * days old still does exactly what it says, rather than combining with whatever
+ * somebody has tapped since.
+ *
+ * ── The three that fit, and the eleven that do not ──────────────────────────
+ *
+ * `when` (any/today/week) and `cost` (any/free) are one character each; the
+ * category is a UUID and spends 36 of the 64 bytes. That is the budget gone, and
+ * it is why this is three filters rather than fourteen. They are the three a
+ * person actually asks at the door: when, how much, what kind.
+ *
+ * The city stays the profile's, as it always has — a filter for it would mean
+ * asking somebody where they are when the product already knows.
+ *
+ * `all` is the literal for "no category", so no sentinel UUID has to be reserved
+ * and `isPublicId` still guards every real id.
+ */
+export const DISCOVER_WHEN = ['a', 't', 'w'] as const;
+export type DiscoverWhen = (typeof DISCOVER_WHEN)[number];
+
+export const DISCOVER_COST = ['a', 'f'] as const;
+export type DiscoverCost = (typeof DISCOVER_COST)[number];
+
+export interface DiscoverFilters {
+  /** `a` any time, `t` today, `w` the next seven days. */
+  when: DiscoverWhen;
+  /** `a` any cost, `f` free only. */
+  cost: DiscoverCost;
+  /** A category public id, or null for every category. */
+  categoryId: string | null;
+}
+
+const DISCOVER_PREFIX = 'dc';
+const ANY_CATEGORY = 'all';
+
+export function encodeDiscoverCallback(filters: DiscoverFilters): string {
+  const category = filters.categoryId ?? ANY_CATEGORY;
+  const data = `${DISCOVER_PREFIX}:${filters.when}${filters.cost}:${category}`;
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+export function parseDiscoverCallback(data: string): DiscoverFilters | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, flags, category] = parts;
+  if (prefix !== DISCOVER_PREFIX || flags === undefined || category === undefined) return null;
+  if (flags.length !== 2) return null;
+
+  const when = DISCOVER_WHEN.find((candidate) => candidate === flags[0]);
+  const cost = DISCOVER_COST.find((candidate) => candidate === flags[1]);
+  if (when === undefined || cost === undefined) return null;
+
+  if (category === ANY_CATEGORY) return { when, cost, categoryId: null };
+  return isPublicId(category) ? { when, cost, categoryId: category } : null;
+}

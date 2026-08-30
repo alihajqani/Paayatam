@@ -2049,6 +2049,70 @@ describe('POST /telegram/:secret — joining and standing down', () => {
   });
 
   /**
+   * `/discover` was city-only since M13 because the bot holds no query state.
+   * It does not have to: the whole filter set fits in the callback, so every
+   * button carries the complete query it produces.
+   */
+  it('offers when, cost and category filters under the events', async () => {
+    await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/discover');
+
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const all = keyboardOf(digest.payload).flat();
+    const filters = all.filter((button) => button.callbackData.startsWith('dc:'));
+    // Three whens, two costs, and «همه» plus every category.
+    expect(filters.length).toBeGreaterThanOrEqual(6);
+    // Nothing is filtered yet, so «هر زمان» is the marked one.
+    expect(filters.find((button) => button.callbackData === 'dc:aa:all')?.text).toContain('✅');
+  });
+
+  /** A tap is «run this search», not «add this to what you remember about me». */
+  it('re-runs the search with the filters the button carries', async () => {
+    await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, 'dc:tf:all');
+
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const text = String((digest.payload as Record<string, unknown>)['text']);
+    // The body names what it searched for: «فعالیتی پیدا نشد» under an active
+    // filter otherwise reads as "your city is empty".
+    expect(text).toContain('امروز');
+    expect(text).toContain('رایگان');
+
+    const filters = keyboardOf(digest.payload)
+      .flat()
+      .filter((button) => button.callbackData.startsWith('dc:'));
+    // The active pair is marked, and tapping it again is what clears it.
+    expect(filters.find((button) => button.callbackData === 'dc:tf:all')?.text).toContain('✅');
+  });
+
+  /** A malformed filter is not a search against everything. */
+  it('ignores a tampered filter button', async () => {
+    await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const before = await prisma.notification.count({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+    });
+
+    await tap(GUEST_TELEGRAM_ID, 'dc:zz:all');
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_DISCOVER } }),
+    ).toBe(before);
+  });
+
+  /**
    * Four lines is a scanning list. Deciding to spend an evening with strangers
    * on four lines is not a decision anybody should be asked to make.
    */
