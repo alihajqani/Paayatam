@@ -73,6 +73,7 @@ import {
   formatReferral,
   formatSettings,
   settingsRows,
+  encodeSettingCallback,
   parseAdminCallback,
   parseSettingCallback,
   parseStartPayload,
@@ -80,6 +81,7 @@ import {
   formatAdminCasePrompt,
   formatAdminQueue,
   isNotificationField,
+  menuLabelFor,
   MODERATION_MENU_COMMAND,
   SETTING_FIELDS,
   SETTING_LANGUAGE,
@@ -641,10 +643,32 @@ export class BotService {
         }
 
         const trustScore = await this.trust.scoreOf(user.id);
+        /**
+         * The edit is a button on the card, not a command under it.
+         *
+         * `st:n1:x` is the same action the settings board's profile row carries,
+         * and it is one action rather than two on purpose — «open the profile
+         * form» has one meaning and should have one button, wherever it appears.
+         *
+         * Offered only when the wizards are on: a button whose handler answers
+         * «این بخش موقتاً در دسترس نیست» is worse than no button.
+         */
         return this.reply(updateId, user.id, TEMPLATES.BOT_PROFILE, {
           displayName: profile.displayName,
           cityName: profile.city.nameFa,
           trustScore,
+          ...(this.env.ENABLE_CONVERSATION_WIZARD
+            ? {
+                keyboard: JSON.stringify([
+                  [
+                    {
+                      text: '✏️ ویرایش نمایه',
+                      callbackData: encodeSettingCallback(SETTING_PROFILE, true),
+                    },
+                  ],
+                ]),
+              }
+            : {}),
         });
       }
 
@@ -771,7 +795,7 @@ export class BotService {
           return this.notice(
             updateId,
             user,
-            'فعالیتی برای ویرایش ندارید. با /create_event یکی بسازید.',
+            `فعالیتی برای ویرایش ندارید. با دکمهٔ «${menuLabelFor('create_event') ?? 'ساختن فعالیت'}» یکی بسازید.`,
           );
         }
 
@@ -945,6 +969,21 @@ export class BotService {
     const consented = await this.consent.hasAcceptedCurrentPolicies(user.id);
     if (!consented) await this.reply(updateId, user.id, TEMPLATES.BOT_WELCOME, {});
 
+    /**
+     * The activity is resolved first, and it decides whether anything else is
+     * worth doing.
+     *
+     * A stale channel post is the common case here — posts outlive the events
+     * they advertise — and somebody who taps one should be told the activity is
+     * gone, not handed a form for one that no longer exists. Refusing early also
+     * means `join`'s own ordering (which checks the caller before the event)
+     * cannot make «نمایه‌تان را کامل کنید» the answer to a dead link.
+     */
+    const event = await this.findEventOr(updateId, user, link.id);
+    if (event === null) return;
+
+    let refusal: ErrorCode | null = null;
+
     if (link.action === 'join' && consented) {
       try {
         const participation = await this.participation.join(user.id, link.id);
@@ -957,20 +996,38 @@ export class BotService {
         );
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
-        /**
-         * The refusal, then the activity itself.
-         *
-         * A bare «ظرفیت تکمیل است» to somebody who has just arrived from a
-         * channel tells them nothing about what they tapped. The detail screen
-         * below it is what makes the refusal legible, and it carries the buttons
-         * that are still legal — cancelling, reporting, or joining once the
-         * reason has passed.
-         */
-        await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+        refusal = error.code;
       }
     }
 
-    await this.drawEventDetail(updateId, user, link.id);
+    /**
+     * The refusal, then the activity itself — in that order, and the order is
+     * the point.
+     *
+     * A bare «ظرفیت تکمیل است» to somebody who has just arrived from a channel
+     * tells them nothing about what they tapped. The detail screen makes the
+     * refusal legible and carries the buttons that are still legal.
+     *
+     * **An incomplete profile is the exception**, because it is the one refusal
+     * with something to *do* about it: the form opens after the activity, so the
+     * screen they came for is still above it. Its own sentence replaces the
+     * generic one rather than joining it — `reply` dedupes per (update,
+     * template), so a second `BOT_NOTICE` in this update would be swallowed by
+     * the index and never sent (trap 17).
+     */
+    if (refusal !== null && refusal !== ErrorCode.PROFILE_INCOMPLETE) {
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[refusal]);
+    }
+
+    await this.paintEventDetail(updateId, user, event);
+
+    if (refusal === ErrorCode.PROFILE_INCOMPLETE) {
+      return this.openProfileForm(
+        updateId,
+        user,
+        'برای پیوستن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
+      );
+    }
     if (!consented) await this.gateAfterWelcome(updateId, user);
   }
 
@@ -1609,13 +1666,20 @@ export class BotService {
        * sentence in `ERROR_MESSAGES_FA` is far inside that.
        */
       await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
-      // A refusal the user can act on gets a message too, because a toast is
-      // gone in three seconds and «نمایه‌تان را کامل کنید» is an instruction.
+      /**
+       * A refusal the user can act on opens the thing that clears it.
+       *
+       * It used to be a sentence naming `/edit_profile`, which is the shape the
+       * settings board was fixed out of: advice that asks somebody to type
+       * something, given at the moment they are stuck. The form opens where the
+       * refused action would have happened — the same rule `mayWrite` follows
+       * for the consent gate, and for the same reason.
+       */
       if (error.code === ErrorCode.PROFILE_INCOMPLETE) {
-        await this.notice(
+        await this.openProfileForm(
           updateId,
           user,
-          'برای پیوستن به فعالیت‌ها نخست نمایه‌تان را کامل کنید — /edit_profile',
+          'برای پیوستن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
         );
       }
     }
@@ -2001,14 +2065,39 @@ export class BotService {
     user: BotUser,
     eventPublicId: string,
   ): Promise<void> {
-    let event;
+    const event = await this.findEventOr(updateId, user, eventPublicId);
+    if (event === null) return;
+    return this.paintEventDetail(updateId, user, event);
+  }
+
+  /**
+   * The event, or null with the refusal already relayed.
+   *
+   * Split out because `onStartLink` has to know whether the activity exists
+   * **before** it decides what to do about a join refusal: a brand-new reader
+   * tapping a stale channel post should be told the activity is gone, not handed
+   * a profile form for one that no longer exists.
+   */
+  private async findEventOr(
+    updateId: number,
+    user: BotUser,
+    eventPublicId: string,
+  ): Promise<Awaited<ReturnType<DiscoveryService['findPublished']>> | null> {
     try {
-      event = await this.discovery.findPublished(eventPublicId);
+      return await this.discovery.findPublished(eventPublicId);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return null;
     }
+  }
 
+  private async paintEventDetail(
+    updateId: number,
+    user: BotUser,
+    event: Awaited<ReturnType<DiscoveryService['findPublished']>>,
+  ): Promise<void> {
+    const eventPublicId = event.publicId;
     return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
       text: formatEventDetail({
         title: event.title,
@@ -2117,6 +2206,35 @@ export class BotService {
       text,
       ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
     });
+  }
+
+  /**
+   * Say why, then open the form that fixes it.
+   *
+   * ── Why this is a method ────────────────────────────────────────────────────
+   *
+   * Three callers, and the thing they share is the failure mode: every one of
+   * them used to answer «نخست نمایه‌تان را کامل کنید — /edit_profile», which is
+   * a sentence telling somebody to type something in a product whose whole point
+   * is that they never have to. The settings board was fixed out of exactly that
+   * shape; this is the same fix, at the moment it matters most — the user is
+   * stuck, and being handed homework is when they leave.
+   *
+   * The sentence stays, because a form that opens with no explanation is a form
+   * somebody cancels. The two are one update and two templates, which `reply`
+   * has deduped per (update, template) since trap 17.
+   *
+   * **Degrades to the sentence alone** when the wizards are switched off or the
+   * consent gate is owed — `mayWrite` draws the gate itself in the second case,
+   * so the caller is not left with nothing either way.
+   */
+  private async openProfileForm(updateId: number, user: BotUser, why: string): Promise<void> {
+    await this.notice(updateId, user, why);
+    if (!this.env.ENABLE_CONVERSATION_WIZARD) return;
+    if (!(await this.mayWrite(updateId, user))) return;
+
+    const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+    return this.drawWizard(updateId, user, outcome);
   }
 
   /**
@@ -2297,10 +2415,15 @@ export class BotService {
   ): Promise<void> {
     const profile = await this.profiles.find(user.id);
     if (profile === null) {
-      return this.notice(
+      /**
+       * Discovery is a read of *your city*, so it needs the one field only a
+       * profile carries. The form opens rather than being named, which is the
+       * same answer the join refusal gives.
+       */
+      return this.openProfileForm(
         updateId,
         user,
-        'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را کامل کنید — /edit_profile',
+        'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را کامل کنید.',
       );
     }
 
@@ -2462,7 +2585,11 @@ export class BotService {
   ): Promise<void> {
     switch (outcome.kind) {
       case 'cancelled':
-        return this.notice(updateId, user, 'فرم بسته شد. هر وقت خواستید /create_event را بفرستید.');
+        return this.notice(
+          updateId,
+          user,
+          `فرم بسته شد. هر وقت خواستید دکمهٔ «${menuLabelFor('create_event') ?? 'ساختن فعالیت'}» را بزنید.`,
+        );
 
       case 'submit':
         switch (outcome.snapshot.kind) {
@@ -3083,8 +3210,9 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        'نمایه شما ساخته شد ✅\n\nحالا می‌توانید با /discover فعالیت‌های نزدیک را ببینید ' +
-          'یا با /create_event یکی بسازید.',
+        'نمایه شما ساخته شد ✅\n\nحالا از دکمه‌های پایین صفحه، ' +
+          `«${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}» فعالیت‌های نزدیک را نشان می‌دهد ` +
+          `و «${menuLabelFor('create_event') ?? 'ساختن فعالیت'}» یکی می‌سازد.`,
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -3404,8 +3532,8 @@ export class BotService {
     );
 
     return live.length === 0
-      ? 'گفتگوی بازی ندارید. با /discover یک فعالیت پیدا کنید و درخواست پیوستن بفرستید.'
-      : 'چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. برای دیدن فهرست گفتگوها /chats را بفرستید.';
+      ? `گفتگوی بازی ندارید. با دکمهٔ «${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}» یک فعالیت پیدا کنید و درخواست پیوستن بفرستید.`
+      : `چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. فهرست گفتگوها زیر دکمهٔ «${menuLabelFor('chats') ?? 'گفتگوها'}» است.`;
   }
 }
 

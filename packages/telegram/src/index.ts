@@ -22,6 +22,7 @@ export {
   MODERATION_MENU_LABEL,
   menuCommandFor,
   menuKeyboard,
+  menuLabelFor,
 } from './keyboards';
 export type { ReplyButton, ReplyKeyboard } from './keyboards';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';

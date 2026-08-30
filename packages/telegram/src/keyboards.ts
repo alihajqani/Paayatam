@@ -252,6 +252,29 @@ export function menuKeyboard(moderator = false): ReplyKeyboard {
  * label reaching `onText` would otherwise be relayed into an anonymous chat, and
  * the other party would receive «🎟 فعالیت‌های من» from a stranger.
  */
+/**
+ * The menu button that stands for a command, for copy that has to name one.
+ *
+ * ── Why guidance names a button and not a command ───────────────────────────
+ *
+ * The bot's own advice used to read «با /discover یک فعالیت پیدا کنید» — a
+ * sentence telling somebody to type something, in a product whose whole point is
+ * that they never have to. It is the same shape as the settings board's «برای
+ * تغییر این مورد، /edit_profile را بفرستید», and it is worse here: the advice is
+ * given at the exact moment somebody is stuck.
+ *
+ * Reverse-looked-up rather than written out, so a renamed label cannot leave the
+ * copy pointing at a button that no longer says that. Null for a command with no
+ * button — `/help` and `/start` have none and are correctly named as commands,
+ * because they are what somebody types when nothing else has worked.
+ */
+export function menuLabelFor(command: string): string | null {
+  for (const [label, mapped] of MENU_COMMANDS) {
+    if (mapped === command) return label;
+  }
+  return null;
+}
+
 export function menuCommandFor(text: string): string | null {
   const trimmed = text.trim();
   // Resolved for everybody, authorised for nobody — see `MODERATION_MENU_LABEL`.

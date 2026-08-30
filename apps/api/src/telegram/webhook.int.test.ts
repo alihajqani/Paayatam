@@ -356,6 +356,32 @@ describe('/start', () => {
   });
 
   /**
+   * A refused action opens the thing that clears it, rather than naming a
+   * command. The consent gate has worked this way since ADR-0017; this is the
+   * same rule applied to the *other* gate — an incomplete profile.
+   */
+  it('opens the profile form instead of naming a command', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    // A user with an account and no profile, which is what a channel tap
+    // produces for somebody who has never been here.
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
+
+    await post(
+      update({ message: textMessage(sender(GUEST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
+    );
+
+    const state = await prisma.conversationState.findFirst({ select: { kind: true } });
+    expect(state?.kind).toBe('EDIT_PROFILE');
+    expect(await prisma.eventParticipant.count()).toBe(0);
+    // The sentence is still sent — a form that opens with no explanation is a
+    // form somebody cancels — and it names no command.
+    const notices = (await replyTo(GUEST_TELEGRAM_ID)).filter(
+      (row) => row.templateKey === TEMPLATES.BOT_NOTICE,
+    );
+    expect(notices.some((row) => row.text.includes('/'))).toBe(false);
+  });
+
+  /**
    * The channel post's two buttons (v0.6.3).
    *
    * They are `?start=` links rather than callbacks because a channel reader may
@@ -426,7 +452,14 @@ describe('/start', () => {
       ]);
     });
 
-    it('falls through to the welcome for an id that names nothing', async () => {
+    /**
+     * A channel post outlives the activity it advertises, so a stale tap is the
+     * common case — and the answer is that the activity is gone, not a profile
+     * form for one that no longer exists. `join` checks the caller before the
+     * event, so without resolving the event first «نمایه‌تان را کامل کنید» would
+     * be the answer to a dead link.
+     */
+    it('says the activity is gone rather than handing out a form for it', async () => {
       await post(
         update({
           message: textMessage(
@@ -441,6 +474,7 @@ describe('/start', () => {
       expect((await replyTo(GUEST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
         TEMPLATES.BOT_NOTICE,
       ]);
+      expect(await prisma.conversationState.count()).toBe(0);
     });
   });
 });

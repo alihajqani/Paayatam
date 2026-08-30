@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MENU_COMMANDS, menuCommandFor, menuKeyboard } from './keyboards';
+import {
+  MENU_COMMANDS,
+  MODERATION_MENU_LABEL,
+  menuCommandFor,
+  menuKeyboard,
+  menuLabelFor,
+} from './keyboards';
+import { TEMPLATES, render } from './templates';
 import { BOT_COMMANDS } from './commands';
 
 describe('the persistent menu', () => {
@@ -49,5 +56,55 @@ describe('the persistent menu', () => {
     for (const command of MENU_COMMANDS.values()) {
       expect(known).toContain(command);
     }
+  });
+});
+
+/**
+ * Guidance names a **button**, not a command.
+ *
+ * The bot's own advice used to read «با /discover یک فعالیت پیدا کنید» — a
+ * sentence telling somebody to type something, in a product whose whole point is
+ * that they never have to, given at the exact moment they are stuck.
+ */
+describe('menuLabelFor', () => {
+  it('round-trips with menuCommandFor for every button', () => {
+    for (const [label, command] of MENU_COMMANDS) {
+      expect(menuLabelFor(command)).toBe(label);
+      expect(menuCommandFor(label)).toBe(command);
+    }
+  });
+
+  /**
+   * `/help` and `/start` have no button and are correctly named as commands —
+   * they are what somebody types when nothing else has worked. Null is what lets
+   * the copy fall back to a written label rather than render `undefined`.
+   */
+  it('answers null for a command with no button', () => {
+    expect(menuLabelFor('help')).toBeNull();
+    expect(menuLabelFor('start')).toBeNull();
+    // The moderation label is deliberately outside the map: only a linked
+    // moderator's keyboard carries it.
+    expect(menuLabelFor('moderate')).toBeNull();
+    expect(menuCommandFor(MODERATION_MENU_LABEL)).toBe('moderate');
+  });
+
+  /**
+   * The two screens a brand-new user meets first. Teaching them here that the
+   * product is typed at is the worst possible place to do it.
+   */
+  it.each([
+    [TEMPLATES.BOT_CONSENT_ACCEPTED, 'the gate clearing'],
+    [TEMPLATES.BOT_PROFILE, 'the profile card'],
+  ])('%s does not tell the reader to send a command', (templateKey, _what) => {
+    const text = render(templateKey, {
+      displayName: 'نام',
+      cityName: 'تهران',
+      trustScore: 50,
+    })?.text;
+
+    expect(text).toBeDefined();
+    // `</b>` is not a command, so the pattern is a slash followed by a command's
+    // own charset.
+    expect(text).not.toMatch(/\/[a-z_]{3,}/);
   });
 });

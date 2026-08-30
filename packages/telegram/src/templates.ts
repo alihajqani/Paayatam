@@ -2,7 +2,7 @@ import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { encodeChatCallback, isPublicId } from './callback-data';
 import { helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
-import { chatKeyboard, hostDecisionKeyboard, type InlineKeyboard } from './keyboards';
+import { chatKeyboard, hostDecisionKeyboard, menuLabelFor, type InlineKeyboard } from './keyboards';
 
 /**
  * Every Persian message the bot sends (plan §3.2).
@@ -466,13 +466,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `<b>گفتگوها</b>\n` +
           `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
           `اگر فقط یک گفتگوی باز دارید، نوشتن پیام کافی است. ` +
-          `برای دیدن اینکه چه گفتگوهایی باز است، /chats را بفرستید.\n\n` +
+          `فهرست گفتگوهای باز زیر دکمهٔ «${menuLabelFor('chats') ?? 'گفتگوها'}» است.\n\n` +
           `<b>درخواست‌ها</b>\n` +
           `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
           `لازم نیست چیزی را باز کنید.\n\n` +
           `<b>بقیهٔ کارها</b>\n` +
-          `ساختن فعالیت با /create_event، ویرایش نمایه با /edit_profile، ` +
-          `و دیدن فعالیت‌های نزدیک با /discover — همه همین‌جا در ربات.`,
+          `لازم نیست چیزی تایپ کنید: دکمه‌های پایین صفحه — ` +
+          `«${menuLabelFor('create_event') ?? 'ساختن فعالیت'}»، ` +
+          `«${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}»، ` +
+          `«${menuLabelFor('settings') ?? 'تنظیمات'}» — همه‌چیز را باز می‌کنند. ` +
+          `فرمان‌های بالا هم کار می‌کنند، برای وقتی که تایپ کردن سریع‌تر است.`,
         `home`,
       );
 
@@ -595,18 +598,31 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       };
     }
 
-    case TEMPLATES.BOT_PROFILE:
-      return opened(
-        `<b>نمایه شما</b>\n\n` +
+    /**
+     * The profile card, with the edit **on** it.
+     *
+     * It has been a dead end twice. First it named a Mini App screen through a
+     * button, and the button went with every other open-app button. Then it
+     * named a command — «برای ویرایش، /edit_profile را بفرستید» — which is the
+     * shape the settings board was fixed out of: a screen answering "how do I
+     * change this?" with homework.
+     *
+     * The keyboard is built by the caller, because the caller is what knows
+     * whether the wizards are switched on. A payload with none degrades to the
+     * card alone, which is a card without an edit rather than a broken one.
+     */
+    case TEMPLATES.BOT_PROFILE: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text:
+          `<b>نمایه شما</b>\n\n` +
           `${str(payload, 'displayName')}\n` +
           `📍 ${str(payload, 'cityName')}\n` +
-          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰\n\n` +
-          // The card used to be a dead end: it named a Mini App screen through a
-          // button, and the button is gone. The way to change any of this is a
-          // command, and it is on the card rather than in `/help`.
-          `<i>برای ویرایش، /edit_profile را بفرستید.</i>`,
-        `profile/edit`,
-      );
+          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰`,
+        deepLink: `profile/edit`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /**
      * A wizard screen. The keyboard arrives already built, as JSON.
@@ -629,14 +645,20 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      *
      * It names what just became possible rather than saying «متشکریم»: somebody
      * who has just been stopped by a gate wants to know they can proceed, and
-     * which commands are the way in.
+     * where.
+     *
+     * **The buttons, by their own labels.** It used to name two commands, which
+     * is the first thing a brand-new user reads and therefore the worst place to
+     * teach them that this product is typed at. `menuLabelFor` reverse-looks-up
+     * the keyboard, so a renamed button cannot leave this sentence pointing at
+     * one that no longer says that.
      */
     case TEMPLATES.BOT_CONSENT_ACCEPTED:
       return opened(
         `<b>ثبت شد</b> ✅\n\n` +
-          `حالا می‌توانید از پایه‌تم استفاده کنید:\n` +
-          `<b>/discover</b> — دیدن فعالیت‌های نزدیک\n` +
-          `<b>/create_event</b> — ساختن فعالیت تازه`,
+          `حالا می‌توانید از پایه‌تم استفاده کنید. از دکمه‌های پایین صفحه:\n` +
+          `<b>${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}</b> — فعالیت‌های نزدیک شما\n` +
+          `<b>${menuLabelFor('create_event') ?? 'ساختن فعالیت'}</b> — ساختن فعالیت تازه`,
         `home`,
       );
 
