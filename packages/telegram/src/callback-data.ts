@@ -109,7 +109,30 @@ function isChatAction(value: string | undefined): value is ChatCallbackAction {
  * for a participation that is not theirs. A tampered id names a resource the
  * service declines, which is the same answer the API gives.
  */
-export const EVENT_CALLBACK_ACTIONS = ['join', 'cancel'] as const;
+export const EVENT_CALLBACK_ACTIONS = [
+  'join',
+  'cancel',
+  /**
+   * The host's paid actions, each in two steps — the ask and the act.
+   *
+   * `post` asks and `postyes` does; `invite` asks and `inviteyes` does; `drop`
+   * asks and `dropyes` does. The same shape `chat:share`/`chat:shareyes` uses,
+   * and for the same reason: these spend coins or end an activity other people
+   * are counting on, and a single tap on a button in a digest somebody opened to
+   * read is not a deliberate decision.
+   *
+   * The ask is also where the **live cost** is stated. `economy.*` are settings
+   * an operator can change, so the number in the confirmation is read at the
+   * moment it is shown rather than written into a template — a message that
+   * names a price the service will not charge is worse than one that names none.
+   */
+  'post',
+  'postyes',
+  'invite',
+  'inviteyes',
+  'drop',
+  'dropyes',
+] as const;
 export type EventCallbackAction = (typeof EVENT_CALLBACK_ACTIONS)[number];
 
 export interface EventCallback {

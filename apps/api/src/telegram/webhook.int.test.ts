@@ -1420,6 +1420,121 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
 });
 
 /**
+ * The host's console: `/myevents` as something you can act on.
+ *
+ * Publishing to the channel, inviting likely guests and cancelling all lived in
+ * `MyEventsView` and had no bot equivalent, so a host could see their activities
+ * and do nothing to them.
+ */
+describe('POST /telegram/:secret — acting on your own events', () => {
+  let sequence = 10_200;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function latest(templateKey: string): Promise<Record<string, unknown>> {
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    return row.payload as Record<string, unknown>;
+  }
+
+  it('offers channel, invite and cancel on every open event', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await type(HOST_TELEGRAM_ID, '/myevents');
+
+    const rows = JSON.parse(String((await latest(TEMPLATES.BOT_MY_EVENTS))['keyboard'])) as {
+      text: string;
+      callbackData: string;
+    }[][];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.map((button) => button.callbackData)).toEqual([
+      `ev:post:${eventPublicId}`,
+      `ev:invite:${eventPublicId}`,
+      `ev:drop:${eventPublicId}`,
+    ]);
+  });
+
+  /**
+   * The ask states the **live** cost, read from `app_setting` rather than
+   * written into a template — a message naming a price the service will not
+   * charge is worse than one naming none.
+   */
+  it('asks before spending, and names the configured price', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await prisma.appSetting.upsert({
+      where: { key: 'economy.event_channel_send_coins' },
+      create: { key: 'economy.event_channel_send_coins', value: 33 },
+      update: { value: 33 },
+    });
+
+    await tap(HOST_TELEGRAM_ID, `ev:post:${eventPublicId}`);
+
+    const payload = await latest(TEMPLATES.BOT_CONFIRM_SPEND);
+    // ۳۳ in Persian digits — the number the service will actually charge.
+    expect(String(payload['text'])).toContain('۳۳');
+    const rows = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
+    expect(rows[0]?.[0]?.callbackData).toBe(`ev:postyes:${eventPublicId}`);
+  });
+
+  /** The ask alone charges nothing. Only `postyes` does. */
+  it('charges nothing for the question', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const before = await prisma.coinLedger.count({ where: { userId: hostId } });
+
+    await tap(HOST_TELEGRAM_ID, `ev:post:${eventPublicId}`);
+
+    expect(await prisma.coinLedger.count({ where: { userId: hostId } })).toBe(before);
+  });
+
+  /** Not-yours and not-found answer identically, and neither writes. */
+  it("refuses a host action on somebody else's event", async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `ev:dropyes:${eventPublicId}`);
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { status: true },
+    });
+    expect(event.status).not.toBe('CANCELLED_BY_HOST');
+  });
+
+  it('cancels the event when the host confirms', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await tap(HOST_TELEGRAM_ID, `ev:dropyes:${eventPublicId}`);
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { status: true },
+    });
+    expect(event.status).toBe('CANCELLED_BY_HOST');
+  });
+});
+
+/**
  * The economy commands: what you have, where it came from, and how to add to it.
  */
 describe('POST /telegram/:secret — wallet, referral and gift codes', () => {

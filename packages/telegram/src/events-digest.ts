@@ -44,7 +44,7 @@ export interface MyEventLine {
  * because a notification payload holds scalars.
  */
 export function formatMyEvents(lines: readonly MyEventLine[]): string {
-  const entries = lines.map((line) => {
+  const entries = lines.map((line, index) => {
     const seats = `${toPersianDigits(String(line.acceptedCount))} از ${toPersianDigits(
       String(line.capacity),
     )}`;
@@ -64,16 +64,22 @@ export function formatMyEvents(lines: readonly MyEventLine[]): string {
      * the one being crowded out.
      */
     return (
-      `<b>${escapeHtml(line.title)}</b>\n` +
+      `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.title)}</b>\n` +
       `🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)}\n` +
       `👥 ${seats} جا\n` +
       `${STATUS_MARK[line.status]} ${EVENT_STATUS_FA[line.status]}`
     );
   });
 
-  return buildDigest({
+  const digest = buildDigest({
     title: 'رویدادهای شما',
     empty: 'هنوز رویدادی نساخته‌اید.',
     entries,
   });
+
+  if (entries.length === 0) return digest;
+
+  // The rows below belong to the entries above, in order — a keyboard has no
+  // labels, and «انتشار در کانال» on the wrong activity costs coins.
+  return `${digest}\n\n<i>کارهای هر فعالیت در ردیف هم‌شمارهٔ زیر است.</i>`;
 }

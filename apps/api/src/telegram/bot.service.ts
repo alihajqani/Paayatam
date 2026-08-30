@@ -10,6 +10,7 @@ import {
   DiscoveryService,
   EventService,
   GiftCodeService,
+  InvitationService,
   NotificationService,
   ParticipationService,
   ProfileService,
@@ -30,6 +31,7 @@ import {
   type CreateEventForm,
   type WizardDeps,
   type WizardInput,
+  SettingsService,
   TrustService,
   UserService,
 } from '@payetam/domain';
@@ -147,6 +149,8 @@ export class BotService {
     @Inject(ENV) private readonly env: Env,
     private readonly referrals: ReferralService,
     private readonly giftCodes: GiftCodeService,
+    private readonly invitations: InvitationService,
+    private readonly settings: SettingsService,
     private readonly notifications: NotificationService,
     private readonly queues: QueueService,
     private readonly limiter: RateLimitService,
@@ -393,7 +397,28 @@ export class BotService {
             capacity: event.capacity,
           })),
         );
-        return this.reply(updateId, user.id, TEMPLATES.BOT_MY_EVENTS, { text });
+        /**
+         * A host console, not a list.
+         *
+         * Publishing to the channel, inviting likely guests and cancelling all
+         * lived in `MyEventsView`; a host using the bot could see their
+         * activities and do nothing to them. One row per event, in the digest's
+         * order, and only for the ones the action is legal on — a button that
+         * exists to be refused is worse than no button.
+         */
+        const actionable = owned.filter(
+          (event) => isPublicId(event.publicId) && OPEN_EVENT_STATUSES.has(event.status),
+        );
+        const rows = actionable.map((event) => [
+          { text: '📣 کانال', callbackData: encodeEventCallback('post', event.publicId) },
+          { text: '👥 دعوت', callbackData: encodeEventCallback('invite', event.publicId) },
+          { text: '✖️ لغو', callbackData: encodeEventCallback('drop', event.publicId) },
+        ]);
+
+        return this.reply(updateId, user.id, TEMPLATES.BOT_MY_EVENTS, {
+          text,
+          ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+        });
       }
 
       /**
@@ -1066,6 +1091,112 @@ export class BotService {
           await this.participation.cancel(user.id, callback.id);
           await this.answer(callbackQueryId, 'درخواست شما لغو شد');
           return;
+
+        /**
+         * The three host actions, each asked before it is done.
+         *
+         * The ask states the **live** cost: `economy.*` are settings an operator
+         * can change, so the number is read here rather than written into a
+         * template. A message naming a price the service will not charge is
+         * worse than one naming none.
+         */
+        case 'post': {
+          const cost = await this.settings.getInt('economy.event_channel_send_coins');
+          await this.answer(callbackQueryId, '');
+          return this.confirmSpend(
+            updateId,
+            user,
+            `<b>انتشار در کانال</b>\n\n` +
+              `این فعالیت در کانال پایه‌تَم منتشر می‌شود و ` +
+              `<b>${toPersianDigits(String(cost))} سکه</b> از موجودی شما کم می‌شود.`,
+            '📣 بله، منتشر کن',
+            encodeEventCallback('postyes', callback.id),
+          );
+        }
+
+        case 'postyes':
+          await this.events.publishToChannel(user.id, callback.id);
+          await this.answer(callbackQueryId, 'در کانال منتشر شد 📣');
+          return;
+
+        /**
+         * Inviting is the one that shows a **preview** rather than a price.
+         *
+         * `InvitationService.preview` answers how many people the pool found and
+         * how many would actually be reached, and those two differ whenever the
+         * cap bites. A host spending coins deserves to know they are paying to
+         * reach eleven people rather than the twenty the cap allows — and the
+         * preview names no one, which is the privacy line it already holds.
+         */
+        case 'invite': {
+          const preview = await this.invitations.preview(user.id, callback.id);
+          await this.answer(callbackQueryId, '');
+          if (!preview.affordable) {
+            return this.notice(
+              updateId,
+              user,
+              `برای دعوت به ${toPersianDigits(String(preview.cost))} سکه نیاز است و ` +
+                `موجودی شما ${toPersianDigits(String(preview.balance))} سکه است.`,
+            );
+          }
+          if (preview.selected === 0) {
+            return this.notice(
+              updateId,
+              user,
+              'فعلاً کسی برای دعوت پیدا نشد. کمی بعد دوباره تلاش کنید.',
+            );
+          }
+          return this.confirmSpend(
+            updateId,
+            user,
+            `<b>دعوت از افراد</b>\n\n` +
+              `${toPersianDigits(String(preview.selected))} نفر دعوت می‌شوند ` +
+              `(از ${toPersianDigits(String(preview.candidates))} نفر واجد شرایط).\n` +
+              `<b>${toPersianDigits(String(preview.cost))} سکه</b> از موجودی شما کم می‌شود.`,
+            '👥 بله، دعوت کن',
+            encodeEventCallback('inviteyes', callback.id),
+          );
+        }
+
+        case 'inviteyes': {
+          // The client key is the update: a redelivered tap invites once.
+          const result = await this.invitations.inviteTop(
+            user.id,
+            callback.id,
+            `bot-${String(updateId)}`,
+          );
+          await this.answer(
+            callbackQueryId,
+            `${toPersianDigits(String(result.invited))} دعوت فرستاده شد 👥`,
+          );
+          return;
+        }
+
+        /**
+         * Cancelling, with the consequence stated before it happens.
+         *
+         * `previewHostCancellation` is what `MyEventsView` calls first, and it is
+         * the difference between "nobody had joined" and "you are standing four
+         * people up". It cannot be undone, which is why it is asked twice.
+         */
+        case 'drop': {
+          const preview = await this.events.previewHostCancellation(user.id, callback.id);
+          await this.answer(callbackQueryId, '');
+          return this.confirmSpend(
+            updateId,
+            user,
+            `<b>لغو فعالیت</b>\n\n` +
+              `${toPersianDigits(String(preview.affected))} نفر پذیرفته شده‌اند و ` +
+              `به همه اطلاع داده می‌شود.\n\n<i>این کار برگشت‌پذیر نیست.</i>`,
+            '✖️ بله، لغو کن',
+            encodeEventCallback('dropyes', callback.id),
+          );
+        }
+
+        case 'dropyes':
+          await this.events.cancelByHost(user.id, callback.id);
+          await this.answer(callbackQueryId, 'فعالیت لغو شد');
+          return;
       }
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -1092,6 +1223,27 @@ export class BotService {
         );
       }
     }
+  }
+
+  /**
+   * The asking half of a paid or irreversible host action.
+   *
+   * A message rather than a second toast: a toast is gone in three seconds, and
+   * a decision that spends coins or stands four people up should still be on the
+   * screen when somebody comes back to it. The same shape `CHAT_SHARE_CONFIRM`
+   * uses, for the same reason.
+   */
+  private async confirmSpend(
+    updateId: number,
+    user: BotUser,
+    text: string,
+    confirmLabel: string,
+    callbackData: string,
+  ): Promise<void> {
+    await this.reply(updateId, user.id, TEMPLATES.BOT_CONFIRM_SPEND, {
+      text,
+      keyboard: JSON.stringify([[{ text: confirmLabel, callbackData }]]),
+    });
   }
 
   // ── the consent gate ────────────────────────────────────────────────────────
@@ -2026,6 +2178,15 @@ const DISCOVER_LIMIT = 5;
  * more and truncating it.
  */
 const WALLET_HISTORY_LIMIT = 20;
+
+/**
+ * The statuses a host may still act on.
+ *
+ * A cancelled or finished activity cannot be published, invited for, or
+ * cancelled again, and `EventService` refuses all three — so the buttons are not
+ * drawn rather than drawn and refused.
+ */
+const OPEN_EVENT_STATUSES = new Set(['DRAFT', 'PUBLISHED']);
 
 /**
  * The zone every wall-clock answer in a wizard is read in.

@@ -97,6 +97,8 @@ export const TEMPLATES = {
   BOT_WALLET: 'bot.wallet',
   /** `/referral` — the caller's own invite code and what it has earned. */
   BOT_REFERRAL: 'bot.referral',
+  /** A host's paid or irreversible action, stated with its cost and confirmed. */
+  BOT_CONFIRM_SPEND: 'bot.confirm_spend',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -486,9 +488,22 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       };
     }
 
-    /** `/myevents` — the host's digest, built by `formatMyEvents`. */
-    case TEMPLATES.BOT_MY_EVENTS:
-      return opened(prerendered(payload), `my-events`);
+    /**
+     * `/myevents` — the host's digest, built by `formatMyEvents`.
+     *
+     * The keyboard is what turned this from a list into a console: publishing to
+     * the channel, inviting likely guests and cancelling all lived in
+     * `MyEventsView` and had no bot equivalent, so a host could see their
+     * activities and do nothing to them.
+     */
+    case TEMPLATES.BOT_MY_EVENTS: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `my-events`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /**
      * `/chats` — the conversation digest, built by `formatMyChats`.
@@ -652,6 +667,23 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
 
     case TEMPLATES.BOT_REFERRAL:
       return opened(prerendered(payload), `home`);
+
+    /**
+     * A host's paid action, asked before it is done.
+     *
+     * The body names the live cost — `economy.*` are settings an operator can
+     * change, so it is read at the moment it is shown rather than written here.
+     * The keyboard carries the confirming half; a payload with no keyboard
+     * degrades to a message that explains and asks nothing, which is a dead end
+     * but not a wrong charge.
+     */
+    case TEMPLATES.BOT_CONFIRM_SPEND: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /** Whatever the bot has to say about a request it could not carry out. */
     case TEMPLATES.BOT_NOTICE:
