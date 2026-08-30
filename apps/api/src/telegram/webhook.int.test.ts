@@ -1437,6 +1437,11 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
 describe('POST /telegram/:secret — reporting', () => {
   let sequence = 10_600;
 
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
   async function tap(telegramUserId: number, data: string): Promise<void> {
     sequence += 1;
     await post(
@@ -1452,26 +1457,99 @@ describe('POST /telegram/:secret — reporting', () => {
     );
   }
 
-  it('offers all seven reasons, one per row', async () => {
+  /**
+   * v0.5.8: the reason opens a form rather than filing on the spot.
+   *
+   * «HARASSMENT» with two sentences under it is a great deal more use to a
+   * moderator than the word alone, and `ReportService` has only `file` — no
+   * update path — so the description is collected before the row exists.
+   */
+  it('opens a form seeded with the target, and files reason and description', async () => {
     const { eventPublicId } = await seedHostAndEvent();
-    await seedGuest(GUEST_TELEGRAM_ID);
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
 
     await tap(GUEST_TELEGRAM_ID, `rp:aske:${eventPublicId}`);
 
-    const menu = await prisma.notification.findFirstOrThrow({
-      where: { templateKey: TEMPLATES.BOT_REPORT_REASONS },
-      orderBy: { createdAt: 'desc' },
-      select: { payload: true },
+    /**
+     * The target letter is seeded, not asked: a public id does not carry its
+     * table. It is asserted through the *outcome* rather than read back, because
+     * `form_data` is encrypted at rest — `formDataCiphertext` is the column, and
+     * a test that could read a draft would mean the draft was not protected.
+     */
+    const state = await prisma.conversationState.findUniqueOrThrow({
+      where: { userId: guestId },
+      select: { kind: true, targetPublicId: true },
     });
-    const rows = JSON.parse(String((menu.payload as Record<string, unknown>)['keyboard'])) as {
-      callbackData: string;
-    }[][];
-    // Seven reasons; they are sentences, not labels, so one per row.
-    expect(rows).toHaveLength(7);
-    expect(rows.every((row) => row.length === 1)).toBe(true);
-    expect(rows[0]?.[0]?.callbackData).toBe(`rp:eSPAM:${eventPublicId}`);
+    expect(state.kind).toBe('FILE_REPORT');
+    expect(state.targetPublicId).toBe(eventPublicId);
+
+    await tap(GUEST_TELEGRAM_ID, 'wz:why:HARASSMENT');
+    await type(GUEST_TELEGRAM_ID, 'در گفتگو توهین کرد');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const report = await prisma.report.findFirstOrThrow({
+      where: { reporterUserId: guestId },
+      select: { targetType: true, reason: true, description: true },
+    });
+    expect(report.targetType).toBe('EVENT');
+    expect(report.reason).toBe('HARASSMENT');
+    expect(report.description).toBe('در گفتگو توهین کرد');
+    expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(0);
   });
 
+  /**
+   * Somebody reporting harassment should not have to compose a paragraph before
+   * the product will listen. «رد کردن» files the reason alone — what v0.5.7 did.
+   */
+  it('files without a description when the note is skipped', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `rp:aske:${eventPublicId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:why:SAFETY');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const report = await prisma.report.findFirstOrThrow({
+      where: { reporterUserId: guestId },
+      select: { reason: true, description: true },
+    });
+    expect(report.reason).toBe('SAFETY');
+    expect(report.description).toBeNull();
+  });
+
+  /** Still nobody is notified — the form changed nothing about that. */
+  it('notifies nobody about a reported conversation', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+    const chat = await prisma.anonymousChat.findFirstOrThrow({ select: { publicId: true } });
+
+    await tap(GUEST_TELEGRAM_ID, `rp:askc:${chat.publicId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:why:HARASSMENT');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+    const before = await prisma.notification.count({
+      where: { user: { telegramAccount: { telegramUserId: BigInt(HOST_TELEGRAM_ID) } } },
+    });
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const report = await prisma.report.findFirstOrThrow({ select: { targetType: true } });
+    expect(report.targetType).toBe('MESSAGE');
+    // The host learns nothing. This is the one message this area must never send.
+    expect(
+      await prisma.notification.count({
+        where: { user: { telegramAccount: { telegramUserId: BigInt(HOST_TELEGRAM_ID) } } },
+      }),
+    ).toBe(before);
+  });
+
+  /**
+   * The v0.5.7 path, kept as the fallback when the wizards are switched off.
+   *
+   * `ENABLE_CONVERSATION_WIZARD=0` is the incident lever, and a safety control
+   * that went off with it would be the wrong thing to lose. It files without a
+   * description, which is worse than the form and much better than nothing.
+   */
   it('files a report against an event', async () => {
     const { eventPublicId } = await seedHostAndEvent();
     const guestId = await seedGuest(GUEST_TELEGRAM_ID);

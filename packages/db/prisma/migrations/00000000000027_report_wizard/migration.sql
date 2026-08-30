@@ -1,0 +1,23 @@
+-- Migration 0027: the reporting wizard's conversation kind.
+--
+-- **One additive statement**, exactly as 0026. `ALTER TYPE ... ADD VALUE` touches
+-- no row, so v0.5.7 runs unchanged against this schema and simply never writes
+-- the value — which is what makes the deploy reversible without a down
+-- migration, and `rollback.sh` cannot undo a migration anyway.
+--
+-- ── Why reporting needs a form at all ──────────────────────────────────────
+--
+-- v0.5.7 filed a report from a single tap: seven reasons as buttons, and the
+-- reason alone. `report.description` is nullable and `fileReportRequest` makes
+-- it optional, so that was a complete report — but «HARASSMENT» with no detail
+-- is a great deal weaker in front of a moderator than the same word with two
+-- sentences under it, and `ReportService` has only `file`. There is no update
+-- path, so the description has to be collected *before* the row exists.
+--
+-- ── Why it may run inside a transaction ────────────────────────────────────
+--
+-- Postgres refused `ADD VALUE` in a transaction block before 12; the constraint
+-- left on 16 is that the new value may not be *used* in the same transaction,
+-- and nothing here uses it. `IF NOT EXISTS` keeps `migrate deploy` idempotent
+-- across a retried deploy.
+ALTER TYPE "conversation_kind" ADD VALUE IF NOT EXISTS 'FILE_REPORT';

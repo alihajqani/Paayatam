@@ -20,6 +20,7 @@ import { acceptPoliciesWizard } from './wizards/accept-policies';
 import { editEventWizard } from './wizards/edit-event';
 import { editProfileWizard } from './wizards/edit-profile';
 import { writeReviewWizard } from './wizards/write-review';
+import { fileReportWizard } from './wizards/file-report';
 
 /**
  * Where the machine records which fields the user answered.
@@ -43,6 +44,7 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
   CREATE_EVENT: createEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
   EDIT_PROFILE: editProfileWizard as unknown as WizardDefinition<Record<string, unknown>>,
   WRITE_REVIEW: writeReviewWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  FILE_REPORT: fileReportWizard as unknown as WizardDefinition<Record<string, unknown>>,
   ACCEPT_POLICIES: acceptPoliciesWizard as unknown as WizardDefinition<Record<string, unknown>>,
   EDIT_EVENT: editEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
@@ -126,9 +128,23 @@ export class ConversationService {
     kind: ConversationKind,
     updateId: number,
     targetPublicId: string | null = null,
+    /**
+     * Fields the caller already knows, merged over the empty form.
+     *
+     * `targetPublicId` names *what* a wizard is about; this is for the rest of
+     * the context a caller holds and a step cannot ask for. `FILE_REPORT` is the
+     * case that needed it: a public id does not carry its table, so whether the
+     * thing being reported is an event, a conversation or a user is known only
+     * to the button that was tapped — and asking the user to restate it would be
+     * asking them a question the product already has the answer to.
+     *
+     * Merged over rather than replacing, so a wizard's own defaults survive a
+     * caller that seeds one field.
+     */
+    initialForm: Record<string, unknown> = {},
   ): Promise<ConversationOutcome> {
     const definition = this.definitionFor(kind);
-    const form = definition.empty();
+    const form = { ...definition.empty(), ...initialForm };
     const step = firstStep(definition, form);
     if (step === null) throw new Error(`wizard ${kind} has no reachable first step`);
 

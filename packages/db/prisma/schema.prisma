@@ -2552,6 +2552,10 @@ enum ConversationKind {
   /// The tags and the comment on a review whose rating is already in (v0.5.4).
   /// The rating is one tap from `/reviews`; this is the half that needs a form.
   WRITE_REVIEW
+  /// A report's reason and its description (v0.5.8). `ReportService` has only
+  /// `file` — no update path — so the description is collected before the row
+  /// exists, which is what makes this a form rather than a follow-up.
+  FILE_REPORT
 
   @@map("conversation_kind")
 }

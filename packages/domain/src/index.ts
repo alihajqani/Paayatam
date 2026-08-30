@@ -210,6 +210,8 @@ export {
 } from './conversation/wizards/edit-profile';
 export type { EditProfileForm } from './conversation/wizards/edit-profile';
 export { writeReviewWizard, reviewTagLabel } from './conversation/wizards/write-review';
+export { fileReportWizard, reportReasonLabelFa } from './conversation/wizards/file-report';
+export type { FileReportForm } from './conversation/wizards/file-report';
 export type { WriteReviewForm } from './conversation/wizards/write-review';
 export type { EncryptedBody } from './chat/message-cipher';
 export {

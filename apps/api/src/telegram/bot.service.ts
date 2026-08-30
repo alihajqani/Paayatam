@@ -23,12 +23,14 @@ import {
   touchedFields,
   genderLabel,
   reviewTagLabel,
+  reportReasonLabelFa,
   zonedTimeToUtc,
   type ConversationSnapshot,
   type CreateEventInput,
   type EditEventForm,
   type EditProfileForm,
   type WriteReviewForm,
+  type FileReportForm,
   type UpdateEventInput,
   type ConversationOutcome,
   type CreateEventForm,
@@ -89,6 +91,8 @@ import {
   type BotSender,
   type EventCallback,
   type ReportCallback,
+  type ReportTargetLetter,
+  type ReportReasonValue,
   type ParsedUpdate,
   type SummaryLine,
   type WizardScreen,
@@ -1422,9 +1426,40 @@ export class BotService {
   ): Promise<void> {
     if (callback.asking) {
       await this.answer(callbackQueryId, '');
-      // One reason per row: they are sentences, not labels, and a two-column
-      // grid of «آزار و توهین» beside «نگرانی برای ایمنی» is a mis-tap on the
-      // two that matter most.
+
+      /**
+       * The form, when there is one to open (v0.5.8).
+       *
+       * v0.5.7 filed from the reason alone, and `report.description` is nullable
+       * — so that was a complete report. But «HARASSMENT» with two sentences
+       * under it is a great deal more use to a moderator than the word by
+       * itself, and `ReportService` has only `file`: no update path, so the
+       * description is collected before the row exists or not at all.
+       *
+       * The target letter is **seeded** rather than asked. A public id does not
+       * carry its table, and whether this is an event, a conversation or a user
+       * is known to the button that was tapped and nothing else.
+       */
+      if (this.env.ENABLE_CONVERSATION_WIZARD) {
+        const outcome = await this.conversations.start(
+          user.id,
+          'FILE_REPORT',
+          updateId,
+          callback.id,
+          { target: callback.target },
+        );
+        return this.drawWizard(updateId, user, outcome);
+      }
+
+      /**
+       * Wizards off: the v0.5.7 path, kept as the fallback.
+       *
+       * One reason per row — they are sentences, not labels, and a two-column
+       * grid of «آزار و توهین» beside «نگرانی برای ایمنی» is a mis-tap on the
+       * two that matter most. It files without a description, which is worse
+       * than the form and much better than a safety control that is switched off
+       * with the wizards.
+       */
       const rows = REPORT_REASON_CHOICES.map((choice) => [
         {
           text: choice.label,
@@ -1454,6 +1489,52 @@ export class BotService {
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+    }
+  }
+
+  /**
+   * File the report the form describes.
+   *
+   * The reason is required by the wizard, so a form that reaches here without
+   * one is a step that was skipped when it should not have been — refused rather
+   * than filed as `OTHER`, because a reason nobody chose is worse than no report
+   * for a moderator sorting a queue.
+   *
+   * Nothing is notified and nothing is echoed: the same two rules v0.5.7 set.
+   */
+  private async submitReport(
+    updateId: number,
+    user: BotUser,
+    snapshot: ConversationSnapshot,
+  ): Promise<void> {
+    const form = snapshot.form as FileReportForm;
+    const targetPublicId = snapshot.targetPublicId;
+
+    await this.conversations.clear(user.id);
+
+    const target = form.target;
+    if (targetPublicId === null || target === undefined || form.reason === undefined) {
+      return this.notice(updateId, user, 'گزارش ثبت نشد. دوباره تلاش کنید.');
+    }
+    if (!isReportTarget(target)) return;
+
+    try {
+      const filed = await this.reports.file(user.id, {
+        targetType: REPORT_TARGETS[target],
+        targetPublicId,
+        reason: form.reason as ReportReasonValue,
+        ...(form.description !== undefined ? { description: form.description } : {}),
+      });
+      await this.notice(
+        updateId,
+        user,
+        filed.triggeredReview
+          ? 'گزارش شما ثبت شد و در حال بررسی است. ممنون که اطلاع دادید.'
+          : 'گزارش شما ثبت شد. ممنون که اطلاع دادید.',
+      );
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
     }
   }
 
@@ -1559,6 +1640,8 @@ export class BotService {
             return this.submitProfile(updateId, user, outcome.snapshot.form);
           case 'WRITE_REVIEW':
             return this.submitReviewDetail(updateId, user, outcome.snapshot);
+          case 'FILE_REPORT':
+            return this.submitReport(updateId, user, outcome.snapshot);
           case 'EDIT_EVENT':
             return this.submitEventEdit(updateId, user, outcome.snapshot);
           default:
@@ -1582,6 +1665,19 @@ export class BotService {
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;
           const screen = renderSummary(await this.profileSummaryLines(profile), false, 'ثبت نمایه');
+          return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+        }
+        if (outcome.snapshot.kind === 'FILE_REPORT') {
+          const form = outcome.snapshot.form as FileReportForm;
+          const lines: SummaryLine[] = [];
+          if (form.reason !== undefined) {
+            lines.push({ label: 'دلیل', value: reportReasonLabelFa(form.reason) });
+          }
+          lines.push({
+            label: 'توضیح',
+            value: form.description ?? 'بدون توضیح',
+          });
+          const screen = renderSummary(lines, false, 'فرستادن گزارش');
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
         if (outcome.snapshot.kind === 'WRITE_REVIEW') {
@@ -2483,6 +2579,18 @@ const TRUST_HISTORY_LIMIT = 20;
  * drawn rather than drawn and refused.
  */
 const OPEN_EVENT_STATUSES = new Set(['DRAFT', 'PUBLISHED']);
+
+/**
+ * Is this letter one the report protocol knows?
+ *
+ * The form carries a string because `form_data` is JSON, and a draft written by
+ * a newer deploy could name a letter this build has no target for. Narrowed here
+ * rather than cast, so an unknown one is dropped rather than indexed into
+ * `REPORT_TARGETS` as `undefined` and sent to the service as a missing type.
+ */
+function isReportTarget(value: string): value is ReportTargetLetter {
+  return Object.hasOwn(REPORT_TARGETS, value);
+}
 
 /**
  * The zone every wall-clock answer in a wizard is read in.
