@@ -17,6 +17,8 @@ export type { PendingReviewLine } from './reviews-digest';
 export { MENU_COMMANDS, menuCommandFor, menuKeyboard } from './keyboards';
 export type { ReplyButton, ReplyKeyboard } from './keyboards';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
+export { formatEventDetail } from './event-detail';
+export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa } from './wallet';
 export { formatReferral } from './referral';
 export type { ReferralSummaryLine } from './referral';

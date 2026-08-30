@@ -112,6 +112,8 @@ function isChatAction(value: string | undefined): value is ChatCallbackAction {
 export const EVENT_CALLBACK_ACTIONS = [
   'join',
   'cancel',
+  /** One activity in full, before deciding to spend an evening on it. */
+  'show',
   /**
    * The host's paid actions, each in two steps — the ask and the act.
    *

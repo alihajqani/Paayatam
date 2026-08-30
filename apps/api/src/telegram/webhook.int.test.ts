@@ -1791,7 +1791,7 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       : [];
   }
 
-  it('offers a join button on every discovered event, and joining works', async () => {
+  it('offers detail and join on every discovered event, and joining works', async () => {
     const { eventPublicId } = await seedHostAndEvent();
     const guestId = await seedGuest(GUEST_TELEGRAM_ID);
 
@@ -1804,8 +1804,10 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     });
     const buttons = keyboardOf(digest.payload).flat();
     expect(buttons.length).toBeGreaterThan(0);
-    // The id in the button is the event's, and nothing else is in it.
-    expect(buttons[0]?.callbackData).toBe(`ev:join:${eventPublicId}`);
+    // Read it before joining it: «جزئیات» is the first button, and the ids in
+    // both are the event's and nothing else.
+    expect(buttons[0]?.callbackData).toBe(`ev:show:${eventPublicId}`);
+    expect(buttons[1]?.callbackData).toBe(`ev:join:${eventPublicId}`);
 
     await tap(GUEST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
 
@@ -1814,6 +1816,55 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       select: { status: true, publicId: true },
     });
     expect(participant.status).toBe('PENDING');
+  });
+
+  /**
+   * Four lines is a scanning list. Deciding to spend an evening with strangers
+   * on four lines is not a decision anybody should be asked to make.
+   */
+  it('shows the description, the cost and the host before you join', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `ev:show:${eventPublicId}`);
+
+    const detail = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const payload = detail.payload as Record<string, unknown>;
+    const text = String(payload['text']);
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { description: true },
+    });
+    expect(text).toContain(event.description);
+    expect(text).toContain('میزبان');
+    // The decision is on the screen it was made on, not back in the digest.
+    const rows = keyboardOf(payload).flat();
+    expect(rows[0]?.callbackData).toBe(`ev:join:${eventPublicId}`);
+  });
+
+  /**
+   * «تازه‌وارد» rather than a number when the host has never been judged. Null is
+   * not zero, and rendering 0 would show the worst possible reputation to
+   * somebody who has done nothing wrong.
+   */
+  it('does not invent a trust score for an unjudged host', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `ev:show:${eventPublicId}`);
+
+    const detail = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const text = String((detail.payload as Record<string, unknown>)['text']);
+    expect(text).toContain('تازه‌وارد');
+    expect(text).not.toContain('۰ از ۱۰۰');
   });
 
   /** A tampered id names an event the service declines. Authorisation is not in the button. */

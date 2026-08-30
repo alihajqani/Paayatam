@@ -50,6 +50,7 @@ import { AppError, ERROR_MESSAGES_FA, ErrorCode, type CostType } from '@payetam/
 import {
   TEMPLATES,
   formatDiscovered,
+  formatEventDetail,
   formatJalali,
   formatPolicies,
   formatReferral,
@@ -543,14 +544,24 @@ export class BotService {
          * renderer that throws fails the send job and every retry of it.
          */
         const joinable = page.events.filter((event) => isPublicId(event.publicId));
-        const buttons = joinable.map((event, index) => ({
-          text: `${toPersianDigits(String(index + 1))} پیوستن`,
-          callbackData: encodeEventCallback('join', event.publicId),
-        }));
-        const rows: { text: string; callbackData: string }[][] = [];
-        for (let index = 0; index < buttons.length; index += 2) {
-          rows.push(buttons.slice(index, index + 2));
-        }
+        /**
+         * One row per event: read it, then join it.
+         *
+         * «جزئیات» comes first because it is the one that should be tapped
+         * first. Four lines is a scanning list, and joining an activity without
+         * having read what it is, what it costs or who is hosting it is a
+         * decision nobody should be asked to make from a digest.
+         */
+        const rows = joinable.map((event, index) => [
+          {
+            text: `${toPersianDigits(String(index + 1))} جزئیات`,
+            callbackData: encodeEventCallback('show', event.publicId),
+          },
+          {
+            text: `${toPersianDigits(String(index + 1))} پیوستن`,
+            callbackData: encodeEventCallback('join', event.publicId),
+          },
+        ]);
 
         return this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, {
           text,
@@ -1112,6 +1123,53 @@ export class BotService {
           await this.participation.cancel(user.id, callback.id);
           await this.answer(callbackQueryId, 'درخواست شما لغو شد');
           return;
+
+        /**
+         * One activity in full — the screen `EventDetailView` was.
+         *
+         * `findPublished` is the same read `GET /events/:publicId` makes, and it
+         * answers 404 identically for "not published" and "does not exist", so
+         * this is not an existence oracle either (T3.3).
+         *
+         * The «پیوستن» button is repeated here rather than assumed: somebody who
+         * opened the detail has the decision in front of them, and sending them
+         * back to the digest to act on it would be the detour this release has
+         * spent the day removing.
+         */
+        case 'show': {
+          const event = await this.discovery.findPublished(callback.id);
+          await this.answer(callbackQueryId, '');
+          return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
+            text: formatEventDetail({
+              title: event.title,
+              description: event.description,
+              categoryName: event.customCategoryLabel ?? event.categoryNameFa,
+              where:
+                event.districtNameFa === null
+                  ? event.cityNameFa
+                  : `${event.cityNameFa} — ${event.districtNameFa}`,
+              startsAt: event.startsAt,
+              endsAt: event.endsAt,
+              capacity: event.capacity,
+              acceptedCount: event.acceptedCount,
+              costType: event.costType,
+              costAmount: event.costAmount,
+              costNote: event.costNote,
+              minAge: event.minAge,
+              maxAge: event.maxAge,
+              hostDisplayName: event.hostDisplayName,
+              hostTrustScore: event.hostTrustScore,
+            }),
+            keyboard: JSON.stringify([
+              [
+                {
+                  text: '➕ پیوستن به این فعالیت',
+                  callbackData: encodeEventCallback('join', callback.id),
+                },
+              ],
+            ]),
+          });
+        }
 
         /**
          * The three host actions, each asked before it is done.

@@ -99,6 +99,8 @@ export const TEMPLATES = {
   BOT_REFERRAL: 'bot.referral',
   /** A host's paid or irreversible action, stated with its cost and confirmed. */
   BOT_CONFIRM_SPEND: 'bot.confirm_spend',
+  /** One activity in full, with the button that joins it. */
+  BOT_EVENT_DETAIL: 'bot.event_detail',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -677,6 +679,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * degrades to a message that explains and asks nothing, which is a dead end
      * but not a wrong charge.
      */
+    /**
+     * One activity in full, with «پیوستن» on it.
+     *
+     * The keyboard is built by the caller because only it holds the public id,
+     * and it is conditional because a full or already-requested event should
+     * read rather than offer — the digest's own button is where joining starts.
+     */
+    case TEMPLATES.BOT_EVENT_DETAIL: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        // `discover`, not `events`: the Mini App has no per-event route on the
+        // allowlist, and `deep-links.test.ts` checks every target against it.
+        // Nothing renders this as a button any more; the check is what it is for.
+        deepLink: `discover`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
     case TEMPLATES.BOT_CONFIRM_SPEND: {
       const keyboard = parseKeyboard(payload);
       return {
