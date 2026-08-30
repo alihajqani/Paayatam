@@ -1918,6 +1918,84 @@ describe('POST /telegram/:secret — rating somebody', () => {
   });
 
   /**
+   * What other people wrote about you — and invariant 8, which is the reason
+   * this list is usually shorter than the reviews that exist.
+   *
+   * A review appears only once its **pair** has revealed. `listForUser` filters
+   * on the pair's status rather than the review's, deliberately: a review is
+   * SUBMITTED both before its counterparty writes and while the pair waits.
+   */
+  it('hides a review whose pair has not revealed', async () => {
+    const { guestId, participantPublicId } = await seedPending();
+    await tap(GUEST_TELEGRAM_ID, `rv:rate5:${participantPublicId}`);
+    // The guest wrote one *about the host*; nothing about the guest exists, and
+    // the pair has not revealed either way.
+
+    await type(GUEST_TELEGRAM_ID, '/myreviews');
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_RECEIVED_REVIEWS },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect(String((row.payload as Record<string, unknown>)['text'])).toContain(
+      'هنوز نظری درباره شما ثبت نشده است',
+    );
+    void guestId;
+  });
+
+  /** Once the pair reveals, the review is readable — and reportable. */
+  it('shows a revealed review, with the button that reports it', async () => {
+    const { guestId, participantPublicId } = await seedPending();
+    await tap(GUEST_TELEGRAM_ID, `rv:rate2:${participantPublicId}`);
+
+    // Reveal the pair, which is what makes the review visible to its subject.
+    const review = await prisma.review.findFirstOrThrow({
+      where: { reviewerUserId: guestId },
+      select: { id: true, publicId: true, revieweeUserId: true },
+    });
+    await prisma.review.update({
+      where: { id: review.id },
+      data: { status: 'REVEALED', revealedAt: new Date(), moderationStatus: 'APPROVED' },
+    });
+    /**
+     * `EXPIRED_PARTIAL`, not `REVEALED`.
+     *
+     * `review_pair_status_matches_contents` requires *both* review ids for
+     * REVEALED, and only one side wrote — which is precisely D7a: revealed
+     * because the window closed rather than because somebody reciprocated. It is
+     * in `REVEALED_PAIR_STATUSES` for that reason, and it is what makes
+     * `withoutCounterpart` true.
+     */
+    await prisma.reviewPair.updateMany({
+      data: {
+        status: 'EXPIRED_PARTIAL',
+        revealedAt: new Date(),
+        guestReviewId: review.id,
+      },
+    });
+
+    // The *host* is the subject of that review, so they are the one who reads it.
+    await type(HOST_TELEGRAM_ID, '/myreviews');
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_RECEIVED_REVIEWS },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const payload = row.payload as Record<string, unknown>;
+    // Two filled stars for a 2, and no author anywhere: `RevealedReview` carries
+    // none, because the double blind is what a pair is for.
+    expect(String(payload['text'])).toContain('⭐️⭐️☆☆☆');
+    // D7a asks for a one-sided reveal to be *marked*: a review that arrived
+    // because the window closed reads differently from a reciprocated one.
+    expect(String(payload['text'])).toContain('بدون بازخورد متقابل');
+
+    const buttons = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
+    expect(buttons[0]?.[0]?.callbackData).toBe(`rp:askv:${review.publicId}`);
+  });
+
+  /**
    * The rating is two taps; the tags and the comment are the optional half.
    *
    * `ReviewService.edit` replaces the whole review, so the rating written by the

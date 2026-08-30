@@ -246,11 +246,10 @@ export function parseReviewCallback(data: string): ReviewCallback | null {
  * a message that is about something else, and a report filed by a mis-tap is a
  * report a moderator has to read.
  *
- * **Reviews are absent on purpose.** `POST /reviews/:publicId/report` exists,
- * and the bot has no view of a review you have *received* — so there is nothing
- * to report from. That view comes first; the target letter is reserved.
+ * `v` is reviews, added in v0.6.0 with the view that made it reachable: the
+ * endpoint had existed since M12 and the bot had nothing to report *from*.
  */
-export const REPORT_TARGETS = { e: 'EVENT', c: 'MESSAGE', u: 'USER' } as const;
+export const REPORT_TARGETS = { e: 'EVENT', c: 'MESSAGE', u: 'USER', v: 'REVIEW' } as const;
 export type ReportTargetLetter = keyof typeof REPORT_TARGETS;
 
 export const REPORT_REASONS = [

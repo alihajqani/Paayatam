@@ -50,6 +50,7 @@ const TARGET_FA: Record<string, string> = {
   e: 'این فعالیت',
   c: 'این گفتگو',
   u: 'این کاربر',
+  v: 'این نظر',
 };
 
 export function reportPrompt(target: string): string {

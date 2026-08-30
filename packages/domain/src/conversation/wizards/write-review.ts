@@ -91,7 +91,14 @@ export const writeReviewWizard: WizardDefinition<WriteReviewForm> = {
   empty: () => ({}),
 };
 
-/** The Persian label for a tag, so a summary renders what the buttons offered. */
-export function reviewTagLabel(value: ReviewTag): string {
-  return TAG_FA[value];
+/**
+ * The Persian label for a tag, so a summary renders what the buttons offered.
+ *
+ * Takes a `string` rather than a `ReviewTag`: `review.tags` is `String[]` in the
+ * database, and a tag written by a newer deploy should render as itself rather
+ * than crash the digest that lists it. The narrow type is what the wizard emits;
+ * the wide one is what a read comes back as.
+ */
+export function reviewTagLabel(value: string): string {
+  return TAG_FA[value as ReviewTag] ?? value;
 }

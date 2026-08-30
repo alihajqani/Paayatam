@@ -60,6 +60,7 @@ import {
   parseDiscoverCallback,
   formatJalali,
   formatPolicies,
+  formatReceivedReviews,
   formatReferral,
   formatStanding,
   formatTrust,
@@ -305,6 +306,59 @@ export class BotService {
         ]);
         return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
           text: formatWallet(balance, history),
+        });
+      }
+
+      /**
+       * `/myreviews` — what other people wrote about you.
+       *
+       * The bot could rate somebody from v0.5.0 and could not show you a word
+       * anybody had written about *you*: `ReviewsView` held received reviews and
+       * v0.4.6 removed the last button to it. So a Trust Score moved for reasons
+       * its owner could read nowhere — the same complaint ADR-0007 makes about a
+       * score with no ledger, one level up.
+       *
+       * `listForUser` takes the **reviewee's public id**, and the caller's own is
+       * the one thing this handler can pass without asking. Invariant 8 is the
+       * service's: a review appears only once its pair has revealed, filtered on
+       * the pair's status rather than the review's.
+       *
+       * Who wrote it is never shown, and not by omission — `RevealedReview`
+       * carries no author, because the double blind is what a pair is for.
+       */
+      case 'myreviews': {
+        const received = await this.reviews.listForUser(user.publicId, RECEIVED_REVIEW_LIMIT);
+        const text = formatReceivedReviews(
+          received.map((row) => ({
+            rating: row.rating,
+            tags: row.tags,
+            comment: row.comment,
+            submittedAt: row.submittedAt,
+            withoutCounterpart: row.withoutCounterpart,
+          })),
+          reviewTagLabel,
+        );
+
+        /**
+         * A report button per review — the target letter reserved in v0.5.7.
+         *
+         * `POST /reviews/:publicId/report` has existed since M12 and the bot had
+         * nothing to report *from*. Two per row: the labels are short and a
+         * column of them under a list of reviews reads as a wall.
+         */
+        const reportable = received.filter((row) => isPublicId(row.publicId));
+        const buttons = reportable.map((row, index) => ({
+          text: `${toPersianDigits(String(index + 1))} 🚩`,
+          callbackData: encodeReportAsk('v', row.publicId),
+        }));
+        const rows: { text: string; callbackData: string }[][] = [];
+        for (let index = 0; index < buttons.length; index += 2) {
+          rows.push(buttons.slice(index, index + 2));
+        }
+
+        return this.reply(updateId, user.id, TEMPLATES.BOT_RECEIVED_REVIEWS, {
+          text,
+          ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
         });
       }
 
@@ -2637,6 +2691,9 @@ const WALLET_HISTORY_LIMIT = 20;
 
 /** The same reasoning as `WALLET_HISTORY_LIMIT`: what fits in one message. */
 const TRUST_HISTORY_LIMIT = 20;
+
+/** The same reasoning again: what fits in one Telegram message. */
+const RECEIVED_REVIEW_LIMIT = 15;
 
 /**
  * The statuses a host may still act on.

@@ -105,6 +105,8 @@ export const TEMPLATES = {
   BOT_TRUST: 'bot.trust',
   /** The seven reasons, under the thing being reported. */
   BOT_REPORT_REASONS: 'bot.report_reasons',
+  /** `/myreviews` — what other people wrote about you, once the pair revealed. */
+  BOT_RECEIVED_REVIEWS: 'bot.received_reviews',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -673,6 +675,21 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
 
     case TEMPLATES.BOT_REFERRAL:
       return opened(prerendered(payload), `home`);
+
+    /**
+     * `/myreviews` — the reviews, each with the button that reports it.
+     *
+     * The keyboard is the caller's because only it holds the review public ids,
+     * and those are what `POST /reviews/:publicId/report` names.
+     */
+    case TEMPLATES.BOT_RECEIVED_REVIEWS: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `reviews`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /** `/trust` — the score and its ledger, built by `formatTrust`. */
     case TEMPLATES.BOT_TRUST:

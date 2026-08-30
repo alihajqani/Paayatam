@@ -22,6 +22,8 @@ export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa } from './wallet';
 export { formatTrust, trustLabelFa } from './trust';
 export { REPORT_REASON_CHOICES, reportPrompt, reportReasonLabel } from './report';
+export { formatReceivedReviews } from './received-reviews';
+export type { ReceivedReviewLine } from './received-reviews';
 export type { TrustLine } from './trust';
 export { formatReferral } from './referral';
 export type { ReferralSummaryLine } from './referral';

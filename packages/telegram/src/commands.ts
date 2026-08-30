@@ -46,6 +46,7 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'myevents', description: 'رویدادهایی که ساخته‌اید' },
   { command: 'chats', description: 'گفتگوهای باز شما' },
   { command: 'reviews', description: 'نظرهایی که هنوز ننوشته‌اید' },
+  { command: 'myreviews', description: 'نظرهایی که درباره شما نوشته‌اند' },
   { command: 'profile', description: 'نمایه و امتیاز اعتماد شما' },
   { command: 'trust', description: 'امتیاز اعتماد و تغییرهای آن' },
   { command: 'edit_event', description: 'ویرایش فعالیت' },
