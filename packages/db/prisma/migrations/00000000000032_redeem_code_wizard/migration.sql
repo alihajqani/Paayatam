@@ -1,0 +1,14 @@
+-- Migration 0032: the code-entry wizard's `conversation_kind` (v0.6.4).
+--
+-- Its own file because `ALTER TYPE … ADD VALUE` cannot run inside a transaction
+-- in Postgres — the same reason 0022, 0023, 0029 and 0031 are separate. It is
+-- not rolled back by a later failure; additive-only, so a partial apply is safe.
+--
+-- What it switches on is a screen rather than a rule: a gift code could only be
+-- redeemed by typing `/gift <code>` with the argument in the right place, and a
+-- referral code could only arrive as `?start=<code>` on a link — so a code read
+-- out loud or written on a flyer had no way into the product at all. Both are
+-- now a button and one field, through the machinery every other bot form
+-- already goes through: `last_update_id` idempotency, the single edited message,
+-- the seven-day sweep.
+ALTER TYPE "conversation_kind" ADD VALUE IF NOT EXISTS 'REDEEM_CODE';

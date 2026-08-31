@@ -2220,15 +2220,12 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
     expect(text).toContain('?start=');
   });
 
-  /** The first command that takes an argument — `parseUpdate` threw it away before. */
-  it('asks for the code when /gift arrives without one', async () => {
-    await seedGuest(GUEST_TELEGRAM_ID);
-
-    await type(GUEST_TELEGRAM_ID, '/gift');
-
-    expect(await bodyOf(TEMPLATES.BOT_NOTICE)).toContain('/gift');
-  });
-
+  /**
+   * `/gift <code>` — the first command that took an argument, and still the
+   * fastest way in for somebody who types it. Bare `/gift` no longer answers
+   * with the syntax; it opens the form, which is asserted in «entering a code in
+   * the bot» below.
+   */
   /**
    * A wrong code is refused, and **the code is not echoed back**. It may be a
    * campaign code somebody was given privately, and a bot repeating it into a
@@ -2242,6 +2239,160 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
 
     const text = await bodyOf(TEMPLATES.BOT_NOTICE);
     expect(text).not.toContain('NOTAREALCODE');
+  });
+});
+
+/**
+ * Typing a code into a form instead of into a command (v0.6.4).
+ *
+ * ── What was missing, and why it was worth a wizard ─────────────────────────
+ *
+ * A gift code could only be spent by somebody who knew `/gift` took an argument.
+ * A referral code was worse: `?start=<code>` on a link was the only way in, so a
+ * code read out loud or printed on a flyer could not be entered anywhere at all
+ * — `ReferralService.claim` had taken exactly this since M13 with no bot surface
+ * over it.
+ *
+ * Driven through the webhook rather than against `ConversationService`, like
+ * every other wizard test here: what is being checked is that a *tap* opens the
+ * form, that the *typed* code reaches the right service, and that the draft is
+ * cleared when it worked and kept when it did not.
+ */
+describe('POST /telegram/:secret — entering a code in the bot', () => {
+  let sequence = 9700;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  /** The keyboard the bot put under its last message of this template, as JSON. */
+  async function keyboardOf(templateKey: string): Promise<string> {
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const keyboard = (row.payload as Record<string, unknown>)['keyboard'];
+    return typeof keyboard === 'string' ? keyboard : '';
+  }
+
+  async function seedGiftCode(code: string, coins = 25): Promise<void> {
+    await prisma.giftCode.create({ data: { code, coins, isActive: true } });
+  }
+
+  it('offers the gift-code button under the wallet', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/wallet');
+
+    expect(await keyboardOf(TEMPLATES.BOT_WALLET)).toContain('cd:gift:x');
+  });
+
+  /** Bare `/gift` used to answer «کد را همراه دستور بفرستید». Now it opens the form. */
+  it('opens the form when /gift arrives without a code', async () => {
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/gift');
+
+    const state = await prisma.conversationState.findUniqueOrThrow({
+      where: { userId: guestId },
+      select: { kind: true, step: true },
+    });
+    expect(state).toEqual({ kind: 'REDEEM_CODE', step: 'code' });
+  });
+
+  it('redeems a code typed into the form and closes it', async () => {
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await seedGiftCode('SUMMER24', 25);
+
+    await tap(GUEST_TELEGRAM_ID, 'cd:gift:x');
+    await type(GUEST_TELEGRAM_ID, 'summer-24');
+
+    const balance = await coins.balanceOf(guestId);
+    expect(balance).toBe(25);
+    // The form has done its job and must stop claiming what the user types.
+    expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(0);
+  });
+
+  /**
+   * The common refusal here is a typo, and the form is one field: closing it
+   * would make correcting one character start with finding the button again.
+   */
+  it('keeps the form open when the code is refused, and never echoes it', async () => {
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, 'cd:gift:x');
+    await type(GUEST_TELEGRAM_ID, 'NOTAREALCODE');
+
+    expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(1);
+
+    const said = await replyTo(GUEST_TELEGRAM_ID);
+    expect(said.some((row) => row.text.includes('NOTAREALCODE'))).toBe(false);
+
+    // And the correction is simply the next message.
+    await seedGiftCode('SUMMER24', 25);
+    await type(GUEST_TELEGRAM_ID, 'SUMMER24');
+    expect(await coins.balanceOf(guestId)).toBe(25);
+  });
+
+  it('records a referral from a code somebody typed rather than tapped', async () => {
+    const referrerId = await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await prisma.user.update({
+      where: { id: referrerId },
+      data: { referralCode: 'ABCD2345' },
+    });
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, 'cd:ref:x');
+    await type(GUEST_TELEGRAM_ID, 'abcd-2345');
+
+    const referral = await prisma.referral.findUniqueOrThrow({
+      where: { referredUserId: guestId },
+      select: { referrerUserId: true, status: true },
+    });
+    expect(referral).toEqual({ referrerUserId: referrerId, status: 'PENDING' });
+    expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(0);
+  });
+
+  /**
+   * A button that exists to be refused is worse than no button: `claim` can
+   * answer nothing but «شما قبلاً با کد دعوت دیگری ثبت شده‌اید» once somebody has
+   * a referrer, so the invite screen stops offering it.
+   */
+  it('offers the referral-code button only to somebody who has no referrer', async () => {
+    const referrerId = await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/referral');
+    expect(await keyboardOf(TEMPLATES.BOT_REFERRAL)).toContain('cd:ref:x');
+
+    await prisma.referral.create({
+      data: {
+        referrerUserId: referrerId,
+        referredUserId: guestId,
+        code: 'ABCD2345',
+        status: 'PENDING',
+      },
+    });
+
+    await type(GUEST_TELEGRAM_ID, '/referral');
+    expect(await keyboardOf(TEMPLATES.BOT_REFERRAL)).toBe('');
   });
 });
 

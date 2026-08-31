@@ -2618,6 +2618,10 @@ enum ConversationKind {
   /// terminal state carries `decided_by` *and* `decision_note`, and a decision
   /// nobody explained is not reviewable later.
   ADMIN_CASE
+  /// A gift or referral code somebody was handed, typed in (v0.6.4). One kind for
+  /// both, because the form is one field and only the service the answer goes to
+  /// differs — which of the two it is arrives seeded, like FILE_REPORT's target.
+  REDEEM_CODE
 
   @@map("conversation_kind")
 }

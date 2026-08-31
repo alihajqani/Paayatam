@@ -45,6 +45,8 @@ export {
 export type { SettingCallback, SettingFieldLetter, SettingLetter } from './callback-data';
 export { ADMIN_CALLBACK_ACTIONS, encodeAdminCallback, parseAdminCallback } from './callback-data';
 export type { AdminCallback, AdminCallbackAction } from './callback-data';
+export { CODE_CALLBACK_KINDS, encodeCodeCallback, parseCodeCallback } from './callback-data';
+export type { CodeCallbackKind } from './callback-data';
 export {
   CASE_STATUS_FA,
   CASE_SUBJECT_FA,

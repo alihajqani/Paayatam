@@ -22,6 +22,7 @@ import { editProfileWizard } from './wizards/edit-profile';
 import { writeReviewWizard } from './wizards/write-review';
 import { fileReportWizard } from './wizards/file-report';
 import { adminCaseWizard } from './wizards/admin-case';
+import { redeemCodeWizard } from './wizards/redeem-code';
 
 /**
  * Where the machine records which fields the user answered.
@@ -56,6 +57,15 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
    * every step and `AdminOperationsService` asserts the permission at submit.
    */
   ADMIN_CASE: adminCaseWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  /**
+   * A gift or referral code, typed in (v0.6.4).
+   *
+   * The smallest wizard here — one field — and registered rather than special
+   * cased for the property the others use it for: a code typed into the chat is
+   * claimed by the form instead of being relayed into an anonymous conversation,
+   * which is what `handle` returning non-null buys every wizard.
+   */
+  REDEEM_CODE: redeemCodeWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
 
 export interface ConversationSnapshot {

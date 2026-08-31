@@ -219,6 +219,8 @@ export { fileReportWizard, reportReasonLabelFa } from './conversation/wizards/fi
 export { adminCaseWizard, adminDecisionLabelFa } from './conversation/wizards/admin-case';
 export type { AdminCaseForm } from './conversation/wizards/admin-case';
 export type { FileReportForm } from './conversation/wizards/file-report';
+export { CODE_KINDS, isCodeKind, redeemCodeWizard } from './conversation/wizards/redeem-code';
+export type { CodeKind, RedeemCodeForm } from './conversation/wizards/redeem-code';
 export type { WriteReviewForm } from './conversation/wizards/write-review';
 export type { EncryptedBody } from './chat/message-cipher';
 export {

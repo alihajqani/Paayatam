@@ -705,11 +705,30 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * formatters, both already escaped at every interpolation, so both go
      * through `prerendered` for the reason the five digests do.
      */
-    case TEMPLATES.BOT_WALLET:
-      return opened(prerendered(payload), `wallet`);
+    /**
+     * Both carry a keyboard now, and it is the same button in two moods: «کد
+     * هدیه دارم» under the wallet, «کد معرفی دارم» under the invite screen.
+     * Built by the caller because only the caller knows whether either is worth
+     * offering — a user who has already been referred would be handed a button
+     * whose only possible answer is «شما قبلاً با کد دعوت دیگری ثبت شده‌اید».
+     */
+    case TEMPLATES.BOT_WALLET: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `wallet`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
-    case TEMPLATES.BOT_REFERRAL:
-      return opened(prerendered(payload), `home`);
+    case TEMPLATES.BOT_REFERRAL: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `home`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /**
      * `/myreviews` — the reviews, each with the button that reports it.

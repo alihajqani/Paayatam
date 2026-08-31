@@ -638,21 +638,40 @@ an environment with a different key cannot read existing drafts**; they are
 discarded on read and the user starts their form again, which is why this is a
 note rather than a warning.
 
-### Migrations 0029–0031 and what they switch on
+### Migrations 0029–0032 and what they switch on
 
-Three additive migrations, and **two of them are inert on the day they land**.
+Four additive migrations, and **two of them are inert on the day they land**.
 
 | # | What it adds | Effect on deploy day |
 |---|---|---|
 | 0029 | `EVENT_JOIN_SPEND` on `coin_ledger_type` | **None.** `economy.event_join_coins` defaults to `0`, and the service writes no ledger row at zero — `coin_ledger.amount` may not be zero, and a row claiming somebody paid nothing is worse than no row |
 | 0030 | `admin_telegram_link` | **None until a row exists**, and no row exists until somebody runs the linking tool below |
 | 0031 | `ADMIN_CASE` on `conversation_kind` | **None.** A value nothing writes until a moderator is linked |
+| 0032 | `REDEEM_CODE` on `conversation_kind` | **Live immediately**, and it is the one that changes a screen: `/wallet` grows «🎁 کد هدیه دارم», `/referral` grows «🎟 کد معرفی دارم», and bare `/gift` opens a form instead of reciting its own syntax. Nothing is charged and no setting gates it |
 
-**0029 and 0031 are `ALTER TYPE … ADD VALUE`, which Postgres cannot run inside a
-transaction.** That is why they are separate files, and why a later failure does
-not roll them back. They are additive-only, so a partial apply is safe — but the
-runbook has to say so rather than leave somebody to discover it during an
-incident.
+**0029, 0031 and 0032 are `ALTER TYPE … ADD VALUE`, which Postgres cannot run
+inside a transaction.** That is why they are separate files, and why a later
+failure does not roll them back. They are additive-only, so a partial apply is
+safe — but the runbook has to say so rather than leave somebody to discover it
+during an incident.
+
+**0032 wants its containers replaced before it is worth anything, and tolerates
+the reverse.** The value is written only by a build that knows the wizard, and
+an old build never reads it — so the migration landing first (which is the order
+`deploy.sh` runs things in) is a no-op, not a window. Rolling *back* to a release
+without the wizard is also safe: a draft row of that kind is simply never
+resumed, and the seven-day sweep removes it.
+
+#### If the code form has to be switched off
+
+`ENABLE_CONVERSATION_WIZARD=0` is the lever, and it is the same one every other
+bot form is behind. With it off, `/gift <code>` still redeems — the command path
+does not go through the wizard — and the two buttons are not drawn at all. What
+is lost is entering a **referral** code by hand, which has no other route.
+
+Codes are redeemed at ten an hour per account, enforced in the bot from v0.6.4
+on the same `GIFT_CODE_REDEEM` bucket the API has used since M18. Before that the
+bot's path was unmetered, so the limit protected one of two surfaces.
 
 #### Charging for a join, if you ever want to
 

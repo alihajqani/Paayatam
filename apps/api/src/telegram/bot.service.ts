@@ -21,6 +21,7 @@ import {
   ReviewService,
   asCreateEventForm,
   categoryChoice,
+  isCodeKind,
   eventChoice,
   touchedFields,
   genderLabel,
@@ -46,6 +47,9 @@ import {
   AdminTelegramService,
   type AdminCaseForm,
   type AdminSession,
+  type CodeKind,
+  type RedeemCodeForm,
+  type ReferralClaim,
 } from '@payetam/domain';
 import {
   ENV,
@@ -75,6 +79,8 @@ import {
   settingsRows,
   encodeSettingCallback,
   parseAdminCallback,
+  parseCodeCallback,
+  encodeCodeCallback,
   parseSettingCallback,
   parseStartPayload,
   adminQueueRows,
@@ -356,8 +362,27 @@ export class BotService {
           this.coins.balanceOf(user.id),
           this.coins.historyOf(user.id, WALLET_HISTORY_LIMIT),
         ]);
+        /**
+         * «کد هدیه دارم», under the balance it would change.
+         *
+         * This is where somebody is when they remember they were given a code —
+         * looking at the number it is meant to move — and until v0.6.4 the only
+         * way to spend one was to know that `/gift` took an argument. The button
+         * opens the form; the code is typed into it and never into a keyboard.
+         *
+         * Offered only when the wizards are on, like every other button that
+         * opens a form: one whose handler answers «این بخش موقتاً در دسترس
+         * نیست» is worse than no button.
+         */
         return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
           text: formatWallet(balance, history),
+          ...(this.env.ENABLE_CONVERSATION_WIZARD
+            ? {
+                keyboard: JSON.stringify([
+                  [{ text: '🎁 کد هدیه دارم', callbackData: encodeCodeCallback('gift') }],
+                ]),
+              }
+            : {}),
         });
       }
 
@@ -459,6 +484,22 @@ export class BotService {
        */
       case 'referral': {
         const summary = await this.referrals.summaryFor(user.id);
+        /**
+         * «کد معرفی دارم» — the half of this screen that never existed.
+         *
+         * `/referral` shows the caller's own code so they can *send* it. Being
+         * on the receiving end was a different product: a referral code could
+         * only ever arrive as `?start=<code>` on a link, so a code somebody read
+         * out to a friend, printed on a flyer, or forwarded as plain text could
+         * not be entered anywhere. `ReferralService.claim` has taken exactly this
+         * since M13 and had no surface in the bot at all.
+         *
+         * Offered only to somebody who has **not** been referred: `referredBy`
+         * being non-null means `claim` can answer nothing but «شما قبلاً با کد
+         * دعوت دیگری ثبت شده‌اید», and a button that exists to be refused is
+         * worse than no button — the rule `/requests` follows for «لغو».
+         */
+        const canClaim = this.env.ENABLE_CONVERSATION_WIZARD && summary.referredBy === null;
         return this.reply(updateId, user.id, TEMPLATES.BOT_REFERRAL, {
           text: formatReferral(
             {
@@ -472,16 +513,29 @@ export class BotService {
             // handle rather than to `https://t.me/undefined?start=…`.
             this.env.TELEGRAM_BOT_USERNAME ?? 'paayatambot',
           ),
+          ...(canClaim
+            ? {
+                keyboard: JSON.stringify([
+                  [{ text: '🎟 کد معرفی دارم', callbackData: encodeCodeCallback('ref') }],
+                ]),
+              }
+            : {}),
         });
       }
 
       /**
-       * `/gift <code>` — redeem a gift or discount code.
+       * `/gift` — with a code, or without one.
        *
-       * The first command to take an argument. `parseUpdate` matched one and
-       * threw it away for everything but `/start`, so a code had nowhere to
-       * ride; it is carried now, which is a smaller change than a wizard whose
-       * only step is "type the code".
+       * `/gift ABCD1234` was the first command to take an argument, and for one
+       * release it was the *only* way to spend a code: `parseUpdate` had matched
+       * an argument and thrown it away for everything but `/start`.
+       *
+       * **Bare `/gift` now opens the form** rather than answering «کد را همراه
+       * دستور بفرستید — مثال: /gift ABCD1234». That sentence was homework — the
+       * shape the settings board was fixed out of — and it was given at the one
+       * moment the user has already said what they want and is holding the code.
+       * The argument form stays, because somebody who types it has been faster
+       * than any form could be.
        *
        * The code is **not** echoed back on failure. It may be a campaign code
        * somebody was given privately, and a bot repeating it into a chat that
@@ -489,21 +543,13 @@ export class BotService {
        */
       case 'gift': {
         if (argument === null) {
-          return this.notice(updateId, user, 'کد را همراه دستور بفرستید — مثال: /gift ABCD1234');
+          return this.openCodeForm(updateId, user, 'gift');
         }
         if (!(await this.mayWrite(updateId, user))) return;
-        try {
-          const redeemed = await this.giftCodes.redeem(user.id, argument);
-          return this.notice(
-            updateId,
-            user,
-            `کد پذیرفته شد ✅\n\n${toPersianDigits(String(redeemed.coins))} سکه به حساب شما اضافه شد. ` +
-              `موجودی: ${toPersianDigits(String(redeemed.balance))} سکه`,
-          );
-        } catch (error) {
-          if (!(error instanceof AppError)) throw error;
-          return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
-        }
+        // The outcome matters only to the form, which uses it to decide whether
+        // the draft has finished its work. There is no draft on this path.
+        await this.redeemGift(updateId, user, argument);
+        return;
       }
 
       /**
@@ -909,9 +955,7 @@ export class BotService {
     if (payload !== null) {
       try {
         const claim = await this.referrals.claim(userId, stripReferralPrefix(payload));
-        await this.reply(updateId, userId, TEMPLATES.BOT_REFERRAL_ACCEPTED, {
-          pendingCoins: claim.pendingCoins,
-        });
+        await this.announceReferralClaim(updateId, userId, claim);
         return;
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
@@ -1262,6 +1306,25 @@ export class BotService {
     const settingCallback = parseSettingCallback(data);
     if (settingCallback !== null) {
       return this.onSettingCallback(update.updateId, user, callbackQueryId, settingCallback);
+    }
+
+    /**
+     * «کد هدیه دارم» / «کد معرفی دارم» — open the form that takes one (v0.6.4).
+     *
+     * The consent gate and the wizard flag are both `openCodeForm`'s, because
+     * both of them have an answer that is *a screen* rather than a refusal — the
+     * gate opens where the refused action would have happened, and a gift code
+     * with the forms off still has its command. Checking either here would mean
+     * two places deciding, and the toast would contradict the message.
+     *
+     * The button carries no code and never will — see `parseCodeCallback`. What
+     * it opens is a wizard, so the code is typed into a message the bot then
+     * deletes, rather than into a keyboard that stays in the chat.
+     */
+    const codeCallback = parseCodeCallback(data);
+    if (codeCallback !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.openCodeForm(update.updateId, user, codeCallback === 'ref' ? 'referral' : 'gift');
     }
 
     /**
@@ -2237,6 +2300,165 @@ export class BotService {
     return this.drawWizard(updateId, user, outcome);
   }
 
+  // ── codes somebody was handed (v0.6.4) ──────────────────────────────────────
+
+  /**
+   * Open the form that takes a code, with the kind seeded.
+   *
+   * Two callers, and neither of them asks the user which kind of code they are
+   * holding: the button that was tapped knows, and `initialForm` is how it says
+   * so — the same route `FILE_REPORT`'s target takes, for the same reason.
+   *
+   * **Degrades differently for the two kinds when the wizards are off.** A gift
+   * code still has `/gift <code>`, so the old sentence is the true answer and is
+   * given. A referral code has nothing else at all, so it gets the honest
+   * «موقتاً در دسترس نیست» the flag means everywhere else.
+   */
+  private async openCodeForm(updateId: number, user: BotUser, codeKind: CodeKind): Promise<void> {
+    if (!this.env.ENABLE_CONVERSATION_WIZARD) {
+      return codeKind === 'gift'
+        ? this.notice(updateId, user, 'کد را همراه دستور بفرستید — مثال: /gift ABCD1234')
+        : this.wizardsOff(updateId, user);
+    }
+    if (!(await this.mayWrite(updateId, user))) return;
+
+    const outcome = await this.conversations.start(user.id, 'REDEEM_CODE', updateId, null, {
+      codeKind,
+    });
+    return this.drawWizard(updateId, user, outcome);
+  }
+
+  /**
+   * The code the form collected, handed to whichever service owns it.
+   *
+   * ── Why the draft survives a refusal ────────────────────────────────────────
+   *
+   * Because the overwhelmingly common refusal here is a **typo**, and the form is
+   * one field. Clearing it would answer «این کد هدیه معتبر نیست» by closing the
+   * only place the code can be retyped, and the user would have to find the
+   * button again to correct a single character. Left open, the next message they
+   * send is another attempt — the wizard is still on its one step — and
+   * «انصراف» is on the screen for somebody who has given up.
+   *
+   * It is cleared the moment a code is **accepted**, because a form that has done
+   * its job must not go on claiming everything the user types.
+   */
+  private async submitCode(
+    updateId: number,
+    user: BotUser,
+    raw: Record<string, unknown>,
+  ): Promise<void> {
+    const form = raw as RedeemCodeForm;
+
+    // A form with no kind is a draft from a build that seeded one differently.
+    // There is nothing to retry against, so this one *is* cleared.
+    if (form.code === undefined || !isCodeKind(form.codeKind)) {
+      await this.conversations.clear(user.id);
+      return this.notice(updateId, user, 'کد ثبت نشد. دوباره تلاش کنید.');
+    }
+
+    const accepted =
+      form.codeKind === 'gift'
+        ? await this.redeemGift(updateId, user, form.code)
+        : await this.claimReferral(updateId, user, form.code);
+
+    if (accepted) await this.conversations.clear(user.id);
+  }
+
+  /**
+   * Spend a gift code, from the form or from `/gift <code>`.
+   *
+   * ── The rate limit, and why it is here ──────────────────────────────────────
+   *
+   * `POST /gift-codes/redeem` has carried `@RateLimit('GIFT_CODE_REDEEM')` since
+   * M18 and the bot's path carried nothing — so ten-an-hour was ten an hour *on
+   * one of two surfaces*, which is the definition T12 gives of not being a limit
+   * at all. The same bucket and the same subject as the API's, because a limit
+   * that can be reset by changing which app you use is a limit with a button
+   * marked «دوباره».
+   *
+   * It matters more here than it did there: this is the one endpoint in the
+   * product where **guessing pays**, and v0.6.4 is what turned guessing from
+   * "know the command and its argument" into a button and a text box.
+   *
+   * Returns whether the code was accepted, so the caller in the form knows
+   * whether the draft has finished its work. The code is never echoed, on any
+   * branch.
+   */
+  private async redeemGift(updateId: number, user: BotUser, code: string): Promise<boolean> {
+    const verdict = await this.limiter.consume(
+      'GIFT_CODE_REDEEM',
+      user.publicId,
+      RATE_LIMITS.GIFT_CODE_REDEEM,
+    );
+    if (!verdict.allowed) {
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.RATE_LIMITED]);
+      return false;
+    }
+
+    try {
+      const redeemed = await this.giftCodes.redeem(user.id, code);
+      await this.notice(
+        updateId,
+        user,
+        `کد پذیرفته شد ✅\n\n${toPersianDigits(String(redeemed.coins))} سکه به حساب شما اضافه شد. ` +
+          `موجودی: ${toPersianDigits(String(redeemed.balance))} سکه`,
+      );
+      return true;
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return false;
+    }
+  }
+
+  /**
+   * Record who invited this user, from a code they typed rather than a link.
+   *
+   * No rate limit, deliberately, and the asymmetry with the gift path is the
+   * argument: `referral.referred_user_id` is UNIQUE, so a caller has exactly one
+   * successful claim in their life and guessing pays them nothing — the reward
+   * goes to the *owner* of the code, and only after this user attends something
+   * real. `ReferralService` counts refusals by outcome, which is what makes a
+   * sweep visible without a bucket that would also refuse the one honest attempt
+   * somebody makes after mistyping twice.
+   */
+  private async claimReferral(updateId: number, user: BotUser, code: string): Promise<boolean> {
+    try {
+      const claim = await this.referrals.claim(user.id, code);
+      await this.announceReferralClaim(updateId, user.id, claim);
+      return true;
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return false;
+    }
+  }
+
+  /**
+   * «کد دعوت ثبت شد», said once for both ways in.
+   *
+   * `/start <code>` and the form reach the same place and must say the same
+   * thing. The status is read rather than assumed because `claim` settles
+   * immediately for somebody who has *already* attended an event — an unusual
+   * order but a real one — and `BOT_REFERRAL_ACCEPTED` would then promise «۰ سکه
+   * پس از شرکت در نخستین فعالیت» to somebody whose coins had just landed.
+   */
+  private async announceReferralClaim(
+    updateId: number,
+    userId: string,
+    claim: ReferralClaim,
+  ): Promise<void> {
+    if (claim.status === 'QUALIFIED') {
+      return this.reply(updateId, userId, TEMPLATES.BOT_NOTICE, {
+        text: 'کد دعوت ثبت شد ✅\n\nپاداش آن به حساب شما اضافه شد.',
+      });
+    }
+    return this.reply(updateId, userId, TEMPLATES.BOT_REFERRAL_ACCEPTED, {
+      pendingCoins: claim.pendingCoins,
+    });
+  }
+
   /**
    * A tap on the settings board.
    *
@@ -2605,6 +2827,8 @@ export class BotService {
             return this.submitEventEdit(updateId, user, outcome.snapshot);
           case 'ADMIN_CASE':
             return this.submitAdminCase(updateId, user, outcome.snapshot);
+          case 'REDEEM_CODE':
+            return this.submitCode(updateId, user, outcome.snapshot.form);
           default:
             return this.submitWizard(updateId, user, outcome.snapshot.form);
         }
@@ -2617,6 +2841,16 @@ export class BotService {
          */
         if (outcome.snapshot.kind === 'ACCEPT_POLICIES') {
           return this.finishConsent(updateId, user);
+        }
+        /**
+         * A code has nothing to review either, and for a sharper reason than the
+         * consent gate's: the whole form is one field, it is still on the screen
+         * the user just typed into, and a «بازبینی نهایی» of it would ask them to
+         * confirm eight characters they can see. Typing the code **is** the
+         * submission.
+         */
+        if (outcome.snapshot.kind === 'REDEEM_CODE') {
+          return this.submitCode(updateId, user, outcome.snapshot.form);
         }
         if (outcome.snapshot.kind === 'EDIT_EVENT') {
           const editing = asCreateEventForm(outcome.snapshot.form);

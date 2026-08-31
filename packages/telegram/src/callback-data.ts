@@ -552,3 +552,49 @@ export function parseAdminCallback(data: string): AdminCallback | null {
   if (action === 'list') return id === NO_ID ? { action: 'list', id: null } : null;
   return isPublicId(id) ? { action: 'open', id } : null;
 }
+
+/**
+ * The code-entry protocol: `cd:<kind>:x` (v0.6.4).
+ *
+ * ── Why a button and not a command ──────────────────────────────────────────
+ *
+ * Both codes this product hands people were, until now, typed as syntax. A gift
+ * code was `/gift ABCD1234` — a command with an argument, known only to somebody
+ * who had read `/help` — and a referral code was worse: `?start=<code>` on a
+ * link was the *only* way in, so a code read out loud, written on a flyer or
+ * forwarded as plain text could not be entered at all. That is the same shape
+ * the settings board was fixed out of, one step further along: not advice that
+ * asks somebody to type something, but a feature that exists only if they do.
+ *
+ * These two buttons open the form instead. They carry no id and no code — the
+ * code is typed into the wizard, not into a keyboard — so the value slot spends
+ * `x` like `ad:list` does, because the three-part shape is what every parser in
+ * this file expects.
+ *
+ * **The code is deliberately not in the callback.** A gift code is worth coins,
+ * `callback_data` rides in a message that survives in the chat and in anybody's
+ * screenshot of it, and a button carrying a redeemable code would be a code
+ * anybody who saw the screen could spend.
+ *
+ * Authorisation is not in the button, as everywhere else: opening a form grants
+ * nothing, and `GiftCodeService.redeem` and `ReferralService.claim` refuse on
+ * their own terms — an unknown code, one already used, one that is the caller's
+ * own.
+ */
+export const CODE_CALLBACK_KINDS = ['gift', 'ref'] as const;
+export type CodeCallbackKind = (typeof CODE_CALLBACK_KINDS)[number];
+
+const CODE_PREFIX = 'cd';
+
+export function encodeCodeCallback(kind: CodeCallbackKind): string {
+  return `${CODE_PREFIX}:${kind}:${NO_ID}`;
+}
+
+export function parseCodeCallback(data: string): CodeCallbackKind | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, kind, id] = parts;
+  if (prefix !== CODE_PREFIX || id !== NO_ID) return null;
+  return CODE_CALLBACK_KINDS.find((candidate) => candidate === kind) ?? null;
+}

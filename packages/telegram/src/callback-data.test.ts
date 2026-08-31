@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   CHAT_CALLBACK_ACTIONS,
+  CODE_CALLBACK_KINDS,
   encodeChatCallback,
+  encodeCodeCallback,
   isPublicId,
   parseChatCallback,
+  parseCodeCallback,
 } from './callback-data';
 
 const ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -64,5 +67,37 @@ describe('isPublicId', () => {
     expect(isPublicId('')).toBe(false);
     expect(isPublicId('<img src=x onerror=alert(1)>')).toBe(false);
     expect(isPublicId(`${ID} `)).toBe(false);
+  });
+});
+
+/**
+ * The code-entry buttons (v0.6.4). They open a form and carry nothing else —
+ * least of all a code, which is worth coins and would survive in the chat and in
+ * anybody's screenshot of it.
+ */
+describe('the code-entry protocol', () => {
+  it.each(CODE_CALLBACK_KINDS)('round-trips %s', (kind) => {
+    expect(parseCodeCallback(encodeCodeCallback(kind))).toBe(kind);
+  });
+
+  it('encodes the documented three-part form', () => {
+    expect(encodeCodeCallback('gift')).toBe('cd:gift:x');
+    expect(encodeCodeCallback('ref')).toBe('cd:ref:x');
+  });
+
+  it.each([
+    ['an unknown kind', 'cd:coupon:x'],
+    ['another namespace', 'ad:gift:x'],
+    ['a code smuggled into the value slot', 'cd:gift:SUMMER24'],
+    ['a missing field', 'cd:gift'],
+    ['nothing at all', ''],
+  ])('%s parses to null', (_name, data) => {
+    expect(parseCodeCallback(data)).toBeNull();
+  });
+
+  /** No parser may answer for another's data — the prefix is what tells them apart. */
+  it('is not confused with a chat button, and does not confuse one', () => {
+    expect(parseCodeCallback(encodeChatCallback('accept', ID))).toBeNull();
+    expect(parseChatCallback(encodeCodeCallback('gift'))).toBeNull();
   });
 });
