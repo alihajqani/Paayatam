@@ -46,9 +46,6 @@ export interface CreateEventForm {
   title?: string;
   description?: string;
   categoryId?: string;
-  /** Set from the category button, so `when` stays pure. See `categoryChoice`. */
-  categoryAllowsLabel?: boolean;
-  customCategoryLabel?: string;
   provinceId?: string;
   cityId?: string;
   districtId?: string;
@@ -72,24 +69,21 @@ export interface CreateEventForm {
 }
 
 /**
- * A category button's value, carrying whether that category invites a custom
- * label.
+ * A category button: the id it carries, and the name it shows.
  *
- * `<uuid>.L` versus `<uuid>`, which is fifty bytes at its widest — inside the
- * codec's sixty-four. The alternative is for the *step* to look the category up,
- * and steps are pure functions; the alternative to *that* is a form field the
- * service fills in behind the step's back, which is worse than a suffix because
- * it is invisible at the point that reads it.
+ * It used to carry a `.L` suffix as well, meaning *this category invites a name
+ * of your own* — the «سایر» escape hatch. That whole path is gone (v0.6.7): the
+ * step that asked for the name did not work, and a category nobody can name is
+ * simply a category, so the value is the id and nothing else.
  */
-export function categoryChoice(id: string, nameFa: string, allowsCustomLabel: boolean): Choice {
-  return { value: allowsCustomLabel ? `${id}.L` : id, label: nameFa };
+export function categoryChoice(id: string, nameFa: string): Choice {
+  return { value: id, label: nameFa };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function chosenId(input: WizardInput): string | null {
-  const value = input.value.endsWith('.L') ? input.value.slice(0, -2) : input.value;
-  return UUID.test(value) ? value : null;
+  return UUID.test(input.value) ? input.value : null;
 }
 
 /**
@@ -229,20 +223,7 @@ const steps: WizardStep<CreateEventForm>[] = [
           error: `دسته را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
         };
       }
-      return {
-        ok: true,
-        patch: { categoryId: id, categoryAllowsLabel: input.value.endsWith('.L') },
-      };
-    },
-  },
-  {
-    key: 'catlabel',
-    ui: 'text',
-    when: (form) => form.categoryAllowsLabel === true,
-    prompt: () => 'خودتان چه نامی روی این فعالیت می‌گذارید؟',
-    accept: (input) => {
-      const result = text(input, 2, 60, 'عنوان دسته');
-      return result.ok ? { ok: true, patch: { customCategoryLabel: result.value } } : result;
+      return { ok: true, patch: { categoryId: id } };
     },
   },
   {

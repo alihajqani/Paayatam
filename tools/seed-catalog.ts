@@ -61,11 +61,18 @@ const DISTRICTS: Record<string, { slug: string; nameFa: string; sortOrder: numbe
  * بندرعباس has no کافه و بازی رومیزی scene to file under, and telling them their
  * activity does not exist is how a marketplace fails to start in a new city.
  *
- * **`other` is the escape hatch, and it is deliberately last.** `allowsCustomLabel`
- * lets the host type what they are actually doing, which lands in
- * `event.custom_category_label` and is blacklist-scanned like the title. Its
- * `sortOrder` of 999 is not decoration — a catch-all offered first is a catch-all
- * everybody picks, and the categories below it would stop collecting anything.
+ * **`other` is the escape hatch, and it is deliberately last.** Its `sortOrder`
+ * of 999 is not decoration — a catch-all offered first is a catch-all everybody
+ * picks, and the categories below it would stop collecting anything.
+ *
+ * `allowsCustomLabel` is false on every row, and «سایر» is where that is worth
+ * saying out loud: it used to be true, so a host who chose it was asked to name
+ * the activity themselves. The step did not work and the flag is what made it
+ * mandatory — `resolveCategory` raises `CUSTOM_LABEL_REQUIRED` for a category
+ * that allows a label and did not get one — so leaving the flag on while
+ * removing the question would have made «سایر» unpickable. The column and the
+ * service's handling of it stay for the admin panel; nothing sets it any more.
+ * Migration 0039 turned it off on the deployed rows.
  *
  * Ids are stable across runs because the upsert key is `slug`, and events
  * reference category ids — so renaming a `nameFa` here is safe and changing a
@@ -185,7 +192,7 @@ const CATEGORIES = [
     icon: '✨',
     isActive: true,
     sortOrder: 999,
-    allowsCustomLabel: true,
+    allowsCustomLabel: false,
   },
 ];
 

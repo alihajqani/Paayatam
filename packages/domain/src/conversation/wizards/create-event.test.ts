@@ -57,31 +57,32 @@ describe('title', () => {
 });
 
 describe('category', () => {
-  it('reads the id out of a plain button', () => {
-    expect(accept('cat', UUID, {}, 'callback')).toEqual({
-      ok: true,
-      patch: { categoryId: UUID, categoryAllowsLabel: false },
-    });
-  });
+  it('reads the id out of the button', () => {
+    const choice = categoryChoice(UUID, 'کوهنوردی');
 
-  /** The `.L` suffix is how a pure step learns the category invites a label. */
-  it('reads the label flag out of a suffixed button', () => {
-    const choice = categoryChoice(UUID, 'سایر', true);
-
-    expect(choice.value).toBe(`${UUID}.L`);
+    expect(choice.value).toBe(UUID);
     expect(accept('cat', choice.value, {}, 'callback')).toEqual({
       ok: true,
-      patch: { categoryId: UUID, categoryAllowsLabel: true },
+      patch: { categoryId: UUID },
     });
   });
 
-  it('refuses anything that is not an id', () => {
-    expect(accept('cat', 'not-a-uuid', {}, 'callback').ok).toBe(false);
+  it('refuses anything that is not an id, and quotes it back', () => {
+    const result = accept('cat', 'not-a-uuid', {}, 'callback');
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('«not-a-uuid»');
   });
 
-  it('asks for a custom label only when the category invites one', () => {
-    expect(nextStep(createEventWizard, 'cat', { categoryAllowsLabel: true })?.key).toBe('catlabel');
-    expect(nextStep(createEventWizard, 'cat', { categoryAllowsLabel: false })?.key).toBe('prov');
+  /**
+   * The «سایر» escape hatch is gone (v0.6.7): choosing a category no longer
+   * leads anywhere but the province. The `.L` suffix that carried the flag went
+   * with it, and migration 0039 turned the flag off on the rows — a category
+   * that still allowed a label with no step to answer it would be refused at
+   * submit by `CUSTOM_LABEL_REQUIRED`.
+   */
+  it('goes straight from the category to the province', () => {
+    expect(nextStep(createEventWizard, 'cat', {})?.key).toBe('prov');
   });
 });
 

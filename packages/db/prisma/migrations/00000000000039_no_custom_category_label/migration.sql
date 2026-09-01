@@ -1,0 +1,33 @@
+-- Migration 0039: no category asks the host to name it themselves.
+--
+-- Data only. `category.allows_custom_label` and `event.custom_category_label`
+-- both stay: the column is read by the admin panel and by every event that
+-- already carries a label, and dropping it would rewrite history to match a
+-- decision about the form.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Why the flag has to move, and not only the wizard step
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- «سایر» was the escape hatch: `allows_custom_label = true`, and the bot asked
+-- «خودتان چه نامی روی این فعالیت می‌گذارید؟» after it was chosen. The step is
+-- gone in v0.6.7 — it did not work, and nothing in production has ever carried a
+-- label, which is the shape of a feature nobody could complete.
+--
+-- Removing the question alone would have made «سایر» **unpickable**.
+-- `EventService.resolveCategory` treats the flag as a requirement, not an
+-- invitation:
+--
+--     if (category.allowsCustomLabel && !hasLabel) throw CUSTOM_LABEL_REQUIRED;
+--
+-- so a category that allows a label and does not receive one is refused. A host
+-- would have chosen «سایر», answered ten more questions, pressed «ثبت فعالیت»
+-- and been told «برای دستهٔ «سایر» باید نوع تفریح را بنویسید» about a question
+-- the form no longer asks. The flag and the step are one feature and have to
+-- leave together.
+--
+-- The rule below is written as "every category", not "the one called سایر": the
+-- panel can set the flag on any row, and what this release removes is the
+-- *ability to answer it*, which is true of all of them.
+
+UPDATE "category" SET "allows_custom_label" = FALSE WHERE "allows_custom_label" = TRUE;

@@ -4272,7 +4272,7 @@ export class BotService {
     return {
       categories: async () =>
         (await snapshot()).categories.map((category) =>
-          categoryChoice(category.id, category.nameFa, category.allowsCustomLabel),
+          categoryChoice(category.id, category.nameFa),
         ),
       provinces: async () =>
         (await snapshot()).provinces.map((province) => ({
@@ -4324,7 +4324,7 @@ export class BotService {
      */
     const lines: SummaryLine[] = [
       { label: 'نام', value: form.title ?? '—' },
-      { label: 'دسته', value: form.customCategoryLabel ?? category?.nameFa ?? '—' },
+      { label: 'دسته', value: category?.nameFa ?? '—' },
       { label: 'مکان', value: where },
       {
         label: 'زمان',
@@ -4803,9 +4803,6 @@ function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
     endsAt,
     capacity: form.capacity,
     costType: form.costType,
-    ...(form.customCategoryLabel !== undefined
-      ? { customCategoryLabel: form.customCategoryLabel }
-      : {}),
     ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
     ...(form.districtLabel !== undefined ? { districtLabel: form.districtLabel } : {}),
     ...(form.costAmount !== undefined ? { costAmount: form.costAmount } : {}),
@@ -4838,7 +4835,6 @@ const FIELD_LABELS_FA: Record<string, string> = {
   title: 'نام فعالیت',
   description: 'توضیح',
   categoryId: 'دسته',
-  customCategoryLabel: 'عنوان دسته',
   cityId: 'شهر',
   districtId: 'محله',
   districtLabel: 'محله',
