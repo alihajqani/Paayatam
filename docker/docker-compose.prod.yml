@@ -203,8 +203,9 @@ services:
       # `environment` beats `env_file` in Compose, so a stale `PAYETAM_VERSION`
       # left behind in `.env` cannot win over the real one.
       #
-      # Not repeated on `worker`: nothing in the worker reads it, and config a
-      # process ignores is config that goes stale without anyone noticing.
+      # Repeated on `worker` since v0.6.5 — see the note there. It used to say
+      # "not repeated: nothing in the worker reads it", which was true until the
+      # release announcement started to.
       PAYETAM_VERSION: ${PAYETAM_VERSION:-local}
     depends_on:
       postgres:
@@ -255,6 +256,23 @@ services:
     <<: *hardening
     env_file:
       - ../.env
+    environment:
+      # The release string, and in the worker it is load-bearing rather than
+      # informational (v0.6.5).
+      #
+      # `ReleaseAnnouncementService` keys the "the bot was updated" broadcast on
+      # `message_campaign.idempotency_key = release-announce:<version>`, and that
+      # column is UNIQUE — which is the whole exactly-once guarantee. Without
+      # this line the worker reads no `PAYETAM_VERSION`, `resolveVersion` falls
+      # back to `local`, and the key is `release-announce:local` on **every**
+      # release. The first deploy announces; every deploy after it finds that row
+      # and skips. The feature works once and is then silently dead, which is how
+      # v0.6.5 itself shipped — the message it sent named «local» to seven users.
+      #
+      # The API's copy above carried a note saying this was deliberately not
+      # repeated here, because nothing in the worker read it. That stopped being
+      # true in the same release that started depending on it.
+      PAYETAM_VERSION: ${PAYETAM_VERSION:-local}
     depends_on:
       postgres:
         condition: service_healthy
