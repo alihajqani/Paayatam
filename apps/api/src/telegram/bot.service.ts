@@ -84,6 +84,12 @@ import {
   formatEventDetail,
   formatParticipants,
   encodeChatCallback,
+  commandGroupFor,
+  decodeMenuCallback,
+  menuGroupKeyboard,
+  menuGroupText,
+  menuRootKeyboard,
+  menuRootText,
   parseDiscoverCallback,
   formatJalali,
   formatPolicies,
@@ -152,6 +158,7 @@ import {
   type SummaryLine,
   type WizardScreen,
 } from '@payetam/telegram';
+import type { MenuCallback } from '@payetam/telegram';
 
 /**
  * What a reply interpolates.
@@ -443,6 +450,16 @@ export class BotService {
     argument: string | null = null,
   ): Promise<void> {
     switch (command.toLowerCase()) {
+      /**
+       * `/menu` — every command, two taps away.
+       *
+       * `/help` lists the commands as text, which is readable and not actionable:
+       * somebody who finds `/edit_profile` there still has to type it. This is the
+       * same list as buttons, grouped by what a person is trying to do.
+       */
+      case 'menu':
+        return this.sendMenuRoot(updateId, user);
+
       case 'help':
         return this.reply(updateId, user.id, TEMPLATES.BOT_HELP, {});
 
@@ -1596,6 +1613,23 @@ export class BotService {
      * moderator the consent wizard in the middle of an incident would be the
      * gate refusing the person whose job is to fix things.
      */
+    /**
+     * The command menu, before everything else and behind no gate.
+     *
+     * Navigating a menu is a read: opening a group draws a list of the bot's own
+     * commands and nothing else. Putting it behind `mayWrite` would mean somebody
+     * who has not yet accepted the terms cannot look at what the bot does —
+     * including `/help` and `/bug`, which are the two they most need at exactly
+     * that moment. Running a command from the menu is dispatched through the same
+     * `switch` a typed one goes through, so every gate that command carries still
+     * applies where it always did.
+     */
+    const menuCallback = decodeMenuCallback(data);
+    if (menuCallback !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.onMenuCallback(update, user, menuCallback);
+    }
+
     const adminCallback = parseAdminCallback(data);
     if (adminCallback !== null) {
       const session = await this.adminTelegram.sessionFor(user.telegramUserId);
@@ -3152,12 +3186,71 @@ export class BotService {
    *
    * Keyed on the update and the message, so a redelivered update redraws once.
    */
+  /**
+   * A menu tap: redraw the top level, open a group, or run a command.
+   *
+   * ── Redraw rather than send ─────────────────────────────────────────────────
+   *
+   * Descending into a group edits the message the menu is already on, exactly as
+   * the discover filters do. A menu that sends a new message per tap leaves a
+   * column of dead menus above the live one, and the user has to work out which
+   * of them is the one that still responds.
+   *
+   * ── Why a command is dispatched and not reimplemented ───────────────────────
+   *
+   * `onCommand` is the authority on what a command does, including every gate it
+   * carries — consent, suspension, quotas, affordability. Running the command
+   * from here through the same method means a menu button and a typed command
+   * cannot behave differently, which is the property that makes the menu a way of
+   * finding commands rather than a second implementation of them.
+   */
+  private async onMenuCallback(
+    update: ParsedUpdate,
+    user: BotUser,
+    callback: MenuCallback,
+  ): Promise<void> {
+    // Telegram omits it for a message too old to edit, and for an inline result.
+    // Both mean "there is nothing to redraw", which is what the null branches
+    // below send a fresh menu for.
+    const messageId = update.intent.kind === 'CALLBACK' ? (update.intent.messageId ?? null) : null;
+
+    if (callback.kind === 'command') {
+      return this.onCommand(update.updateId, user, callback.command);
+    }
+
+    if (callback.kind === 'root') {
+      if (messageId === null) return this.sendMenuRoot(update.updateId, user);
+      return this.repaint(update.updateId, user, messageId, menuRootText(), menuRootKeyboard());
+    }
+
+    const group = commandGroupFor(callback.key);
+    // A key this build does not know: an old button, or a tampered one. Same
+    // answer either way, which is what keeps the two indistinguishable.
+    if (group === null) return;
+
+    if (messageId === null) {
+      return this.reply(update.updateId, user.id, TEMPLATES.BOT_MENU, { groupKey: group.key });
+    }
+    return this.repaint(
+      update.updateId,
+      user,
+      messageId,
+      menuGroupText(group),
+      menuGroupKeyboard(group),
+    );
+  }
+
+  /** The menu as a fresh message, for `/menu` and for a tap with no message id. */
+  private async sendMenuRoot(updateId: number, user: BotUser): Promise<void> {
+    return this.reply(updateId, user.id, TEMPLATES.BOT_MENU, {});
+  }
+
   private async repaint(
     updateId: number,
     user: BotUser,
     messageId: number,
     text: string,
-    keyboard: readonly { text: string; callbackData?: string; url?: string }[][],
+    keyboard: readonly (readonly { text: string; callbackData?: string; url?: string }[])[],
   ): Promise<void> {
     await this.queues.enqueue(
       QUEUES.TELEGRAM_SEND,

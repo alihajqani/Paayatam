@@ -1,8 +1,18 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { encodeChatCallback, isPublicId } from './callback-data';
-import { helpCommandLines } from './commands';
+import { commandGroupFor, helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
-import { chatKeyboard, hostDecisionKeyboard, menuLabelFor, type InlineKeyboard } from './keyboards';
+import {
+  chatKeyboard,
+  hostDecisionKeyboard,
+  menuGroupKeyboard,
+  menuGroupText,
+  menuLabelFor,
+  menuOpenerKeyboard,
+  menuRootKeyboard,
+  menuRootText,
+  type InlineKeyboard,
+} from './keyboards';
 
 /**
  * Every Persian message the bot sends (plan §3.2).
@@ -135,6 +145,14 @@ export const TEMPLATES = {
    * says — invariant 11 has no staff exception.
    */
   BOT_ADMIN_CASES: 'bot.admin_cases',
+  /**
+   * The command menu (`/menu`), and every group screen under it.
+   *
+   * A passthrough like `BOT_WIZARD`: the body and the keyboard are built by the
+   * caller, which knows which level of the hierarchy it is drawing. A template
+   * per group would be a second copy of `COMMAND_GROUPS`.
+   */
+  BOT_MENU: 'bot.menu',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -495,7 +513,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * are being asked to rely on and «امن» on its own means nothing.
      */
     case TEMPLATES.BOT_WELCOME:
-      return opened(
+      return openedWithMenu(
         `<b>به پایه‌تم خوش آمدید</b> 👋\n\n` +
           `اینجا برای فعالیت‌های گروهی کوچک — کافه و بازی، پیاده‌روی و کوهنوردی — ` +
           `همراه پیدا می‌کنید.\n\n` +
@@ -582,6 +600,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * `MyEventsView` and had no bot equivalent, so a host could see their
      * activities and do nothing to them.
      */
+    /**
+     * The command menu, built here from `COMMAND_GROUPS` rather than passed in.
+     *
+     * The caller sends a group key and nothing else. That is what keeps this off
+     * `escape.test.ts`'s pre-rendered exemption list, whose rule is that the body
+     * must be written by this package's own renderer — a menu body assembled in
+     * `BotService` would be a body this package escapes nothing in, for the sake
+     * of markup it could just as well write itself.
+     *
+     * An unknown key renders the top level. A stale button from a build that had
+     * a group this one does not should land somewhere useful, and the root is the
+     * one screen that is always correct.
+     */
+    case TEMPLATES.BOT_MENU: {
+      const group = commandGroupFor(str(payload, 'groupKey'));
+      if (group === null) return { text: menuRootText(), keyboard: menuRootKeyboard() };
+      return { text: menuGroupText(group), keyboard: menuGroupKeyboard(group) };
+    }
+
     case TEMPLATES.BOT_MY_EVENTS: {
       const keyboard = parseKeyboard(payload);
       return {
@@ -929,8 +966,17 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     }
 
     /** Whatever the bot has to say about a request it could not carry out. */
+    /**
+     * Every refusal, warning and one-line answer — and the way to the commands.
+     *
+     * This template is what a user sees at exactly the moments they are stuck:
+     * a precondition refused them, a button expired, a form closed. It has no
+     * keyboard of its own, so it is the right place to spend one on the menu.
+     * See `menuOpenerKeyboard` for why the menu is a button here rather than
+     * nineteen buttons under every message.
+     */
     case TEMPLATES.BOT_NOTICE:
-      return { text: str(payload, 'text') };
+      return { text: str(payload, 'text'), keyboard: menuOpenerKeyboard() };
 
     default:
       return null;
@@ -1006,6 +1052,18 @@ function parseKeyboard(payload: Payload): InlineKeyboard | undefined {
  */
 function opened(text: string, deepLink: string): RenderedMessage {
   return { text, deepLink };
+}
+
+/**
+ * Opened, and carrying the menu.
+ *
+ * For the two messages that are somebody's *first* — `/start`'s welcome and the
+ * one after registering. A new user has no idea what the bot can do and no
+ * reason to type `/help` to find out, so the first message it sends is the one
+ * that most needs a way in.
+ */
+function openedWithMenu(text: string, deepLink: string): RenderedMessage {
+  return { text, deepLink, keyboard: menuOpenerKeyboard() };
 }
 
 /**

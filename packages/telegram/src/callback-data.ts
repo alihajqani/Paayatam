@@ -662,3 +662,60 @@ export function encodeChannelRecheckCallback(): string {
 export function isChannelRecheckCallback(data: string): boolean {
   return data === encodeChannelRecheckCallback();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The command menu (`mn:`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Where a menu tap goes.
+ *
+ * Three shapes rather than a free-form string, so a tampered payload lands on a
+ * dead button instead of somewhere unintended: `mn:root` redraws the top level,
+ * `mn:g:<key>` opens one group, and `mn:c:<command>` runs a command. Nothing
+ * here carries a public id — the menu is about the bot, not about a row — which
+ * is why this decoder validates against the two lists rather than `isPublicId`.
+ */
+export type MenuCallback =
+  { kind: 'root' } | { kind: 'group'; key: string } | { kind: 'command'; command: string };
+
+const MENU_PREFIX = 'mn';
+
+export function encodeMenuRoot(): string {
+  return `${MENU_PREFIX}:root`;
+}
+
+export function encodeMenuGroup(key: string): string {
+  return `${MENU_PREFIX}:g:${key}`;
+}
+
+export function encodeMenuCommand(command: string): string {
+  return `${MENU_PREFIX}:c:${command}`;
+}
+
+/**
+ * Read a menu tap, or null.
+ *
+ * The command is **not** checked against `BOT_COMMANDS` here — that would make
+ * this module depend on `commands.ts` and the two are imported the other way
+ * round by the keyboard builder. The caller dispatches through the same `switch`
+ * every typed command goes through, which already answers «این فرمان را
+ * نمی‌شناسم» for anything it does not know. So an invented command reaches
+ * exactly the refusal a typed one would.
+ */
+export function decodeMenuCallback(data: string): MenuCallback | null {
+  const parts = data.split(':');
+  if (parts[0] !== MENU_PREFIX) return null;
+
+  if (parts.length === 2 && parts[1] === 'root') return { kind: 'root' };
+  if (parts.length !== 3) return null;
+
+  const value = parts[2];
+  if (value === undefined || value === '' || value.length > 32) return null;
+  // Same alphabet `setMyCommands` accepts, and the group keys are a subset of it.
+  if (!/^[a-z0-9_]+$/.test(value)) return null;
+
+  if (parts[1] === 'g') return { kind: 'group', key: value };
+  if (parts[1] === 'c') return { kind: 'command', command: value };
+  return null;
+}

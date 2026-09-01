@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BOT_COMMANDS, helpCommandLines } from './commands';
+import {
+  BOT_COMMANDS,
+  COMMAND_GROUPS,
+  commandGroupFor,
+  describeCommand,
+  helpCommandLines,
+} from './commands';
 import { TEMPLATES, render } from './templates';
 
 /**
@@ -79,5 +85,44 @@ describe('BOT_COMMANDS', () => {
 
   it('renders one help line per command', () => {
     expect(helpCommandLines().split('\n')).toHaveLength(BOT_COMMANDS.length);
+  });
+});
+
+/**
+ * The menu is only useful if it is complete.
+ *
+ * A command that dispatches, is advertised to Telegram and appears in no group
+ * is one that can be typed and never found — which is the failure the grouping
+ * exists to fix, reintroduced silently the next time somebody adds a command.
+ */
+describe('the command menu', () => {
+  it('places every command in exactly one group', () => {
+    const grouped = COMMAND_GROUPS.flatMap((group) => group.commands);
+
+    expect([...grouped].sort()).toEqual(BOT_COMMANDS.map((entry) => entry.command).sort());
+    expect(new Set(grouped).size).toBe(grouped.length);
+  });
+
+  it('gives every grouped command a label to render', () => {
+    for (const group of COMMAND_GROUPS) {
+      for (const command of group.commands) {
+        expect(describeCommand(command)).not.toBeNull();
+      }
+    }
+  });
+
+  it('resolves a group by its callback key, and nothing else', () => {
+    for (const group of COMMAND_GROUPS) {
+      expect(commandGroupFor(group.key)).toEqual(group);
+    }
+    expect(commandGroupFor('nope')).toBeNull();
+  });
+
+  /** The keys ride in `callback_data`, which is capped at sixty-four bytes. */
+  it('keeps the group keys short and unique', () => {
+    const keys = COMMAND_GROUPS.map((group) => group.key);
+
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const key of keys) expect(key).toMatch(/^[a-z0-9_]{1,8}$/);
   });
 });

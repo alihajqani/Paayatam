@@ -21,8 +21,13 @@ export {
   MODERATION_MENU_COMMAND,
   MODERATION_MENU_LABEL,
   menuCommandFor,
+  menuGroupKeyboard,
+  menuGroupText,
   menuKeyboard,
   menuLabelFor,
+  menuOpenerKeyboard,
+  menuRootKeyboard,
+  menuRootText,
 } from './keyboards';
 export type { ReplyButton, ReplyKeyboard } from './keyboards';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
@@ -73,7 +78,21 @@ export { formatPolicies, formatStanding } from './policies';
 export type { AcceptedPolicy } from './policies';
 export type { PolicyDocument } from './policies';
 export type { DigestInput } from './digest';
-export { BOT_COMMANDS, helpCommandLines } from './commands';
+export {
+  BOT_COMMANDS,
+  COMMAND_GROUPS,
+  commandGroupFor,
+  describeCommand,
+  helpCommandLines,
+} from './commands';
+export type { CommandGroup } from './commands';
+export {
+  decodeMenuCallback,
+  encodeMenuCommand,
+  encodeMenuGroup,
+  encodeMenuRoot,
+} from './callback-data';
+export type { MenuCallback } from './callback-data';
 export type { BotCommand } from './commands';
 
 // ── Conversation wizards (ADR-0017) ─────────────────────────────────────────

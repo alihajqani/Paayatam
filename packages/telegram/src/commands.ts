@@ -35,6 +35,7 @@ export interface BotCommand {
 }
 
 export const BOT_COMMANDS: readonly BotCommand[] = [
+  { command: 'menu', description: 'فهرست دستورها به‌صورت دکمه' },
   { command: 'help', description: 'راهنمای کار با ربات' },
   { command: 'create_event', description: 'ساختن فعالیت تازه' },
   { command: 'discover', description: 'فعالیت‌های نزدیک شما' },
@@ -70,4 +71,88 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
  */
 export function helpCommandLines(): string {
   return BOT_COMMANDS.map((c) => `<b>/${c.command}</b> — ${c.description}`).join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The command menu, as a hierarchy
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The commands, grouped by what somebody is trying to *do*.
+ *
+ * ── Why a hierarchy and not one flat keyboard ───────────────────────────────
+ *
+ * There are nineteen commands. Nineteen inline buttons is a wall that has to be
+ * scrolled and read in full before any of it can be acted on, which is the same
+ * problem `/help` already has and the reason a user who has not memorised the
+ * list never finds the command they want. Five groups of three to five is one
+ * decision followed by another, and each decision fits on a screen.
+ *
+ * ── Why the groups are these groups ─────────────────────────────────────────
+ *
+ * By the question being asked, not by the subsystem answering it. «فعالیت‌ها»
+ * holds everything about activities whether the user is hosting or attending,
+ * because somebody looking for «فعالیت‌های من» is not thinking about which side
+ * of the marketplace they are on. `/requests` and `/myevents` are the two halves
+ * of the same question and sit together for that reason.
+ *
+ * `/help` and `/bug` are their own group and last: they are what somebody
+ * reaches for when the other four groups have failed them, and a menu is read
+ * top-down by people who are getting on fine.
+ *
+ * Every command in `BOT_COMMANDS` appears in exactly one group, and
+ * `commands.test.ts` asserts it — a command that is dispatchable, advertised to
+ * Telegram and absent from the menu is a command only its author can find.
+ */
+export interface CommandGroup {
+  /** The stable key that rides in `callback_data`. Short: sixty-four bytes total. */
+  key: string;
+  /** What the button says at the top level. */
+  label: string;
+  /** One line under the group's own screen, so a tap is not a guess. */
+  hint: string;
+  commands: readonly string[];
+}
+
+export const COMMAND_GROUPS: readonly CommandGroup[] = [
+  {
+    key: 'ev',
+    label: '🎟 فعالیت‌ها',
+    hint: 'ساختن، پیدا کردن و اداره کردن فعالیت‌ها',
+    commands: ['create_event', 'discover', 'myevents', 'edit_event', 'requests'],
+  },
+  {
+    key: 'ms',
+    label: '💬 گفتگو و نظرها',
+    hint: 'گفتگوهای باز و نظرهایی که مانده است',
+    commands: ['chats', 'reviews', 'myreviews'],
+  },
+  {
+    key: 'ec',
+    label: '💰 سکه و پاداش',
+    hint: 'موجودی، تراکنش‌ها، معرفی دوستان و کد هدیه',
+    commands: ['balance', 'wallet', 'referral', 'gift'],
+  },
+  {
+    key: 'ac',
+    label: '👤 حساب من',
+    hint: 'نمایه، امتیاز اعتماد، تنظیمات و قوانین',
+    commands: ['profile', 'trust', 'edit_profile', 'settings', 'terms'],
+  },
+  {
+    key: 'hp',
+    label: '🆘 راهنما و پشتیبانی',
+    hint: 'اگر جایی گیر کردید یا چیزی درست کار نکرد',
+    commands: ['menu', 'help', 'bug'],
+  },
+] as const;
+
+/** The description `BOT_COMMANDS` gives a command, for the menu's own buttons. */
+export function describeCommand(command: string): string | null {
+  return BOT_COMMANDS.find((entry) => entry.command === command)?.description ?? null;
+}
+
+/** One group by its `callback_data` key, or null for a key this build does not know. */
+export function commandGroupFor(key: string): CommandGroup | null {
+  return COMMAND_GROUPS.find((group) => group.key === key) ?? null;
 }

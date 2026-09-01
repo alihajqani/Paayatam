@@ -1,4 +1,12 @@
-import { encodeChatCallback, encodeReportAsk } from './callback-data';
+import {
+  encodeChatCallback,
+  encodeMenuCommand,
+  encodeMenuGroup,
+  encodeMenuRoot,
+  encodeReportAsk,
+} from './callback-data';
+import { COMMAND_GROUPS, describeCommand, type CommandGroup } from './commands';
+import { escapeHtml } from './escape';
 
 /**
  * Inline keyboards (plan §3.2: "grammY composition, keyboards, fa message
@@ -291,4 +299,82 @@ export function menuCommandFor(text: string): string | null {
   // A label that failed to resolve would be relayed into an anonymous chat.
   if (trimmed === MODERATION_MENU_LABEL) return MODERATION_MENU_COMMAND;
   return MENU_COMMANDS.get(trimmed) ?? null;
+}
+
+/**
+ * The top level of the command menu: one button per group, plus nothing else.
+ *
+ * Two per row. One per row is a column of five that pushes the message off the
+ * screen; three per row truncates «🆘 راهنما و پشتیبانی» to «🆘 راهنما و…», and a
+ * label that cannot be read is a button that has to be guessed at.
+ */
+export function menuRootKeyboard(): InlineKeyboard {
+  const rows: { text: string; callbackData: string }[][] = [];
+  for (let index = 0; index < COMMAND_GROUPS.length; index += 2) {
+    rows.push(
+      COMMAND_GROUPS.slice(index, index + 2).map((group) => ({
+        text: group.label,
+        callbackData: encodeMenuGroup(group.key),
+      })),
+    );
+  }
+  return rows;
+}
+
+/**
+ * One group's commands, and the way back.
+ *
+ * The back button is not optional. A menu you can descend into and not climb out
+ * of is one where the only exit is typing a command — which is the thing this
+ * menu exists to spare people.
+ *
+ * Labelled with the command's own description rather than its slash form: the
+ * whole point is that somebody who does not know the commands can still find
+ * what they want, and «موجودی سکه‌های شما» is what they are looking for while
+ * «/balance» is what they would have had to already know.
+ */
+export function menuGroupKeyboard(group: CommandGroup): InlineKeyboard {
+  const rows: { text: string; callbackData: string }[][] = group.commands.map((command) => [
+    {
+      text: describeCommand(command) ?? command,
+      callbackData: encodeMenuCommand(command),
+    },
+  ]);
+  rows.push([{ text: '‹ بازگشت به منو', callbackData: encodeMenuRoot() }]);
+  return rows;
+}
+
+/**
+ * The one button that opens the menu, for messages that have no keyboard of
+ * their own.
+ *
+ * Telegram allows a message exactly one inline keyboard, and most of what this
+ * bot sends already spends it — a digest on its filters, a host console on its
+ * actions, a wizard on its steps. So "every command under every message" is not
+ * something the platform can be made to do; what it can do is put one button
+ * under the messages whose keyboard is otherwise empty, and have that button
+ * lead to all of them in two taps.
+ */
+export function menuOpenerKeyboard(): InlineKeyboard {
+  return [[{ text: '☰ فهرست دستورها', callbackData: encodeMenuRoot() }]];
+}
+
+/**
+ * The menu bodies, beside the keyboards they belong to.
+ *
+ * Exported because a *redraw* needs the text and the keyboard together, and
+ * `editMessageText` does not go through the template catalogue — so without
+ * these the same two strings would exist once here and once in `BotService`,
+ * which is the drift `MENU_COMMANDS` already exists to prevent.
+ */
+export function menuRootText(): string {
+  return `<b>فهرست دستورها</b>\n\n` + `دنبال چه چیزی هستید؟ یکی از بخش‌ها را انتخاب کنید.`;
+}
+
+export function menuGroupText(group: CommandGroup): string {
+  return (
+    `<b>${escapeHtml(group.label)}</b>\n\n` +
+    `${escapeHtml(group.hint)}\n\n` +
+    `یکی را انتخاب کنید:`
+  );
 }
