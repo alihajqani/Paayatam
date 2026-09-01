@@ -22,9 +22,7 @@ import {
   asCreateEventForm,
   categoryChoice,
   isCodeKind,
-  eventChoice,
   gregorianYearToJalali,
-  touchedFields,
   genderLabel,
   reviewTagLabel,
   reportReasonLabelFa,
@@ -32,11 +30,9 @@ import {
   zonedTimeToUtc,
   type ConversationSnapshot,
   type CreateEventInput,
-  type EditEventForm,
   type EditProfileForm,
   type WriteReviewForm,
   type FileReportForm,
-  type UpdateEventInput,
   type ConversationOutcome,
   type CreateEventForm,
   type WizardDeps,
@@ -70,7 +66,6 @@ import {
   ERROR_MESSAGES_FA,
   ErrorCode,
   resolveVersion,
-  type CostType,
 } from '@payetam/shared';
 import {
   TEMPLATES,
@@ -1062,32 +1057,6 @@ export class BotService {
        * when, which is the question a person asks about terms they have already
        * signed.
        */
-      /**
-       * `/edit_event` — `EditEventView`, as a conversation.
-       *
-       * The event list is loaded here rather than by the step, for the reason
-       * `WizardDeps` does not carry it: "my events" is a per-user read, and
-       * putting one into an interface every wizard shares would make every
-       * wizard able to perform it.
-       */
-      case 'edit_event': {
-        if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
-        if (!(await this.mayWrite(updateId, user))) return;
-
-        const owned = await this.events.listOwned(user.id);
-        const editable = owned.filter((event) => EDITABLE_EVENT_STATUSES.has(event.status));
-        if (editable.length === 0) {
-          return this.notice(
-            updateId,
-            user,
-            `فعالیتی برای ویرایش ندارید. با دکمهٔ «${menuLabelFor('create_event') ?? 'ساختن فعالیت'}» یکی بسازید.`,
-          );
-        }
-
-        const outcome = await this.conversations.start(user.id, 'EDIT_EVENT', updateId);
-        return this.drawWizard(updateId, user, outcome);
-      }
-
       case 'terms': {
         if (!(await this.consent.hasAcceptedCurrentPolicies(user.id))) {
           const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
@@ -3539,8 +3508,6 @@ export class BotService {
             return this.submitReviewDetail(updateId, user, outcome.snapshot);
           case 'FILE_REPORT':
             return this.submitReport(updateId, user, outcome.snapshot);
-          case 'EDIT_EVENT':
-            return this.submitEventEdit(updateId, user, outcome.snapshot);
           case 'ADMIN_CASE':
             return this.submitAdminCase(updateId, user, outcome.snapshot);
           case 'REDEEM_CODE':
@@ -3569,11 +3536,6 @@ export class BotService {
          */
         if (outcome.snapshot.kind === 'REDEEM_CODE') {
           return this.submitCode(updateId, user, outcome.snapshot.form);
-        }
-        if (outcome.snapshot.kind === 'EDIT_EVENT') {
-          const editing = asCreateEventForm(outcome.snapshot.form);
-          const screen = renderSummary(await this.summaryLines(editing), false);
-          return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;
@@ -3669,28 +3631,7 @@ export class BotService {
           return;
         }
 
-        let outcomeToDraw = outcome;
-
-        /**
-         * The moment after `pick` is answered, and the only place a draft is
-         * filled in by anything but a step.
-         *
-         * A step's `accept` is pure and cannot load the event, so the form would
-         * otherwise be empty — and an edit wizard whose summary offers to replace
-         * every field with nothing is worse than no edit wizard. `patchForm` is
-         * the caller's half of that; the wizard's note explains why the purity is
-         * worth the asymmetry.
-         */
-        if (
-          outcome.snapshot.kind === 'EDIT_EVENT' &&
-          outcome.snapshot.targetPublicId === null &&
-          typeof outcome.snapshot.form['eventPublicId'] === 'string'
-        ) {
-          const chosen = outcome.snapshot.form['eventPublicId'];
-          const prefilled = await this.prefillEvent(user, chosen);
-          if (prefilled !== null) outcomeToDraw = { ...outcome, snapshot: prefilled };
-        }
-
+        const outcomeToDraw = outcome;
         const step = outcomeToDraw.step;
 
         // The consent gate draws itself: its buttons are an acceptance and a set
@@ -3700,18 +3641,10 @@ export class BotService {
           return this.paint(updateId, user, outcomeToDraw.snapshot.lastMessageId, screen);
         }
 
-        /**
-         * `pick` is the one step whose options are a per-user read, so they are
-         * loaded here rather than through `WizardDeps` — see the wizard's note.
-         */
         const choices =
-          step.key === 'pick'
-            ? (await this.events.listOwned(user.id))
-                .filter((event) => EDITABLE_EVENT_STATUSES.has(event.status))
-                .map((event) => eventChoice(event.publicId, event.title))
-            : step.load === undefined
-              ? []
-              : await step.load(outcomeToDraw.snapshot.form, this.wizardDeps());
+          step.load === undefined
+            ? []
+            : await step.load(outcomeToDraw.snapshot.form, this.wizardDeps());
 
         /**
          * `page` and `goto` carry where the *view* should be, not what was
@@ -3982,90 +3915,6 @@ export class BotService {
 
     await this.drawChannelGate(updateId, user, channels);
     return true;
-  }
-
-  /**
-   * Fill the draft with what the chosen event currently says.
-   *
-   * Loaded through `findOwned`, which is **host-scoped**: a public id belonging
-   * to somebody else's event is a `NOT_FOUND`, not a prefill. The button that
-   * carried it was built from this user's own list, so the only way to get here
-   * with a stranger's id is to forge one — and this is where that fails, in the
-   * service, rather than in the button.
-   */
-  private async prefillEvent(
-    user: BotUser,
-    publicId: string,
-  ): Promise<ConversationSnapshot | null> {
-    let event;
-    try {
-      event = await this.events.findOwned(user.id, publicId);
-    } catch (error) {
-      if (!(error instanceof AppError)) throw error;
-      return null;
-    }
-
-    await this.conversations.rememberTarget(user.id, publicId);
-
-    const startsAt = event.startsAt;
-    const hours = Math.round((event.endsAt.getTime() - startsAt.getTime()) / 3_600_000);
-
-    return this.conversations.patchForm(user.id, {
-      title: event.title,
-      description: event.description,
-      categoryId: event.category.id,
-      customCategoryLabel: event.customCategoryLabel ?? undefined,
-      cityId: event.city.id,
-      districtId: event.district?.id,
-      districtLabel: event.districtLabel ?? undefined,
-      day: isoDay(startsAt),
-      hour: Number(
-        new Intl.DateTimeFormat('en-GB', {
-          timeZone: TEHRAN,
-          hour: '2-digit',
-          hour12: false,
-        }).format(startsAt),
-      ),
-      durationHours: hours > 0 ? hours : 2,
-      capacity: event.capacity,
-      costType: event.costType,
-      costAmount: event.costAmount ?? undefined,
-      minAge: event.minAge ?? undefined,
-      maxAge: event.maxAge ?? undefined,
-    });
-  }
-
-  /**
-   * Save the edits.
-   *
-   * `EventService.update` takes a **partial**, and only the fields the host
-   * actually walked through are sent — the draft was prefilled, so an unchanged
-   * field is written back as the value it already had, which is a no-op rather
-   * than a loss. `expectedVersion` is deliberately omitted: the contract says so
-   * — *"the bot will edit the same events without a version to hand"*.
-   */
-  private async submitEventEdit(
-    updateId: number,
-    user: BotUser,
-    snapshot: ConversationSnapshot,
-  ): Promise<void> {
-    const form = snapshot.form as EditEventForm;
-    const publicId = snapshot.targetPublicId;
-    if (publicId === null) {
-      await this.notice(updateId, user, 'فعالیتی برای ویرایش انتخاب نشده است.');
-      return;
-    }
-
-    const request = toUpdateEventInput(form, touchedFields(snapshot.form));
-    try {
-      await this.events.update(user.id, publicId, request);
-      await this.conversations.clear(user.id);
-      await this.notice(updateId, user, 'فعالیت به‌روز شد ✅');
-    } catch (error) {
-      if (!(error instanceof AppError)) throw error;
-      // The draft survives, for the reason it survives a refused creation.
-      await this.refuse(updateId, user, error);
-    }
   }
 
   /** Edit the wizard's message, or send the first one. */
@@ -4902,16 +4751,6 @@ function isReportTarget(value: string): value is ReportTargetLetter {
 const TEHRAN = 'Asia/Tehran';
 
 /**
- * The statuses an event may still be edited in.
- *
- * A cancelled or completed event is history, and a deleted one is gone. The
- * authority is still `EventService.update`, which refuses the rest on its own —
- * this only decides what is worth *offering*, because a list whose entries
- * mostly refuse is a list that wastes a tap to say no.
- */
-const EDITABLE_EVENT_STATUSES = new Set(['DRAFT', 'PENDING_MODERATION', 'PUBLISHED', 'HIDDEN']);
-
-/**
  * `/start ref_ABCD2345` and `/start ABCD2345` are the same invitation.
  *
  * A prefix is what a link generator naturally adds. `normalizeCode` in the domain
@@ -5073,59 +4912,4 @@ function costSummary(form: CreateEventForm): string {
     default:
       return '—';
   }
-}
-
-/**
- * The edited form, as `EventService.update` wants it.
- *
- * A partial, and every key is present because the draft was **prefilled** from
- * the event — so a field the host skipped is written back as what it already
- * said. That is a no-op at the database and it is why an edit cannot silently
- * clear something: there is no "absent means delete" path through this.
- *
- * `startsAt`/`endsAt` are rebuilt only when both halves are known, for the same
- * reason `toCreateEventRequest` refuses an incomplete form: a time assembled
- * from a missing hour would move an event to midnight.
- */
-function toUpdateEventInput(form: EditEventForm, touched: Set<string>): UpdateEventInput {
-  const input: UpdateEventInput = {};
-  const changed = (key: keyof EditEventForm): boolean =>
-    touched.has(key) && form[key] !== undefined;
-
-  if (changed('title')) input.title = form.title as string;
-  if (changed('description')) input.description = form.description as string;
-  if (changed('categoryId')) input.categoryId = form.categoryId as string;
-  if (changed('customCategoryLabel')) {
-    input.customCategoryLabel = form.customCategoryLabel as string;
-  }
-  if (changed('cityId')) input.cityId = form.cityId as string;
-  if (changed('districtId')) input.districtId = form.districtId as string;
-  if (changed('districtLabel')) input.districtLabel = form.districtLabel as string;
-  if (changed('capacity')) input.capacity = form.capacity as number;
-  if (changed('costType')) input.costType = form.costType as CostType;
-  if (changed('costAmount')) input.costAmount = form.costAmount as number;
-  if (changed('minAge')) input.minAge = form.minAge as number;
-  if (changed('maxAge')) input.maxAge = form.maxAge as number;
-
-  /**
-   * The time is rebuilt only when the host actually answered one of its steps.
-   *
-   * The wizard offers whole hours, so rebuilding from a *prefilled* day and hour
-   * would move an event scheduled at 22:45 to 22:00 — a change the host did not
-   * ask for, made by skipping a question. Both halves are read from the form
-   * because either may be the prefilled one; what gates the write is that at
-   * least one was chosen.
-   */
-  const day = form.day === undefined ? null : parseIsoDay(form.day);
-  const timeChosen = touched.has('day') || touched.has('hour') || touched.has('durationHours');
-  if (timeChosen && day !== null && form.hour !== undefined) {
-    const parts = isoDay(day)
-      .split('-')
-      .map((part: string) => Number.parseInt(part, 10)) as [number, number, number];
-    const startsAt = zonedTimeToUtc(parts[0], parts[1], parts[2], form.hour, 0, TEHRAN);
-    input.startsAt = startsAt;
-    input.endsAt = new Date(startsAt.getTime() + (form.durationHours ?? 2) * 3_600_000);
-  }
-
-  return input;
 }

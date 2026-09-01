@@ -1,0 +1,31 @@
+-- Migration 0038: event editing is gone, and its half-filled forms with it.
+--
+-- Data only. The `ConversationKind` enum keeps its `EDIT_EVENT` member: dropping
+-- a value from a Postgres enum means recreating the type and rewriting every
+-- column that uses it, which is a table rewrite on `conversation_state` to
+-- delete a word no code will ever write again. The member is inert once nothing
+-- registers a wizard for it.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Why the rows cannot simply be left
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- A draft lives for seven days (`DRAFT_TTL_DAYS`), so this deploy lands on top
+-- of open `EDIT_EVENT` conversations. `conversation_state.user_id` is UNIQUE —
+-- one form per person — so a stale row is not merely dead weight: **it is the
+-- form that user is in**, and every message they type goes to it.
+--
+-- `ConversationService.definitionFor` now answers null for a kind this build has
+-- no wizard for, and `handle` turns that into a cancellation that clears the
+-- row. So the product recovers on its own, at the cost of one confusing turn:
+-- the user's next message is swallowed and answered with «فرم بسته شد».
+--
+-- Deleting them here means that turn never happens. The user simply has no form
+-- open, which is the truth — the one they had cannot be finished by any build
+-- that will ever run again.
+--
+-- Nothing of value is lost. The row holds an encrypted draft of edits that were
+-- never applied; the event itself is untouched, because an edit is written by
+-- `EventService.update` at submit and no submit is pending here.
+
+DELETE FROM "conversation_state" WHERE "kind" = 'EDIT_EVENT';

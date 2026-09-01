@@ -17,7 +17,6 @@ import {
 } from './wizard';
 import { createEventWizard, type CreateEventForm } from './wizards/create-event';
 import { acceptPoliciesWizard } from './wizards/accept-policies';
-import { editEventWizard } from './wizards/edit-event';
 import { editProfileWizard } from './wizards/edit-profile';
 import { writeReviewWizard } from './wizards/write-review';
 import { fileReportWizard } from './wizards/file-report';
@@ -49,7 +48,6 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
   WRITE_REVIEW: writeReviewWizard as unknown as WizardDefinition<Record<string, unknown>>,
   FILE_REPORT: fileReportWizard as unknown as WizardDefinition<Record<string, unknown>>,
   ACCEPT_POLICIES: acceptPoliciesWizard as unknown as WizardDefinition<Record<string, unknown>>,
-  EDIT_EVENT: editEventWizard as unknown as WizardDefinition<Record<string, unknown>>,
   /**
    * A moderator's decision (ADR-0018). Registered here like every other wizard,
    * which is the point: the staff form goes through the same idempotency, the
@@ -172,6 +170,9 @@ export class ConversationService {
     initialForm: Record<string, unknown> = {},
   ): Promise<ConversationOutcome> {
     const definition = this.definitionFor(kind);
+    // A caller asking for a wizard this build does not have is a bug in the
+    // caller, not a stale row — so this one still throws.
+    if (definition === null) throw new Error(`no wizard is registered for ${kind}`);
     const form = { ...definition.empty(), ...initialForm };
     const step = firstStep(definition, form);
     if (step === null) throw new Error(`wizard ${kind} has no reachable first step`);
@@ -220,6 +221,13 @@ export class ConversationService {
     }
 
     const definition = this.definitionFor(snapshot.kind);
+    if (definition === null) {
+      // A draft for a wizard this build has removed. See `definitionFor`.
+      this.logger.log(`Cleared a draft for the retired wizard ${snapshot.kind}`);
+      await this.clear(userId);
+      return { kind: 'cancelled' };
+    }
+
     const step = stepByKey(definition, snapshot.step);
     if (step === null) {
       // The step key came from a deploy that no longer exists. Starting over is
@@ -436,10 +444,25 @@ export class ConversationService {
     return count;
   }
 
-  private definitionFor(kind: ConversationKind): WizardDefinition<Record<string, unknown>> {
-    const definition = WIZARDS[kind];
-    if (definition === undefined) throw new Error(`no wizard is registered for ${kind}`);
-    return definition;
+  /**
+   * The wizard a stored kind names, or null when this build has none.
+   *
+   * ── Why null and not a throw ────────────────────────────────────────────────
+   *
+   * `conversation_state` outlives a deploy by up to seven days, and
+   * `ConversationKind` is a database enum — so a kind can be *removed from the
+   * product* while rows naming it are still open. `EDIT_EVENT` is the first one
+   * to go, and a throw here would surface as the bot answering nothing at all:
+   * `dispatch` catches it, logs a line, and the user taps a form that has
+   * silently stopped existing.
+   *
+   * `handle` turns null into a cancellation, which is the same answer a step key
+   * from a vanished deploy already gets and the only honest one — the form
+   * cannot be finished, so the row is cleared and the user is told the form
+   * closed.
+   */
+  private definitionFor(kind: ConversationKind): WizardDefinition<Record<string, unknown>> | null {
+    return WIZARDS[kind] ?? null;
   }
 
   private async save(

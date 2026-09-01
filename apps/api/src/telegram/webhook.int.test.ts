@@ -3358,14 +3358,19 @@ describe('POST /telegram/:secret — the consent gate', () => {
 });
 
 /**
- * `/edit_event` — `EditEventView`, as a conversation (ADR-0017).
+ * Event editing is gone (v0.6.7), and the command with it.
  *
- * The property worth an integration test is **host-only**: the button that
- * carries an event id was built from the caller's own list, so the only way to
- * reach a stranger's event is to forge one, and `findOwned` is where that has to
- * fail.
+ * What is worth an integration test is not the absence of a feature but the two
+ * things its removal could have broken: a command that still dispatches to
+ * something, and a draft that outlives the build that could finish it.
+ *
+ * `conversation_state.user_id` is UNIQUE, so a stale `EDIT_EVENT` row is not
+ * dead weight — it *is* the form that user is in, and every message they type
+ * goes to it. Migration 0038 deletes the rows that exist at deploy time;
+ * `definitionFor` answering null is the backstop for one written a second before
+ * the swap.
  */
-describe('POST /telegram/:secret — editing an event in the chat', () => {
+describe('POST /telegram/:secret — after event editing was removed', () => {
   let sequence = 9000;
 
   async function type(telegramUserId: number, text: string): Promise<void> {
@@ -3373,80 +3378,51 @@ describe('POST /telegram/:secret — editing an event in the chat', () => {
     await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
   }
 
-  async function tap(telegramUserId: number, data: string): Promise<void> {
-    sequence += 1;
-    await post(
-      update({
-        update_id: sequence,
-        callback_query: {
-          id: `cb-${String(sequence)}`,
-          from: sender(telegramUserId),
-          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
-          data,
-        },
-      }),
-    );
-  }
-
-  it('prefills the draft from the chosen event', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
+  it('answers the retired command the way it answers any unknown one', async () => {
+    await seedHostAndEvent();
 
     await type(HOST_TELEGRAM_ID, '/edit_event');
-    await tap(HOST_TELEGRAM_ID, `wz:pick:${eventPublicId}`);
-
-    const state = await prisma.conversationState.findFirstOrThrow();
-    expect(state.kind).toBe('EDIT_EVENT');
-    // The target is recorded, which is what `submitEventEdit` addresses.
-    expect(state.targetPublicId).toBe(eventPublicId);
-  });
-
-  it('changes only what the host walked through', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-    const before = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
-
-    await type(HOST_TELEGRAM_ID, '/edit_event');
-    await tap(HOST_TELEGRAM_ID, `wz:pick:${eventPublicId}`);
-    await type(HOST_TELEGRAM_ID, 'نام تازهٔ فعالیت');
-    // Skip the remaining ten steps; each means "leave this as it is".
-    for (let i = 0; i < 12; i += 1) await tap(HOST_TELEGRAM_ID, 'wz:skip:');
-    await tap(HOST_TELEGRAM_ID, 'wz:confirm:');
-
-    const after = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
-    expect(after.title).toBe('نام تازهٔ فعالیت');
-    // Prefilled and written back unchanged, which is a no-op rather than a loss.
-    expect(after.capacity).toBe(before.capacity);
-    expect(after.startsAt.toISOString()).toBe(before.startsAt.toISOString());
-    expect(await prisma.conversationState.count()).toBe(0);
-  });
-
-  /** A forged id names an event the caller does not host. */
-  it('does not prefill from an event the caller does not host', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-    await seedGuest(GUEST_TELEGRAM_ID);
-
-    await type(GUEST_TELEGRAM_ID, '/edit_event');
-    // The guest hosts nothing, so the command refuses before a wizard opens.
-    expect(await prisma.conversationState.count()).toBe(0);
-
-    // And even driven directly, the host's event is not reachable.
-    await tap(GUEST_TELEGRAM_ID, `wz:pick:${eventPublicId}`);
-    const event = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
-    expect(event.title).not.toBe('');
-  });
-
-  it('says so when there is nothing to edit', async () => {
-    await seedGuest(GUEST_TELEGRAM_ID);
-
-    await type(GUEST_TELEGRAM_ID, '/edit_event');
 
     const notice = await prisma.notification.findFirstOrThrow({
       where: { templateKey: TEMPLATES.BOT_NOTICE },
       orderBy: { createdAt: 'desc' },
       select: { payload: true },
     });
+    // The unknown-command sentence, byte for byte — the same one a typo gets.
     expect(String((notice.payload as Record<string, unknown>)['text'])).toContain(
-      'فعالیتی برای ویرایش ندارید',
+      'این فرمان را نمی‌شناسم',
     );
+    expect(await prisma.conversationState.count()).toBe(0);
+  });
+
+  /**
+   * A row written by the previous build, met by this one. It must close the form
+   * rather than throw — a throw is caught by `dispatch`, logged, and answered
+   * with nothing at all, which is a user tapping a form that silently stopped
+   * existing.
+   */
+  it('closes a draft left behind by the build that had the wizard', async () => {
+    const { hostId } = await seedHostAndEvent();
+
+    await prisma.conversationState.create({
+      data: {
+        userId: hostId,
+        kind: 'EDIT_EVENT',
+        step: 'title',
+        // The ciphertext is never read: `definitionFor` answers null before the
+        // form is decrypted, which is the point — a retired wizard is refused on
+        // its kind, not on its contents.
+        formDataCiphertext: Buffer.from('unreadable'),
+        formDataNonce: Buffer.alloc(24),
+        keyVersion: 1,
+        lastUpdateId: 0n,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    await type(HOST_TELEGRAM_ID, 'یک پیام تازه');
+
+    expect(await prisma.conversationState.count()).toBe(0);
   });
 });
 

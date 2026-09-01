@@ -209,8 +209,6 @@ export type {
 export { acceptPoliciesWizard } from './conversation/wizards/accept-policies';
 export type { AcceptPoliciesForm } from './conversation/wizards/accept-policies';
 export { categoryChoice, createEventWizard } from './conversation/wizards/create-event';
-export { editEventWizard, eventChoice } from './conversation/wizards/edit-event';
-export type { EditEventForm } from './conversation/wizards/edit-event';
 export type { CreateEventForm } from './conversation/wizards/create-event';
 export {
   GENDER_CHOICES,

@@ -50,7 +50,6 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'myreviews', description: 'نظرهایی که درباره شما نوشته‌اند' },
   { command: 'profile', description: 'نمایه و امتیاز اعتماد شما' },
   { command: 'trust', description: 'امتیاز اعتماد و تغییرهای آن' },
-  { command: 'edit_event', description: 'ویرایش فعالیت' },
   { command: 'edit_profile', description: 'ویرایش نمایه' },
   { command: 'terms', description: 'قوانین و حریم خصوصی' },
   { command: 'settings', description: 'تنظیمات اعلان‌ها و حریم خصوصی' },
@@ -119,7 +118,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
     key: 'ev',
     label: '🎟 فعالیت‌ها',
     hint: 'ساختن، پیدا کردن و اداره کردن فعالیت‌ها',
-    commands: ['create_event', 'discover', 'myevents', 'edit_event', 'requests'],
+    commands: ['create_event', 'discover', 'myevents', 'requests'],
   },
   {
     key: 'ms',
