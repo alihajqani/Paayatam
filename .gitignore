@@ -54,3 +54,10 @@ logs/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# Two files that are deliberately local-only, listed here so that a `git add -A`
+# cannot sweep them in again. It did once: v0.6.6's tag carried the deployment
+# notes, and `deploy.sh` refused to check the tag out on a server where the
+# untracked original was in the way — which is the failure that found it.
+docs/production-deployment-todo.md
+.claude-work-checkpoint.md
