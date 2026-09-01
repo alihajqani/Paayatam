@@ -153,6 +153,13 @@ export const TEMPLATES = {
    * per group would be a second copy of `COMMAND_GROUPS`.
    */
   BOT_MENU: 'bot.menu',
+  /**
+   * An activity the scanner held rather than published (ADR-0012).
+   *
+   * Its own template because it is the opposite message from
+   * `BOT_EVENT_CREATED`, not a variant of it — see the renderer.
+   */
+  BOT_EVENT_HELD: 'bot.event_held',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -808,6 +815,32 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * the day an operator changes one — and the one that quotes a price nobody
      * will be charged.
      */
+    /**
+     * The activity did not publish: the scanner is holding it (ADR-0012).
+     *
+     * A separate template rather than a branch inside the one below, because the
+     * two say opposite things. `BOT_EVENT_CREATED` congratulates a host and then
+     * offers to sell them two ways of being seen more — under an activity that
+     * is in a queue, that is the product taking money for reach it cannot give.
+     *
+     * What a held host needs is: it exists, it is not visible, somebody is
+     * looking at it, and here is what usually causes this. Not *which* term
+     * matched — naming it would be handing an evader the exact string to edit,
+     * which is the one thing an automated list cannot survive.
+     */
+    case TEMPLATES.BOT_EVENT_HELD:
+      return {
+        text:
+          `<b>فعالیت شما در انتظار بررسی است</b> ⏳\n\n` +
+          `«${str(payload, 'title')}» ثبت شد، اما هنوز منتشر نشده است: ` +
+          `متن آن نیاز به بررسی انسانی دارد.\n\n` +
+          `بیشتر وقت‌ها دلیلش کلمه‌ای است که در فهرست فعالیت‌ها مجاز نیست — ` +
+          `الکل، مواد، شرط‌بندی، سلاح یا پیشنهادهای غیرمجاز. ` +
+          `اگر فکر می‌کنید اشتباه شده، منتظر بمانید؛ نتیجه به شما اطلاع داده می‌شود.\n\n` +
+          `<i>سکه‌ای بابت انتشار در کانال از شما کم نشده است.</i>`,
+        keyboard: menuOpenerKeyboard(),
+      };
+
     case TEMPLATES.BOT_EVENT_CREATED:
       return opened(
         `<b>فعالیت ثبت شد</b> ✅\n\n` +

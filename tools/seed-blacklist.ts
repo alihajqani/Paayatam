@@ -22,82 +22,17 @@
  * provenance of past decisions.
  */
 import { openSeed } from './seed-guard';
-import { normalize } from '@payetam/domain';
+import { STARTER_BLACKLIST, normalize, type StarterTerm } from '@payetam/domain';
 
-interface SeedTerm {
-  termRaw: string;
-  patternType: 'EXACT' | 'SUBSTRING' | 'REGEX';
-  severity: 'BLOCK' | 'FLAG';
-  category: string;
-  /** Why this term, and why this severity. Read by the next person to edit the list. */
-  rationale: string;
-}
+/**
+ * The list itself lives in `@payetam/domain`, beside the matcher it feeds and
+ * the tests that assert against it — see `starter-blacklist.ts` for why, and for
+ * the two rules to read before adding a term. This script is the half that
+ * writes it to a database.
+ */
+type SeedTerm = StarterTerm;
 
-const TERMS: SeedTerm[] = [
-  {
-    termRaw: 'مواد مخدر',
-    patternType: 'SUBSTRING',
-    severity: 'BLOCK',
-    category: 'drugs',
-    rationale: 'Narcotics, explicit. No innocent reading in an activity listing.',
-  },
-  {
-    termRaw: 'شرط‌بندی',
-    patternType: 'SUBSTRING',
-    severity: 'BLOCK',
-    category: 'gambling',
-    rationale: 'Betting. Unambiguous, and a common spam vector.',
-  },
-  {
-    termRaw: 'قمار',
-    patternType: 'EXACT',
-    severity: 'BLOCK',
-    category: 'gambling',
-    rationale:
-      'Gambling. EXACT rather than SUBSTRING so «قمارباز» in a novel-club description is judged on its own.',
-  },
-  {
-    termRaw: 'مشروب',
-    patternType: 'SUBSTRING',
-    severity: 'BLOCK',
-    category: 'alcohol',
-    rationale: 'Alcohol, which is illegal to offer here. SUBSTRING covers «مشروبات».',
-  },
-  {
-    termRaw: 'شیشه',
-    patternType: 'EXACT',
-    severity: 'FLAG',
-    category: 'drugs',
-    rationale:
-      'Slang for methamphetamine — and the ordinary word for glass. «کافه شیشه‌ای» must not be blocked, so this goes to a human.',
-  },
-  {
-    termRaw: 'بنگ',
-    patternType: 'EXACT',
-    severity: 'FLAG',
-    category: 'drugs',
-    rationale:
-      'Drug slang, and a substring of «بنگاه». EXACT keeps estate agents out of the queue; FLAG keeps a false positive out of the host way.',
-  },
-  {
-    termRaw: 'صیغه',
-    patternType: 'EXACT',
-    severity: 'FLAG',
-    category: 'solicitation',
-    rationale:
-      'Routinely abused for solicitation, but a legitimate religious and legal term. Human judgement, not a block.',
-  },
-  {
-    // Normalization has already turned Persian digits into Latin ones by the time
-    // this runs, so the pattern only needs to know about 0-9.
-    termRaw: '(\\+?98|0)9\\d{9}',
-    patternType: 'REGEX',
-    severity: 'FLAG',
-    category: 'contact',
-    rationale:
-      "An Iranian mobile number in a public listing routes people around the anonymous chat, which is the product's whole safety model. Flagged, not blocked: a venue phone number is a plausible mistake, not an attack.",
-  },
-];
+const TERMS: readonly SeedTerm[] = STARTER_BLACKLIST;
 
 async function main(): Promise<void> {
   const { prisma, finish } = await openSeed(

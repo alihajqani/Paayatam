@@ -112,6 +112,8 @@ export {
   mapHomoglyphs,
   foldCase,
 } from './moderation/persian-normalizer';
+export { STARTER_BLACKLIST } from './moderation/starter-blacklist';
+export type { StarterTerm } from './moderation/starter-blacklist';
 export { BlacklistService } from './moderation/blacklist.service';
 export type { Blacklist, BlacklistMatch, BlacklistRule } from './moderation/blacklist.service';
 export { ModerationService, decisionFor } from './moderation/moderation.service';

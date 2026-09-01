@@ -4145,6 +4145,28 @@ export class BotService {
     try {
       const created = await this.events.create(user.id, request);
       await this.conversations.clear(user.id);
+
+      /**
+       * The scanner held it, and the host has to be told (ADR-0012).
+       *
+       * `create` succeeds for a BLOCKed activity — the row exists, in
+       * `PENDING_MODERATION`, with a case open on it — so this path used to
+       * answer «فعالیت ثبت شد ✅ … در کانال پایه‌تَم منتشر می‌شود», which was two
+       * false statements and an offer to sell reach for something in a queue.
+       * The host then watched an activity that never appeared anywhere and had
+       * no way of finding out why.
+       *
+       * Read off the status rather than off the scan: `EventService` is the
+       * authority on what published, and the bot asking the same question a
+       * second way is how the two answers drift.
+       */
+      if (created.status !== 'PUBLISHED') {
+        await this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_HELD, {
+          title: form.title ?? '',
+        });
+        return;
+      }
+
       // The two paid options the success message explains. Read after the event
       // exists, so a settings read cannot be the thing that fails a registration
       // that has already been paid for.
