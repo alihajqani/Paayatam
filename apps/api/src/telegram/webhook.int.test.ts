@@ -1610,7 +1610,17 @@ describe('POST /telegram/:secret — settings', () => {
     expect(String((await board())['text'])).toContain('تنظیمات');
   });
 
-  it('toggles a switch and redraws the board', async () => {
+  /**
+   * The redraw is an **edit of the board that was tapped** (v0.6.7).
+   *
+   * Flipping three switches used to leave three dead boards stacked in the chat,
+   * each still showing the state it was drawn with, and the only way to find the
+   * live one is to press it. The redraw is a `BOT_EDIT_MESSAGE` job rather than a
+   * `notification` row and this process runs no worker — so what is asserted here
+   * is the write, and that no second board was made. What the redrawn keyboard
+   * says is asserted without a database in `settings.test.ts`.
+   */
+  it('toggles a switch and edits the board rather than sending another', async () => {
     const userId = await seedGuest(GUEST_TELEGRAM_ID);
 
     await type(GUEST_TELEGRAM_ID, '/settings');
@@ -1619,6 +1629,9 @@ describe('POST /telegram/:secret — settings', () => {
       callbackData: string;
     }[][];
     expect(before[0]?.[0]?.callbackData).toBe('st:c0:x');
+    const boards = await prisma.notification.count({
+      where: { templateKey: TEMPLATES.BOT_SETTINGS },
+    });
 
     await tap(GUEST_TELEGRAM_ID, 'st:c0:x');
 
@@ -1629,9 +1642,9 @@ describe('POST /telegram/:secret — settings', () => {
     expect(settings.notifyChat).toBe(false);
     // One toggle changes one thing.
     expect(settings.notifyEvents).toBe(true);
-    // And the redrawn board now offers to turn it back on.
-    const after = JSON.parse(String((await board())['keyboard'])) as { callbackData: string }[][];
-    expect(after[0]?.[0]?.callbackData).toBe('st:c1:x');
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_SETTINGS } }),
+    ).toBe(boards);
   });
 
   /**
@@ -1703,8 +1716,10 @@ describe('POST /telegram/:secret — settings', () => {
     // setting that will disagree with itself.
     expect(await prisma.userSettings.count({ where: { userId } })).toBe(0);
 
-    const after = JSON.parse(String((await board())['keyboard'])) as { callbackData: string }[][];
-    expect(after.flat().map((button) => button.callbackData)).toContain('st:p1:x');
+    // Redrawn in place, like every other switch on this board.
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_SETTINGS } }),
+    ).toBe(1);
   });
 
   /**
