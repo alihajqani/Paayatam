@@ -274,6 +274,68 @@ describe('the re-acceptance gate', () => {
     await expect(createEvent(token, 'پس از پذیرش')).resolves.toMatchObject({ status: 201 });
   });
 
+  /**
+   * The bug this suite was extended for, found in production.
+   *
+   * `consent` is UNIQUE on `(user_id, policy_version_id, context)` — the context
+   * is in the key so one person can accept one document under more than one
+   * circumstance — and `ChatService.recordConsent` writes exactly such a row when
+   * somebody agrees to exchange contact details: a `CONTACT_SHARE` acceptance
+   * against the current PRIVACY version.
+   *
+   * The gate counted `consent` **rows** and compared the total with the number of
+   * required documents. Two documents and three rows measured as `3 === 2`, so
+   * the gate closed permanently: every write opened the terms screen, and
+   * accepting again changed nothing because there was nothing outstanding to
+   * write. The trigger was the one action this product's whole safety model is
+   * built to lead people to.
+   */
+  it('stays open when a second consent row exists for the same version', async () => {
+    await publish('TERMS', 1);
+    await publish('PRIVACY', 1);
+    const { token, userId } = await signedInUser();
+    await expect(acceptCurrent(token)).resolves.toBe(200);
+
+    const privacy = await prisma.policyVersion.findFirstOrThrow({
+      where: { type: 'PRIVACY', isCurrent: true },
+      select: { id: true },
+    });
+    // What sharing contact details writes, written directly: this suite is about
+    // the gate, and going through a whole accepted chat would add no coverage.
+    await prisma.consent.create({
+      data: { userId, policyVersionId: privacy.id, context: 'CONTACT_SHARE' },
+    });
+
+    await expect(prisma.consent.count({ where: { userId } })).resolves.toBe(3);
+    await expect(createEvent(token, 'پس از اشتراک تماس')).resolves.toMatchObject({ status: 201 });
+  });
+
+  /**
+   * A `COMMUNITY` guideline is publishable and gates nothing, so publishing one
+   * must not disturb anybody. It used to be able to: the bot submitted every
+   * *current* document to `acceptPolicies`, which takes only the required ones
+   * and answers `POLICY_VERSION_STALE` for anything else — so the acceptance
+   * screen would have refused the acceptance for every user at once.
+   */
+  it('is unaffected by a published community guideline', async () => {
+    await publish('TERMS', 1);
+    await publish('PRIVACY', 1);
+    await prisma.policyVersion.create({
+      data: {
+        type: 'COMMUNITY',
+        version: 1,
+        status: 'PUBLISHED',
+        isCurrent: true,
+        titleFa: 'آیین‌نامهٔ رفتار',
+        contentMd: CONTENT,
+      },
+    });
+
+    const { token } = await signedInUser();
+    await expect(acceptCurrent(token)).resolves.toBe(200);
+    await expect(createEvent(token)).resolves.toMatchObject({ status: 201 });
+  });
+
   it('records the re-acceptance as REACCEPT, with the request id', async () => {
     await publish('TERMS', 1);
     await publish('PRIVACY', 1);

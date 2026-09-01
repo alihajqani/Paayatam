@@ -3688,7 +3688,9 @@ export class BotService {
   private async consentScreen(
     outcome: Extract<ConversationOutcome, { kind: 'step' }>,
   ): Promise<WizardScreen> {
-    const pending = await this.consent.currentPolicies();
+    // The same set `finishConsent` submits, so the screen shows what «می‌پذیرم»
+    // actually records rather than a document the acceptance would not cover.
+    const pending = await this.consent.requiredPolicies();
     /**
      * The documents themselves, not their titles.
      *
@@ -3743,7 +3745,17 @@ export class BotService {
    * put a fiction in a consent record.
    */
   private async finishConsent(updateId: number, user: BotUser): Promise<void> {
-    const policies = await this.consent.currentPolicies();
+    /**
+     * The **required** documents, not every current one.
+     *
+     * `acceptPolicies` takes exactly the required set and answers
+     * `POLICY_VERSION_STALE` for anything else — including a `COMMUNITY`
+     * guideline, which is publishable, is current, and gates nothing. Submitting
+     * `currentPolicies()` therefore worked only for as long as nobody published
+     * one; the day somebody did, this screen would refuse the acceptance it
+     * exists to record, for every user at once, with no way out of the gate.
+     */
+    const policies = await this.consent.requiredPolicies();
 
     try {
       await this.consent.acceptPolicies(

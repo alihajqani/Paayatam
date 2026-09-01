@@ -94,8 +94,19 @@ export class ConsentService {
     return versions.map(toCurrentPolicy);
   }
 
-  /** The required subset — what actually gates the product. */
-  private async requiredPolicies(): Promise<CurrentPolicy[]> {
+  /**
+   * The required subset — what actually gates the product, and the **only** set
+   * `acceptPolicies` will take.
+   *
+   * Public, because the callers that build an acceptance have to submit exactly
+   * this set. `currentPolicies()` is wider by design — it includes `COMMUNITY`,
+   * which is publishable and gates nothing — and a caller that submitted the wide
+   * set was refused with `POLICY_VERSION_STALE` by the loop below. The bot did
+   * exactly that, so the day an operator published a community guideline, the
+   * consent gate would have become unclearable for **every** user at once: the
+   * screen that exists to accept the terms would refuse the acceptance.
+   */
+  async requiredPolicies(): Promise<CurrentPolicy[]> {
     const current = await this.currentPolicies();
     return current.filter((policy) => REQUIRED_TYPES.includes(policy.type));
   }
@@ -251,11 +262,34 @@ export class ConsentService {
     const required = await this.requiredPolicies();
     if (required.length === 0) return true;
 
-    const accepted = await this.prisma.consent.count({
+    /**
+     * ── Distinct versions, not rows ─────────────────────────────────────────
+     *
+     * This counted `consent` **rows** and compared the total with the number of
+     * required documents, and the two are not the same number. `consent` is
+     * UNIQUE on `(user_id, policy_version_id, context)` — the context is part of
+     * the key precisely so one person can accept one document under more than
+     * one circumstance — and `ChatService.recordConsent` writes exactly such a
+     * row: a `CONTACT_SHARE` acceptance against the **current PRIVACY version**,
+     * the moment somebody agrees to exchange contact details.
+     *
+     * So a user with two required documents and three rows was measured as
+     * `3 === 2` → false, and the gate closed on them permanently. Every write
+     * they attempted opened the terms screen; accepting again changed nothing,
+     * because `acceptPolicies` correctly finds nothing outstanding and returns.
+     * The one action that caused it — sharing contact details — is the action
+     * this product spends its whole safety model getting people to.
+     *
+     * Counting distinct `policy_version_id` asks the question the gate actually
+     * means: *is there a required document this user has never agreed to?*
+     */
+    const accepted = await this.prisma.consent.findMany({
       where: { userId, policyVersionId: { in: required.map((p) => p.id) } },
+      select: { policyVersionId: true },
+      distinct: ['policyVersionId'],
     });
 
-    return accepted === required.length;
+    return accepted.length === required.length;
   }
 
   /**
