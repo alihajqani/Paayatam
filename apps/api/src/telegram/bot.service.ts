@@ -1834,6 +1834,25 @@ export class BotService {
     try {
       switch (callback.action) {
         case 'join': {
+          /**
+           * Joining is priced at zero today and is a setting, not a constant.
+           *
+           * So the check is conditional rather than absent: at zero
+           * `affordBlocked` returns immediately and this costs one comparison,
+           * and on the day an operator sets a price the refusal arrives before
+           * the tap does something rather than as an error after it.
+           */
+          if (
+            await this.affordBlocked(
+              updateId,
+              user,
+              await this.settings.getInt('economy.event_join_coins'),
+              'پیوستن به این فعالیت',
+            )
+          ) {
+            await this.answer(callbackQueryId, '');
+            return;
+          }
           const participation = await this.participation.join(user.id, callback.id);
           await this.answer(
             callbackQueryId,
