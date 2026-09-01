@@ -2733,7 +2733,7 @@ export class BotService {
         capacity: event.capacity,
         publicId: event.publicId,
       })),
-      page,
+      start,
     );
     const rows = myEventsPageRow(page, hasNext);
 
@@ -3435,7 +3435,7 @@ export class BotService {
           remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
           publicId: event.publicId,
         })),
-        filters.page,
+        filters.page * DISCOVER_LIMIT,
       ) + describeFilters(filters, category?.nameFa ?? null);
 
     const rows =

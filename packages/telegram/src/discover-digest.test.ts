@@ -73,10 +73,22 @@ describe('formatDiscovered', () => {
    * ambiguous the moment somebody mentions it.
    */
   it('numbers from the top of the page, not of the list', () => {
-    const text = formatDiscovered([line(), line({ title: 'دو' })], 2);
+    const text = formatDiscovered([line(), line({ title: 'دو' })], 5);
 
-    expect(text).toContain('۵. کوهنوردی');
-    expect(text).toContain('۶. دو');
+    expect(text).toContain('۶. کوهنوردی');
+    expect(text).toContain('۷. دو');
+  });
+
+  /**
+   * The offset is the caller's, not derived from `lines.length` — which is what
+   * it used to be, and was wrong on exactly the page where it shows: a last page
+   * holding two of a five-per-page list numbered them ۳ and ۴.
+   */
+  it('numbers a short last page from where the page starts', () => {
+    const text = formatDiscovered([line(), line({ title: 'دو' })], 10);
+
+    expect(text).toContain('۱۱. کوهنوردی');
+    expect(text).toContain('۱۲. دو');
   });
 
   /**

@@ -53,7 +53,17 @@ export const ENTRY_SEPARATOR = '〰️〰️〰️〰️〰️〰️〰️〰️
  * constant — the day somebody puts an angle bracket in it, the message should
  * not break.
  */
-export function formatDiscovered(lines: readonly DiscoverLine[], page = 0): string {
+export function formatDiscovered(
+  lines: readonly DiscoverLine[],
+  /**
+   * How many activities precede this page — **not** the page number.
+   *
+   * Derived from the page and the page *size*, which the caller knows and this
+   * does not: computing it from `lines.length` was wrong on the last page, where
+   * two results on page two numbered themselves ۳ and ۴ rather than ۶ and ۷.
+   */
+  offset = 0,
+): string {
   if (lines.length === 0) {
     return (
       `<b>فعالیت‌های نزدیک شما</b>\n\n` +
@@ -77,7 +87,7 @@ export function formatDiscovered(lines: readonly DiscoverLine[], page = 0): stri
 
     // Numbered from the top of the *page*, so the reader's «۳» is the third
     // thing they can see rather than the third of a set they cannot.
-    const number = toPersianDigits(String(page * lines.length + index + 1));
+    const number = toPersianDigits(String(offset + index + 1));
     const command = eventCommandFor(line.publicId);
 
     return (

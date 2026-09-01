@@ -61,7 +61,11 @@ export interface MyEventLine {
  * those a tap away would make the list worth less than the command that opens
  * one.
  */
-export function formatMyEvents(lines: readonly MyEventLine[], page = 0): string {
+export function formatMyEvents(
+  lines: readonly MyEventLine[],
+  /** How many activities precede this page. See `formatDiscovered`. */
+  offset = 0,
+): string {
   if (lines.length === 0) {
     return (
       `<b>فعالیت‌های من</b>\n\n` +
@@ -73,7 +77,7 @@ export function formatMyEvents(lines: readonly MyEventLine[], page = 0): string 
     const seats = `${toPersianDigits(String(line.acceptedCount))} از ${toPersianDigits(
       String(line.capacity),
     )}`;
-    const number = toPersianDigits(String(page * lines.length + index + 1));
+    const number = toPersianDigits(String(offset + index + 1));
     const command = myEventCommandFor(line.publicId);
 
     /**

@@ -57,11 +57,11 @@ describe('formatMyEvents', () => {
     expect(text.split(ENTRY_SEPARATOR)).toHaveLength(2);
   });
 
-  it('numbers from the top of the page', () => {
-    const text = formatMyEvents([line({ title: 'یک' }), line({ title: 'دو' })], 1);
+  it('numbers from where the page starts, not from how many it holds', () => {
+    const text = formatMyEvents([line({ title: 'یک' }), line({ title: 'دو' })], 5);
 
-    expect(text).toContain('۳. یک');
-    expect(text).toContain('۴. دو');
+    expect(text).toContain('۶. یک');
+    expect(text).toContain('۷. دو');
   });
 
   /** A title is the host's own words, but it still reaches an HTML-parse-mode send. */
