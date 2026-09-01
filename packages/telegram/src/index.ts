@@ -32,6 +32,7 @@ export {
 export type { ReplyButton, ReplyKeyboard } from './keyboards';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export { formatEventDetail } from './event-detail';
+export { insufficientCoinsNotice } from './notices';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa } from './wallet';
 export { formatTrust, trustLabelFa } from './trust';

@@ -82,6 +82,7 @@ import {
   isChannelRecheckCallback,
   formatDiscovered,
   formatEventDetail,
+  insufficientCoinsNotice,
   formatParticipants,
   encodeChatCallback,
   commandGroupFor,
@@ -4673,21 +4674,6 @@ function quotaMessage(quota: HostQuotaStatus): string {
     : `به سقف فعالیت‌های همزمان رسیده‌اید ` +
         `(${toPersianDigits(String(quota.maxConcurrentActive))} فعالیت در پیش رو). ` +
         `یکی از فعالیت‌های خود را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.`;
-}
-
-/**
- * "You need N, you have M" — the refusal a precondition gives before the work.
- *
- * Both numbers, because "not enough coins" alone leaves a host to go and look up
- * a balance the bot already knows, and the gap is what tells them whether this is
- * one referral away or out of reach today.
- */
-function insufficientCoinsNotice(what: string, cost: number, balance: number): string {
-  return (
-    `${what} <b>${toPersianDigits(String(cost))} سکه</b> هزینه دارد و ` +
-    `موجودی شما <b>${toPersianDigits(String(balance))} سکه</b> است.\n\n` +
-    `می‌توانید با دعوت دوستان یا کد هدیه سکه به دست بیاورید — /referral و /gift.`
-  );
 }
 
 function suspendedNotice(supportContact: string | undefined): string {
