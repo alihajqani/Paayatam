@@ -344,3 +344,34 @@ describe('BOT_WIZARD', () => {
     expect(message?.text).not.toContain('<img');
   });
 });
+
+/**
+ * The last message a blocked account receives (v0.6.5).
+ *
+ * Its whole job is the support handle: a block with no way to appeal is the
+ * product refusing to be appealed to, and the bot goes silent immediately after
+ * this message so there is no second chance to say it.
+ */
+describe('ACCOUNT_BLOCKED', () => {
+  it('names the support contact it was given', () => {
+    const rendered = render(TEMPLATES.ACCOUNT_BLOCKED, { supportContact: '@paayatam_support' });
+
+    expect(rendered?.text).toContain('مسدود');
+    expect(rendered?.text).toContain('@paayatam_support');
+  });
+
+  /**
+   * Omitted rather than left empty. Telling somebody to contact support and then
+   * naming nobody is worse than a shorter message.
+   */
+  it('drops the contact line entirely when none is configured', () => {
+    const rendered = render(TEMPLATES.ACCOUNT_BLOCKED, { supportContact: '' });
+
+    expect(rendered?.text).toContain('مسدود');
+    expect(rendered?.text).not.toContain('@');
+  });
+
+  it('offers no buttons — there is nothing left to tap', () => {
+    expect(render(TEMPLATES.ACCOUNT_BLOCKED, {})?.keyboard).toBeUndefined();
+  });
+});

@@ -35,6 +35,20 @@ export interface DiscoveryQuery {
   sort?: DiscoverySort;
   limit?: number;
   cursor?: string;
+  /**
+   * Skip this many rows instead of resuming from a cursor (v0.6.5).
+   *
+   * For the bot, whose page buttons are `callback_data` and cannot carry an
+   * encoded cursor in sixty-four bytes. Ignored when `cursor` is given: a caller
+   * that has a cursor has the better mechanism and should use it.
+   *
+   * The trade is stated rather than hidden. An offset page re-fixes the relevance
+   * epoch, so an event published between one page and the next can shift a row
+   * across the boundary — a duplicate or a gap of one. For a five-row list of
+   * activities in a city that is a cosmetic imperfection; for the Mini App's
+   * infinite scroll it would not be, which is why that still uses the cursor.
+   */
+  offset?: number;
 }
 
 export interface DiscoveryPage {
@@ -104,6 +118,10 @@ export class DiscoveryService {
       limit: limit + 1,
       epoch,
       ...(cursor ? { after: { key: cursor.key, publicId: cursor.publicId } } : {}),
+      // Only when there is no cursor — the two are alternatives, not a pair.
+      ...(cursor === undefined && query.offset !== undefined && query.offset > 0
+        ? { offset: query.offset }
+        : {}),
       viewerCategoryIds: viewer.categoryIds,
       weights,
     });

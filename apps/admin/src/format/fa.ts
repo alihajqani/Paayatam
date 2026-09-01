@@ -14,6 +14,44 @@ export function toPersianDigits(value: number | string): string {
   return String(value).replaceAll(/\d/g, (digit) => PERSIAN_DIGITS[Number(digit)] ?? digit);
 }
 
+/**
+ * The other direction, for text a person **typed**.
+ *
+ * Everything above turns internal Latin digits into Persian ones for display.
+ * This is the return path, and it exists because the panel asks operators to
+ * type numbers back — the version number on the publish dialog, and any other
+ * confirmation that compares what was typed against a number the code holds.
+ *
+ * An operator reading «نسخهٔ ۳» on a Persian keyboard types «۳», and `Number('۳')`
+ * is `NaN`. The publish button then never enabled, for anybody, ever — the
+ * confirmation could only be satisfied by switching keyboard layouts, which is
+ * not a thing the screen said to do.
+ *
+ * Three digit systems, not one: ASCII, **Persian** `۰-۹` (U+06F0…) and
+ * **Arabic-Indic** `٠-٩` (U+0660…). iOS Persian keyboards emit the second and
+ * several Android keyboards emit the third, and `toAsciiDigits` in the bot's
+ * wizard folds exactly the same three for exactly the same reason.
+ */
+export function toLatinDigits(value: string): string {
+  return value
+    .replaceAll(/[\u06F0-\u06F9]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+    .replaceAll(/[\u0660-\u0669]/g, (digit) => String(digit.charCodeAt(0) - 0x0660));
+}
+
+/**
+ * A number from typed text, or `null` when it is not one.
+ *
+ * `Number('')` is `0` and `Number(' ')` is `0`, both of which would make an empty
+ * confirmation field compare equal to a version 0 that cannot exist — so the
+ * empty string is refused here rather than being allowed to become a zero.
+ */
+export function parseTypedNumber(value: string): number | null {
+  const raw = toLatinDigits(value).trim();
+  if (raw === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /** `۱۲٬۳۴۵` — grouped, Persian, no unit. The caller adds «سکه» or «تومان». */
 export function formatNumber(value: number): string {
   return toPersianDigits(value.toLocaleString('en-US')).replaceAll(',', '٬');

@@ -1033,6 +1033,63 @@ export const adminPolicyView = z.object({
 });
 export type AdminPolicyView = z.infer<typeof adminPolicyView>;
 
+// ── Bug reports (v0.6.5) ─────────────────────────────────────────────────────
+
+/**
+ * What a user says is broken, as staff read it.
+ *
+ * Deliberately **not** a `Report`: that one is moderation, is about a person or
+ * something they posted, and carries a one-per-reporter UNIQUE that would let
+ * somebody report exactly one bug ever. `BugReportService` has the full argument.
+ *
+ * `screenshotFileIds` are Telegram `file_id` strings, not URLs. They are inert
+ * outside this deployment's bot token, which is why they can appear in an admin
+ * response at all — and why the panel renders them as a "open in the bot"
+ * affordance rather than as `<img src>`, which would not load.
+ */
+export const bugReportStatus = z.enum(['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'DISMISSED']);
+export type BugReportStatusView = z.infer<typeof bugReportStatus>;
+
+export const bugReportView = z.object({
+  publicId: z.uuid(),
+  /** The reporter, by public id only (ADR-0009). */
+  userPublicId: z.uuid(),
+  description: z.string(),
+  screenshotFileIds: z.array(z.string()),
+  /** Which release the reporter was on. Recorded, never asked for. */
+  appVersion: z.string().nullable(),
+  status: bugReportStatus,
+  adminNote: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  handledAt: z.iso.datetime().nullable(),
+});
+export type BugReportView = z.infer<typeof bugReportView>;
+
+export const bugReportListQuery = z.object({
+  status: bugReportStatus.optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+export type BugReportListQuery = z.infer<typeof bugReportListQuery>;
+
+export const bugReportListResponse = z.object({
+  reports: z.array(bugReportView),
+  total: z.number().int().nonnegative(),
+});
+export type BugReportListResponse = z.infer<typeof bugReportListResponse>;
+
+/**
+ * Move one along.
+ *
+ * The note is optional and bounded: it is a staff annotation, not a reply — the
+ * reporter never sees it, and a channel back to them would be a support
+ * conversation rather than a queue.
+ */
+export const updateBugReportRequest = z.object({
+  status: bugReportStatus,
+  note: z.string().trim().max(2000).optional(),
+});
+export type UpdateBugReportRequest = z.infer<typeof updateBugReportRequest>;
+
 export const adminPolicyListQuery = z.object({
   type: policyType.optional(),
   status: policyStatus.optional(),

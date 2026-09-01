@@ -186,6 +186,22 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     case 'moderation.content_hidden':
       return recipient(row, 'ownerUserPublicId', TEMPLATES.CONTENT_HIDDEN);
 
+    /**
+     * The last thing a blocked account is told (v0.6.5).
+     *
+     * Fanned out like everything else rather than sent inline by the admin
+     * service, and the reason is the ordering: `setUserStatus` writes the status
+     * inside a transaction, and a Telegram send that happened *before* that
+     * transaction committed could tell somebody they were blocked and then roll
+     * back. An outbox row commits with the block or not at all.
+     *
+     * It reaches the user because the delivery path keys on
+     * `telegram_account.bot_blocked` rather than on `user.status` — the block is
+     * ours, not theirs, and they have not blocked the bot.
+     */
+    case 'user.blocked':
+      return recipient(row, 'userPublicId', TEMPLATES.ACCOUNT_BLOCKED);
+
     default:
       return [];
   }

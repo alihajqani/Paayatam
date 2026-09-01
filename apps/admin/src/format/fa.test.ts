@@ -7,6 +7,8 @@ import {
   formatSigned,
   formatTrust,
   toPersianDigits,
+  toLatinDigits,
+  parseTypedNumber,
 } from './fa';
 
 /**
@@ -107,5 +109,52 @@ describe('relative time', () => {
   it('uses the largest unit that still reads', () => {
     expect(formatRelative(new Date(Date.now() - 45_000).toISOString())).toContain('ثانیه');
     expect(formatRelative(new Date(Date.now() - 5 * 60_000).toISOString())).toContain('دقیقه');
+  });
+});
+
+/**
+ * The return path, for text an operator **typed**.
+ *
+ * Everything above turns internal Latin digits into Persian ones for display.
+ * This is the direction that was missing, and its absence had a concrete
+ * consequence: the legal-documents screen asks for the version number to be
+ * typed back before it will publish, the panel renders that version as «۳», and
+ * `Number('۳')` is `NaN` — so the publish button could not be enabled by anybody
+ * typing on a Persian keyboard, which is everybody who uses this panel.
+ */
+describe('reading numbers a person typed', () => {
+  it('folds Persian digits to Latin', () => {
+    expect(toLatinDigits('۱۴۰۵')).toBe('1405');
+  });
+
+  /** Several Android keyboards emit these rather than the Persian range. */
+  it('folds Arabic-Indic digits to Latin', () => {
+    expect(toLatinDigits('١٤٠٥')).toBe('1405');
+  });
+
+  it('leaves Latin digits and everything else alone', () => {
+    expect(toLatinDigits('v1.2.3')).toBe('v1.2.3');
+  });
+
+  it.each([
+    ['۳', 3],
+    ['3', 3],
+    ['٣', 3],
+    [' ۱۲ ', 12],
+  ])('parses %s as %i', (typed, expected) => {
+    expect(parseTypedNumber(typed)).toBe(expected);
+  });
+
+  /**
+   * `Number('')` is 0, which would make an untouched confirmation field compare
+   * equal to a version 0. Null is the honest answer to "no number here".
+   */
+  it('answers null for an empty field rather than zero', () => {
+    expect(parseTypedNumber('')).toBeNull();
+    expect(parseTypedNumber('   ')).toBeNull();
+  });
+
+  it('answers null for something that is not a number', () => {
+    expect(parseTypedNumber('نسخهٔ سه')).toBeNull();
   });
 });

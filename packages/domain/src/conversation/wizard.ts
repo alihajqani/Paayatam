@@ -21,10 +21,19 @@ import type { Choice } from '@payetam/telegram';
  * to be re-threaded whenever one moves.
  */
 
-/** What arrived: a tapped button, or typed text. */
+/**
+ * What arrived: a tapped button, typed text, or a photo.
+ *
+ * `photo` is v0.6.5 and exists for one wizard — BUG_REPORT, whose whole value is
+ * the screenshot attached to it. `value` then carries a Telegram **`file_id`**
+ * rather than any content: the image stays on Telegram's servers and this
+ * product stores a handle to it. Every other wizard's `accept` refuses a photo
+ * the same way it refuses a tap on the wrong keyboard, so adding the member here
+ * changes nothing for them.
+ */
 export interface WizardInput {
-  kind: 'callback' | 'text';
-  /** The action a callback named. Absent for text. */
+  kind: 'callback' | 'text' | 'photo';
+  /** The action a callback named. Absent for text and photos. */
   action?: string;
   value: string;
 }

@@ -23,6 +23,7 @@ import {
   categoryChoice,
   isCodeKind,
   eventChoice,
+  gregorianYearToJalali,
   touchedFields,
   genderLabel,
   reviewTagLabel,
@@ -47,7 +48,11 @@ import {
   AdminTelegramService,
   type AdminCaseForm,
   type AdminSession,
+  BugReportService,
+  type BugReportForm,
   type CodeKind,
+  type GatedAction,
+  type HostQuotaStatus,
   type RedeemCodeForm,
   type ReferralClaim,
 } from '@payetam/domain';
@@ -60,12 +65,21 @@ import {
   RateLimitService,
   jobId,
 } from '@payetam/platform';
-import { AppError, ERROR_MESSAGES_FA, ErrorCode, type CostType } from '@payetam/shared';
+import {
+  AppError,
+  ERROR_MESSAGES_FA,
+  ErrorCode,
+  resolveVersion,
+  type CostType,
+} from '@payetam/shared';
 import {
   TEMPLATES,
   describeFilters,
   discoverCategoryRows,
   discoverFilterRows,
+  discoverPageRow,
+  encodeChannelRecheckCallback,
+  isChannelRecheckCallback,
   formatDiscovered,
   formatEventDetail,
   formatParticipants,
@@ -164,6 +178,12 @@ interface BotUser {
    * notifications do.
    */
   telegramUserId: bigint;
+  /**
+   * `ACTIVE` or `SUSPENDED`. Banned and deleted accounts never become a `BotUser`
+   * at all — `knownUser` returns null for those — so those two members cannot
+   * appear here and the type says so.
+   */
+  status: 'ACTIVE' | 'SUSPENDED';
 }
 
 /**
@@ -219,6 +239,8 @@ export class BotService {
     private readonly giftCodes: GiftCodeService,
     private readonly invitations: InvitationService,
     private readonly reports: ReportService,
+    /** «مشکلی پیدا کردم» (v0.6.5) — deliberately not `ReportService`. */
+    private readonly bugReports: BugReportService,
     private readonly userSettings: UserSettingsService,
     private readonly lifecycle: EventLifecycleService,
     private readonly settings: SettingsService,
@@ -282,11 +304,42 @@ export class BotService {
         return;
 
       case 'CALLBACK':
-        return this.onCallback(update, intent.from, intent.callbackQueryId, intent.data);
+        return this.onCallback(
+          update,
+          intent.from,
+          intent.callbackQueryId,
+          intent.data,
+          intent.messageId,
+        );
 
       default: {
         const user = await this.knownUser(intent.from);
         if (user === null) return;
+
+        /**
+         * `APP_ACCESS`, enforced here because nothing else was enforcing it.
+         *
+         * `GATED_ACTIONS` has five members. Four of them — create, join, send to
+         * channel, invite — are checked inside the service that owns the
+         * operation, and those work. `APP_ACCESS` is the one that means "do not
+         * let this person use the product at all", and `ChannelConfigService`
+         * documents it as enforced by *the Mini App's router*. The Mini App is
+         * being retired (ADR-0017), so on the bot — which is now the product —
+         * `APP_ACCESS` was configurable and enforced by nothing. An operator who
+         * switched on the requirement, chose the widest action and watched
+         * nothing happen was reading the feature correctly.
+         *
+         * The bot's router is the equivalent place: it is the one point every
+         * message, command and tap passes through, which is exactly the argument
+         * the Mini App's router got.
+         *
+         * **`/start` is deliberately outside this**, and so is `BLOCK_CHANGED`,
+         * because both are handled in the branches above. A gate over `/start`
+         * would refuse the account creation that the join screen's own deep links
+         * come back through, which is the same trap `AuthGuard` avoids by not
+         * gating `/me`.
+         */
+        if (await this.appAccessBlocked(update.updateId, user, intent)) return;
 
         switch (intent.kind) {
           case 'TEXT':
@@ -294,6 +347,22 @@ export class BotService {
 
           case 'EDITED_TEXT':
             return this.onEdit(update.updateId, user, intent.message);
+
+          /**
+           * A photo — accepted by exactly one form, refused everywhere else.
+           *
+           * Criterion 11 is about the **chat relay**: an image forwarded between
+           * two strangers is a payload the product cannot moderate, encrypt or
+           * account for, and refusing it is right. It was never an argument
+           * about the bug-report form, where the screenshot *is* the report.
+           *
+           * So the photo is offered to the conversation first. A BUG_REPORT
+           * wizard takes it; every other wizard's `accept` refuses it and says
+           * what it wanted instead; and with no wizard open at all the answer is
+           * the same Persian sentence it always was.
+           */
+          case 'PHOTO':
+            return this.onPhoto(update.updateId, user, intent.fileId);
 
           /** Criterion 11, through the bot: a Persian refusal, and nothing stored. */
           case 'UNSUPPORTED':
@@ -308,6 +377,45 @@ export class BotService {
         }
       }
     }
+  }
+
+  /**
+   * Commands the `APP_ACCESS` gate must never refuse.
+   *
+   * `/help` because somebody stuck behind a wall has to be able to read what the
+   * product is and how to reach support. `/bug` because the wall itself is the
+   * most likely thing they want to report — a misconfigured invite link is
+   * precisely the state where the gate cannot be cleared and the operator has no
+   * way of finding out. A bug report changes nothing and costs nothing to allow.
+   */
+  private static readonly UNGATED_COMMANDS = new Set(['help', 'bug', 'bugreport']);
+
+  /**
+   * The `APP_ACCESS` gate, and the things it must never refuse.
+   *
+   * The channel-join screen is only useful if the button on it can be pressed, so
+   * «بررسی دوباره» is exempt — gating the control that clears the gate would make
+   * the gate unclearable. `/start` is handled before this for the same reason:
+   * gating account creation would refuse the deep links the join screen sends
+   * people back through.
+   *
+   * Everything else — every other command, every text, every other button — is
+   * refused with the join screen while the requirement stands.
+   */
+  private async appAccessBlocked(
+    updateId: number,
+    user: BotUser,
+    intent: ParsedUpdate['intent'],
+  ): Promise<boolean> {
+    if (intent.kind === 'CALLBACK' && isChannelRecheckCallback(intent.data)) return false;
+    if (
+      intent.kind === 'COMMAND' &&
+      BotService.UNGATED_COMMANDS.has(intent.command.toLowerCase())
+    ) {
+      return false;
+    }
+
+    return this.channelsBlock(updateId, user, 'APP_ACCESS');
   }
 
   /**
@@ -745,7 +853,12 @@ export class BotService {
        * same search the Mini App runs returns.
        */
       case 'discover':
-        return this.discoverWith(updateId, user, { when: 'a', cost: 'a', categoryId: null });
+        return this.discoverWith(updateId, user, {
+          when: 'a',
+          cost: 'a',
+          categoryId: null,
+          page: 0,
+        });
 
       /**
        * `/reviews` — what the sender still owes, and by when.
@@ -797,7 +910,73 @@ export class BotService {
       case 'newevent': {
         if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
         if (!(await this.mayWrite(updateId, user))) return;
+        /**
+         * The quota, **before** the form rather than after it.
+         *
+         * `EventService.create` has always enforced this and still does — it is
+         * the authority and this is not a second one. What was wrong was *when*
+         * the user found out: the wizard asks fourteen questions, and a host who
+         * had reached the limit answered all of them, pressed «ثبت فعالیت» and
+         * was told they could not create an event today. The refusal was correct
+         * and arrived after every possible opportunity to act on it.
+         */
+        if (await this.quotaBlocked(updateId, user)) return;
         const outcome = await this.conversations.start(user.id, 'CREATE_EVENT', updateId);
+        return this.drawWizard(updateId, user, outcome);
+      }
+
+      /**
+       * `/bug` — «مشکلی پیدا کردم» (v0.6.5).
+       *
+       * Deliberately **not** behind `mayWrite`. The consent gate exists to stop
+       * somebody acting in the product before they have accepted its terms, and
+       * telling us the product is broken is not one of those acts — it is the
+       * thing a user does *because* something stopped them. A gate here would
+       * mean the one report worth having most, from somebody stuck at a screen
+       * they cannot get past, is the one the bot refuses.
+       *
+       * The channel gate does not reach it either, for the same reason
+       * `appAccessBlocked` exempts `/help`: a wall the user cannot describe is a
+       * wall nobody finds out about.
+       *
+       * Suspended accounts **can** file one. A suspension is read-only for
+       * things that change the product's state; a bug report changes none of it.
+       */
+      case 'bug':
+      case 'bugreport': {
+        if (!this.env.ENABLE_CONVERSATION_WIZARD) {
+          return this.notice(
+            updateId,
+            user,
+            this.env.SUPPORT_CONTACT === undefined
+              ? 'گزارش مشکل موقتاً در دسترس نیست.'
+              : `گزارش مشکل موقتاً در دسترس نیست. مشکل را برای پشتیبانی بفرستید: ${this.env.SUPPORT_CONTACT}`,
+          );
+        }
+
+        /**
+         * Metered here rather than in the service, and on the **form opening**
+         * rather than on the submission.
+         *
+         * On the surface, because `BugReportService.file` is also reachable from
+         * a script and the limiter belongs to the person typing. On the opening,
+         * because a limit checked at submit lets somebody fill in a form and
+         * attach five screenshots before being told none of it counted.
+         */
+        const verdict = await this.limiter.consume(
+          'BUG_REPORT_FILE',
+          user.publicId,
+          RATE_LIMITS.BUG_REPORT_FILE,
+        );
+        if (!verdict.allowed) {
+          return this.notice(
+            updateId,
+            user,
+            'گزارش‌های زیادی در ساعت گذشته فرستاده‌اید. کمی بعد دوباره تلاش کنید.',
+          );
+        }
+
+        const outcome = await this.conversations.start(user.id, 'BUG_REPORT', updateId);
         return this.drawWizard(updateId, user, outcome);
       }
 
@@ -937,6 +1116,9 @@ export class BotService {
       id: userId,
       publicId: created.publicId,
       telegramUserId: from.telegramUserId,
+      // `findOrCreateByTelegram` refuses a banned or deleted account outright, so
+      // anything that reaches here is one of the two writable states.
+      status: created.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE',
     };
 
     /**
@@ -1185,7 +1367,7 @@ export class BotService {
       await this.chats.send(user.id, chatPublicId, message);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
     }
   }
 
@@ -1197,6 +1379,47 @@ export class BotService {
    * relayed anywhere, and answering «پیدا نشد» to those would have the bot arguing
    * with people about their own typing.
    */
+  /**
+   * A photo, handed to the form that wants one.
+   *
+   * ── Why this goes through the conversation at all ───────────────────────────
+   *
+   * Because the alternative is a flag. "Is this user filing a bug report?" is
+   * already a row in `conversation_state`, and asking that row is what keeps the
+   * bot from growing a second, parallel notion of what somebody is in the middle
+   * of. `handle` returns null when no wizard is open, which is the same test
+   * `onText` uses to tell a form answer from a chat message.
+   *
+   * A wizard that is open but does not take photos refuses through its own
+   * `accept`, and the refusal names the thing that step *did* want — which is
+   * more useful than «این نوع پیام پشتیبانی نمی‌شود» from a bot that is, at that
+   * moment, mid-form.
+   */
+  private async onPhoto(updateId: number, user: BotUser, fileId: string): Promise<void> {
+    if (!this.env.ENABLE_CONVERSATION_WIZARD) {
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.CHAT_MEDIA_UNSUPPORTED]);
+    }
+
+    const outcome = await this.conversations.handle(user.id, updateId, {
+      kind: 'photo',
+      value: fileId,
+    });
+    if (outcome === null) {
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.CHAT_MEDIA_UNSUPPORTED]);
+    }
+
+    /**
+     * The photo message itself is **not** tidied away.
+     *
+     * `onText` deletes the user's typed answer because the wizard has absorbed
+     * it and a transcript of answers above a form that already shows them is
+     * noise. A screenshot is different: it is the evidence, the person sending
+     * it wants to see that it arrived, and deleting somebody's picture out of
+     * their own chat reads as the product losing it.
+     */
+    return this.drawWizard(updateId, user, outcome);
+  }
+
   private async onEdit(updateId: number, user: BotUser, message: BotInboundText): Promise<void> {
     if (message.telegramMessageId === undefined) return;
 
@@ -1205,7 +1428,7 @@ export class BotService {
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       if (error.code === ErrorCode.NOT_FOUND) return;
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
     }
   }
 
@@ -1227,10 +1450,66 @@ export class BotService {
     from: BotSender,
     callbackQueryId: string,
     data: string,
+    /** The message the button sits on, when Telegram named one. See `ParsedUpdate`. */
+    messageId?: number,
   ): Promise<void> {
     const user = await this.knownUser(from);
     if (user === null) {
       await this.answer(callbackQueryId, 'برای شروع /start را بفرستید.');
+      return;
+    }
+
+    /**
+     * «بررسی دوباره» — ask Telegram again, now.
+     *
+     * First, and before the `APP_ACCESS` gate below, because this is the button
+     * that clears it. `recheck` drops the probe's cached answer for every channel
+     * before re-reading, which is the difference between "you have joined" and
+     * "you have joined, and the bot will notice in two minutes".
+     *
+     * Rate-limited on the same `MEMBERSHIP_CHECK` bucket the Mini App's re-check
+     * spends from: this is the one tap in the product that becomes a Telegram API
+     * call synchronously, and a limit enforced on one of two surfaces is not one.
+     */
+    if (isChannelRecheckCallback(data)) {
+      const verdict = await this.limiter.consume(
+        'MEMBERSHIP_CHECK',
+        user.publicId,
+        RATE_LIMITS.MEMBERSHIP_CHECK,
+      );
+      if (!verdict.allowed) {
+        await this.answer(callbackQueryId, ERROR_MESSAGES_FA[ErrorCode.RATE_LIMITED]);
+        return;
+      }
+
+      const state = await this.membership.recheck(user.id);
+      const missing = state.channels.filter((channel) => !channel.allowed);
+      if (missing.length === 0) {
+        await this.answer(callbackQueryId, 'عضویت تأیید شد ✅');
+        return this.notice(
+          update.updateId,
+          user,
+          'عضویت شما تأیید شد ✅ حالا می‌توانید از پایه‌تَم استفاده کنید.',
+        );
+      }
+
+      await this.answer(callbackQueryId, 'هنوز در همهٔ کانال‌ها عضو نیستید.');
+      return this.drawChannelGate(
+        update.updateId,
+        user,
+        missing.map((channel) => ({ title: channel.title, joinUrl: channel.joinUrl })),
+      );
+    }
+
+    /**
+     * The `APP_ACCESS` gate, for taps.
+     *
+     * `route` applies it to commands and text; a callback is dispatched before
+     * that branch, so it is applied here as well rather than being the one entry
+     * point the requirement does not cover.
+     */
+    if (await this.channelsBlock(update.updateId, user, 'APP_ACCESS')) {
+      await this.answer(callbackQueryId, 'برای ادامه باید در کانال‌های اعلام‌شده عضو شوید.');
       return;
     }
 
@@ -1336,7 +1615,7 @@ export class BotService {
     const discoverCallback = parseDiscoverCallback(data);
     if (discoverCallback !== null) {
       await this.answer(callbackQueryId, '');
-      return this.discoverWith(update.updateId, user, discoverCallback);
+      return this.discoverWith(update.updateId, user, discoverCallback, messageId);
     }
 
     /**
@@ -1728,7 +2007,13 @@ export class BotService {
        * Truncated by `answerCallback` at Telegram's 200 characters; every
        * sentence in `ERROR_MESSAGES_FA` is far inside that.
        */
-      await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+      /**
+       * `refuseToast` rather than `answer`, so the one refusal that is a *screen*
+       * gets one: a gated join answers with the toast and then draws the
+       * channel-join keyboard underneath it, because a toast cannot carry links
+       * and «عضو کانال شوید» with no link is not actionable.
+       */
+      await this.refuseToast(updateId, user, callbackQueryId, error);
       /**
        * A refusal the user can act on opens the thing that clears it.
        *
@@ -1883,7 +2168,7 @@ export class BotService {
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
     }
   }
 
@@ -1934,7 +2219,7 @@ export class BotService {
       detail = await this.admins.caseForReview(session, callback.id);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return this.refuse(updateId, user, error);
     }
 
     /**
@@ -1997,7 +2282,7 @@ export class BotService {
       cases = await this.admins.listCases(session);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return this.refuse(updateId, user, error);
     }
 
     /**
@@ -2076,7 +2361,7 @@ export class BotService {
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       await this.conversations.clear(user.id);
-      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return this.refuse(updateId, user, error);
     }
 
     await this.conversations.clear(user.id);
@@ -2150,7 +2435,7 @@ export class BotService {
       return await this.discovery.findPublished(eventPublicId);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
       return null;
     }
   }
@@ -2166,10 +2451,7 @@ export class BotService {
         title: event.title,
         description: event.description,
         categoryName: event.customCategoryLabel ?? event.categoryNameFa,
-        where:
-          event.districtNameFa === null
-            ? event.cityNameFa
-            : `${event.cityNameFa} — ${event.districtNameFa}`,
+        where: whereOf(event),
         startsAt: event.startsAt,
         endsAt: event.endsAt,
         capacity: event.capacity,
@@ -2225,7 +2507,7 @@ export class BotService {
       event = await this.events.findOwned(user.id, eventPublicId);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      return this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      return this.refuse(updateId, user, error);
     }
 
     const participants = await this.participation.listForEvent(user.id, eventPublicId);
@@ -2366,6 +2648,50 @@ export class BotService {
   }
 
   /**
+   * File the bug report the form collected.
+   *
+   * The **release is attached here**, not asked for: `resolveVersion()` is what
+   * this process is running, and it is both the single most useful field on a
+   * bug report and the one no user can be expected to know. A report that says
+   * «دکمه کار نمی‌کند» against a release nobody can identify is a report that
+   * cannot be reproduced.
+   *
+   * The draft is cleared only on success, for the reason `submitCode` gives: a
+   * refusal the user can fix should leave the thing they would fix on the screen.
+   */
+  private async submitBugReport(
+    updateId: number,
+    user: BotUser,
+    raw: Record<string, unknown>,
+  ): Promise<void> {
+    const form = raw as BugReportForm;
+
+    if (form.description === undefined) {
+      await this.conversations.clear(user.id);
+      return this.notice(updateId, user, 'گزارش ثبت نشد. دوباره تلاش کنید.');
+    }
+
+    try {
+      await this.bugReports.file(user.id, {
+        description: form.description,
+        screenshotFileIds: form.screenshotFileIds ?? [],
+        appVersion: resolveVersion(this.env.PAYETAM_VERSION),
+      });
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.refuse(updateId, user, error);
+    }
+
+    await this.conversations.clear(user.id);
+    await this.notice(
+      updateId,
+      user,
+      'گزارش شما ثبت شد ✅ ممنون که وقت گذاشتید.\n\n' +
+        'تیم ما آن را بررسی می‌کند. اگر برای پیگیری لازم باشد، از همین‌جا با شما تماس می‌گیریم.',
+    );
+  }
+
+  /**
    * Spend a gift code, from the form or from `/gift <code>`.
    *
    * ── The rate limit, and why it is here ──────────────────────────────────────
@@ -2407,7 +2733,7 @@ export class BotService {
       return true;
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
       return false;
     }
   }
@@ -2430,7 +2756,7 @@ export class BotService {
       return true;
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
       return false;
     }
   }
@@ -2634,6 +2960,14 @@ export class BotService {
     updateId: number,
     user: BotUser,
     filters: DiscoverFilters,
+    /**
+     * The message the tap came from, when there was one.
+     *
+     * Present for a filter or page button, absent for `/discover` typed as a
+     * command. That is exactly the distinction between redrawing and starting:
+     * a command has no message of its own to redraw.
+     */
+    editMessageId?: number,
   ): Promise<void> {
     const profile = await this.profiles.find(user.id);
     if (profile === null) {
@@ -2657,10 +2991,19 @@ export class BotService {
         ? null
         : (catalog.categories.find((row) => row.id === filters.categoryId) ?? null);
 
+    /**
+     * One page, plus one row to peek at.
+     *
+     * `limit + 1` is how «بعدی» is decided: whether a sixth activity exists is
+     * the only fact the control needs, and a `COUNT(*)` over the whole filtered
+     * set would be a second query per tap for a number nobody is shown. The extra
+     * row is dropped before anything is rendered.
+     */
     const page = await this.discovery.search(user.id, {
       cityId: profile.city.id,
       hasCapacity: true,
-      limit: DISCOVER_LIMIT,
+      limit: DISCOVER_LIMIT + 1,
+      offset: filters.page * DISCOVER_LIMIT,
       ...(range !== null ? { dateFrom: range.from, dateTo: range.to } : {}),
       ...(filters.cost === 'f' ? { costType: 'FREE' as const } : {}),
       // A category that no longer exists is dropped rather than searched for: an
@@ -2668,21 +3011,21 @@ export class BotService {
       ...(category !== null ? { categoryId: category.id } : {}),
     });
 
+    const hasNext = page.events.length > DISCOVER_LIMIT;
+    const shown = page.events.slice(0, DISCOVER_LIMIT);
+
     const text =
       formatDiscovered(
-        page.events.map((event) => ({
+        shown.map((event) => ({
           title: event.title,
           categoryName: event.customCategoryLabel ?? event.categoryNameFa,
-          where:
-            event.districtNameFa === null
-              ? event.cityNameFa
-              : `${event.cityNameFa} — ${event.districtNameFa}`,
+          where: whereOf(event),
           startsAt: event.startsAt,
           remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
         })),
       ) + describeFilters(filters, category?.nameFa ?? null);
 
-    const joinable = page.events.filter((event) => isPublicId(event.publicId));
+    const joinable = shown.filter((event) => isPublicId(event.publicId));
     const eventRows = joinable.map((event, index) => [
       {
         text: `${toPersianDigits(String(index + 1))} جزئیات`,
@@ -2702,6 +3045,7 @@ export class BotService {
      */
     const rows = [
       ...eventRows,
+      ...discoverPageRow(filters, hasNext),
       ...discoverFilterRows(filters),
       ...discoverCategoryRows(
         filters,
@@ -2709,10 +3053,53 @@ export class BotService {
       ),
     ];
 
-    await this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, {
-      text,
-      keyboard: JSON.stringify(rows),
-    });
+    /**
+     * A tap **redraws**; a command sends.
+     *
+     * `/discover` used to answer every filter tap with a whole new message, so
+     * narrowing a search three times left four near-identical lists stacked in
+     * the chat and the one the user was reading scrolled off the top. Filters are
+     * a control on a list, not four separate answers — the same argument the
+     * wizard makes for living on one message, and now that there is paging as
+     * well the old shape would produce a new message per page too.
+     *
+     * The command path still sends, because there is nothing to redraw yet, and
+     * so does a tap whose message id Telegram did not give us.
+     */
+    if (editMessageId === undefined) {
+      await this.reply(updateId, user.id, TEMPLATES.BOT_DISCOVER, {
+        text,
+        keyboard: JSON.stringify(rows),
+      });
+      return;
+    }
+
+    await this.repaint(updateId, user, editMessageId, text, rows);
+  }
+
+  /**
+   * Edit one of the bot's own messages in place.
+   *
+   * The wizard's `paint` does this for a conversation screen and reads its
+   * message id out of `conversation_state`. This is the same job for a message
+   * that has no conversation behind it — a discovery list, a settings board —
+   * where the id comes from the callback that was tapped.
+   *
+   * Keyed on the update and the message, so a redelivered update redraws once.
+   */
+  private async repaint(
+    updateId: number,
+    user: BotUser,
+    messageId: number,
+    text: string,
+    keyboard: readonly { text: string; callbackData?: string; url?: string }[][],
+  ): Promise<void> {
+    await this.queues.enqueue(
+      QUEUES.TELEGRAM_SEND,
+      JOBS.BOT_EDIT_MESSAGE,
+      jobId('repaint', String(updateId), String(messageId)),
+      { userId: user.id, messageId, text, keyboard },
+    );
   }
 
   /**
@@ -2761,11 +3148,53 @@ export class BotService {
    * make every caller translate an error code back into that flow.
    */
   private async mayWrite(updateId: number, user: BotUser): Promise<boolean> {
-    if (await this.consent.hasAcceptedCurrentPolicies(user.id)) return true;
+    /**
+     * Suspension, which until v0.6.5 was a column nothing read.
+     *
+     * `AdminOperationsService.setUserStatus` has been able to write `SUSPENDED`
+     * since M12, and the only code that looked at `user.status` anywhere checked
+     * for `BANNED` or `DELETED` — so suspending an account changed a row, wrote
+     * an audit entry, and did nothing whatsoever to the person it was about.
+     *
+     * **Writes only, reads still allowed.** That is what makes it a different
+     * thing from a ban rather than a slower one: `MessagingService` already
+     * treats `SUSPENDED` as reachable — «`ACTIVE` or `SUSPENDED`. Banned and
+     * deleted accounts are never reachable» — so a suspended user is somebody the
+     * product still talks to. They can read their events, their chats and their
+     * wallet, and can do nothing that creates or changes anything until support
+     * lifts it. A suspension nobody can see the end of is a ban with extra steps.
+     */
+    if (user.status === 'SUSPENDED') {
+      await this.notice(updateId, user, suspendedNotice(this.env.SUPPORT_CONTACT));
+      return false;
+    }
 
-    const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
-    await this.drawWizard(updateId, user, outcome);
-    return false;
+    if (!(await this.consent.hasAcceptedCurrentPolicies(user.id))) {
+      const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
+      await this.drawWizard(updateId, user, outcome);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Whether either creation quota is already spent, said with the real numbers.
+   *
+   * The numbers matter and are the second half of the bug this closes. Both
+   * quotas used to raise one error code whose Persian named the **daily** limit,
+   * so an operator watching a host be refused went to the panel, raised
+   * `events.max_per_day` from 5 to 30, and watched the identical refusal — the
+   * setting worked perfectly and the message had never been about it. Naming the
+   * limit that actually bound, with the value that is actually configured, is
+   * what makes a settings change visible from the outside.
+   */
+  private async quotaBlocked(updateId: number, user: BotUser): Promise<boolean> {
+    const quota = await this.events.quotaFor(user.id);
+    if (quota.blockedBy === null) return false;
+
+    await this.notice(updateId, user, quotaMessage(quota));
+    return true;
   }
 
   // ── conversation wizards (ADR-0017) ─────────────────────────────────────────
@@ -2829,6 +3258,8 @@ export class BotService {
             return this.submitAdminCase(updateId, user, outcome.snapshot);
           case 'REDEEM_CODE':
             return this.submitCode(updateId, user, outcome.snapshot.form);
+          case 'BUG_REPORT':
+            return this.submitBugReport(updateId, user, outcome.snapshot.form);
           default:
             return this.submitWizard(updateId, user, outcome.snapshot.form);
         }
@@ -2862,6 +3293,32 @@ export class BotService {
           const screen = renderSummary(await this.profileSummaryLines(profile), false, 'ثبت نمایه');
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
+        /**
+         * A bug report's summary is where the screenshots are counted back.
+         *
+         * It is also the screen every additional photo returns to: the photo
+         * step is the last one, so `nextStep` is null after each picture and the
+         * conversation lands here again with the count one higher. That is what
+         * makes "send five screenshots" five messages and one growing summary
+         * rather than five forms.
+         */
+        if (outcome.snapshot.kind === 'BUG_REPORT') {
+          const form = outcome.snapshot.form as BugReportForm;
+          const shots = form.screenshotFileIds?.length ?? 0;
+          const screen = renderSummary(
+            [
+              { label: 'شرح مشکل', value: form.description ?? '—' },
+              {
+                label: 'تصویرها',
+                value: shots === 0 ? 'بدون تصویر' : `${toPersianDigits(String(shots))} تصویر`,
+              },
+            ],
+            false,
+            'فرستادن گزارش',
+          );
+          return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
+        }
+
         if (outcome.snapshot.kind === 'FILE_REPORT') {
           const form = outcome.snapshot.form as FileReportForm;
           const lines: SummaryLine[] = [];
@@ -3083,7 +3540,7 @@ export class BotService {
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
       return;
     }
 
@@ -3142,14 +3599,43 @@ export class BotService {
    * `finishConsent` gives. Returns true when the user was stopped, so callers
    * read as `if (await this.channelsBlock(...)) return;`.
    */
-  private async channelsBlock(updateId: number, user: BotUser): Promise<boolean> {
-    const state = await this.membership.stateFor(user.id);
+  private async channelsBlock(
+    updateId: number,
+    user: BotUser,
+    action?: GatedAction,
+  ): Promise<boolean> {
+    const state = await this.membership.stateFor(user.id, action);
     if (!state.required) return false;
 
     const missing = state.channels.filter((channel) => !channel.allowed);
     if (missing.length === 0) return false;
 
-    const buttons = missing
+    await this.drawChannelGate(
+      updateId,
+      user,
+      missing.map((channel) => ({ title: channel.title, joinUrl: channel.joinUrl })),
+    );
+    return true;
+  }
+
+  /**
+   * The join screen, from whatever knows which channels are outstanding.
+   *
+   * Two callers, and the second is why this is separate from `channelsBlock`: a
+   * domain service that refuses with `CHANNEL_MEMBERSHIP_REQUIRED` puts the
+   * outstanding channels in `details.channels` precisely so the surface can draw
+   * this screen from the refusal rather than making a second membership call.
+   * Before v0.6.5 the bot ignored that and rendered `ERROR_MESSAGES_FA` — one
+   * sentence, no buttons — so a user told to join a channel was not told which,
+   * and given no link to it. Half of "the channel requirement does not work" was
+   * that: the gate fired and the screen it produced was unusable.
+   */
+  private async drawChannelGate(
+    updateId: number,
+    user: BotUser,
+    channels: readonly { title: string; joinUrl: string | null }[],
+  ): Promise<void> {
+    const buttons = channels
       .filter((channel) => channel.joinUrl !== null)
       .map((channel) => [{ text: `عضویت در ${channel.title}`, url: channel.joinUrl as string }]);
 
@@ -3158,12 +3644,44 @@ export class BotService {
       // and `ChannelConfigStatus` warns about it. Say what is true rather than
       // showing an empty keyboard.
       await this.notice(updateId, user, 'برای ادامه باید در کانال‌های اعلام‌شده عضو باشید.');
-      return true;
+      return;
     }
 
     await this.reply(updateId, user.id, TEMPLATES.BOT_CHANNEL_GATE, {
-      keyboard: JSON.stringify(buttons),
+      keyboard: JSON.stringify([
+        ...buttons,
+        // The way out. Without it the only way to clear the gate is to guess that
+        // repeating the original action might now work — and for the length of
+        // the probe's cache it would not.
+        [{ text: '🔄 بررسی دوباره', callbackData: encodeChannelRecheckCallback() }],
+      ]),
     });
+  }
+
+  /**
+   * Whether an `AppError` was the membership gate, and if so, draw it properly.
+   *
+   * Returns true when it handled the error, so the ordinary
+   * `ERROR_MESSAGES_FA[code]` path can stay a one-liner everywhere else.
+   */
+  private async handledChannelRefusal(
+    updateId: number,
+    user: BotUser,
+    error: AppError,
+  ): Promise<boolean> {
+    if (error.code !== ErrorCode.CHANNEL_MEMBERSHIP_REQUIRED) return false;
+
+    const details = error.details as { channels?: { title: string; joinUrl: string | null }[] };
+    const channels = Array.isArray(details?.channels) ? details.channels : [];
+    // An empty list means the refusal carried no detail — an older shape, or a
+    // gate with nothing joinable behind it. Asking the service again is one query
+    // and produces the same screen rather than a bare sentence.
+    if (channels.length === 0) {
+      await this.channelsBlock(updateId, user);
+      return true;
+    }
+
+    await this.drawChannelGate(updateId, user, channels);
     return true;
   }
 
@@ -3200,6 +3718,7 @@ export class BotService {
       customCategoryLabel: event.customCategoryLabel ?? undefined,
       cityId: event.city.id,
       districtId: event.district?.id,
+      districtLabel: event.districtLabel ?? undefined,
       day: isoDay(startsAt),
       hour: Number(
         new Intl.DateTimeFormat('en-GB', {
@@ -3246,7 +3765,7 @@ export class BotService {
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       // The draft survives, for the reason it survives a refused creation.
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
     }
   }
 
@@ -3321,7 +3840,7 @@ export class BotService {
       if (!(error instanceof AppError)) throw error;
       // The draft survives on purpose: a refusal the user can fix is not a reason
       // to make them start again.
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
     }
   }
 
@@ -3373,6 +3892,33 @@ export class BotService {
       return this.createProfile(updateId, user, form);
     }
 
+    /**
+     * The profile-edit limit, on the surface that does the editing.
+     *
+     * `PATCH /me/profile` has carried `@RateLimit('PROFILE_UPDATE')` since M22
+     * and the bot's settings board spends from the same bucket, but the wizard —
+     * which is the *only* way to edit a profile now that the Mini App is being
+     * retired — spent from nothing. Ten an hour enforced everywhere except the
+     * place people actually edit their profile is this file's own definition of
+     * not being a limit at all.
+     *
+     * Only on the **edit** path. Creating a profile is a once-per-account
+     * onboarding step, and metering it would mean a new user who mistyped their
+     * city could be locked out of finishing onboarding.
+     */
+    const verdict = await this.limiter.consume(
+      'PROFILE_UPDATE',
+      user.publicId,
+      RATE_LIMITS.PROFILE_UPDATE,
+    );
+    if (!verdict.allowed) {
+      return this.notice(
+        updateId,
+        user,
+        'تعداد ویرایش‌های نمایه در یک ساعت گذشته زیاد بوده است. کمی بعد دوباره تلاش کنید.',
+      );
+    }
+
     try {
       await this.profiles.update(
         user.id,
@@ -3391,7 +3937,7 @@ export class BotService {
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       // The draft survives, for the reason it survives a refused event.
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
     }
   }
 
@@ -3451,7 +3997,7 @@ export class BotService {
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       // The draft survives, for the reason it survives a refused event.
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+      await this.refuse(updateId, user, error);
     }
   }
 
@@ -3511,7 +4057,12 @@ export class BotService {
       lines.push({ label: 'جنسیت', value: genderLabel(form.gender) });
     }
     if (form.birthYear !== undefined) {
-      lines.push({ label: 'سال تولد', value: toPersianDigits(String(form.birthYear)) });
+      // The form stores Gregorian, because the column and the contract are; the
+      // user answered in Jalali and must be shown their own answer back.
+      lines.push({
+        label: 'سال تولد',
+        value: toPersianDigits(String(gregorianYearToJalali(form.birthYear))),
+      });
     }
     if (city !== undefined) lines.push({ label: 'شهر', value: city.nameFa });
     if (form.bio !== undefined) lines.push({ label: 'معرفی', value: form.bio });
@@ -3551,13 +4102,16 @@ export class BotService {
     const category = catalog.categories.find((candidate) => candidate.id === form.categoryId);
     const day = form.day === undefined ? null : parseIsoDay(form.day);
 
+    // A picked district, or the neighbourhood the host typed. Never both — the
+    // `dist` step clears one when it sets the other.
     const district = city?.districts.find((candidate) => candidate.id === form.districtId);
+    const neighbourhood = district?.nameFa ?? form.districtLabel;
     const where =
       city === undefined
         ? '—'
-        : district === undefined
+        : neighbourhood === undefined
           ? city.nameFa
-          : `${city.nameFa} — ${district.nameFa}`;
+          : `${city.nameFa} — ${neighbourhood}`;
 
     /**
      * Everything the wizard has collected, whether or not it was asked on the
@@ -3687,6 +4241,55 @@ export class BotService {
   }
 
   /**
+   * Show a refused domain action, in the shape that refusal actually needs.
+   *
+   * `ERROR_MESSAGES_FA[code]` is the right answer for almost every code and is
+   * still what this returns. Three of them are not sentences, they are screens or
+   * numbers, and rendering them as sentences is what made two features look
+   * broken from the outside:
+   *
+   *  - **`CHANNEL_MEMBERSHIP_REQUIRED`** is a screen. The refusal carries which
+   *    channels are outstanding and where to join them; flattening it to «برای
+   *    ادامه باید عضو کانال باشید» threw the links away and left the user with an
+   *    instruction and no way to follow it.
+   *  - **The two quota codes** are numbers. The catalogue cannot interpolate, so
+   *    the message could not name the limit the operator had actually set.
+   *
+   * One place, so a handler stays a one-liner and no branch has to remember.
+   */
+  private async refuse(updateId: number, user: BotUser, error: AppError): Promise<void> {
+    if (await this.handledChannelRefusal(updateId, user, error)) return;
+
+    if (
+      error.code === ErrorCode.EVENT_QUOTA_EXCEEDED ||
+      error.code === ErrorCode.EVENT_ACTIVE_QUOTA_EXCEEDED
+    ) {
+      return this.notice(updateId, user, quotaMessage(await this.events.quotaFor(user.id)));
+    }
+
+    await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
+  }
+
+  /**
+   * The same, for a refusal that happened under a button.
+   *
+   * A toast cannot carry a keyboard, so the channel gate is drawn as a message
+   * underneath it — otherwise a user who taps «پیوستن» on a gated event sees a
+   * three-second toast naming a channel and no link to it.
+   */
+  private async refuseToast(
+    updateId: number,
+    user: BotUser,
+    callbackQueryId: string,
+    error: AppError,
+  ): Promise<void> {
+    await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+    if (error.code === ErrorCode.CHANNEL_MEMBERSHIP_REQUIRED) {
+      await this.handledChannelRefusal(updateId, user, error);
+    }
+  }
+
+  /**
    * Take a typed wizard answer out of the chat (report: "delete user messages").
    *
    * **A wizard is one message that changes, and half of it was not.** The bot
@@ -3750,6 +4353,10 @@ export class BotService {
       id: await this.users.resolveInternalId(user.publicId),
       publicId: user.publicId,
       telegramUserId: from.telegramUserId,
+      // Carried rather than re-read: `mayWrite` needs it on every write, and a
+      // second `findByTelegramId` per update to learn a field this one already
+      // selected would be a query per keystroke in a wizard.
+      status: user.status,
     };
   }
 
@@ -3772,14 +4379,74 @@ export class BotService {
 }
 
 /**
- * How many activities `/discover` renders.
+ * How many activities one page of `/discover` renders.
  *
- * Well under `buildDigest`'s own ceiling, and deliberately so: this is a *taste*
- * of what is on, not the catalogue. Twenty results in a Telegram message is a
- * wall somebody scrolls past; five is a reason to open the app, which is where
- * the filters and the join button are.
+ * Well under `buildDigest`'s own ceiling, and deliberately so: five rows plus
+ * ten buttons is already most of a phone screen, and twenty results in one
+ * Telegram message is a wall somebody scrolls past.
+ *
+ * What changed in v0.6.5 is what happens to the sixth activity. It used to be
+ * nothing: the list was five and there was no way to see anything else, so a
+ * city with thirty activities showed five of them for ever and the other
+ * twenty-five were unreachable from the bot. Now the limit is a *page* — the
+ * search asks for one more row than this to learn whether «بعدی» should exist,
+ * and `discoverPageRow` renders the control.
  */
 const DISCOVER_LIMIT = 5;
+
+/**
+ * What a suspended account is told, wherever it tries to write.
+ *
+ * It names the contact that can lift the suspension, because a refusal somebody
+ * cannot act on is how a suspension turns into an abandoned account. The line is
+ * **omitted** rather than left as a placeholder when `SUPPORT_CONTACT` is unset:
+ * sending a real user «با پشتیبانی تماس بگیرید» followed by nothing is worse
+ * than not raising the subject.
+ */
+/**
+ * Which quota stopped this host, in Persian, with the configured number in it.
+ *
+ * Built here rather than taken from `ERROR_MESSAGES_FA` because that catalogue is
+ * static strings keyed by code and cannot interpolate — and a message that says
+ * «سقف ۵ فعالیت» when the operator has set thirty is the thing that made a
+ * working setting look broken.
+ */
+/**
+ * «تهران — درکه», from whichever of the two neighbourhood fields is set.
+ *
+ * The catalogue name when a district was picked, the host's own words when one
+ * was typed, and the city alone when neither. Written once because both of the
+ * places that render a discovered event had the same three-way expression
+ * inlined, and only one of them would have been updated when the typed label
+ * arrived.
+ */
+function whereOf(event: {
+  cityNameFa: string;
+  districtNameFa: string | null;
+  districtLabel: string | null;
+}): string {
+  const neighbourhood = event.districtNameFa ?? event.districtLabel;
+  return neighbourhood === null ? event.cityNameFa : `${event.cityNameFa} — ${neighbourhood}`;
+}
+
+function quotaMessage(quota: HostQuotaStatus): string {
+  return quota.blockedBy === 'per_day'
+    ? `امروز به سقف ساخت فعالیت رسیده‌اید ` +
+        `(${toPersianDigits(String(quota.maxPerDay))} فعالیت در روز). ` +
+        `فردا دوباره می‌توانید فعالیت تازه‌ای بسازید.`
+    : `به سقف فعالیت‌های همزمان رسیده‌اید ` +
+        `(${toPersianDigits(String(quota.maxConcurrentActive))} فعالیت در پیش رو). ` +
+        `یکی از فعالیت‌های خود را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.`;
+}
+
+function suspendedNotice(supportContact: string | undefined): string {
+  const base =
+    `حساب شما موقتاً تعلیق شده است و امکان انجام این کار وجود ندارد.\n\n` +
+    `همچنان می‌توانید فعالیت‌ها و گفتگوهای خود را ببینید.`;
+  return supportContact === undefined
+    ? base
+    : `${base} برای پیگیری با پشتیبانی در ارتباط باشید: ${supportContact}`;
+}
 
 /**
  * How much of the ledger `/wallet` shows.
@@ -3931,6 +4598,7 @@ function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
       ? { customCategoryLabel: form.customCategoryLabel }
       : {}),
     ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
+    ...(form.districtLabel !== undefined ? { districtLabel: form.districtLabel } : {}),
     ...(form.costAmount !== undefined ? { costAmount: form.costAmount } : {}),
     ...(form.costNote !== undefined ? { costNote: form.costNote } : {}),
     ...(form.rules !== undefined ? { rules: form.rules } : {}),
@@ -3981,6 +4649,7 @@ function toUpdateEventInput(form: EditEventForm, touched: Set<string>): UpdateEv
   }
   if (changed('cityId')) input.cityId = form.cityId as string;
   if (changed('districtId')) input.districtId = form.districtId as string;
+  if (changed('districtLabel')) input.districtLabel = form.districtLabel as string;
   if (changed('capacity')) input.capacity = form.capacity as number;
   if (changed('costType')) input.costType = form.costType as CostType;
   if (changed('costAmount')) input.costAmount = form.costAmount as number;

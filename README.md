@@ -16,8 +16,38 @@ Plus an **Admin Panel** for moderation, the economy, and audit.
 
 ## Status
 
-**Deployed: v0.4.2.** The bot's conversation wizards (`/create_event`, `/edit_event`,
-`/edit_profile`), the consent gate and `/terms` — see
+**v0.6.5 — the first QA round against the live bot.** Sixteen findings from an
+operator working through the product end to end, and most of them were not new
+features: they were places where a mechanism worked exactly as written and the
+thing in front of the user was still wrong.
+
+The four worth knowing about, because each changes a rule rather than a screen:
+
+- **A seat is consumed when a host accepts, and at no other moment.** An
+  undecided request used to hold one, so an activity with two places showed
+  «ظرفیت تکمیل» while one request had been rejected and another had expired —
+  each release promoted somebody off the waiting list who immediately took the
+  seat again. `accepted_count` now means what its name says, and the waiting list
+  is bounded by seats *plus outstanding questions* instead.
+- **A gift code is matched exactly.** Case, spaces and dashes all count. The
+  shared normalizer meant `test1` was also redeemable as `test 1`, so every
+  string within one edit of a real code was a live code — for a bearer secret,
+  the keyspace collapsing inwards.
+- **The channel requirement is enforced on the bot.** `APP_ACCESS` was documented
+  as the Mini App router's job and the Mini App is being retired, the gate fired
+  once after consent and never again, and the refusal was a sentence with the
+  join links thrown away. All three.
+- **Dates are Persian everywhere.** The last three surfaces still rendering
+  Gregorian — channel posts, paid invitations, the case digest — and the profile
+  form, which asked a Persian speaker to convert their own birth year by hand.
+
+Also: bug reports with screenshots (`/bug`), `/discover` paging, a release
+announcement on every deploy, suspension that does something, a final message for
+a blocked account, and a typeable neighbourhood — the district catalogue is empty
+in every deployment, so «کدام محله؟» had no answers.
+
+**Previously deployed: v0.4.2.** The bot's conversation wizards (`/create_event`,
+`/edit_event`, `/edit_profile`), the consent gate and `/terms` — see
 [ADR-0017](docs/adr/0017-conversation-wizards-and-bot-state.md) and `PROJECT_MEMORY.md` §10.
 Retiring the Mini App is planned separately in
 [`docs/v0.4.1-mini-app-retirement-plan.md`](docs/v0.4.1-mini-app-retirement-plan.md).

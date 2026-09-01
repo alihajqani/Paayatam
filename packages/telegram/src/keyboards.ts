@@ -195,6 +195,16 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['💬 گفتگوها', 'chats'],
   ['👤 نمایه من', 'profile'],
   ['⚙️ تنظیمات', 'settings'],
+  /**
+   * Last row, beside settings.
+   *
+   * A `/bug` command that only exists in the slash menu is a command found by
+   * people who already know it exists. The button is for the other case — the
+   * one this feature is actually for — where somebody is stuck, is not going to
+   * read `/help`, and needs the way to say so to be visible on the screen they
+   * are already looking at.
+   */
+  ['🐞 گزارش مشکل', 'bug'],
 ]);
 
 /**

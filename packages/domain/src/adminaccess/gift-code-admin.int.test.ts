@@ -46,7 +46,16 @@ const settings = new SettingsService(service);
 const admin = new GiftCodeAdminService(service, clock, access, settings, audit);
 
 const coins = new CoinService(service, clock);
-const giftCodes = new GiftCodeService(service, clock, coins, audit, new MetricsRegistry());
+const giftCodes = new GiftCodeService(
+  service,
+  clock,
+  coins,
+  audit,
+  new MetricsRegistry(),
+  // The same `SettingsService` the admin service already holds, for
+  // `giftcode.enabled` (v0.6.5).
+  settings,
+);
 
 /**
  * A real `admin_user` row, because `gift_code.created_by_admin_id` is a real
@@ -89,23 +98,53 @@ afterAll(async () => {
 });
 
 describe('creating a code', () => {
-  it('stores it normalized, so case and separators are not two codes', async () => {
-    const created = await admin.create(SUPER, { code: ' summer-24 ', coins: 30 });
+  /**
+   * ── Stored exactly as typed, which is a change from M19 ────────────────────
+   *
+   * The code used to be upper-cased with separators stripped, by the same
+   * function referral codes use. That meant an operator's `test1` became `TEST1`
+   * *and* was redeemable as `test 1` — three strings spending one campaign, and
+   * every string within one edit of a real code was a live code. For a bearer
+   * secret whose text a human chooses, that is the keyspace collapsing inwards.
+   *
+   * Outer whitespace is still trimmed: it is invisible, it comes from pasting,
+   * and a refusal caused by a character nobody can see is one nobody can act on.
+   */
+  it('stores it exactly as typed, trimming only the invisible whitespace', async () => {
+    const created = await admin.create(SUPER, { code: ' summer24 ', coins: 30 });
 
-    expect(created.code).toBe('SUMMER24');
-    expect(await prisma.giftCode.count({ where: { code: 'SUMMER24' } })).toBe(1);
+    expect(created.code).toBe('summer24');
+    expect(await prisma.giftCode.count({ where: { code: 'summer24' } })).toBe(1);
   });
 
-  it('produces a code the redeem path accepts, in whatever case it is typed', async () => {
+  /**
+   * The counterpart. A code with a space in it will be mistyped by somebody, and
+   * now that the comparison is exact, mistyped means refused — so the honest
+   * place to say so is here, to the operator inventing it, rather than later to
+   * the user who could not spend it.
+   */
+  it('refuses a code with a space in it, rather than silently removing it', async () => {
+    await expect(admin.create(SUPER, { code: 'summer 24', coins: 30 })).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
+  });
+
+  it('produces a code the redeem path accepts, typed exactly as it was created', async () => {
     // The two halves of the feature meet here. A code an operator can create but
-    // nobody can redeem is the failure this asserts against.
-    await admin.create(SUPER, { code: 'summer-24', coins: 30 });
+    // nobody can redeem is the failure this asserts against — and after v0.6.5
+    // "can redeem" means "typed exactly", lower case included.
+    await admin.create(SUPER, { code: 'summer24', coins: 30 });
     const user = await createUser(prisma, 'PROFILE_COMPLETE');
 
-    const result = await giftCodes.redeem(user, 'Summer 24');
+    const result = await giftCodes.redeem(user, 'summer24');
 
     expect(result.coins).toBe(30);
     expect(await coins.balanceOf(user)).toBe(30);
+
+    const second = await createUser(prisma, 'PROFILE_COMPLETE');
+    await expect(giftCodes.redeem(second, 'SUMMER24')).rejects.toMatchObject({
+      code: 'GIFT_CODE_INVALID',
+    });
   });
 
   it('defaults to one redemption per person and no global cap', async () => {
@@ -118,11 +157,24 @@ describe('creating a code', () => {
     expect(created.code).toBe('DEFAULTS1');
   });
 
-  it('refuses a duplicate, including one that differs only in case', async () => {
+  it('refuses a duplicate', async () => {
     await admin.create(SUPER, { code: 'SUMMER24', coins: 30 });
 
-    await expect(admin.create(SUPER, { code: 'summer24', coins: 99 })).rejects.toMatchObject({
+    await expect(admin.create(SUPER, { code: 'SUMMER24', coins: 99 })).rejects.toMatchObject({
       code: 'GIFT_CODE_DUPLICATE',
+    });
+  });
+
+  /**
+   * And the other side of exact matching: two codes differing only in case are
+   * now two codes. `UNIQUE (code)` says so and the redemption path agrees, which
+   * is what makes the constraint mean what it says.
+   */
+  it('treats a code that differs only in case as a different code', async () => {
+    await admin.create(SUPER, { code: 'SUMMER24', coins: 30 });
+
+    await expect(admin.create(SUPER, { code: 'summer24', coins: 99 })).resolves.toMatchObject({
+      code: 'summer24',
     });
   });
 
@@ -620,14 +672,28 @@ describe('the redemption list (M19)', () => {
 });
 
 describe('finding a code without being able to enumerate one', () => {
-  it('matches an exact code, however it was retyped', async () => {
+  /**
+   * Exact, like the redemption path — the column now holds what the operator
+   * typed, so a search that upper-cased its argument would fail to find the
+   * lower-case code it was pasted from. Outer whitespace is still forgiven.
+   */
+  it('matches an exact code', async () => {
     await admin.create(SUPER, { code: 'FINDME24', coins: 5 });
     await admin.create(SUPER, { code: 'FINDME25', coins: 5 });
 
-    const { codes, total } = await admin.list(SUPER, { code: ' find-me 24 ' });
+    const { codes, total } = await admin.list(SUPER, { code: ' FINDME24 ' });
 
     expect(total).toBe(1);
     expect(codes[0]?.codeMasked).toBe('FI•••••4');
+  });
+
+  it('does not find a code by a different case', async () => {
+    await admin.create(SUPER, { code: 'FINDME24', coins: 5 });
+
+    await expect(admin.list(SUPER, { code: 'findme24' })).resolves.toEqual({
+      codes: [],
+      total: 0,
+    });
   });
 
   it('returns nothing for a prefix, so a campaign cannot be swept', async () => {

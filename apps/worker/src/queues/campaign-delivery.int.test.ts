@@ -132,6 +132,9 @@ function buildProcessors(): Processors {
     {} as never, // ChannelService
     {} as never, // RetentionService
     messaging,
+    // ReleaseAnnouncementService: reached only from `onModuleInit`, which this
+    // suite never calls.
+    {} as never,
     invitations,
     { counter: vi.fn(), observe: vi.fn() } as never,
     {} as never, // CoinService — the nightly reconciliation is not this suite

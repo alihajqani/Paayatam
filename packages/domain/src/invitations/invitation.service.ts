@@ -403,6 +403,7 @@ export class InvitationService {
         category: { select: { nameFa: true } },
         city: { select: { nameFa: true } },
         district: { select: { nameFa: true } },
+        districtLabel: true,
       },
     });
     if (!event || event.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
@@ -424,7 +425,7 @@ export class InvitationService {
       startsAt: event.startsAt,
       categoryName: event.category.nameFa,
       cityName: event.city.nameFa,
-      districtName: event.district?.nameFa ?? null,
+      districtName: event.district?.nameFa ?? event.districtLabel,
     };
   }
 

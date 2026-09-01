@@ -28,6 +28,7 @@ export function toDiscoveredEventView(event: DiscoveredEvent): DiscoveredEventVi
       event.districtId === null || event.districtSlug === null || event.districtNameFa === null
         ? null
         : { id: event.districtId, slug: event.districtSlug, nameFa: event.districtNameFa },
+    districtLabel: event.districtLabel,
     startsAt: event.startsAt.toISOString(),
     endsAt: event.endsAt.toISOString(),
     capacity: event.capacity,

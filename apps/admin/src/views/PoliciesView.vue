@@ -9,7 +9,7 @@ import {
 import { messageOf, request } from '@/api/client';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
-import { formatDate, formatNumber } from '@/format/fa';
+import { formatDate, formatNumber, parseTypedNumber } from '@/format/fa';
 import { useSessionStore } from '@/stores/session';
 
 /**
@@ -207,10 +207,21 @@ function openPublish(policy: AdminPolicyView): void {
   publishError.value = null;
 }
 
+/**
+ * What the operator typed, folded to Latin digits.
+ *
+ * The panel is Persian throughout and renders every number through
+ * `formatNumber`, so the version on this dialog reads «۳» — and an operator on a
+ * Persian keyboard types «۳» back. `Number('۳')` is `NaN`, so this comparison
+ * was unsatisfiable and «انتشار نسخه» never enabled for anybody. Asking for a
+ * typed confirmation in one script and parsing it in another is the whole bug.
+ */
+const publishConfirmValue = computed(() => parseTypedNumber(publishConfirm.value));
+
 const publishValid = computed(
   () =>
     publishing.value !== null &&
-    Number(publishConfirm.value) === publishing.value.version &&
+    publishConfirmValue.value === publishing.value.version &&
     publishReason.value.trim().length >= 3,
 );
 
@@ -222,7 +233,7 @@ async function submitPublish(): Promise<void> {
   try {
     await request<AdminPolicyView>(`/policies/${policy.id}/publish`, {
       method: 'POST',
-      body: { confirmVersion: Number(publishConfirm.value), reason: publishReason.value.trim() },
+      body: { confirmVersion: policy.version, reason: publishReason.value.trim() },
     });
     publishing.value = null;
     notice.value =
@@ -535,7 +546,8 @@ onMounted(load);
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <label class="flex flex-col gap-1">
             <span class="text-sm text-ink-soft">
-              برای تأیید، شمارهٔ نسخه را بنویسید ({{ publishing.version }})
+              برای تأیید، شمارهٔ نسخه را بنویسید (<bdi>{{ formatNumber(publishing.version) }}</bdi
+              >)
             </span>
             <input
               v-model="publishConfirm"

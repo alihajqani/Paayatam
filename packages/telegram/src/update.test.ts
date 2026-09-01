@@ -180,13 +180,98 @@ describe('the fields that must not survive', () => {
 
 describe('anything that is not text', () => {
   it.each([
-    ['a photo', { photo: [{ file_id: 'x', file_unique_id: 'y', width: 1, height: 1 }] }],
     ['a voice note', { voice: { file_id: 'x', file_unique_id: 'y', duration: 3 } }],
     ['a contact card', { contact: { phone_number: '+989121234567', first_name: 'a' } }],
     ['a location', { location: { latitude: 35.7, longitude: 51.4 } }],
   ])('%s is UNSUPPORTED', (_name, content) => {
     const parsed = parseUpdate(
       update({ message: { message_id: 7, from: FROM, chat: PRIVATE, ...content } }),
+    );
+
+    expect(parsed?.intent.kind).toBe('UNSUPPORTED');
+  });
+});
+
+/**
+ * A photo is its own intent as of v0.6.5, and it used to be UNSUPPORTED.
+ *
+ * Criterion 11 is about the **chat relay** — an image forwarded between two
+ * strangers is a payload the product cannot moderate, encrypt or account for.
+ * It was never an argument about the bug-report form, where the screenshot *is*
+ * the report. `BotService` still answers the old Persian refusal when no wizard
+ * wants the photo, so nothing about the relay changed.
+ */
+describe('a photo', () => {
+  it('is its own intent, carrying the file id', () => {
+    const parsed = parseUpdate(
+      update({
+        message: {
+          message_id: 7,
+          from: FROM,
+          chat: PRIVATE,
+          photo: [{ file_id: 'small', file_unique_id: 'y', width: 90, height: 90 }],
+        },
+      }),
+    );
+
+    expect(parsed?.intent).toMatchObject({ kind: 'PHOTO', fileId: 'small' });
+  });
+
+  /**
+   * Telegram sends several renditions of one image. A thumbnail is not a
+   * screenshot anybody can read a button label off, so the biggest is taken —
+   * by area rather than by position, because "smallest first" is a documented
+   * habit rather than a guarantee.
+   */
+  it('takes the largest rendition, whatever order they arrive in', () => {
+    const parsed = parseUpdate(
+      update({
+        message: {
+          message_id: 7,
+          from: FROM,
+          chat: PRIVATE,
+          photo: [
+            { file_id: 'big', file_unique_id: 'a', width: 1280, height: 720 },
+            { file_id: 'tiny', file_unique_id: 'b', width: 90, height: 51 },
+          ],
+        },
+      }),
+    );
+
+    expect(parsed?.intent).toMatchObject({ kind: 'PHOTO', fileId: 'big' });
+  });
+
+  it('carries a caption when there is one, and omits the key when there is not', () => {
+    const withCaption = parseUpdate(
+      update({
+        message: {
+          message_id: 7,
+          from: FROM,
+          chat: PRIVATE,
+          photo: [{ file_id: 'x', file_unique_id: 'y', width: 1, height: 1 }],
+          caption: '  دکمه کار نمی‌کند  ',
+        },
+      }),
+    );
+    const without = parseUpdate(
+      update({
+        message: {
+          message_id: 7,
+          from: FROM,
+          chat: PRIVATE,
+          photo: [{ file_id: 'x', file_unique_id: 'y', width: 1, height: 1 }],
+        },
+      }),
+    );
+
+    expect(withCaption?.intent).toMatchObject({ caption: 'دکمه کار نمی‌کند' });
+    expect(without?.intent).not.toHaveProperty('caption');
+  });
+
+  /** An empty `photo` array is not a photo. It is something this build refuses. */
+  it('is UNSUPPORTED when the array is empty', () => {
+    const parsed = parseUpdate(
+      update({ message: { message_id: 7, from: FROM, chat: PRIVATE, photo: [] } }),
     );
 
     expect(parsed?.intent.kind).toBe('UNSUPPORTED');

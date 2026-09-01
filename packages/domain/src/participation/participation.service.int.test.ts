@@ -24,6 +24,7 @@ import { MessageCipher } from '../chat/message-cipher';
 import { normalize } from '../moderation/persian-normalizer';
 import { OutboxService } from '../outbox/outbox.service';
 import { ParticipationService } from './participation.service';
+import { SEAT_HOLDING_STATUSES } from './state-machine';
 
 /**
  * Participation against a real database.
@@ -175,6 +176,20 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+/**
+ * ── What `accepted_count` counts, from v0.6.5 ───────────────────────────────
+ *
+ * **Accepted people, and nothing else.** A PENDING request used to hold a seat
+ * too, and the behaviour that produced is the report this changed for: an event
+ * with two places showed «ظرفیت تکمیل» while one request had been rejected and
+ * another had expired, because each release promoted somebody who took the seat
+ * again.
+ *
+ * What bounds the queue instead is `accepted_count + PENDING` — the same
+ * arithmetic, with the two quantities kept apart rather than summed into one
+ * column. So every assertion below reads: **the queue is bounded at capacity,
+ * and the counter is zero until a host says yes.**
+ */
 describe('the capacity invariant under concurrency (ADR-0006)', () => {
   /**
    * The proof obligation ADR-0006 sets for itself, and the reason the whole
@@ -182,10 +197,10 @@ describe('the capacity invariant under concurrency (ADR-0006)', () => {
    *
    * Fifty iterations, each on a fresh event so the loop measures contention
    * rather than the cost of truncating tables. The assertion is exact on all
-   * three numbers: five seats taken, fifteen queued, and a counter that agrees
-   * with the rows.
+   * three numbers: five asked about, fifteen queued, and no seat taken by any of
+   * them until the host decides.
    */
-  it('gives exactly 5 seats to 20 simultaneous joiners, 50 times over', async () => {
+  it('asks the host about exactly 5 of 20 simultaneous joiners, 50 times over', async () => {
     const joiners = await Promise.all(Array.from({ length: 20 }, () => createJoiner()));
 
     for (let iteration = 0; iteration < 50; iteration += 1) {
@@ -202,9 +217,28 @@ describe('the capacity invariant under concurrency (ADR-0006)', () => {
 
       const counts = await statusCounts(eventPublicId);
       expect(counts, `iteration ${iteration}`).toEqual({ PENDING: 5, WAITLISTED: 15 });
-      expect(await seats(eventPublicId), `iteration ${iteration}`).toBe(5);
+      // Nobody has been accepted, so every seat is still free — which is the
+      // number «۵ جای خالی از ۵» is rendered from.
+      expect(await seats(eventPublicId), `iteration ${iteration}`).toBe(0);
     }
   }, 300_000);
+
+  /**
+   * And the other half of the same property: accepting is what fills them, and
+   * twenty simultaneous acceptances cannot overfill.
+   */
+  it('fills exactly 5 seats when the host accepts all 5', async () => {
+    const eventPublicId = await createEvent({ capacity: 5 });
+    const joiners = await Promise.all(Array.from({ length: 20 }, () => createJoiner()));
+    const rows = await Promise.all(
+      joiners.map((userId) => participation.join(userId, eventPublicId)),
+    );
+
+    const pending = rows.filter((row) => row.status === 'PENDING');
+    await Promise.allSettled(pending.map((row) => participation.accept(hostId, row.publicId)));
+
+    expect(await seats(eventPublicId)).toBe(5);
+  });
 
   it('never lets the counter disagree with the rows that hold seats', async () => {
     const eventPublicId = await createEvent({ capacity: 3 });
@@ -223,8 +257,10 @@ describe('the capacity invariant under concurrency (ADR-0006)', () => {
       participation.cancel(joiners[participants.indexOf(pending[2]!)]!, pending[2]!.publicId),
     ]);
 
+    // `SEAT_HOLDING_STATUSES` is `['ACCEPTED']` from v0.6.5, and this is the
+    // assertion that says so against a real counter rather than a constant.
     const held = await prisma.eventParticipant.count({
-      where: { event: { publicId: eventPublicId }, status: { in: ['PENDING', 'ACCEPTED'] } },
+      where: { event: { publicId: eventPublicId }, status: { in: [...SEAT_HOLDING_STATUSES] } },
     });
     expect(await seats(eventPublicId)).toBe(held);
   });
@@ -245,7 +281,7 @@ describe('the capacity invariant under concurrency (ADR-0006)', () => {
     ).rejects.toThrowError(/event_accepted_count_within_capacity|violates check constraint/i);
   });
 
-  it('lets exactly one of two racing joiners take a single free seat', async () => {
+  it('lets exactly one of two racing joiners into the host’s queue', async () => {
     const eventPublicId = await createEvent({ capacity: 1 });
     const [first, second] = await Promise.all([createJoiner(), createJoiner()]);
 
@@ -256,12 +292,13 @@ describe('the capacity invariant under concurrency (ADR-0006)', () => {
 
     const statuses = results.map((row) => row.status).sort();
     expect(statuses).toEqual(['PENDING', 'WAITLISTED']);
-    expect(await seats(eventPublicId)).toBe(1);
+    // The seat is untouched: one of them is being asked about, not seated.
+    expect(await seats(eventPublicId)).toBe(0);
   });
 });
 
 describe('joining', () => {
-  it('takes a seat and sets the host deadline', async () => {
+  it('enters the host’s queue and sets the deadline, without taking a seat', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
 
@@ -272,7 +309,8 @@ describe('joining', () => {
     // min(now + 24h, starts_at − 3h). The event is a month out, so the response
     // window binds.
     expect(result.hostDeadlineAt).toEqual(new Date('2026-08-16T09:00:00.000Z'));
-    expect(await seats(eventPublicId)).toBe(1);
+    // A question is not a seat (v0.6.5). `accept` is what fills one.
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
   it('pins the deadline to the event when the event is closer than the response window', async () => {
@@ -285,7 +323,7 @@ describe('joining', () => {
     expect(result.hostDeadlineAt).toEqual(new Date('2026-08-15T17:00:00.000Z'));
   });
 
-  it('waitlists once the seats are gone, and ranks the queue FIFO', async () => {
+  it('waitlists once the host’s queue is full, and ranks it FIFO', async () => {
     const eventPublicId = await createEvent({ capacity: 1 });
     const [a, b, c] = await Promise.all([createJoiner(), createJoiner(), createJoiner()]);
 
@@ -298,8 +336,9 @@ describe('joining', () => {
     expect(second.status).toBe('WAITLISTED');
     expect(second.waitlistRank).toBe(1);
     expect(third.waitlistRank).toBe(2);
-    // A waitlisted request holds nothing.
-    expect(await seats(eventPublicId)).toBe(1);
+    // Neither a waitlisted nor a pending request holds a seat: one place, nobody
+    // accepted, one place free.
+    expect(await seats(eventPublicId)).toBe(0);
     expect(second.hostDeadlineAt).toBeNull();
   });
 
@@ -312,7 +351,7 @@ describe('joining', () => {
       code: 'DUPLICATE_REQUEST',
       httpStatus: 409,
     });
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
   it('refuses a duplicate even when both requests arrive together', async () => {
@@ -326,7 +365,7 @@ describe('joining', () => {
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
   it('refuses the host of the event', async () => {
@@ -419,11 +458,16 @@ describe('eligibility, judged against the server’s copy of the profile', () =>
 });
 
 describe('the host decides', () => {
-  it('accepts without moving the counter — the seat was already held', async () => {
+  /**
+   * The inversion, as a test. Before v0.6.5 accepting moved nothing, because the
+   * request had held the seat since it was made. Now it is the **only**
+   * transition that takes one.
+   */
+  it('takes the seat — this is the moment a place is filled', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
     const request = await participation.join(joiner, eventPublicId);
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
 
     const accepted = await participation.accept(hostId, request.publicId);
 
@@ -434,7 +478,7 @@ describe('the host decides', () => {
     expect(await seats(eventPublicId)).toBe(1);
   });
 
-  it('gives the seat back on a rejection', async () => {
+  it('leaves the counter alone on a rejection — no seat was ever taken', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
     const request = await participation.join(joiner, eventPublicId);
@@ -442,6 +486,19 @@ describe('the host decides', () => {
     const rejected = await participation.reject(hostId, request.publicId);
 
     expect(rejected.status).toBe('REJECTED');
+    expect(await seats(eventPublicId)).toBe(0);
+  });
+
+  /** …and an accepted person who is then cancelled does give one back. */
+  it('gives the seat back when an accepted place is given up', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+    await participation.accept(hostId, request.publicId);
+    expect(await seats(eventPublicId)).toBe(1);
+
+    await participation.cancel(joiner, request.publicId);
+
     expect(await seats(eventPublicId)).toBe(0);
   });
 
@@ -601,7 +658,8 @@ describe('the participant withdraws', () => {
 
     expect(cancelled.status).toBe('CANCELLED_BY_PARTICIPANT');
     expect(cancelled.cancellationBucket).toBeNull();
-    expect(await seats(eventPublicId)).toBe(1);
+    // Nobody was accepted, so nothing was ever taken to give back.
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
   it('lets nobody cancel somebody else’s request', async () => {
@@ -625,6 +683,10 @@ describe('the participant withdraws', () => {
     const requests = await Promise.all(
       joiners.map((userId) => participation.join(userId, eventPublicId)),
     );
+    // Accepted first, because from v0.6.5 that is what puts a seat in a state to
+    // be freed — the property this test is about is the *decrementing*, and a
+    // counter that was never incremented would demonstrate nothing.
+    for (const request of requests) await participation.accept(hostId, request.publicId);
     expect(await seats(eventPublicId)).toBe(3);
 
     await Promise.all(
@@ -636,11 +698,13 @@ describe('the participant withdraws', () => {
 });
 
 describe('expiry', () => {
-  it('retires a request the host never answered, and frees its seat', async () => {
+  it('retires a request the host never answered, and frees its slot', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
     const request = await participation.join(joiner, eventPublicId);
-    expect(await seats(eventPublicId)).toBe(1);
+    // No seat to free — an unanswered request holds a slot in the queue, and the
+    // deadline is the bound on how long it can (v0.6.5).
+    expect(await seats(eventPublicId)).toBe(0);
 
     // One second past min(now + 24h, starts_at − 3h).
     clock.set(new Date('2026-08-16T09:00:01.000Z'));
@@ -661,7 +725,7 @@ describe('expiry', () => {
     clock.set(new Date('2026-08-16T08:59:59.000Z'));
 
     expect(await participation.expireOverdue()).toBe(0);
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
   it('does not touch a request the host decided in the meantime', async () => {
@@ -700,7 +764,12 @@ describe('capacity edits race joins (ADR-0006, rule 1)', () => {
   it('cannot lower capacity below the seats already taken', async () => {
     const eventPublicId = await createEvent({ capacity: 3 });
     const joiners = await Promise.all([createJoiner(), createJoiner(), createJoiner()]);
-    await Promise.all(joiners.map((userId) => participation.join(userId, eventPublicId)));
+    const requests = await Promise.all(
+      joiners.map((userId) => participation.join(userId, eventPublicId)),
+    );
+    // Accepted, because from v0.6.5 that is what a *taken* seat means — three
+    // outstanding questions bound nothing about capacity.
+    for (const request of requests) await participation.accept(hostId, request.publicId);
 
     const event = await prisma.event.findUniqueOrThrow({
       where: { publicId: eventPublicId },
@@ -709,6 +778,11 @@ describe('capacity edits race joins (ADR-0006, rule 1)', () => {
 
     expect(event.acceptedCount).toBe(3);
     expect(event.capacity).toBe(3);
+
+    // The CHECK is what refuses the shrink, whoever writes it.
+    await expect(
+      prisma.event.update({ where: { publicId: eventPublicId }, data: { capacity: 2 } }),
+    ).rejects.toThrowError(/event_accepted_count_within_capacity|violates check constraint/i);
   });
 });
 

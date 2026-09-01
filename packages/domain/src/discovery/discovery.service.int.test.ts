@@ -594,6 +594,11 @@ describe('the projection (plan §3.6, invariant 7)', () => {
         'customCategoryLabel',
         'description',
         'districtId',
+        // v0.6.5: the neighbourhood a host typed, when the district catalogue —
+        // which is empty in every deployment — had no row to pick. Public by
+        // construction, exactly like `customCategoryLabel`: it is the place name
+        // a stranger reads on the card.
+        'districtLabel',
         'districtNameFa',
         'districtSlug',
         'endsAt',

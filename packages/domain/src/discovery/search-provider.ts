@@ -36,6 +36,19 @@ export interface SearchRequest {
   filters: DiscoveryFilters;
   sort: DiscoverySort;
   limit: number;
+  /**
+   * Rows to skip before the page, for a caller that cannot carry a cursor.
+   *
+   * Keyset (`after`) is the paging mechanism and stays the default: it is stable
+   * under inserts and costs the same on page ten as on page one. This exists for
+   * the bot, where a page button is `callback_data` capped at 64 bytes and an
+   * encoded cursor does not fit — the choice is an offset or no paging at all,
+   * and until v0.6.5 it was no paging at all.
+   *
+   * The two are mutually exclusive by construction: `DiscoveryService` passes one
+   * or the other, never both.
+   */
+  offset?: number;
   /** Frozen at the first page so relevance does not drift between pages. */
   epoch: Date;
   after?: { key: number | string; publicId: string };
@@ -83,6 +96,13 @@ export interface DiscoveredEvent {
   districtId: string | null;
   districtSlug: string | null;
   districtNameFa: string | null;
+  /**
+   * What the host typed, when no catalogue district was picked (v0.6.5).
+   *
+   * Never set together with the three fields above. A renderer wanting a place
+   * name reads `districtNameFa ?? districtLabel`.
+   */
+  districtLabel: string | null;
   startsAt: Date;
   endsAt: Date;
   capacity: number;

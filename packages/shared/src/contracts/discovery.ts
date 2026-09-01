@@ -69,6 +69,8 @@ export const discoveredEventView = z.object({
   customCategoryLabel: z.string().nullable(),
   city: namedRef,
   district: namedRef.nullable(),
+  /** The neighbourhood the host typed, when no catalogue district was chosen. */
+  districtLabel: z.string().nullable(),
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
   capacity: z.number().int(),

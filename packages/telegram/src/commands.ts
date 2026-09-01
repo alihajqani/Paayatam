@@ -53,6 +53,13 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'edit_profile', description: 'ویرایش نمایه' },
   { command: 'terms', description: 'قوانین و حریم خصوصی' },
   { command: 'settings', description: 'تنظیمات اعلان‌ها و حریم خصوصی' },
+  /**
+   * Last on purpose. It is the command somebody looks for when everything above
+   * it has failed them, and a menu is read top-down by people who are getting on
+   * fine — but it has to be *in* the menu, because a user who cannot find how to
+   * report a problem reports it by leaving.
+   */
+  { command: 'bug', description: 'گزارش مشکل و فرستادن تصویر' },
 ] as const;
 
 /**

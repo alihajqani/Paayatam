@@ -1,0 +1,12 @@
+-- Migration 0034: the bug-report wizard's `conversation_kind` (v0.6.5).
+--
+-- Its own file because `ALTER TYPE … ADD VALUE` cannot run inside a transaction
+-- in Postgres — the same reason 0022, 0023, 0029, 0031 and 0032 are separate. It
+-- is not rolled back by a later failure; additive-only, so a partial apply is
+-- safe.
+--
+-- BUG_REPORT is the first wizard in the product that accepts a **photo**. Every
+-- other surface answers one with «این نوع پیام پشتیبانی نمی‌شود» (criterion 11),
+-- which is right for a chat relay and wrong for the one form whose whole value is
+-- the screenshot attached to it.
+ALTER TYPE "conversation_kind" ADD VALUE IF NOT EXISTS 'BUG_REPORT';

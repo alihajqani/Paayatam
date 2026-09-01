@@ -373,14 +373,51 @@ export interface DiscoverFilters {
   cost: DiscoverCost;
   /** A category public id, or null for every category. */
   categoryId: string | null;
+  /**
+   * Which page of results, zero-based (v0.6.5).
+   *
+   * Part of the *filters* rather than held per user, for the reason the rest of
+   * this record is: the bot keeps no query state, so «صفحهٔ بعد» has to be a
+   * button that carries the whole query plus one. That also makes a page button
+   * in a three-day-old message still mean the page it says.
+   *
+   * Bounded by `MAX_DISCOVER_PAGE` because it is encoded as a single base-36
+   * character, which keeps the payload the same width it was.
+   */
+  page: number;
 }
 
 const DISCOVER_PREFIX = 'dc';
 const ANY_CATEGORY = 'all';
 
+/**
+ * The highest page a button can name — `z` in base 36.
+ *
+ * Thirty-six pages of five is a hundred and eighty activities in one city under
+ * one filter, which is far beyond where anybody is still reading. A cap that a
+ * real list can reach would need a wider encoding; this one cannot be reached,
+ * so the paging control stops offering «بعدی» long before it matters.
+ */
+export const MAX_DISCOVER_PAGE = 35;
+
+/** `0`–`z`. One character, so an old two-flag payload stays parseable. */
+function encodePage(page: number): string {
+  const clamped = Math.min(Math.max(Math.trunc(page), 0), MAX_DISCOVER_PAGE);
+  return clamped.toString(36);
+}
+
+function decodePage(letter: string | undefined): number | null {
+  // Absent is page 0: that is what every button minted before v0.6.5 carries,
+  // and they must keep working rather than becoming «این دکمه دیگر کار نمی‌کند».
+  if (letter === undefined) return 0;
+  if (!/^[0-9a-z]$/.test(letter)) return null;
+  const page = Number.parseInt(letter, 36);
+  return page > MAX_DISCOVER_PAGE ? null : page;
+}
+
 export function encodeDiscoverCallback(filters: DiscoverFilters): string {
   const category = filters.categoryId ?? ANY_CATEGORY;
-  const data = `${DISCOVER_PREFIX}:${filters.when}${filters.cost}:${category}`;
+  const data = `${DISCOVER_PREFIX}:${filters.when}${filters.cost}${encodePage(filters.page)}:${category}`;
   if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
     throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
   }
@@ -393,14 +430,18 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
 
   const [prefix, flags, category] = parts;
   if (prefix !== DISCOVER_PREFIX || flags === undefined || category === undefined) return null;
-  if (flags.length !== 2) return null;
+  // Two characters is the pre-v0.6.5 shape and means page 0; three carries the page.
+  if (flags.length !== 2 && flags.length !== 3) return null;
 
   const when = DISCOVER_WHEN.find((candidate) => candidate === flags[0]);
   const cost = DISCOVER_COST.find((candidate) => candidate === flags[1]);
   if (when === undefined || cost === undefined) return null;
 
-  if (category === ANY_CATEGORY) return { when, cost, categoryId: null };
-  return isPublicId(category) ? { when, cost, categoryId: category } : null;
+  const page = decodePage(flags[2]);
+  if (page === null) return null;
+
+  if (category === ANY_CATEGORY) return { when, cost, categoryId: null, page };
+  return isPublicId(category) ? { when, cost, categoryId: category, page } : null;
 }
 
 /**
@@ -597,4 +638,27 @@ export function parseCodeCallback(data: string): CodeCallbackKind | null {
   const [prefix, kind, id] = parts;
   if (prefix !== CODE_PREFIX || id !== NO_ID) return null;
   return CODE_CALLBACK_KINDS.find((candidate) => candidate === kind) ?? null;
+}
+
+/**
+ * «بررسی دوباره» on the channel-join screen (v0.6.5).
+ *
+ * The gate used to be a message with join links and nothing else, so a user who
+ * joined every channel had no way to tell the bot they had — they had to guess
+ * that repeating whatever they were doing would now work, and the membership
+ * probe's cache meant that for the next couple of minutes it would not. A gate
+ * with no way to clear it is a wall.
+ *
+ * Carries nothing. Which channels are outstanding is a question about the caller
+ * and the configuration, both of which the service reads; a list in the button
+ * would be a stale list the moment an operator adds one.
+ */
+const CHANNEL_PREFIX = 'cg';
+
+export function encodeChannelRecheckCallback(): string {
+  return `${CHANNEL_PREFIX}:recheck:${NO_ID}`;
+}
+
+export function isChannelRecheckCallback(data: string): boolean {
+  return data === encodeChannelRecheckCallback();
 }

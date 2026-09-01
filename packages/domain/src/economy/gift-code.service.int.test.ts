@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient, type PrismaService } from '@payetam/db';
 import { FakeClock, MetricsRegistry } from '@payetam/platform';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from './coin.service';
 import {
   GIFT_CODE_FAILURE_ACTION,
@@ -30,7 +31,18 @@ const clock = new FakeClock(NOW);
 
 const coins = new CoinService(service, clock);
 const audit = new AuditService(service, clock);
-const giftCodes = new GiftCodeService(service, clock, coins, audit, new MetricsRegistry());
+// `SettingsService` for `giftcode.enabled`, the v0.6.5 kill switch. Real rather
+// than stubbed: the default is 1 and the suite asserts redemption works, so a
+// stub returning the wrong thing would silently disable every case here.
+const settings = new SettingsService(service);
+const giftCodes = new GiftCodeService(
+  service,
+  clock,
+  coins,
+  audit,
+  new MetricsRegistry(),
+  settings,
+);
 
 let user: string;
 
@@ -124,12 +136,17 @@ describe('redeeming', () => {
     expect(entries[0]).toMatchObject({ action: 'giftcode.redeemed', actorType: 'USER' });
   });
 
-  it('accepts the code however it was retyped', async () => {
-    // Codes are read off one screen and typed into another. Stored normalized, so
-    // case and separators are the column's problem rather than every query's.
+  /**
+   * ── The one thing that is still forgiven ──────────────────────────────────
+   *
+   * Leading and trailing whitespace, because it is invisible, it comes from
+   * pasting rather than typing, and a refusal caused by a character the user
+   * cannot see is a refusal they cannot act on. Nothing else is.
+   */
+  it('ignores whitespace around the code, and nothing else', async () => {
     await createCode({ code: 'SUMMER24' });
 
-    const result = await giftCodes.redeem(user, '  summer-24 ');
+    const result = await giftCodes.redeem(user, '  SUMMER24 ');
 
     expect(result.code).toBe('SUMMER24');
     expect(await coins.balanceOf(user)).toBe(25);
@@ -142,6 +159,121 @@ describe('redeeming', () => {
 
     const row = await prisma.giftCode.findUnique({ where: { id: codeId } });
     expect(row?.redeemedCount).toBe(1);
+  });
+});
+
+/**
+ * A gift code is matched **exactly** (v0.6.5).
+ *
+ * ── The report ─────────────────────────────────────────────────────────────
+ *
+ * An operator created a campaign code `test1`, and a user redeemed it by typing
+ * `test 1`. `normalizeCode` — shared with referral codes — upper-cased the input
+ * and stripped every space and dash before anything compared it, so `test 1`,
+ * `TEST-1` and `t e s t 1` were all the same string as `TEST1`. Coins were
+ * granted for a code nobody had issued.
+ *
+ * That normalization is right for a *referral* code: it is generated from a
+ * fixed alphabet and «abc-123» and «ABC123» are the same nine characters read
+ * aloud. It is wrong for a gift code, whose text an operator chooses and which
+ * is worth money — every string within one edit of a real code was a live code,
+ * which for a bearer secret is the keyspace collapsing inwards.
+ */
+describe('a code is matched exactly', () => {
+  it('refuses a different case', async () => {
+    await createCode({ code: 'SUMMER24' });
+
+    await expect(giftCodes.redeem(user, 'summer24')).rejects.toMatchObject({
+      code: 'GIFT_CODE_INVALID',
+    });
+    expect(await coins.balanceOf(user)).toBe(0);
+  });
+
+  /** The reported case, exactly as it happened. */
+  it('refuses an interior space', async () => {
+    await createCode({ code: 'test1' });
+
+    await expect(giftCodes.redeem(user, 'test 1')).rejects.toMatchObject({
+      code: 'GIFT_CODE_INVALID',
+    });
+    expect(await coins.balanceOf(user)).toBe(0);
+  });
+
+  it('refuses a separator the code does not have', async () => {
+    await createCode({ code: 'SUMMER24' });
+
+    await expect(giftCodes.redeem(user, 'SUMMER-24')).rejects.toMatchObject({
+      code: 'GIFT_CODE_INVALID',
+    });
+  });
+
+  /** A lower-case code an operator chose is redeemable as they wrote it. */
+  it('accepts a lower-case code typed exactly', async () => {
+    await createCode({ code: 'test1' });
+
+    const result = await giftCodes.redeem(user, 'test1');
+
+    expect(result.code).toBe('test1');
+    expect(await coins.balanceOf(user)).toBe(25);
+  });
+});
+
+/**
+ * The platform kill switch, `giftcode.enabled` (v0.6.5).
+ *
+ * `gift_code.is_active` stops one campaign; this stops all of them. The case it
+ * is for is a code leaking to a channel with forty thousand members, where the
+ * answer is "no codes at all until we know what happened" and disabling
+ * campaigns one at a time leaves the last one live longest.
+ */
+describe('the platform kill switch', () => {
+  async function setEnabled(value: number): Promise<void> {
+    await prisma.appSetting.upsert({
+      where: { key: 'giftcode.enabled' },
+      create: { key: 'giftcode.enabled', value },
+      update: { value },
+    });
+  }
+
+  it('refuses every redemption while it is off', async () => {
+    await createCode();
+    await setEnabled(0);
+
+    await expect(giftCodes.redeem(user, 'WELCOME24')).rejects.toMatchObject({
+      code: 'GIFT_CODE_DISABLED',
+    });
+    expect(await coins.balanceOf(user)).toBe(0);
+  });
+
+  /**
+   * The same answer for a real code and an invented one, which is what keeps the
+   * switch from becoming the oracle `GIFT_CODE_INVALID` is careful not to be.
+   */
+  it('answers identically whether or not the code exists', async () => {
+    await createCode();
+    await setEnabled(0);
+
+    const real = await giftCodes.redeem(user, 'WELCOME24').catch((error: unknown) => error);
+    const invented = await giftCodes.redeem(user, 'NOTHINGHERE').catch((error: unknown) => error);
+
+    expect(real).toMatchObject({ code: 'GIFT_CODE_DISABLED' });
+    expect(invented).toMatchObject({ code: 'GIFT_CODE_DISABLED' });
+  });
+
+  it('works again the moment it is switched back on', async () => {
+    await createCode();
+    await setEnabled(0);
+    await expect(giftCodes.redeem(user, 'WELCOME24')).rejects.toThrow();
+
+    await setEnabled(1);
+
+    expect(await giftCodes.redeem(user, 'WELCOME24')).toMatchObject({ coins: 25 });
+  });
+
+  it('is on by default, with no row at all', async () => {
+    await createCode();
+
+    expect(await giftCodes.redeem(user, 'WELCOME24')).toMatchObject({ coins: 25 });
   });
 });
 

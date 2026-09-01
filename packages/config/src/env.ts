@@ -101,6 +101,28 @@ export const envSchema = z
     TELEGRAM_CHANNEL_ID: z.string().optional(),
     /** Only used to build the deep link in a channel post (M14). */
     TELEGRAM_BOT_USERNAME: z.string().optional(),
+    /**
+     * Where a user is told to go when the product has stopped serving them.
+     *
+     * A `@handle` or a `t.me` link, shown in exactly two places: the message a
+     * banned account receives as its last, and the refusal a suspended one gets
+     * on every write. Both are dead ends without it — "your account is blocked"
+     * with no way to ask why is the product refusing to be appealed to.
+     *
+     * An environment variable rather than an `app_setting` row because
+     * `app_setting` holds numbers only, and rather than a constant because the
+     * support account is an operational detail that changes without a release
+     * being cut for it. Optional: unset means the contact line is omitted rather
+     * than a placeholder being sent to a real user.
+     */
+    SUPPORT_CONTACT: z
+      .string()
+      .trim()
+      .regex(
+        /^(@[A-Za-z0-9_]{4,32}|https:\/\/t\.me\/[A-Za-z0-9_]{4,32})$/,
+        'must be a Telegram @username or an https://t.me/ link',
+      )
+      .optional(),
 
     // ── Cryptography — required from M2/M8, and always in production ──────────
     CHAT_ENCRYPTION_KEY: base64Key(32).optional(),

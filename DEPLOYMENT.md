@@ -235,6 +235,11 @@ Then `nano .env` and fill in every `CHANGE_ME`. Three things people get wrong:
   internet, and one identical `ip_hash` on every audit row.
 - **Delete any `TEST_DATABASE_URL` line.** The integration suite `TRUNCATE`s
   every table it can reach.
+- **Set `SUPPORT_CONTACT`** (v0.6.5). It is the handle named in the last message
+  a blocked account receives and in every refusal a suspended one gets. Leave it
+  empty and those messages simply omit the line — which means telling somebody
+  they are blocked and giving them nobody to ask. `@paayatam_support` or an
+  `https://t.me/…` link; anything else is refused at boot.
 
 Now check it:
 
@@ -256,6 +261,7 @@ prints before going on.
 | `PII_HASH_PEPPER` | ⚠️ No data lost, but old IP hashes stop comparing to new ones. |
 | `QUEUE_PREFIX` | ⚠️ Queued jobs are abandoned. The outbox is in Postgres so nothing is lost, but delivery is delayed. |
 | `TELEGRAM_BOT_TOKEN` | ⚠️ It becomes a different bot. Existing users are talking to the old one. |
+| `SUPPORT_CONTACT` | ✅ Safe. Read per message, so the next block or refusal names the new handle. |
 | `CHAT_ENCRYPTION_KEY` | ⛔ **Never.** Every chat message and every administrator's TOTP secret is encrypted under it. Change it without a re-encryption job and no operator can sign in and no message can be read. |
 
 ---
@@ -588,6 +594,46 @@ Container logs are capped at 10 MB × 5 files per service by the compose file, s
 they cannot fill the disk. Postgres and the backups can, which is why `df -h` is
 on the list.
 
+### 11.4 A database session from your own machine
+
+For a one-off query, `psql` on the server is the shortest path and leaves no
+port open anywhere:
+
+```bash
+./scripts/compose.sh exec postgres psql -U payetam -d payetam
+```
+
+For a GUI client — TablePlus, DBeaver, DataGrip, `psql` with readline — run the
+tunnel **from your laptop**, in its own terminal:
+
+```bash
+make db-tunnel HOST=deploy@your-server        # localhost:5555 -> production
+# or: scripts/db-tunnel.sh -H deploy@your-server -p 5555 --redis
+```
+
+Then point the client at `postgresql://payetam@127.0.0.1:5555/payetam`. The
+password is `POSTGRES_PASSWORD` from the server's `.env`:
+
+```bash
+ssh deploy@your-server "sed -n 's/^POSTGRES_PASSWORD=//p' /srv/payetam/.env"
+```
+
+Three things worth knowing about how this works:
+
+- **The firewall in §2.2 stays exactly as it is.** The tunnel is carried inside
+  the existing SSH connection on port 22; nothing new is opened, and Postgres
+  still publishes no host port. There is no step here where the database becomes
+  reachable from the internet, and if you ever find yourself adding
+  `ufw allow 5432`, stop — that is a different and much worse thing.
+- **The container's address is looked up on every run.** Compose hands out a new
+  one from `172.28.1.0/24` each time the service is recreated, which is every
+  deploy, so a tunnel command with an address written into it works until the
+  next release and then fails confusingly.
+- **The tunnel bypasses the application.** No RBAC check, no audit row, no
+  ledger invariant — this is R3 in `docs/threat-model.md`, and it is the reason
+  the accepted use is reading. Anything that should persist belongs in a
+  migration (§13), not in a `psql` session.
+
 ---
 
 ## 12. The Telegram webhook
@@ -782,6 +828,74 @@ What happens, in order — and the order is the point:
 
 Expect a few seconds of downtime at step 6. Telegram redelivers webhook updates
 it could not deliver, and the outbox lives in Postgres, so nothing queued is lost.
+
+### Migration 0035 rewrites every `accepted_count` (v0.6.5)
+
+v0.6.5 changed what `event.accepted_count` counts — `PENDING + ACCEPTED` before,
+`ACCEPTED` alone now — and that column is a stored counter rather than a view.
+Nothing recomputes it in normal operation, so the code change on its own would
+leave every activity that already exists carrying a number computed under the old
+rule, permanently: the only path that lowers the counter is now reached solely for
+participants who were accepted, so a rejected or expired request never gives its
+seat back. That is precisely the «ظرفیت تکمیل» report this release set out to fix,
+and without the migration the fix would not reach a single existing activity.
+
+Migration 0035 recomputes the column from `event_participant`, which is the ground
+truth the counter caches. It only ever lowers a value, so `accepted_count <=
+capacity` (invariant 1) holds through it by construction.
+
+**One window it does not close.** `deploy.sh` migrates at step 5 and restarts the
+containers at step 6, so for those few seconds the previous release is still
+serving and a join arriving in that gap is counted under the old rule. The
+statement is idempotent by design — run it again afterwards and it repairs that
+one row, or matches nothing and writes nothing:
+
+```bash
+./scripts/compose.sh exec -T postgres psql -U payetam -d payetam \
+  -f - < packages/db/prisma/migrations/00000000000035_seat_accounting_backfill/migration.sql
+```
+
+Worth doing once after the smoke tests on any deployment with live activities.
+
+### v0.6.5 needs `set-bot-commands` run once
+
+`BOT_COMMANDS` gained `/bug`, and `setMyCommands` is not a per-deploy step (see
+§12 for why it is a script rather than something the API does at boot). Without
+it the command exists and answers, and nobody can find it in the "/" menu — which
+for the one command a stuck user goes looking for is most of the feature.
+
+```bash
+pnpm set-bot-commands            # publish what BOT_COMMANDS says
+pnpm set-bot-commands --info     # read back what Telegram now has
+```
+
+The «🐞 گزارش مشکل» keyboard button appears on its own, on the next message the
+bot sends — the reply keyboard is rebuilt from `MENU_COMMANDS` every time.
+
+### Every deploy now tells every user (v0.6.5)
+
+When the worker boots on a release it has not announced, it creates a broadcast:
+one sentence saying the bot was updated and asking the user to press `/start`.
+That is not decoration — a deploy invalidates things the user is holding.
+Reply-keyboard labels move, a half-finished wizard's step keys change, and inline
+buttons in messages from before the deploy carry `callback_data` this build may no
+longer parse. Without the message, the release reaches people as «این دکمه دیگر
+کار نمی‌کند».
+
+Three things worth knowing before you tag:
+
+- **Once per release, guaranteed by `message_campaign.idempotency_key`.** Three
+  worker restarts inside one deploy send one broadcast. A rollback and a
+  roll-forward to a release already announced send **nothing**, because the
+  version string is the same — which is correct: those users were already told.
+- **It goes to everybody**, including suspended accounts, minus anyone who has
+  blocked the bot. On a large user base that is a real amount of Telegram budget;
+  the worker's own limiter paces it, and it is the same dispatcher a broadcast
+  from the panel uses.
+- **`release.announce_enabled` in the settings screen turns it off.** Read at
+  boot, so setting it to 0 before you deploy is what suppresses that deploy's
+  announcement — which is what you want when shipping three hotfixes in an
+  afternoon.
 
 ### Confirming which release is actually running
 

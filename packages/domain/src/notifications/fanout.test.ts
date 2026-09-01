@@ -217,3 +217,31 @@ describe('an edit or a deletion (D10)', () => {
     expect(planned).toEqual([]);
   });
 });
+
+/**
+ * The last message a blocked account receives (v0.6.5).
+ *
+ * It reaches them because delivery keys on `telegram_account.bot_blocked` rather
+ * than on `user.status` — the block is ours, not theirs, and they have not
+ * blocked the bot.
+ */
+describe('a blocked account', () => {
+  it('is told, once, by public id', () => {
+    const planned = planNotifications(
+      row('user.blocked', { userPublicId: GUEST, supportContact: '@paayatam_support' }),
+    );
+
+    expect(planned).toEqual([
+      {
+        userPublicId: GUEST,
+        templateKey: 'account.blocked',
+        dedupeKey: 'outbox-1:userPublicId',
+        payload: { userPublicId: GUEST, supportContact: '@paayatam_support' },
+      },
+    ]);
+  });
+
+  it('plans nothing when the row names no recipient', () => {
+    expect(planNotifications(row('user.blocked', {}))).toEqual([]);
+  });
+});

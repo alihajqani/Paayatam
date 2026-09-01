@@ -1325,6 +1325,22 @@ beforeAll(async () => {
     },
     { method: 'GET', url: '/admin/v1/policy-consents', admin: true },
     /**
+     * Bug reports (v0.6.5). The one field worth scanning for is the reporter:
+     * `BugReportSummary` carries `userPublicId` and must never carry the internal
+     * id or a Telegram id, and `screenshotFileIds` are Telegram handles that are
+     * inert outside this deployment's bot token.
+     *
+     * The write points at an id that does not exist, so the 404 is what is read
+     * and no report's state is changed by a scan run.
+     */
+    { method: 'GET', url: '/admin/v1/bug-reports', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/bug-reports/00000000-0000-4000-8000-000000000000',
+      admin: true,
+      body: { status: 'ACKNOWLEDGED' },
+    },
+    /**
      * Phase 4. The campaign surface, and nothing here sends a message.
      *
      * `preview` is the dry run by definition. The create is `dryRun: true`. The

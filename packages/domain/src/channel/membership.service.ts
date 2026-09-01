@@ -147,14 +147,25 @@ export class ChannelMembershipService {
    * screen and the refusal cannot disagree.
    */
   async stateFor(userId: string, action?: GatedAction): Promise<MembershipState> {
-    const [config, channels] = await Promise.all([this.config.get(), this.config.activeChannels()]);
+    const config = await this.config.get();
 
-    const gated =
+    /**
+     * The switches first, and the channel list only if they say yes.
+     *
+     * Both reads used to run in parallel, which was right when this was called
+     * from a handful of routes. v0.6.5 puts it on the bot's router — every
+     * message, command and tap — and the overwhelmingly common answer is "the
+     * requirement is off", which the config row alone settles. One indexed read
+     * per update instead of two, for a question whose answer is almost always no.
+     */
+    const switchedOn =
       config.membershipRequired &&
-      channels.length > 0 &&
       (action === undefined
         ? config.requiredActions.length > 0
         : config.requiredActions.includes(action));
+
+    const channels = switchedOn ? await this.config.activeChannels() : [];
+    const gated = switchedOn && channels.length > 0;
 
     if (!gated) {
       return {

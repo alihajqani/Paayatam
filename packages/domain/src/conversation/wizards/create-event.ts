@@ -45,6 +45,8 @@ export interface CreateEventForm {
   provinceId?: string;
   cityId?: string;
   districtId?: string;
+  /** A neighbourhood the host typed, when the catalogue offers none. See the `dist` step. */
+  districtLabel?: string;
   /** Gregorian ISO day, as the calendar's buttons carry it. */
   day?: string;
   hour?: number;
@@ -271,7 +273,15 @@ const steps: WizardStep<CreateEventForm>[] = [
       if (id === null) return { ok: false, error: 'یکی از استان‌ها را انتخاب کنید.' };
       // The city and district are cleared: they belonged to the old province,
       // and leaving them would publish an event in a city the host did not pick.
-      return { ok: true, patch: { provinceId: id, cityId: undefined, districtId: undefined } };
+      return {
+        ok: true,
+        patch: {
+          provinceId: id,
+          cityId: undefined,
+          districtId: undefined,
+          districtLabel: undefined,
+        },
+      };
     },
   },
   {
@@ -282,19 +292,57 @@ const steps: WizardStep<CreateEventForm>[] = [
     accept: (input) => {
       const id = chosenId(input);
       if (id === null) return { ok: false, error: 'یکی از شهرها را انتخاب کنید.' };
-      return { ok: true, patch: { cityId: id, districtId: undefined } };
+      return { ok: true, patch: { cityId: id, districtId: undefined, districtLabel: undefined } };
     },
   },
+  /**
+   * The neighbourhood — **picked when there is a list, typed when there is not.**
+   *
+   * ── Why this step could not be answered at all ──────────────────────────────
+   *
+   * `district` is a curated table, `seed-geography.ts` states plainly that *"the
+   * dataset has none"*, and the admin panel can deactivate a district but has no
+   * screen that creates one. So `deps.districtsOf(cityId)` returns `[]` in every
+   * deployment that exists, and this step drew a keyboard with «رد کردن» on it
+   * and nothing else. The only answer to «کدام محله؟» was to decline to answer.
+   *
+   * ── Why both, rather than replacing the list ────────────────────────────────
+   *
+   * A tapped district is a foreign key: filterable, rankable, renameable in one
+   * place, and deactivatable when a neighbourhood stops being served. Typed text
+   * is none of those, so throwing the list away would be a downgrade for the day
+   * the catalogue is populated. The step therefore keeps `ui: 'choice'` — the
+   * buttons appear when there are any — and *also* accepts a typed answer, which
+   * the machinery already delivers here: `accept` receives `{ kind: 'text' }`
+   * for a message and `{ kind: 'callback' }` for a tap, and this step simply
+   * stopped reading the first.
+   *
+   * `EventService.resolveNeighbourhood` decides between the two when both are
+   * somehow present, and a CHECK on the table is the backstop.
+   */
   {
     key: 'dist',
     ui: 'choice',
     optional: true,
-    prompt: () => 'کدام محله؟ اگر مهم نیست، «رد کردن» را بزنید.',
+    prompt: (form) =>
+      form.districtLabel === undefined
+        ? 'محله را بنویسید — مثلاً «درکه». اگر مهم نیست، «رد کردن» را بزنید.'
+        : `محله: ${form.districtLabel}\n\nبرای تغییر، نام تازه را بنویسید.`,
     load: (form, deps) => deps.districtsOf(form.cityId ?? ''),
     accept: (input) => {
+      if (input.kind === 'text') {
+        const result = text(input, 2, 60, 'محله');
+        // The catalogue id is cleared: a host who typed a neighbourhood has
+        // replaced the one they tapped, and keeping both would put two answers
+        // on one event for the CHECK to refuse at the last possible moment.
+        return result.ok
+          ? { ok: true, patch: { districtLabel: result.value, districtId: undefined } }
+          : result;
+      }
+
       const id = chosenId(input);
-      if (id === null) return { ok: false, error: 'یکی از محله‌ها را انتخاب کنید یا رد کنید.' };
-      return { ok: true, patch: { districtId: id } };
+      if (id === null) return { ok: false, error: 'یکی از محله‌ها را انتخاب کنید یا بنویسید.' };
+      return { ok: true, patch: { districtId: id, districtLabel: undefined } };
     },
   },
   {

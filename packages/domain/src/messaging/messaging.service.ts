@@ -231,7 +231,19 @@ export class MessagingService {
     audience: MessageAudience;
     dryRun?: boolean | undefined;
     idempotencyKey: string;
-    actor: { type: 'ADMIN'; adminUserId: string } | { type: 'USER'; userId: string };
+    /**
+     * `SYSTEM` joined the two in v0.6.5, for the release announcement.
+     *
+     * `message_campaign_actor_consistent` has admitted a SYSTEM row with neither
+     * actor id since M22 — the CHECK was written with three branches — and until
+     * now nothing could produce one. A broadcast nobody typed is exactly what
+     * that branch was for: attributing it to whichever admin happened to be in
+     * the database would put a person's name on something they did not send.
+     */
+    actor:
+      | { type: 'ADMIN'; adminUserId: string }
+      | { type: 'USER'; userId: string }
+      | { type: 'SYSTEM' };
     eventId?: string | undefined;
     coinLedgerId?: string | undefined;
   }): Promise<MessageCampaignSummary> {

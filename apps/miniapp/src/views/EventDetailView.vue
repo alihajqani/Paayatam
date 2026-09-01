@@ -183,8 +183,14 @@ onMounted(load);
           <p>{{ formatEventWhen(event.startsAt, event.endsAt) }}</p>
           <p class="text-tg-hint">{{ formatRelative(event.startsAt) }}</p>
           <p>
-            {{ event.city.nameFa
-            }}<span v-if="event.district">، {{ event.district.nameFa }}</span> ·
+            <!--
+              The curated district, or the neighbourhood the host typed when the
+              catalogue has no row for one (v0.6.5). Never both — the server picks
+              between them and a CHECK backs it — so one `v-if` chain reads the
+              pair correctly.
+            -->
+            {{ event.city.nameFa }}<span v-if="event.district">، {{ event.district.nameFa }}</span
+            ><span v-else-if="event.districtLabel">، {{ event.districtLabel }}</span> ·
             <!--
               For a «سایر»-style tag the host's own words are the useful half;
               «سایر» on its own tells a reader nothing (M21).

@@ -66,6 +66,9 @@ function buildProcessors(options: {
     {} as never, // ChannelService
     {} as never, // RetentionService
     {} as never, // MessagingService
+    // ReleaseAnnouncementService: only `onModuleInit` reaches it, and no suite
+    // here boots the module.
+    {} as never,
     {} as never, // InvitationService
     {} as never, // MetricsRegistry
     {} as never, // CoinService

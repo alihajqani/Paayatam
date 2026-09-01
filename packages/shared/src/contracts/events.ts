@@ -67,6 +67,18 @@ const eventBody = z.object({
   customCategoryLabel: z.string().trim().min(2).max(60).optional(),
   cityId: z.uuid(),
   districtId: z.uuid().optional(),
+  /**
+   * A neighbourhood the host typed, when the catalogue has no row for one.
+   *
+   * The `district` table is curated and, in every deployment shipped so far,
+   * **empty** — so `districtId` was a field nobody could fill and «کدام محله؟»
+   * was a question with no answers. Free text is what a host can actually give.
+   *
+   * Mutually exclusive with `districtId`; the server chooses the catalogue row
+   * when both arrive, and a CHECK on the table is the backstop. Free text, so it
+   * goes through the blacklist like the title does.
+   */
+  districtLabel: z.string().trim().min(2).max(60).optional(),
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
   capacity: z.number().int().min(1).max(50),
@@ -190,6 +202,8 @@ export const eventView = z.object({
   customCategoryLabel: z.string().nullable(),
   city: namedRef,
   district: namedRef.nullable(),
+  /** What the host typed, when no catalogue district was chosen. Never both. */
+  districtLabel: z.string().nullable(),
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
   capacity: z.number().int(),

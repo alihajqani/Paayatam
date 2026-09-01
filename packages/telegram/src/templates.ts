@@ -41,6 +41,20 @@ export const TEMPLATES = {
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
   CONTENT_HIDDEN: 'moderation.content_hidden',
+  /**
+   * The last message a blocked account receives (v0.6.5).
+   *
+   * The bot goes silent for a banned user — `knownUser` returns null and nothing
+   * is answered — which is the right behaviour and, on its own, indistinguishable
+   * from the bot being broken. Somebody blocked for a reason they can appeal, or
+   * blocked in error, was left tapping a product that had stopped replying with
+   * no statement that anything had happened and nobody to ask.
+   *
+   * Sent **before** the silence begins, which is why it is an outbox event on the
+   * status change rather than a reply to their next message: after the block
+   * there is no next message the bot will answer.
+   */
+  ACCOUNT_BLOCKED: 'account.blocked',
 
   // ── What the bot says when somebody talks to *it* ──────────────────────────
   /** The reply to `/start`. */
@@ -416,6 +430,35 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `اگر این درست نیست، از بخش پشتیبانی به ما اطلاع دهید.`,
       };
 
+    /**
+     * The final message, and the only one a blocked account gets.
+     *
+     * ── What it does and does not say ───────────────────────────────────────
+     *
+     * It says the account is blocked, that the bot will not answer, and where to
+     * write. It does **not** say why: the reason lives in `audit_log` where a
+     * moderator wrote it, it is frequently about somebody else's report, and
+     * repeating it here would both disclose a complainant and invite an argument
+     * with a bot that is about to stop replying. The appeal is a conversation
+     * with a person, so the message's whole job is to name that person.
+     *
+     * The support handle is `SUPPORT_CONTACT` and arrives in the payload. When it
+     * is unset the line is **omitted** rather than rendered empty — telling
+     * somebody to contact support and then naming nobody is worse than a shorter
+     * message.
+     */
+    case TEMPLATES.ACCOUNT_BLOCKED: {
+      const support = str(payload, 'supportContact');
+      return {
+        text:
+          `<b>دسترسی شما به پایه‌تَم مسدود شد</b>\n\n` +
+          `از این پس ربات به پیام‌های شما پاسخ نمی‌دهد.\n\n` +
+          (support === ''
+            ? `اگر فکر می‌کنید اشتباهی رخ داده، از راه‌های ارتباطی اعلام‌شده با پشتیبانی تماس بگیرید.`
+            : `اگر فکر می‌کنید اشتباهی رخ داده یا برای بررسی دوباره، با پشتیبانی در ارتباط باشید: ${support}`),
+      };
+    }
+
     /** M12: the owner is told, and never told by whom. */
     case TEMPLATES.CONTENT_HIDDEN:
       return {
@@ -674,7 +717,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const keyboard = parseKeyboard(payload);
       return {
         text:
-          `<b>عضویت در کانال</b>\n\n` + `برای ادامه، در کانال‌های زیر عضو شوید و دوباره تلاش کنید.`,
+          `<b>عضویت در کانال</b>\n\n` +
+          `برای استفاده از پایه‌تَم باید در همهٔ کانال‌های زیر عضو باشید.\n` +
+          `پس از عضویت، «بررسی دوباره» را بزنید.`,
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
     }

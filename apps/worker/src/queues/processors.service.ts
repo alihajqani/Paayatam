@@ -14,6 +14,7 @@ import {
   OutboxRelayService,
   ParticipationService,
   RATE_LIMIT_BREAKER_THRESHOLD,
+  ReleaseAnnouncementService,
   RetentionService,
   ReviewService,
 } from '@payetam/domain';
@@ -81,6 +82,14 @@ export class Processors implements OnModuleInit {
     private readonly retention: RetentionService,
     /** Admin campaigns and paid invitations (M22 phases 4 and 11). */
     private readonly messaging: MessagingService,
+    /**
+     * The one broadcast nobody types: "the bot was updated, press /start".
+     *
+     * Created here rather than in the API because the worker is what delivers
+     * it — a queued broadcast created by a process that cannot drain it would
+     * sit until something else happened to run.
+     */
+    private readonly release: ReleaseAnnouncementService,
     /**
      * The invitation half of a campaign.
      *
@@ -155,6 +164,36 @@ export class Processors implements OnModuleInit {
       await this.queues.schedule(entry.name, entry.pattern, entry.tz);
     }
     this.logger.log(`Registered ${String(SCHEDULE.length)} repeatable jobs`);
+
+    await this.announceRelease();
+  }
+
+  /**
+   * Tell everybody the bot was updated, once per release (v0.6.5).
+   *
+   * ── Why the failure is swallowed ────────────────────────────────────────────
+   *
+   * Because this runs in `onModuleInit`, and a throw there stops the worker
+   * booting. A deploy in which nobody was told about the release is a small
+   * problem; a deploy in which the worker does not start is every notification,
+   * every promotion, every expiry and every channel post stopping — and it would
+   * be caused by the one piece of code in the process whose job is cosmetic.
+   *
+   * Exactly-once is `message_campaign.idempotency_key`, not this call site: three
+   * restarts inside one deploy create one campaign, and the two after it find it
+   * and stop. See `ReleaseAnnouncementService`.
+   */
+  private async announceRelease(): Promise<void> {
+    try {
+      const result = await this.release.announceCurrentRelease();
+      if (!result.sent) {
+        this.logger.log(`Release announcement skipped: ${result.reason}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Release announcement failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
   }
 
   /**

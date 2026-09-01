@@ -23,6 +23,7 @@ import { writeReviewWizard } from './wizards/write-review';
 import { fileReportWizard } from './wizards/file-report';
 import { adminCaseWizard } from './wizards/admin-case';
 import { redeemCodeWizard } from './wizards/redeem-code';
+import { bugReportWizard } from './wizards/bug-report';
 
 /**
  * Where the machine records which fields the user answered.
@@ -66,6 +67,14 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
    * which is what `handle` returning non-null buys every wizard.
    */
   REDEEM_CODE: redeemCodeWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  /**
+   * A bug report and its screenshots (v0.6.5).
+   *
+   * The only wizard whose steps see `{ kind: 'photo' }` inputs. Registered here
+   * like every other one, so it inherits the redelivery guard, the single edited
+   * message and the seven-day sweep rather than growing its own.
+   */
+  BUG_REPORT: bugReportWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
 
 export interface ConversationSnapshot {

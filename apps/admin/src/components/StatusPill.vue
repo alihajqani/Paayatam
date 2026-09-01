@@ -49,6 +49,11 @@ const LABELS: Record<string, string> = {
   IN_REVIEW: 'در حال بررسی',
   APPROVED: 'تأیید شده',
   ESCALATED: 'ارجاع شده',
+  // Bug reports (v0.6.5). Both members, not just the ones a screen happens to
+  // render today — a missing key falls back to the Latin enum, which is how a
+  // Persian RTL screen ends up showing `ACKNOWLEDGED`.
+  ACKNOWLEDGED: 'در دست بررسی',
+  RESOLVED: 'حل شد',
   // Referrals
   QUALIFIED: 'واجد شرایط',
   // Legal documents (M22)
@@ -74,6 +79,8 @@ const TONES: Record<string, 'good' | 'warn' | 'danger' | 'neutral'> = {
   ESCALATED: 'warn',
   ANONYMOUS: 'warn',
   SCHEDULED: 'warn',
+  ACKNOWLEDGED: 'warn',
+  RESOLVED: 'good',
   SUSPENDED: 'danger',
   BANNED: 'danger',
   DELETED: 'danger',

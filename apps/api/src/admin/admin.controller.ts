@@ -19,6 +19,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   AdminAccessService,
   AdminInsightService,
+  BugReportService,
+  type BugReportSummary,
   CatalogAdminService,
   ChannelAdminService,
   AdminOperationsService,
@@ -44,8 +46,14 @@ import {
 } from '@payetam/domain';
 import type { Env } from '@payetam/config';
 import { ENV, JOBS, PiiHasher, QUEUES, QueueService, jobId } from '@payetam/platform';
-import { AppError, ErrorCode, resolveVersion } from '@payetam/shared';
+import { AppError, ErrorCode, PERMISSIONS, resolveVersion } from '@payetam/shared';
 import {
+  bugReportListQuery,
+  updateBugReportRequest,
+  type BugReportListQuery,
+  type BugReportListResponse,
+  type BugReportView,
+  type UpdateBugReportRequest,
   adjustCoinsRequest,
   adjustTrustRequest,
   adminCityListQuery,
@@ -227,6 +235,8 @@ export class AdminController {
     private readonly messaging: MessagingAdminService,
     private readonly policies: PolicyAdminService,
     private readonly insight: AdminInsightService,
+    /** «مشکلی پیدا کردم» (v0.6.5) — the product's own queue, not moderation's. */
+    private readonly bugReports: BugReportService,
     /**
      * The same readiness check `/ready` uses, folded into the dashboard.
      *
@@ -1063,6 +1073,60 @@ export class AdminController {
     const row = settings.find((setting) => setting.key === updated.key);
     if (!row) throw new AppError(ErrorCode.INTERNAL_ERROR);
     return row;
+  }
+
+  // ── Bug reports (v0.6.5) ───────────────────────────────────────────────────
+
+  /**
+   * What users say is broken, oldest open first.
+   *
+   * Behind `report.review` rather than a new permission, and that is not
+   * laziness: the string means *"work the report queue"*, and this is a report
+   * queue. Both MODERATOR and SUPPORT hold it, which is the right pair — support
+   * is who somebody writing «دکمه کار نمی‌کند» is really addressing.
+   */
+  @Get('bug-reports')
+  async listBugReports(
+    @Query(new ZodValidationPipe(bugReportListQuery)) query: BugReportListQuery,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<BugReportListResponse> {
+    this.access.assertPermission(admin, PERMISSIONS.REPORT_REVIEW);
+
+    const result = await this.bugReports.list({
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+    });
+
+    return {
+      reports: result.reports.map(toBugReportView),
+      total: result.total,
+    };
+  }
+
+  /**
+   * Acknowledge, resolve or dismiss one, with a staff note.
+   *
+   * The note is **never shown to the reporter**. A queue annotation and a reply
+   * are different things: a reply would need a channel back, a tone, and a
+   * decision about who is answerable for it, and none of that is what a triage
+   * note is for. Somebody who needs to be written to is written to through the
+   * messaging screen, by a person.
+   */
+  @Post('bug-reports/:publicId')
+  async updateBugReport(
+    @Param('publicId') publicId: string,
+    @Body(new ZodValidationPipe(updateBugReportRequest)) body: UpdateBugReportRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<BugReportView> {
+    this.access.assertPermission(admin, PERMISSIONS.REPORT_REVIEW);
+
+    const updated = await this.bugReports.setStatus(
+      publicId,
+      admin.adminUserId,
+      body.status,
+      body.note,
+    );
+    return toBugReportView(updated);
   }
 
   // ── Activity tags — «تفریحات» (M21) ────────────────────────────────────────
@@ -2016,5 +2080,27 @@ function toRequiredChannelView(channel: RequiredChannelRecord): RequiredChannelV
     joinUrl: channel.joinUrl,
     sortOrder: channel.sortOrder,
     isActive: channel.isActive,
+  };
+}
+
+/**
+ * One bug report on the wire.
+ *
+ * A mapper rather than a spread, for the reason every other view in this
+ * codebase has one: the domain summary is already narrow, but a spread would
+ * carry whatever a future field adds — and the reporter's internal id is exactly
+ * the sort of thing that gets added to a summary for a query's convenience.
+ */
+function toBugReportView(report: BugReportSummary): BugReportView {
+  return {
+    publicId: report.publicId,
+    userPublicId: report.userPublicId,
+    description: report.description,
+    screenshotFileIds: report.screenshotFileIds,
+    appVersion: report.appVersion,
+    status: report.status,
+    adminNote: report.adminNote,
+    createdAt: report.createdAt.toISOString(),
+    handledAt: report.handledAt?.toISOString() ?? null,
   };
 }

@@ -84,10 +84,38 @@ export type BotIntent =
   | { kind: 'TEXT'; from: BotSender; message: BotInboundText; replyToMessageId: number | null }
   /** The sender edited a message they had already sent (D10). */
   | { kind: 'EDITED_TEXT'; from: BotSender; message: BotInboundText }
-  /** A photo, sticker, voice note — anything this version refuses (criterion 11). */
+  /**
+   * A photo, in a private chat.
+   *
+   * Split out of `UNSUPPORTED` in v0.6.5 for exactly one consumer: the
+   * bug-report form, whose whole value is the screenshot attached to it. Every
+   * other surface still refuses a photo — `BotService` answers `UNSUPPORTED`'s
+   * Persian sentence when no bug report is open — so criterion 11 is unchanged
+   * for the chat relay, which is what it was written about.
+   *
+   * `fileId` is Telegram's handle for the **largest** rendition it offered. The
+   * bytes are never fetched: they stay on Telegram's servers and the product
+   * stores a handle scoped to its own bot token.
+   */
+  | { kind: 'PHOTO'; from: BotSender; fileId: string; caption?: string }
+  /** A sticker, a voice note, a document — anything this version refuses (criterion 11). */
   | { kind: 'UNSUPPORTED'; from: BotSender }
-  /** An inline-keyboard tap. `data` is opaque here; `callback-data.ts` reads it. */
-  | { kind: 'CALLBACK'; from: BotSender; callbackQueryId: string; data: string }
+  /**
+   * An inline-keyboard tap. `data` is opaque here; `callback-data.ts` reads it.
+   *
+   * `messageId` is the message the keyboard is attached to, when Telegram sent
+   * one — it omits the field for a button on a message too old to be edited, and
+   * for an inline-mode result. It is what lets a handler **redraw** the screen
+   * that was tapped instead of sending another one below it, which is how the
+   * discovery filters stopped producing a new list per tap.
+   */
+  | {
+      kind: 'CALLBACK';
+      from: BotSender;
+      callbackQueryId: string;
+      data: string;
+      messageId?: number;
+    }
   /** The user blocked or unblocked the bot. */
   | { kind: 'BLOCK_CHANGED'; from: BotSender; blocked: boolean };
 
@@ -130,15 +158,48 @@ const entity = z.object({
     .optional(),
 });
 
+/**
+ * One rendition of a photo. Telegram sends several sizes of the same image.
+ *
+ * Only the id and the pixel count are parsed: `file_size` and `file_unique_id`
+ * are not needed to choose between them, and a field that is read is a field
+ * that has to be kept true.
+ */
+const photoSize = z.object({
+  file_id: z.string().min(1),
+  width: z.number().int().nonnegative(),
+  height: z.number().int().nonnegative(),
+});
+
 const message = z.object({
   message_id: z.number().int(),
   from: sender.optional(),
   chat,
   text: z.string().optional(),
   entities: z.array(entity).optional(),
+  /** Every rendition Telegram offered, smallest first. See `largestPhoto`. */
+  photo: z.array(photoSize).optional(),
+  /** The words under a photo, when the sender wrote any. */
+  caption: z.string().optional(),
   /** Only the id. Who wrote it is answered from our own rows, not from Telegram's. */
   reply_to_message: z.object({ message_id: z.number().int() }).optional(),
 });
+
+/**
+ * The biggest rendition Telegram offered, or null.
+ *
+ * Biggest rather than first, because the array is ordered smallest-first and a
+ * thumbnail is not a screenshot anybody can read a button label off. Compared by
+ * area rather than by position, so the choice does not depend on an ordering
+ * Telegram documents but does not guarantee.
+ */
+function largestPhoto(sizes: readonly z.infer<typeof photoSize>[]): string | null {
+  let best: z.infer<typeof photoSize> | null = null;
+  for (const size of sizes) {
+    if (best === null || size.width * size.height > best.width * best.height) best = size;
+  }
+  return best?.file_id ?? null;
+}
 
 const update = z.object({
   update_id: z.number().int(),
@@ -149,6 +210,12 @@ const update = z.object({
       id: z.string().min(1),
       from: sender,
       data: z.string().optional(),
+      /**
+       * Only the id and the chat type. The rest of the message is the bot's own
+       * text coming back to it, and re-reading it would be trusting Telegram's
+       * copy of something this process wrote.
+       */
+      message: z.object({ message_id: z.number().int(), chat: chat.optional() }).optional(),
     })
     .optional(),
   my_chat_member: z
@@ -189,11 +256,13 @@ function intentOf(parsed: z.infer<typeof update>): BotIntent | null {
   if (parsed.callback_query) {
     const from = senderOf(parsed.callback_query.from);
     if (from === null || parsed.callback_query.data === undefined) return null;
+    const messageId = parsed.callback_query.message?.message_id;
     return {
       kind: 'CALLBACK',
       from,
       callbackQueryId: parsed.callback_query.id,
       data: parsed.callback_query.data,
+      ...(messageId !== undefined ? { messageId } : {}),
     };
   }
 
@@ -221,6 +290,23 @@ function intentOf(parsed: z.infer<typeof update>): BotIntent | null {
   if (parsed.message) {
     const from = senderOf(parsed.message.from);
     if (from === null || parsed.message.chat.type !== 'private') return null;
+
+    /**
+     * A photo, before the text branch, because a photo message carries no
+     * `text` — it carries a `caption` — and would otherwise fall straight into
+     * `UNSUPPORTED` and be refused.
+     */
+    if (parsed.message.photo !== undefined && parsed.message.photo.length > 0) {
+      const fileId = largestPhoto(parsed.message.photo);
+      if (fileId === null) return { kind: 'UNSUPPORTED', from };
+      const caption = parsed.message.caption?.trim();
+      return {
+        kind: 'PHOTO',
+        from,
+        fileId,
+        ...(caption !== undefined && caption !== '' ? { caption } : {}),
+      };
+    }
 
     const text = parsed.message.text;
     if (text === undefined) return { kind: 'UNSUPPORTED', from };

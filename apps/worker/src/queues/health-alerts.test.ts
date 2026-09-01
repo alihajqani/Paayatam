@@ -47,6 +47,9 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     {} as never, // ChannelService
     {} as never, // RetentionService
     {} as never, // MessagingService
+    // ReleaseAnnouncementService: only `onModuleInit` reaches it, and no suite
+    // here boots the module.
+    {} as never,
     {} as never, // InvitationService
     { counter: vi.fn(), observe: vi.fn() } as never,
     (overrides.coins ?? {}) as never,

@@ -13,6 +13,7 @@ import { SettingsService } from '../catalog/settings.service';
 import { MessageCipher } from '../chat/message-cipher';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
@@ -101,6 +102,9 @@ const operations = new AdminOperationsService(
   trust,
   audit,
   profiles,
+  // The outbox, for the blocked-account message `setUserStatus` emits (v0.6.5).
+  new OutboxService(service, clock),
+  envForProfile,
 );
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);
 const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);

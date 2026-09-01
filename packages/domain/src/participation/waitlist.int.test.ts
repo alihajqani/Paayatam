@@ -164,8 +164,18 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+/**
+ * ── What "a seat frees" means from v0.6.5 ───────────────────────────────────
+ *
+ * `accepted_count` counts **accepted people only**. What promotion moves is a
+ * *slot in the host's queue*: `join` admits while `accepted_count + PENDING <
+ * capacity`, and a rejection, an expiry or a cancellation frees one of those.
+ * The counter is therefore zero throughout most of this file, and that is the
+ * point — an activity nobody has been accepted to has all its places free,
+ * whatever is happening in the queue in front of it.
+ */
 describe('promotion is FIFO by (requested_at, id)', () => {
-  it('gives a freed seat to the person who has waited longest', async () => {
+  it('gives a freed slot to the person who has waited longest', async () => {
     const eventPublicId = await createEvent(1);
     const [holder, first, second] = await Promise.all([
       createJoiner(),
@@ -180,10 +190,11 @@ describe('promotion is FIFO by (requested_at, id)', () => {
 
     expect(await statusOf(rows[1]!.publicId)).toBe('PENDING');
     expect(await statusOf(rows[2]!.publicId)).toBe('WAITLISTED');
-    expect(await seats(eventPublicId)).toBe(1);
+    // Nobody was accepted, so the place is still free.
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
-  it('walks the queue in order as seats keep freeing', async () => {
+  it('walks the queue in order as slots keep freeing', async () => {
     const eventPublicId = await createEvent(1);
     const users = await Promise.all([createJoiner(), createJoiner(), createJoiner()]);
     const rows = await joinInOrder(eventPublicId, users);
@@ -193,10 +204,10 @@ describe('promotion is FIFO by (requested_at, id)', () => {
 
     await participation.cancel(users[1], rows[1]!.publicId);
     expect(await statusOf(rows[2]!.publicId)).toBe('PENDING');
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
-  it('promotes on a rejection too — the seat is free either way', async () => {
+  it('promotes on a rejection too — the slot is free either way', async () => {
     const eventPublicId = await createEvent(1);
     const [holder, waiting] = await Promise.all([createJoiner(), createJoiner()]);
     const rows = await joinInOrder(eventPublicId, [holder, waiting]);
@@ -204,7 +215,7 @@ describe('promotion is FIFO by (requested_at, id)', () => {
     await participation.reject(hostId, rows[0]!.publicId);
 
     expect(await statusOf(rows[1]!.publicId)).toBe('PENDING');
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
   it('sets the promoted request a 12-hour deadline, not the 24 a fresh one gets', async () => {
@@ -224,12 +235,13 @@ describe('promotion is FIFO by (requested_at, id)', () => {
     expect(promoted.hostDeadlineAt).toEqual(new Date('2026-08-16T21:00:00.000Z'));
   });
 
-  it('leaves the queue alone while no seat is free', async () => {
+  it('leaves the queue alone while no slot is free', async () => {
     const eventPublicId = await createEvent(1);
     const users = await Promise.all([createJoiner(), createJoiner()]);
     const rows = await joinInOrder(eventPublicId, users);
 
-    // Accepting does not free anything — the seat was already held.
+    // Accepting frees nothing: the pending slot becomes a taken seat, and the
+    // sum the queue is bounded by is unchanged.
     await participation.accept(hostId, rows[0]!.publicId);
 
     expect(await statusOf(rows[1]!.publicId)).toBe('WAITLISTED');
@@ -239,9 +251,9 @@ describe('promotion is FIFO by (requested_at, id)', () => {
 
 describe('concurrent cancellations', () => {
   /**
-   * The property ADR-0011 asks for by name. Two seats free at the same instant
+   * The property ADR-0011 asks for by name. Two slots free at the same instant
    * must reach two different people — never the same person twice, and never one
-   * person into two seats.
+   * person into two slots.
    *
    * Promotion runs inside the cancelling transaction under the event lock, so the
    * two cancellations serialise and the second sees the first's promotion.
@@ -268,24 +280,26 @@ describe('concurrent cancellations', () => {
       const distinct = new Set(promoted.map((row) => row.userId));
       expect(promoted, `iteration ${iteration}`).toHaveLength(2);
       expect(distinct.size, `iteration ${iteration}`).toBe(2);
-      expect(await seats(eventPublicId), `iteration ${iteration}`).toBe(2);
+      // Two places, two people being asked about, nobody accepted — so both
+      // places are still free (v0.6.5).
+      expect(await seats(eventPublicId), `iteration ${iteration}`).toBe(0);
     }
   }, 120_000);
 
-  it('never promotes more people than there are seats', async () => {
+  it('never promotes more people than the host has room to be asked about', async () => {
     const eventPublicId = await createEvent(2);
     const holders = await Promise.all([createJoiner(), createJoiner()]);
     const waiting = await Promise.all([createJoiner(), createJoiner(), createJoiner()]);
     const rows = await joinInOrder(eventPublicId, [...holders, ...waiting]);
 
-    // One seat freed, three people waiting.
+    // One slot freed, three people waiting.
     await participation.cancel(holders[0], rows[0]!.publicId);
 
     const pending = await prisma.eventParticipant.count({
       where: { event: { publicId: eventPublicId }, status: 'PENDING' },
     });
     expect(pending).toBe(2);
-    expect(await seats(eventPublicId)).toBe(2);
+    expect(await seats(eventPublicId)).toBe(0);
     // The two who did not get it are still queued, in their original order.
     expect(await statusOf(rows[3]!.publicId)).toBe('WAITLISTED');
     expect(await statusOf(rows[4]!.publicId)).toBe('WAITLISTED');
@@ -293,7 +307,7 @@ describe('concurrent cancellations', () => {
 });
 
 describe('an expired promotion moves to the next', () => {
-  it('gives the seat to the following person when the host never answers', async () => {
+  it('gives the slot to the following person when the host never answers', async () => {
     const eventPublicId = await createEvent(1);
     const users = await Promise.all([createJoiner(), createJoiner(), createJoiner()]);
     const rows = await joinInOrder(eventPublicId, users);
@@ -307,10 +321,10 @@ describe('an expired promotion moves to the next', () => {
 
     expect(await statusOf(rows[1]!.publicId)).toBe('EXPIRED');
     expect(await statusOf(rows[2]!.publicId)).toBe('PENDING');
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
-  it('leaves the seat empty once the queue is exhausted', async () => {
+  it('leaves the queue empty once it is exhausted', async () => {
     const eventPublicId = await createEvent(1);
     const joiner = await createJoiner();
     const rows = await joinInOrder(eventPublicId, [joiner]);
@@ -325,29 +339,27 @@ describe('an expired promotion moves to the next', () => {
 
 describe('the 5-minute backstop sweep', () => {
   /**
-   * The event-driven path fills a seat the moment it frees, so the sweep should
-   * normally find nothing. It exists for the seat freed while the process was
-   * dying — simulated here by freeing one behind the service's back.
+   * The event-driven path fills a freed slot the moment it frees, so the sweep
+   * should normally find nothing. It exists for the slot freed while the process
+   * was dying — simulated here by settling a row behind the service's back, so
+   * no promotion runs with it.
    */
-  it('fills a seat that came free without a promotion running', async () => {
+  it('fills a slot that came free without a promotion running', async () => {
     const eventPublicId = await createEvent(1);
     const [holder, waiting] = await Promise.all([createJoiner(), createJoiner()]);
     const rows = await joinInOrder(eventPublicId, [holder, waiting]);
 
-    // A cancellation that committed but whose promotion never ran.
+    // A cancellation that committed but whose promotion never ran. No counter to
+    // adjust: a PENDING request holds a queue slot rather than a seat (v0.6.5).
     await prisma.eventParticipant.update({
       where: { publicId: rows[0]!.publicId },
       data: { status: 'CANCELLED_BY_PARTICIPANT', cancelledAt: NOW },
-    });
-    await prisma.event.update({
-      where: { publicId: eventPublicId },
-      data: { acceptedCount: { decrement: 1 } },
     });
 
     expect(await participation.sweepWaitlists()).toBe(1);
 
     expect(await statusOf(rows[1]!.publicId)).toBe('PENDING');
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
   });
 
   it('finds nothing to do when the event-driven path already ran', async () => {
@@ -365,24 +377,20 @@ describe('the 5-minute backstop sweep', () => {
     const [holder, waiting] = await Promise.all([createJoiner(), createJoiner()]);
     const rows = await joinInOrder(eventPublicId, [holder, waiting]);
 
-    // Free the seat behind the service's back, so a promotion is genuinely owed.
+    // Free the slot behind the service's back, so a promotion is genuinely owed.
     await prisma.eventParticipant.update({
       where: { publicId: rows[0]!.publicId },
       data: { status: 'CANCELLED_BY_PARTICIPANT', cancelledAt: NOW },
-    });
-    await prisma.event.update({
-      where: { publicId: eventPublicId },
-      data: { acceptedCount: { decrement: 1 } },
     });
 
     const first = await participation.sweepWaitlists();
     const second = await participation.sweepWaitlists();
 
-    // The first pass fills the seat; the second finds the event full and the
-    // promoted row already out of the queue, so it promotes nobody a second time.
+    // The first pass fills the slot; the second finds the queue full and the
+    // promoted row already out of it, so it promotes nobody a second time.
     expect(first).toBe(1);
     expect(second).toBe(0);
-    expect(await seats(eventPublicId)).toBe(1);
+    expect(await seats(eventPublicId)).toBe(0);
     expect(await prisma.outboxEvent.count({ where: { eventType: 'waitlist.promoted' } })).toBe(1);
   });
 

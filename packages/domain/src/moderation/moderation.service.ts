@@ -45,7 +45,13 @@ export class ModerationService {
    * reason for the boundary between the fields to change a verdict.
    */
   async scanEventContent(
-    content: { title: string; description: string; customCategoryLabel?: string | null },
+    content: {
+      title: string;
+      description: string;
+      customCategoryLabel?: string | null;
+      /** The typed neighbourhood (v0.6.5), moderated exactly like the «سایر» label. */
+      districtLabel?: string | null;
+    },
     tx: Prisma.TransactionClient = this.prisma,
   ): Promise<ContentScan & { normalized: NormalizedContent }> {
     const blacklist = await this.blacklist.load(tx);
@@ -53,8 +59,17 @@ export class ModerationService {
     // it is moderated like the title and deliberately not searchable, because
     // widening the 0005 `search_vector` trigger would put a tsvector rebuild on
     // the product's most contended write path. Migration 0020 has the argument.
+    //
+    // `districtLabel` joins on the same terms and for the same reason. It is the
+    // second free-text field a host can put anything into, and a moderated
+    // product with one unmoderated user-authored field has an unmoderated field.
     const matches = this.blacklist.match(
-      [content.title, content.description, content.customCategoryLabel ?? '']
+      [
+        content.title,
+        content.description,
+        content.customCategoryLabel ?? '',
+        content.districtLabel ?? '',
+      ]
         .filter((part) => part !== '')
         .join('\n'),
       blacklist.rules,

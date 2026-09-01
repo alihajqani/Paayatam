@@ -1,4 +1,5 @@
 import { encodeDiscoverCallback, type DiscoverFilters } from './callback-data';
+import { toPersianDigits } from './escape';
 
 /**
  * The filter row under `/discover` (v0.5.9).
@@ -35,10 +36,18 @@ function mark(active: boolean, label: string): string {
  * screen, reached by the last button.
  */
 export function discoverFilterRows(current: DiscoverFilters): FilterButton[][] {
+  /**
+   * Every filter change goes back to the first page.
+   *
+   * Not carrying the page forward is the whole point: somebody on page four of
+   * «هر زمان» who taps «امروز» is asking a different question, and answering it
+   * with page four of a two-page result is an empty screen that looks like an
+   * empty city.
+   */
   const withWhen = (when: DiscoverFilters['when']): string =>
-    encodeDiscoverCallback({ ...current, when });
+    encodeDiscoverCallback({ ...current, when, page: 0 });
   const withCost = (cost: DiscoverFilters['cost']): string =>
-    encodeDiscoverCallback({ ...current, cost });
+    encodeDiscoverCallback({ ...current, cost, page: 0 });
 
   return [
     [
@@ -67,11 +76,11 @@ export function discoverCategoryRows(
   const buttons: FilterButton[] = [
     {
       text: mark(current.categoryId === null, 'همه'),
-      callbackData: encodeDiscoverCallback({ ...current, categoryId: null }),
+      callbackData: encodeDiscoverCallback({ ...current, categoryId: null, page: 0 }),
     },
     ...categories.map((category) => ({
       text: mark(current.categoryId === category.id, category.label),
-      callbackData: encodeDiscoverCallback({ ...current, categoryId: category.id }),
+      callbackData: encodeDiscoverCallback({ ...current, categoryId: category.id, page: 0 }),
     })),
   ];
 
@@ -82,6 +91,49 @@ export function discoverCategoryRows(
   return rows;
 }
 
+/**
+ * «قبلی · صفحهٔ ۲ · بعدی», or nothing when the whole list fits on one page.
+ *
+ * ── Why the page number is a button and not text ────────────────────────────
+ *
+ * It is not a button — it is a *label* rendered as one, and tapping it re-runs
+ * the page it is already on. Telegram has no other way to put a word in the
+ * middle of a keyboard row, and the alternative of putting «صفحهٔ ۲ از ۵» in the
+ * body means the position moves as the digest grows and shrinks. Re-running the
+ * current page is a harmless no-op, which is the property that makes a decorative
+ * button acceptable at all.
+ *
+ * ── Why «بعدی» is decided by a peek rather than by a count ──────────────────
+ *
+ * The caller asks for one more row than it renders. A `COUNT(*)` over the whole
+ * filtered set is a second query on every tap to produce a number nobody reads,
+ * and it goes stale between the count and the page anyway. Whether one more row
+ * exists is the only fact «بعدی» needs.
+ */
+export function discoverPageRow(current: DiscoverFilters, hasNext: boolean): FilterButton[][] {
+  if (current.page === 0 && !hasNext) return [];
+
+  const row: FilterButton[] = [];
+  if (current.page > 0) {
+    row.push({
+      text: '‹ قبلی',
+      callbackData: encodeDiscoverCallback({ ...current, page: current.page - 1 }),
+    });
+  }
+  row.push({
+    text: `صفحهٔ ${toPersianDigits(String(current.page + 1))}`,
+    callbackData: encodeDiscoverCallback(current),
+  });
+  if (hasNext) {
+    row.push({
+      text: 'بعدی ›',
+      callbackData: encodeDiscoverCallback({ ...current, page: current.page + 1 }),
+    });
+  }
+
+  return [row];
+}
+
 /** What the digest says it is showing, so a filtered list never looks like an empty city. */
 export function describeFilters(current: DiscoverFilters, categoryLabel: string | null): string {
   const parts: string[] = [];
@@ -89,6 +141,7 @@ export function describeFilters(current: DiscoverFilters, categoryLabel: string 
   if (current.when === 'w') parts.push('این هفته');
   if (current.cost === 'f') parts.push('رایگان');
   if (categoryLabel !== null) parts.push(categoryLabel);
+  if (current.page > 0) parts.push(`صفحهٔ ${toPersianDigits(String(current.page + 1))}`);
 
   return parts.length === 0 ? '' : `\n\n<i>فیلترها: ${parts.join(' · ')}</i>`;
 }

@@ -272,6 +272,49 @@ suite was green through all of them.
    only fails in the slowest suite is a check that is off by default.** Run the
    integration suite before tagging, not after.
 
+21. **A mechanism that works exactly as written can still be wrong on the
+   screen.** v0.6.5 was sixteen QA findings and the majority had this shape.
+   `accepted_count` counted PENDING as a seat — correct by its own definition,
+   and it made an activity with two places report «ظرفیت تکمیل» while one request
+   had been rejected and another had expired, because each release promoted
+   somebody who took the seat again. Both quotas raised one error code, so an
+   operator raising the daily limit watched the concurrency limit keep refusing
+   and reported the setting as broken. The publish dialog compared `Number()`
+   against a version the panel renders in Persian digits, so a button was
+   unclickable for every operator who has ever used it. **Ask what the user sees,
+   not whether the code does what it says.**
+22. **A configurable action nothing enforces is a setting that lies.**
+   `GATED_ACTIONS` had five members; four were checked in the service that owns
+   the operation and `APP_ACCESS` was documented as *the Mini App router's* job —
+   on a product whose Mini App is being retired. An operator switched the
+   requirement on, chose the widest action, and nothing happened. The rule that
+   would have caught it is already in the file that declares the list: *"a
+   configurable action nothing checks is a setting that silently does nothing,
+   which is worse than one that does not exist."* It was true when written and
+   stopped being true when the surface it named went away. **A comment naming
+   which surface enforces something is a dependency on that surface still
+   existing.**
+23. **Shared normalization across two things that only look alike.**
+   `normalizeCode` upper-cased and stripped separators for referral codes — right,
+   because they are generated from a fixed alphabet and read aloud — and gift
+   codes reused it. An operator's `test1` was therefore also redeemable as
+   `test 1`. For a *bearer secret whose text a human chooses*, folding is the
+   keyspace collapsing inwards. **Two callers of one normalizer is a question
+   about whether they are the same kind of value.**
+24. **A refusal that carries a payload nobody renders.**
+   `CHANNEL_MEMBERSHIP_REQUIRED` has carried `details.channels` and
+   `details.joinUrl` since M22 "so the bot and the Mini App can list them from
+   the refusal itself" — and the bot rendered `ERROR_MESSAGES_FA[code]`, one
+   sentence, throwing the links away. The user was told to join a channel and
+   given no way to. **When an error is built to carry detail, grep for who reads
+   it.**
+25. **A catalogue table nothing populates makes its form unanswerable.**
+   `district` is curated, `seed-geography.ts` says outright that the dataset has
+   none, and no admin screen creates one — so the bot's «کدام محله؟» step drew a
+   keyboard with only «رد کردن» on it, in every deployment that has ever existed.
+   **A `load()` that can legitimately return `[]` needs an answer for that case
+   at the point the question is asked.**
+
 ## 8. Deliberate design positions — do not "fix" these
 
 - The channel membership gate **fails open on every outcome except an
@@ -279,7 +322,22 @@ suite was green through all of them.
   than the product. It is **off by default**.
 - `APP_ACCESS` gating is enforced **by the router, not `AuthGuard`** — a gate
   over every authenticated route would refuse the very calls the screen that
-  clears it is built from.
+  clears it is built from. From v0.6.5 that means **both** routers: the bot's
+  `route`/`onCallback` and the Mini App's. `/start` and `/help` are exempt, and
+  that is not an oversight — gating account creation would refuse the deep links
+  the join screen sends people back through.
+- **A seat is consumed by an acceptance and nothing else** (v0.6.5).
+  `accepted_count` counts ACCEPTED only; a PENDING request holds a *slot in the
+  host's queue*, which is what `join` admits against. Do not "restore" PENDING to
+  the seat-holding set to make the waitlist work — `SLOT_HOLDING_STATUSES` is
+  what makes it work, and the reason for the split is written on both constants.
+- **Gift codes are matched exactly; referral codes are not.** The two look like
+  the same kind of string and are not: one is generated from a fixed alphabet and
+  read aloud, the other is chosen by an operator and worth money. Do not
+  re-unify `exactCode` and `normalizeCode`.
+- **Birth year is Gregorian in the column and Jalali on the screen.** The
+  conversion is at the wizard boundary (`edit-profile.ts`), the same rule ADR-0008
+  sets for timestamps. Do not migrate the column.
 - `ledger.drift` **reports and never repairs.** Auto-correcting would either
   overwrite a balance a user holds or write a plug entry into an append-only
   ledger.
@@ -365,16 +423,22 @@ form; `conversation.service.ts` holds persistence, idempotency and the walk;
 ### Dates are Jalali now
 
 `packages/telegram/src/wizard/jalali.ts` renders the Persian calendar through
-ICU. `datetime.ts` still renders Gregorian and its comment explains why — *the
-Mini App renders Jalali* — which stopped being true. `node:22-alpine` carries
-full ICU; this was verified **inside the image**, not on the host.
+ICU. `node:22-alpine` carries full ICU; this was verified **inside the image**,
+not on the host.
+
+`datetime.ts` rendered Gregorian until v0.6.5, on a comment — *"the Mini App
+renders Jalali"* — that had stopped being true twice over. What it produced was
+«۰۷/۰۹/۲۰۲۶، ۱۲:۰۰», a Gregorian date wearing Persian digits, on the three most
+public surfaces the product writes: channel posts, paid invitations and the
+moderation case digest. It is now `formatJalali` + `formatJalaliTime`, and every
+date a user reads is Persian.
 
 The grid is walked in Gregorian and labelled in Jalali, so Jalali→Gregorian —
 where hand-written implementations get leap years wrong — is never needed. The
 week starts on **شنبه**; a grid starting Monday puts every date under the wrong
 heading, which looks like styling and is a wrong date.
 
-### The four wizards
+### The wizards
 
 | Kind | Command | Shape |
 |---|---|---|
@@ -382,10 +446,36 @@ heading, which looks like styling and is a wrong date.
 | `EDIT_PROFILE` | `/edit_profile` | six steps, every one skippable |
 | `EDIT_EVENT` | `/edit_event` | `pick`, then the create wizard's own steps with `optional` set |
 | `ACCEPT_POLICIES` | opened by the gate, or `/terms` | one step, not cancellable |
+| `WRITE_REVIEW` / `FILE_REPORT` / `ADMIN_CASE` / `REDEEM_CODE` | see §10b | |
+| `BUG_REPORT` | `/bug`, «🐞 گزارش مشکل» | a description, then screenshots — **the only wizard that takes a photo** |
 
 `EDIT_EVENT` reuses `createEventWizard.steps` rather than redefining them, and a
 test asserts the two lists stay equal. A second copy of sixteen validators is the
 thing that arrangement exists to prevent.
+
+**`BUG_REPORT` is why `WizardInput` grew a `photo` kind** (v0.6.5). Every other
+surface answers a photo with «این نوع پیام پشتیبانی نمی‌شود» — criterion 11, and
+right for the chat relay, where a forwarded image is a payload nothing can
+moderate, encrypt or account for. It is exactly wrong for the one form whose
+value *is* the screenshot. `value` then carries a Telegram **`file_id`**: the
+image stays on Telegram's servers and the product stores a handle, so there is no
+retention policy, deletion path or scanning question to own.
+
+The photo step is **last**, so every picture lands back on the summary with the
+count one higher rather than advancing — which is what makes "send five
+screenshots" five messages and one growing summary rather than five forms.
+
+**Two steps that changed shape in v0.6.5**, both because the question had no
+answerable form:
+
+- `EDIT_PROFILE`'s birth year asks in **Jalali** and stores Gregorian. It used to
+  ask for Gregorian and refuse ۱۳۷۰ with an explanation of how to convert it —
+  the product asking a Persian speaker to do arithmetic it could do itself, three
+  screens after a Jalali date picker. The column is unchanged.
+- `CREATE_EVENT`'s `dist` step accepts **typed text** as well as a tap. See §7
+  trap 25: the district catalogue is empty everywhere, so the keyboard had only
+  «رد کردن» on it. A typed neighbourhood lands in `event.district_label`,
+  mutually exclusive with `district_id` by CHECK.
 
 ### The consent gate
 
@@ -399,9 +489,22 @@ It returns a boolean rather than throwing, because the answer to "you have not
 accepted" is a *screen*: the consent wizard opens where the refused action would
 have happened.
 
+From v0.6.5 it gates **two** things, in this order: a `SUSPENDED` account is
+refused first, then the policy acceptance. Suspension is write-only — a suspended
+user can still read their events, chats and wallet, which is the difference
+between a suspension and a slower ban, and is what `MessagingService` already
+assumed by treating `SUSPENDED` as reachable for broadcasts. Until v0.6.5
+`user.status = 'SUSPENDED'` was written by the panel and read by nothing.
+
 **The channel requirement is a check, not a wizard step.** An operator can switch
 it on next week or add a channel, so nobody ever finishes it — which is exactly
 why the Mini App declares `/join-channels` outside `ONBOARDING_PATHS`.
+
+It is **not** in `mayWrite`, and that is deliberate: the four per-action gates are
+enforced by the services that own the operations, and putting a generic check in
+`mayWrite` would apply whichever action an operator configured to every write.
+What the bot enforces is `APP_ACCESS`, in `route` and `onCallback` — see §7 trap
+22 for why it was enforced by nothing at all until v0.6.5.
 
 ### What is still in the Mini App
 

@@ -19,6 +19,7 @@ import { ProfileService } from '../profile/profile.service';
 import { normalize } from '../moderation/persian-normalizer';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
+import { OutboxService } from '../outbox/outbox.service';
 import { AdminOperationsService } from './admin-operations.service';
 import { ROLE_KEYS } from './permissions';
 
@@ -75,6 +76,11 @@ const operations = new AdminOperationsService(
   trust,
   audit,
   profiles,
+  // The outbox, for the final message a blocked account receives (v0.6.5). Real
+  // rather than stubbed: `setUserStatus` writes it inside the same transaction
+  // as the status change, and a stub would let a broken write pass unnoticed.
+  new OutboxService(service, clock),
+  envForProfile,
 );
 
 let fixture: CatalogFixture;
@@ -329,5 +335,108 @@ describe('changing a policy number', () => {
     await expect(
       operations.updateSetting(SUPER, 'economy.boost_coins', 55, 'x'),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+});
+
+/**
+ * Blocking somebody, and the message that goes with it (v0.6.5).
+ *
+ * A BANNED account gets no reply from the bot ever again — `knownUser` returns
+ * null and every update is dropped. That is correct, and on its own it is
+ * indistinguishable from the product being broken, which is what somebody
+ * blocked in error experiences. So the block sends one last message naming the
+ * support contact, and it is an **outbox row inside the same transaction**: a
+ * Telegram call before the commit could tell somebody they were blocked and then
+ * roll back.
+ */
+describe('changing an account status', () => {
+  async function blockedEvents(): Promise<{ payload: unknown }[]> {
+    return prisma.outboxEvent.findMany({
+      where: { eventType: 'user.blocked' },
+      select: { payload: true },
+    });
+  }
+
+  it('emits the final message when an account is blocked', async () => {
+    const target = await prisma.user.findUniqueOrThrow({
+      where: { id: host },
+      select: { publicId: true },
+    });
+
+    await operations.setUserStatus(SUPER, {
+      userPublicId: target.publicId,
+      status: 'BANNED',
+      reason: 'تخلف مکرر و گزارش‌شده',
+    });
+
+    const events = await blockedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({ userPublicId: target.publicId });
+  });
+
+  /**
+   * The payload becomes the text of a Telegram message, which is the last place
+   * an internal identifier may reach (ADR-0009).
+   */
+  it('names the user by public id and nothing else', async () => {
+    const target = await prisma.user.findUniqueOrThrow({
+      where: { id: host },
+      select: { publicId: true },
+    });
+
+    await operations.setUserStatus(SUPER, {
+      userPublicId: target.publicId,
+      status: 'BANNED',
+      reason: 'تخلف مکرر و گزارش‌شده',
+    });
+
+    const [event] = await blockedEvents();
+    expect(JSON.stringify(event?.payload)).not.toContain(host);
+  });
+
+  /**
+   * Blocking an account that is already blocked — an operator double-clicking, a
+   * second admin repeating an action — must not send a second final message.
+   */
+  it('says it once, however many times the block is repeated', async () => {
+    const target = await prisma.user.findUniqueOrThrow({
+      where: { id: host },
+      select: { publicId: true },
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await operations.setUserStatus(SUPER, {
+        userPublicId: target.publicId,
+        status: 'BANNED',
+        reason: 'تخلف مکرر و گزارش‌شده',
+      });
+    }
+
+    expect(await blockedEvents()).toHaveLength(1);
+  });
+
+  /**
+   * A suspension is not terminal and the account keeps working in read-only, so
+   * there is nothing to announce: the person finds out at the moment it affects
+   * them, from a refusal that names the action it refused.
+   */
+  it('sends nothing when an account is suspended', async () => {
+    const target = await prisma.user.findUniqueOrThrow({
+      where: { id: host },
+      select: { publicId: true },
+    });
+
+    await operations.setUserStatus(SUPER, {
+      userPublicId: target.publicId,
+      status: 'SUSPENDED',
+      reason: 'بررسی موقت حساب',
+    });
+
+    expect(await blockedEvents()).toHaveLength(0);
+    const after = await prisma.user.findUniqueOrThrow({
+      where: { id: host },
+      select: { status: true },
+    });
+    expect(after.status).toBe('SUSPENDED');
   });
 });

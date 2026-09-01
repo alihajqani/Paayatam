@@ -139,6 +139,7 @@ export type {
   EventCancellation,
   EventDetail,
   HostCancellationPreview,
+  HostQuotaStatus,
 } from './events/event.service';
 export { EventLifecycleService, ATTENDANCE_REASON } from './events/lifecycle.service';
 export type { SettlementResult } from './events/lifecycle.service';
@@ -147,6 +148,7 @@ export { EventsModule } from './events/events.module';
 export {
   PARTICIPANT_TRANSITIONS,
   SEAT_HOLDING_STATUSES,
+  SLOT_HOLDING_STATUSES,
   LIVE_PARTICIPANT_STATUSES,
   assertParticipantTransition,
   holdsSeat,
@@ -212,6 +214,8 @@ export {
   GENDER_CHOICES,
   editProfileWizard,
   genderLabel,
+  gregorianYearToJalali,
+  jalaliYearToGregorian,
 } from './conversation/wizards/edit-profile';
 export type { EditProfileForm } from './conversation/wizards/edit-profile';
 export { writeReviewWizard, reviewTagLabel } from './conversation/wizards/write-review';
@@ -276,6 +280,10 @@ export { ReviewsModule } from './reviews/reviews.module';
 
 export { ReportService } from './moderation/report.service';
 export type { FileReportInput, FiledReport } from './moderation/report.service';
+export { BugReportService } from './moderation/bug-report.service';
+export type { BugReportSummary } from './moderation/bug-report.service';
+export { bugReportWizard, MAX_SCREENSHOTS } from './conversation/wizards/bug-report';
+export type { BugReportForm } from './conversation/wizards/bug-report';
 
 export {
   PERMISSIONS,
@@ -367,6 +375,11 @@ export type {
   PendingDelivery,
 } from './messaging/messaging.service';
 export { MessagingModule } from './messaging/messaging.module';
+export {
+  ReleaseAnnouncementService,
+  announcementText,
+  releaseAnnouncementKey,
+} from './messaging/release-announcement.service';
 export { MessagingAdminService } from './adminaccess/messaging-admin.service';
 export type { AudiencePreview, TelegramIdentity } from './adminaccess/messaging-admin.service';
 export { ChannelAdminService } from './adminaccess/channel-admin.service';

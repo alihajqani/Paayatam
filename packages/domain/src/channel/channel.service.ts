@@ -103,6 +103,7 @@ export class ChannelService {
         category: { select: { nameFa: true } },
         city: { select: { nameFa: true } },
         district: { select: { nameFa: true } },
+        districtLabel: true,
       },
     });
 
@@ -138,7 +139,7 @@ export class ChannelService {
           title: event.title,
           categoryName: event.category.nameFa,
           cityName: event.city.nameFa,
-          districtName: event.district?.nameFa ?? null,
+          districtName: event.district?.nameFa ?? event.districtLabel,
           startsAt: event.startsAt,
           capacity: event.capacity,
           acceptedCount: event.acceptedCount,
@@ -205,6 +206,7 @@ export class ChannelService {
             category: { select: { nameFa: true } },
             city: { select: { nameFa: true } },
             district: { select: { nameFa: true } },
+            districtLabel: true,
           },
         },
       },
@@ -217,7 +219,7 @@ export class ChannelService {
       title: row.event.title,
       categoryName: row.event.category.nameFa,
       cityName: row.event.city.nameFa,
-      districtName: row.event.district?.nameFa ?? null,
+      districtName: row.event.district?.nameFa ?? row.event.districtLabel,
       startsAt: row.event.startsAt,
       capacity: row.event.capacity,
       acceptedCount: row.event.acceptedCount,

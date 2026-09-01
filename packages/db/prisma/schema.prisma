@@ -87,6 +87,7 @@ model User {
   referralsMade       Referral[]           @relation("ReferralsMade")
   reviewsWritten      Review[]             @relation("ReviewsWritten")
   reportsFiled        Report[]             @relation("ReportsFiled")
+  bugReportsFiled     BugReport[]          @relation("BugReportsFiled")
   notifications       Notification[]
   idempotency         RequestIdempotency[]
   reviewsReceived     Review[]             @relation("ReviewsReceived")
@@ -983,6 +984,26 @@ model Event {
   customCategoryLabel String? @map("custom_category_label")
   cityId              String  @map("city_id")
   districtId          String? @map("district_id")
+  /// The neighbourhood the host **typed**, when the catalogue has no row for it.
+  ///
+  /// `district` is a curated table with a `UNIQUE (city_id, slug)` and an admin
+  /// screen that can deactivate but not create — and `seed-geography.ts` says
+  /// plainly that *"districts are NOT touched here — the dataset has none"*. So
+  /// in every deployment that exists today the district list is **empty**, and
+  /// the bot's «کدام محله؟» step offered a keyboard with no buttons on it. The
+  /// only answer a host could give was «رد کردن».
+  ///
+  /// Free text is the honest fix for that, and it is deliberately *beside*
+  /// `district_id` rather than replacing it: a curated district is a filterable,
+  /// rankable, moderatable entity and typed text is none of those. When a row
+  /// exists the host picks it and this stays null; when one does not, this is
+  /// what the event says about where it is. A CHECK keeps the pair from carrying
+  /// two different answers.
+  ///
+  /// Blacklist-scanned on write like the title, and deliberately absent from
+  /// `search_vector` for the reason migration 0020 gives about
+  /// `custom_category_label`.
+  districtLabel       String? @map("district_label")
 
   startsAt DateTime @map("starts_at") @db.Timestamptz(3)
   endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
@@ -1885,6 +1906,60 @@ model Report {
   @@map("report")
 }
 
+/// What a user says is broken about the product (v0.6.5).
+///
+/// **Not a `Report`.** That table is moderation — it is about a person or
+/// something they posted, it carries invariant 5's one-per-reporter UNIQUE, it
+/// counts towards an auto-hide threshold and it opens a `ModerationCase`. None
+/// of those are true here: a bug has no subject to hide, and somebody who finds
+/// three bugs in an afternoon should be able to send three. Sharing the table
+/// would put "hide this after three reports" within reach of a screenshot of a
+/// broken button.
+///
+/// Screenshots are Telegram `file_id` strings rather than bytes. The image is
+/// already on Telegram's servers and the bot can fetch it whenever a moderator
+/// asks; copying it here would mean owning a retention policy, a deletion path
+/// and a scanning question for a file the reporter has already handed over. A
+/// `file_id` is scoped to one bot token — it is not a public URL.
+enum BugReportStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+
+  @@map("bug_report_status")
+}
+
+model BugReport {
+  id       String @id @default(uuid(7))
+  publicId String @unique @default(uuid(4)) @map("public_id")
+  userId   String @map("user_id")
+
+  description String
+  /// Telegram file ids, in the order they were sent. Capped at ten by a CHECK.
+  screenshotFileIds String[] @default([]) @map("screenshot_file_ids")
+  /// Which release the reporter was on — the most useful field on a bug report
+  /// and the one nobody remembers to include, so it is recorded rather than asked.
+  appVersion String? @map("app_version")
+
+  status            BugReportStatus @default(OPEN)
+  adminNote         String?         @map("admin_note")
+  handledByAdminId  String?         @map("handled_by_admin_id")
+  handledAt         DateTime?       @map("handled_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user    User       @relation("BugReportsFiled", fields: [userId], references: [id], onDelete: Restrict)
+  handler AdminUser? @relation("BugReportsHandled", fields: [handledByAdminId], references: [id], onDelete: SetNull)
+
+  /// The queue, worked oldest-open-first.
+  @@index([status, createdAt])
+  /// "What has this person reported?", for the support conversation that follows.
+  @@index([userId, createdAt])
+  @@map("bug_report")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin identity and RBAC (ADR-0010)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1935,6 +2010,7 @@ model AdminUser {
   messageCampaigns  MessageCampaign[]
   policiesDrafted   PolicyVersion[]     @relation("PolicyCreatedBy")
   policiesPublished PolicyVersion[]     @relation("PolicyPublishedBy")
+  bugReportsHandled BugReport[]         @relation("BugReportsHandled")
   channelConfigs    EventChannelConfig[]
   requiredChannels  RequiredChannel[]
   telegramLink      AdminTelegramLink?
@@ -2622,6 +2698,13 @@ enum ConversationKind {
   /// both, because the form is one field and only the service the answer goes to
   /// differs — which of the two it is arrives seeded, like FILE_REPORT's target.
   REDEEM_CODE
+  /// «مشکلی پیدا کردم» — a description and up to ten screenshots (v0.6.5).
+  ///
+  /// The one wizard that accepts a **photo**, which is why it needed a kind of
+  /// its own rather than being folded into FILE_REPORT: everything else in the
+  /// bot answers a photo with «این نوع پیام پشتیبانی نمی‌شود», and a bug report
+  /// without the screenshot is most of the report missing.
+  BUG_REPORT
 
   @@map("conversation_kind")
 }

@@ -3,9 +3,9 @@ import { PrismaService } from '@payetam/db';
 import { CLOCK, METRICS, MetricsRegistry, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../catalog/settings.service';
 import { isUniqueViolation } from '../identity/user.service';
 import { CoinService } from './coin.service';
-import { normalizeCode } from './referral.service';
 
 /** The stable, machine-readable reason on the ledger row. The client renders the Persian. */
 export const GIFT_CODE_REASON = 'giftcode.redeemed';
@@ -111,6 +111,8 @@ export class GiftCodeService {
     private readonly coins: CoinService,
     private readonly audit: AuditService,
     private readonly metrics: MetricsRegistry,
+    /** For `giftcode.enabled`, the platform kill switch read on every redemption. */
+    private readonly settings: SettingsService,
   ) {}
 
   /**
@@ -125,7 +127,20 @@ export class GiftCodeService {
    * them apart would turn this endpoint into a way to enumerate which codes exist.
    */
   async redeem(userId: string, rawCode: string): Promise<RedeemedGiftCode> {
-    const code = normalizeCode(rawCode);
+    /**
+     * The kill switch, before the code is even looked at.
+     *
+     * First, so that switching the feature off costs an attacker in the middle of
+     * a sweep one settings read and nothing else — no index lookup on a code they
+     * guessed, no audit row per guess. It also means the refusal cannot depend on
+     * whether the string happened to name a real campaign, which is what keeps it
+     * from becoming the oracle `GIFT_CODE_INVALID` is careful not to be.
+     */
+    if ((await this.settings.getInt('giftcode.enabled')) === 0) {
+      throw new AppError(ErrorCode.GIFT_CODE_DISABLED);
+    }
+
+    const code = exactCode(rawCode);
     const now = this.clock.now();
 
     /**
@@ -330,6 +345,40 @@ export class GiftCodeService {
   }
 }
 
+/**
+ * A gift code, exactly as it was written down.
+ *
+ * ── What changed, and why ───────────────────────────────────────────────────
+ *
+ * This used to be `normalizeCode` — upper-case, spaces and dashes stripped —
+ * shared with referral codes because both are "typed by hand off another
+ * screen". For a referral code that is still right: it is generated from a
+ * fixed alphabet, and «abc-123» and «ABC123» are the same nine characters
+ * somebody read aloud.
+ *
+ * A gift code is not that, because an operator may **choose** its text. A
+ * campaign code `test1` was redeemed by somebody who typed `test 1`, and the
+ * normalizer made the two the same string before anything compared them — so
+ * the product credited coins for a code nobody had issued. Every code within
+ * one edit of a real one was a live code, which for a bearer secret that is
+ * worth money is the whole keyspace collapsing inwards.
+ *
+ * So the comparison is now exact: case matters, an interior space matters, a
+ * dash matters. `UNIQUE (code)` is unchanged and now means what it says.
+ *
+ * ── The one thing that is still trimmed ─────────────────────────────────────
+ *
+ * Leading and trailing whitespace, and nothing else. It is invisible, it is
+ * produced by pasting rather than by typing, and a refusal caused by a
+ * character the user cannot see is a refusal they cannot act on — which is the
+ * failure this function exists to prevent, pointed the other way. Interior
+ * whitespace is left exactly where the user put it, because that is a character
+ * they *can* see and did choose.
+ */
+export function exactCode(raw: string): string {
+  return raw.trim();
+}
+
 /** A Prometheus label per refusal, from the error catalogue rather than a second list. */
 function reasonLabel(code: ErrorCode): string {
   switch (code) {
@@ -341,6 +390,8 @@ function reasonLabel(code: ErrorCode): string {
       return 'already_redeemed';
     case ErrorCode.GIFT_CODE_EXHAUSTED:
       return 'exhausted';
+    case ErrorCode.GIFT_CODE_DISABLED:
+      return 'disabled';
     default:
       return 'error';
   }

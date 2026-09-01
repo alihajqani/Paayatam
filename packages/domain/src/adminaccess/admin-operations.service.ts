@@ -1,13 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { Env } from '@payetam/config';
 import { PrismaService } from '@payetam/db';
 import type { ModerationCaseStatus, ModerationSubjectType, Prisma } from '@payetam/db';
-import { CLOCK, type Clock } from '@payetam/platform';
+import { CLOCK, ENV, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
 import { assertEventTransition } from '../events/state-machine';
 import { SETTING_DEFAULTS, type SettingKey } from '../catalog/settings.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { ProfileService, type ProfileDetail } from '../profile/profile.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
 import { PERMISSIONS, ROLE_PERMISSIONS, type RoleKey } from './permissions';
@@ -88,6 +90,9 @@ export class AdminOperationsService {
      * two things a self-edit does not need.
      */
     private readonly profiles: ProfileService,
+    /** For the final message a blocked account receives — see `setUserStatus`. */
+    private readonly outbox: OutboxService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /** The moderation queue, oldest first — a queue nobody works from the bottom. */
@@ -457,7 +462,34 @@ export class AdminOperationsService {
     });
   }
 
-  /** Suspend or ban an account. */
+  /**
+   * Suspend or ban an account.
+   *
+   * ── The message a block now sends ───────────────────────────────────────────
+   *
+   * A blocked account gets one last message, and then the bot goes quiet for
+   * good: `knownUser` returns null for a BANNED user, so nothing they send is
+   * ever answered again. That silence is correct — and by itself it is
+   * indistinguishable from the product being broken, which is what somebody
+   * blocked in error experiences. So the block says so, once, and names the
+   * support contact that can undo it.
+   *
+   * **Emitted as an outbox row inside the transaction**, not sent here. A
+   * Telegram call before the commit could tell somebody they were blocked and
+   * then roll back; a row in the outbox commits with the status change or not at
+   * all, which is the guarantee every other user-visible consequence in this
+   * codebase already has (ADR-0005).
+   *
+   * Only on the **transition into** BANNED. Re-running the same block — an
+   * operator double-clicking, a second admin repeating an action — must not send
+   * a second final message, and comparing against the status the row already held
+   * is what makes that free rather than a dedupe key somebody has to remember.
+   *
+   * A **suspension sends nothing from here**, deliberately: it is not terminal,
+   * the account keeps working in read-only, and the person finds out at the
+   * moment it affects them, from `mayWrite`, in a message that says which action
+   * was refused.
+   */
   async setUserStatus(
     session: AdminSession,
     input: { userPublicId: string; status: 'ACTIVE' | 'SUSPENDED' | 'BANNED'; reason: string },
@@ -473,6 +505,26 @@ export class AdminOperationsService {
       if (!user) throw new AppError(ErrorCode.NOT_FOUND);
 
       await tx.user.update({ where: { id: user.id }, data: { status: input.status } });
+
+      if (input.status === 'BANNED' && user.status !== 'BANNED') {
+        await this.outbox.emit(
+          {
+            aggregateType: 'user',
+            aggregateId: user.id,
+            eventType: 'user.blocked',
+            payload: {
+              // Public id only. This payload becomes the text of a Telegram
+              // message, which is the last place an internal identifier may
+              // reach (ADR-0009).
+              userPublicId: input.userPublicId,
+              // Carried rather than read by the template, because `packages/telegram`
+              // has no access to the environment and must not grow one.
+              supportContact: this.env.SUPPORT_CONTACT ?? '',
+            },
+          },
+          tx,
+        );
+      }
 
       await this.audit.record(
         {

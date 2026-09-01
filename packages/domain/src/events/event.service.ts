@@ -38,6 +38,15 @@ export interface CreateEventInput {
   customCategoryLabel?: string;
   cityId: string;
   districtId?: string;
+  /**
+   * A neighbourhood the host typed, when the catalogue has no row for one.
+   *
+   * Mutually exclusive with `districtId`, enforced by a CHECK and by
+   * `resolveNeighbourhood` — an event cannot say two different things about
+   * where it is. See the column's own note for why free text exists beside a
+   * foreign key rather than instead of it.
+   */
+  districtLabel?: string | null;
   startsAt: Date;
   endsAt: Date;
   capacity: number;
@@ -53,6 +62,24 @@ export interface CreateEventInput {
 
 /** Every field is optional; absent means "leave it as it is". */
 export type UpdateEventInput = Partial<CreateEventInput>;
+
+/**
+ * A host's standing against both creation quotas, at one instant.
+ *
+ * Two counts and two limits rather than one boolean, because the two quotas are
+ * cleared by different actions and a surface that only knows "no" cannot say
+ * which. `blockedBy` is the summary; the numbers behind it are what lets a
+ * message name the limit an operator actually set rather than one compiled in.
+ */
+export interface HostQuotaStatus {
+  /** Events created since midnight in `APP_TIMEZONE`, cancelled ones included. */
+  createdToday: number;
+  maxPerDay: number;
+  /** Undeleted, not-yet-started events in an active status. */
+  activeCount: number;
+  maxConcurrentActive: number;
+  blockedBy: 'per_day' | 'concurrent_active' | null;
+}
 
 /** The two coin sinks (plan §2.9, §11): a 24-hour window, or a placement flag. */
 export type BoostKind = 'BOOST' | 'VIP';
@@ -171,6 +198,13 @@ export interface EventDetail {
   customCategoryLabel: string | null;
   city: NamedRef;
   district: NamedRef | null;
+  /**
+   * The neighbourhood the host typed, when there is no catalogue row for it.
+   *
+   * Never set at the same time as `district` — see `resolveNeighbourhood`. A
+   * renderer wanting "where is this?" reads `district?.nameFa ?? districtLabel`.
+   */
+  districtLabel: string | null;
   startsAt: Date;
   endsAt: Date;
   capacity: number;
@@ -224,8 +258,12 @@ export interface EventDetail {
  * text a host types, so it is exactly the kind of field the blacklist exists to
  * read. A «سایر» label that never re-triggers a scan would be the one place in
  * the product where a host can write anything and nothing looks at it.
+ *
+ * `districtLabel` joins them in v0.6.5 on identical terms — it is the *second*
+ * such field, and the argument above is about the shape of the field rather than
+ * about which one it is.
  */
-const SENSITIVE_FIELDS = ['title', 'description', 'customCategoryLabel'] as const;
+const SENSITIVE_FIELDS = ['title', 'description', 'customCategoryLabel', 'districtLabel'] as const;
 
 const EVENT_INCLUDE = {
   category: { select: { id: true, slug: true, nameFa: true } },
@@ -328,8 +366,13 @@ export class EventService {
         location.cityId,
         input.customCategoryLabel,
       );
+      const neighbourhood = resolveNeighbourhood(location.districtId, input.districtLabel);
       const scan = await this.moderation.scanEventContent(
-        { ...input, customCategoryLabel: category.customCategoryLabel },
+        {
+          ...input,
+          customCategoryLabel: category.customCategoryLabel,
+          districtLabel: neighbourhood.districtLabel,
+        },
         tx,
       );
 
@@ -355,7 +398,8 @@ export class EventService {
           categoryId: category.id,
           customCategoryLabel: category.customCategoryLabel,
           cityId: location.cityId,
-          districtId: location.districtId,
+          districtId: neighbourhood.districtId,
+          districtLabel: neighbourhood.districtLabel,
           startsAt: input.startsAt,
           endsAt: input.endsAt,
           capacity: input.capacity,
@@ -506,6 +550,11 @@ export class EventService {
           categoryId: true,
           cityId: true,
           customCategoryLabel: true,
+          // The typed neighbourhood (v0.6.5). Needed for the same reason the
+          // three above are: an edit that touches only the city still has to
+          // decide what the row's `where` field ends up saying, and it cannot
+          // decide that without knowing what it currently says.
+          districtLabel: true,
         },
       });
 
@@ -547,7 +596,12 @@ export class EventService {
       // The city is settled first, because the category's availability is
       // checked against it — and an edit can move both at once.
       let effectiveCityId = existing.cityId;
-      if (input.cityId !== undefined || input.districtId !== undefined) {
+      let neighbourhoodLabel: string | null = existing.districtLabel;
+      if (
+        input.cityId !== undefined ||
+        input.districtId !== undefined ||
+        input.districtLabel !== undefined
+      ) {
         // Resolved as a pair: a district only means something inside its city, so
         // changing either one has to be re-checked against the other.
         const location = await this.catalog.resolveLocation(
@@ -555,11 +609,25 @@ export class EventService {
           input.districtId,
           tx,
         );
+        /**
+         * The catalogue row and the typed label are alternatives, and an edit is
+         * where they are most likely to arrive together — a host who picked a
+         * district last week and types a neighbourhood this week. Choosing
+         * between them here is what keeps the CHECK from being the thing that
+         * discovers the conflict, at which point the whole edit fails with a
+         * constraint name in the log and nothing useful on the screen.
+         */
+        const neighbourhood = resolveNeighbourhood(
+          location.districtId,
+          input.districtLabel !== undefined ? input.districtLabel : existing.districtLabel,
+        );
         effectiveCityId = location.cityId;
+        neighbourhoodLabel = neighbourhood.districtLabel;
         data.city = { connect: { id: location.cityId } };
-        data.district = location.districtId
-          ? { connect: { id: location.districtId } }
+        data.district = neighbourhood.districtId
+          ? { connect: { id: neighbourhood.districtId } }
           : { disconnect: true };
+        data.districtLabel = neighbourhood.districtLabel;
       }
 
       // Re-resolved when the category, the label **or the city** moves. The city
@@ -599,6 +667,10 @@ export class EventService {
             title: input.title ?? existing.title,
             description: input.description ?? existing.description,
             customCategoryLabel: input.customCategoryLabel ?? existing.customCategoryLabel,
+            // What the row will actually hold once the location block above has
+            // chosen between the catalogue id and the typed label — not what the
+            // input carried, which may have carried both.
+            districtLabel: neighbourhoodLabel,
           },
           data,
         );
@@ -1138,7 +1210,12 @@ export class EventService {
 
   private async rescan(
     tx: Prisma.TransactionClient,
-    content: { title: string; description: string; customCategoryLabel?: string | null },
+    content: {
+      title: string;
+      description: string;
+      customCategoryLabel?: string | null;
+      districtLabel?: string | null;
+    },
     data: Prisma.EventUpdateInput,
   ): Promise<ContentScan> {
     const scan = await this.moderation.scanEventContent(content, tx);
@@ -1174,6 +1251,29 @@ export class EventService {
   }
 
   /**
+   * Where a host stands against both quotas, without attempting anything.
+   *
+   * ── Why this is public ──────────────────────────────────────────────────────
+   *
+   * So a surface can ask **before** it takes somebody through a form. The bot's
+   * create-event wizard is fourteen questions, and until v0.6.5 the quota was
+   * discovered by `create` at the end of them: a host filled in a title, a
+   * description, a category, a place, a date, a capacity and a price, pressed
+   * «ثبت فعالیت», and was told they had reached a limit that had been reached
+   * before they started. The check has to be available where the flow *begins*,
+   * and it has to be the same check, which is why `assertWithinQuota` is written
+   * in terms of this rather than beside it.
+   *
+   * It is a **snapshot, not a reservation**: the create path re-checks under its
+   * own transaction, because between this answer and the submission the host may
+   * have created an event on another surface. A pre-flight that could be trusted
+   * to still hold would have to hold a lock for the length of a conversation.
+   */
+  async quotaFor(hostUserId: string): Promise<HostQuotaStatus> {
+    return this.readQuota(this.prisma, hostUserId, this.clock.now());
+  }
+
+  /**
    * The two quotas from plan §11: five per day, three concurrent.
    *
    * The day is a **Tehran** day, not a rolling 24 hours and not a UTC one — "five
@@ -1183,6 +1283,20 @@ export class EventService {
    * Concurrency counts only events that are still ahead of the host. Without the
    * `startsAt` filter, three events from last month would lock a host out
    * permanently — the lifecycle sweep that retires them is M13.
+   *
+   * ── Two quotas, two error codes ─────────────────────────────────────────────
+   *
+   * Both used to raise `EVENT_QUOTA_EXCEEDED`, whose Persian is «به سقف ساخت
+   * فعالیت در روز رسیده‌اید» — *the daily limit*. So a host stopped by the
+   * **concurrency** quota was told the wrong thing, and an operator who went to
+   * the panel and raised `events.max_per_day` from 5 to 30 watched the product
+   * carry on refusing and reasonably concluded the setting did not work. The
+   * message named a number nobody had reached.
+   *
+   * Naming them apart is the fix, and it is not cosmetic: the two are cleared by
+   * different actions. A daily limit is cleared by waiting until tomorrow; a
+   * concurrency limit is cleared by finishing or cancelling an event you already
+   * have, today.
    */
   private async assertWithinQuota(
     tx: Prisma.TransactionClient,
@@ -1191,33 +1305,58 @@ export class EventService {
   ): Promise<void> {
     // On `tx`: this runs inside the create transaction, and a settings read on
     // the base client would hold one pool connection while asking for a second.
-    const [maxPerDay, maxConcurrent] = await Promise.all([
+    const quota = await this.readQuota(tx, hostUserId, now);
+
+    if (quota.createdToday >= quota.maxPerDay) {
+      throw new AppError(ErrorCode.EVENT_QUOTA_EXCEEDED, {
+        limit: quota.maxPerDay,
+        scope: 'per_day',
+      });
+    }
+    if (quota.activeCount >= quota.maxConcurrentActive) {
+      throw new AppError(ErrorCode.EVENT_ACTIVE_QUOTA_EXCEEDED, {
+        limit: quota.maxConcurrentActive,
+        scope: 'concurrent_active',
+      });
+    }
+  }
+
+  /** Both counts and both limits, read together. The one place either is counted. */
+  private async readQuota(
+    tx: Prisma.TransactionClient,
+    hostUserId: string,
+    now: Date,
+  ): Promise<HostQuotaStatus> {
+    const [maxPerDay, maxConcurrentActive] = await Promise.all([
       this.settings.getInt('events.max_per_day', tx),
       this.settings.getInt('events.max_concurrent_active', tx),
     ]);
 
     const since = startOfDayIn(now, this.env.APP_TIMEZONE);
-    const createdToday = await tx.event.count({
-      where: { hostUserId, createdAt: { gte: since } },
-    });
-    if (createdToday >= maxPerDay) {
-      throw new AppError(ErrorCode.EVENT_QUOTA_EXCEEDED, { limit: maxPerDay, scope: 'per_day' });
-    }
+    const [createdToday, activeCount] = await Promise.all([
+      tx.event.count({ where: { hostUserId, createdAt: { gte: since } } }),
+      tx.event.count({
+        where: {
+          hostUserId,
+          deletedAt: null,
+          status: { in: [...ACTIVE_EVENT_STATUSES] },
+          startsAt: { gt: now },
+        },
+      }),
+    ]);
 
-    const active = await tx.event.count({
-      where: {
-        hostUserId,
-        deletedAt: null,
-        status: { in: [...ACTIVE_EVENT_STATUSES] },
-        startsAt: { gt: now },
-      },
-    });
-    if (active >= maxConcurrent) {
-      throw new AppError(ErrorCode.EVENT_QUOTA_EXCEEDED, {
-        limit: maxConcurrent,
-        scope: 'concurrent_active',
-      });
-    }
+    return {
+      createdToday,
+      maxPerDay,
+      activeCount,
+      maxConcurrentActive,
+      blockedBy:
+        createdToday >= maxPerDay
+          ? 'per_day'
+          : activeCount >= maxConcurrentActive
+            ? 'concurrent_active'
+            : null,
+    };
   }
 
   /**
@@ -1319,6 +1458,42 @@ function isEditable(status: EventStatus): boolean {
  * the DTO reach the table, which is how `status` eventually becomes
  * client-settable by accident.
  */
+/**
+ * Which of the two ways of saying "where" this event will actually hold.
+ *
+ * ── Why the catalogue wins ──────────────────────────────────────────────────
+ *
+ * A `district` row is an entity: it can be filtered on, ranked with, renamed
+ * once for every event that points at it, and deactivated by an operator when a
+ * neighbourhood stops being served. Typed text is a string. When both arrive —
+ * which is what an edit does whenever a host who once picked a district now
+ * types one — keeping the row and dropping the string loses nothing that the
+ * string was carrying, and the reverse loses all of the above.
+ *
+ * ── Why this is a function and not a CHECK alone ────────────────────────────
+ *
+ * The CHECK exists and is the backstop, exactly as `accepted_count <= capacity`
+ * is. But a constraint violation surfaces as a failed transaction with a
+ * constraint name in it, and the user on the other end of that gets «خطایی رخ
+ * داد» for an edit that was perfectly comprehensible. Deciding in code means the
+ * ambiguous input has a defined, documented outcome; the constraint means a
+ * future path that forgets to call this cannot write a row that contradicts
+ * itself.
+ *
+ * Trimmed, and an empty string is a null: «   » is not a neighbourhood, and
+ * storing it would make `district_label IS NOT NULL` stop meaning "this event
+ * says where it is".
+ */
+function resolveNeighbourhood(
+  districtId: string | null,
+  districtLabel: string | null | undefined,
+): { districtId: string | null; districtLabel: string | null } {
+  if (districtId !== null) return { districtId, districtLabel: null };
+
+  const trimmed = districtLabel?.trim() ?? '';
+  return { districtId: null, districtLabel: trimmed === '' ? null : trimmed };
+}
+
 function pickScalarEdits(input: UpdateEventInput): Prisma.EventUpdateInput {
   const data: Prisma.EventUpdateInput = {};
   if (input.title !== undefined) data.title = input.title;
@@ -1362,6 +1537,7 @@ function toEventDetail(event: EventRow, now: Date): EventDetail {
     customCategoryLabel: event.customCategoryLabel,
     city: event.city,
     district: event.district,
+    districtLabel: event.districtLabel,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     capacity: event.capacity,

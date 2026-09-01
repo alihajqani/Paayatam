@@ -3,7 +3,7 @@ SHELL := /bin/bash
 .PHONY: help setup up down logs docker-logs ps reset dev stop restart status tunnel tunnel-stop \
         webhook webhook-info webhook-delete dev-single-shell build typecheck lint format \
         format-check test test-int db-test seed seed-gift-codes-dev check clean backup \
-        restore-rehearsal
+        restore-rehearsal db-tunnel
 
 # Everything about running the local stack lives in tools/devstack.sh: PID files,
 # process groups, port checks, readiness. The same logic as Make recipes would be one
@@ -18,6 +18,11 @@ export MINIAPP_MODE
 
 # make logs SERVICE=api   follows one service instead of all of them.
 SERVICE ?=
+
+# `make db-tunnel` only. HOST is the production server; PORT is the local end.
+#   make db-tunnel HOST=deploy@1.2.3.4
+HOST ?= $(PAYETAM_SSH_HOST)
+PORT ?= 5555
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -153,6 +158,12 @@ restore-rehearsal: ## Restore the newest dump into a scratch database and time i
 	docker exec -e DATABASE_URL="postgresql://payetam:$$(grep -oP '(?<=^DATABASE_URL=postgresql://payetam:)[^@]+' .env)@localhost:5432/payetam" \
 		payetam-postgres bash -c \
 		'bash /tmp/restore-rehearsal.sh "$$(ls -t /tmp/payetam-backups/*.dump | head -1)"'
+
+# The only target here that touches production. It opens a tunnel and nothing
+# else: no dump, no migration, no write. Everything destructive stays in
+# scripts/, behind a typed confirmation.
+db-tunnel: ## Tunnel the PRODUCTION database to localhost (make db-tunnel HOST=deploy@1.2.3.4 PORT=5555)
+	@scripts/db-tunnel.sh -H "$(HOST)" -p "$(PORT)"
 
 check: typecheck lint test ## What CI runs on every commit
 

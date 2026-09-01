@@ -53,6 +53,7 @@ export class PostgresSearchProvider implements SearchProvider {
         WHERE ${this.keysetSql(request)}
         ORDER BY ${this.orderSql(request)}
         LIMIT ${request.limit}
+        OFFSET ${request.offset ?? 0}
       `,
     );
 
@@ -367,6 +368,9 @@ const SELECT_COLUMNS = Prisma.sql`
   d."id"                           AS "districtId",
   d."slug"                         AS "districtSlug",
   d."name_fa"                      AS "districtNameFa",
+  -- The typed neighbourhood, for the overwhelmingly common case where the
+  -- district catalogue is empty and there is nothing to join to (v0.6.5).
+  e."district_label"               AS "districtLabel",
   e."starts_at"                    AS "startsAt",
   e."ends_at"                      AS "endsAt",
   e."capacity",
@@ -458,6 +462,7 @@ interface SearchRow {
   districtId: string | null;
   districtSlug: string | null;
   districtNameFa: string | null;
+  districtLabel: string | null;
   startsAt: Date;
   endsAt: Date;
   capacity: number;

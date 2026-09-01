@@ -17,7 +17,7 @@ import {
 } from '../events/event-lock';
 import { OutboxService } from '../outbox/outbox.service';
 import { ageFromBirthYear } from '../profile/age';
-import { assertParticipantTransition, holdsSeat } from './state-machine';
+import { assertParticipantTransition, SLOT_HOLDING_STATUSES, holdsSeat } from './state-machine';
 
 /**
  * The reason code a join charge carries (v0.6.3).
@@ -173,9 +173,25 @@ export class ParticipationService {
         if (event.hostUserId === userId) throw new AppError(ErrorCode.HOST_CANNOT_JOIN);
         await this.assertEligible(tx, event.id, joiner, now);
 
-        const seatAvailable = event.acceptedCount < event.capacity;
-        const status: ParticipantStatus = seatAvailable ? 'PENDING' : 'WAITLISTED';
-        const hostDeadlineAt = seatAvailable
+        /**
+         * Room in the host's queue, which is not the same as an empty seat.
+         *
+         * `accepted_count` counts accepted people only (v0.6.5 — see
+         * `SEAT_HOLDING_STATUSES`), so admitting on that alone would admit
+         * everybody as PENDING and the waiting list would never receive anybody.
+         * The bound is seats plus requests still awaiting a decision: a host is
+         * asked about at most `capacity` people at a time, which is the property
+         * plan §5's waitlist rule was actually protecting.
+         *
+         * Counted under the event lock this transaction already holds, so two
+         * simultaneous joiners of the last slot cannot both read the same count.
+         */
+        const outstanding = await tx.eventParticipant.count({
+          where: { eventId: event.id, status: { in: [...SLOT_HOLDING_STATUSES] } },
+        });
+        const roomToAsk = event.acceptedCount + outstanding < event.capacity;
+        const status: ParticipantStatus = roomToAsk ? 'PENDING' : 'WAITLISTED';
+        const hostDeadlineAt = roomToAsk
           ? this.hostDeadline(now, event.startsAt, hostResponseHours, minHoursBefore)
           : null;
 
@@ -189,9 +205,12 @@ export class ParticipationService {
         });
         if (inserted.count === 0) throw new AppError(ErrorCode.DUPLICATE_REQUEST);
 
-        if (seatAvailable) {
-          await this.takeSeat(tx, event);
-        }
+        /**
+         * **No seat is taken here.** A request is a question, and a question does
+         * not fill a place — `accept` is what does, and it is the only caller of
+         * `takeSeat` on this path now. See `SEAT_HOLDING_STATUSES` for the
+         * report that forced the change.
+         */
 
         // `request_count` is a lifetime counter for ranking (M5), not a seat
         // count: it never goes down when somebody cancels.
@@ -227,7 +246,7 @@ export class ParticipationService {
             action: 'participation.requested',
             targetType: 'event_participant',
             targetId: participant.id,
-            after: { status, eventId: event.id, seatTaken: seatAvailable },
+            after: { status, eventId: event.id, seatTaken: false },
           },
           tx,
         );
@@ -309,14 +328,20 @@ export class ParticipationService {
   }
 
   /**
-   * The host says yes.
+   * The host says yes — **and this is where a seat is taken** (v0.6.5).
    *
-   * No seat changes hands: a PENDING request has held one since it was made, and
-   * `assertParticipantTransition` admits nothing else. The capacity assertion
-   * below is therefore not reachable through this path today — it is here because
-   * "PENDING already holds a seat" is an invariant of this file rather than of
-   * the database, and the day a future path accepts a row that holds no seat,
-   * this is what stops it overbooking.
+   * It used to be that no seat changed hands here, because a PENDING request had
+   * held one since it was made and the assertion below was unreachable. That is
+   * inverted now: PENDING holds nothing, so accepting is the transition that
+   * fills a place, and `assertSeatAvailable` is a live guard rather than a
+   * defensive one.
+   *
+   * It can now genuinely refuse. `join` admits up to `capacity` outstanding
+   * requests, and a host may accept a promoted one after already filling the
+   * last seat — so `CAPACITY_EXCEEDED` is a real answer to a real tap, and it is
+   * the right one: the alternative is overbooking, which the database's
+   * `CHECK (accepted_count <= capacity)` would refuse anyway, with a constraint
+   * name instead of a Persian sentence.
    */
   async accept(hostUserId: string, participantPublicId: string): Promise<ParticipationDetail> {
     const now = this.clock.now();
@@ -707,17 +732,28 @@ export class ParticipationService {
   // ── waitlist promotion (ADR-0011, D8) ──────────────────────────────────────
 
   /**
-   * Fill every seat that has just come free, in queue order.
+   * Move the queue up until the host again has `capacity` things to answer.
    *
-   * Called from inside the transaction that released the seat, under the event
-   * lock that transaction already holds. That placement is the whole safety
-   * argument: two concurrent cancellations serialise on the lock, so each one
-   * sees the other's promotion and they promote two **different** people. It is
-   * also why this takes no lock of its own — rule 2 says one lock, and taking a
-   * second here would break the property it is protecting.
+   * Called from inside the transaction that freed the slot, under the event lock
+   * that transaction already holds. That placement is the whole safety argument:
+   * two concurrent cancellations serialise on the lock, so each one sees the
+   * other's promotion and they promote two **different** people. It is also why
+   * this takes no lock of its own — rule 2 says one lock, and taking a second
+   * here would break the property it is protecting.
    *
-   * A loop rather than a single promotion because a sweep may find several seats
-   * free at once; in the common case it runs exactly once and stops.
+   * ── The loop bound, and why it had to change ────────────────────────────────
+   *
+   * This used to loop `while (acceptedCount < capacity)` and call `takeSeat` on
+   * each promotion, which terminated only because promoting incremented the
+   * counter it was testing. Now that a PENDING row holds no seat (v0.6.5) that
+   * loop would promote **every** waitlisted person on the first cancellation and
+   * then not stop, so the bound is the thing it was always really about: how many
+   * open questions the host has. Seats plus outstanding requests, against
+   * capacity — the same arithmetic `join` admits on, which is what keeps the two
+   * from disagreeing about when the queue is full.
+   *
+   * The count is read once and tracked in the loop rather than re-queried per
+   * promotion: nothing else can write to this event while the lock is held.
    */
   private async fillFreedSeats(
     tx: Prisma.TransactionClient,
@@ -736,7 +772,11 @@ export class ParticipationService {
 
     const promoted: PromotedParticipant[] = [];
 
-    while (event.acceptedCount < event.capacity) {
+    let outstanding = await tx.eventParticipant.count({
+      where: { eventId: event.id, status: { in: [...SLOT_HOLDING_STATUSES] } },
+    });
+
+    while (event.acceptedCount + outstanding < event.capacity) {
       // FIFO by `(requested_at, id)`, derived from the rows rather than stored
       // (ADR-0006). `id` breaks ties because UUIDv7 is time-ordered, so two
       // requests in the same millisecond still have a stable, fair order.
@@ -749,7 +789,9 @@ export class ParticipationService {
       if (!next) break;
 
       assertParticipantTransition(next.status, 'PENDING', next.id);
-      await this.takeSeat(tx, event);
+      // A promotion produces a PENDING row, which occupies a slot and not a
+      // seat. Tracked locally because the event row is not being written.
+      outstanding += 1;
 
       const hostDeadlineAt = this.hostDeadline(now, event.startsAt, deadlineHours, minHoursBefore);
 
@@ -955,7 +997,8 @@ export class ParticipationService {
         if (participant.hostDeadlineAt === null || participant.hostDeadlineAt > now) return false;
 
         assertParticipantTransition(participant.status, 'EXPIRED', participant.id);
-        await this.releaseSeat(tx, event);
+        // Nothing to release: a PENDING request holds a slot in the queue, not a
+        // seat (v0.6.5). `fillFreedSeats` below is what moves the queue up.
 
         await tx.eventParticipant.update({
           where: { id: participant.id },

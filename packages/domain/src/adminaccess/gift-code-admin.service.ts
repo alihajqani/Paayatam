@@ -7,6 +7,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
 import { GIFT_CODE_FAILURE_ACTION } from '../economy/gift-code.service';
+import { exactCode } from '../economy/gift-code.service';
 import { generateCode, normalizeCode } from '../economy/referral.service';
 import { isUniqueViolation } from '../identity/user.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
@@ -227,10 +228,18 @@ export class GiftCodeAdminService {
   /**
    * Mint one campaign code the operator chose themselves.
    *
-   * The code is normalized on write — upper-cased, spaces and dashes removed — by
-   * the same function referral codes use, so «summer-24» and «SUMMER24» are one
-   * code rather than two. Case-insensitivity is therefore a property of the
-   * column, not something every read has to remember.
+   * **Stored exactly as typed**, and that is a change from M19. It used to be
+   * upper-cased with spaces and dashes stripped, by the same function referral
+   * codes use — which meant an operator who created `test1` got `TEST1`, and
+   * `GiftCodeService.redeem` folded `test 1` onto it as well, so three different
+   * strings all spent one campaign. `exactCode` in that service is the other half
+   * of this fix and carries the full argument.
+   *
+   * Interior whitespace is refused rather than stripped. A code is read off one
+   * screen and typed into another; one with a space in it will be mistyped by
+   * somebody, and now that the comparison is exact, mistyped means refused. The
+   * honest place to say so is here, to the operator inventing it, rather than
+   * later to the user who could not spend it.
    *
    * Returns the plaintext, which is safe precisely because the operator typed it:
    * they already have it. Bulk codes are different and `createBatch` says so.
@@ -238,10 +247,11 @@ export class GiftCodeAdminService {
   async create(session: AdminSession, input: CreateGiftCodeInput): Promise<CreatedGiftCode> {
     this.access.assertPermission(session, PERMISSIONS.GIFT_CODE_MANAGE);
 
-    const code = normalizeCode(input.code);
+    const code = exactCode(input.code);
     // Re-validated here and not only at the contract, because this service is
     // reachable from a script that never passes through a zod pipe.
     if (code.length < 4 || code.length > 32) throw new AppError(ErrorCode.VALIDATION_FAILED);
+    if (/\s/.test(code)) throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'code' });
     if (!Number.isInteger(input.coins) || input.coins <= 0) {
       throw new AppError(ErrorCode.VALIDATION_FAILED);
     }
@@ -593,7 +603,10 @@ export class GiftCodeAdminService {
       ...(filters.campaign !== undefined ? { campaign: filters.campaign } : {}),
       ...(filters.batchId !== undefined ? { batchId: filters.batchId } : {}),
       ...(filters.isActive !== undefined ? { isActive: filters.isActive } : {}),
-      ...(filters.code !== undefined ? { code: normalizeCode(filters.code) } : {}),
+      // `exactCode`, not `normalizeCode`: the column now holds what the operator
+      // typed, so a search that upper-cased its argument would fail to find the
+      // lower-case code it was pasted from.
+      ...(filters.code !== undefined ? { code: exactCode(filters.code) } : {}),
     };
 
     const [rows, total] = await Promise.all([

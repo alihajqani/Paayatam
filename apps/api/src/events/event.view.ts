@@ -20,6 +20,7 @@ export function toEventView(event: EventDetail): EventView {
     customCategoryLabel: event.customCategoryLabel,
     city: event.city,
     district: event.district,
+    districtLabel: event.districtLabel,
     startsAt: event.startsAt.toISOString(),
     endsAt: event.endsAt.toISOString(),
     capacity: event.capacity,

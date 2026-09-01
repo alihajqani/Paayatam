@@ -12,6 +12,7 @@ import {
   type GiftCodeView,
 } from '@payetam/shared';
 import { messageOf, request } from '@/api/client';
+import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import PagerBar from '@/components/PagerBar.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
@@ -37,6 +38,44 @@ import { useSessionStore } from '@/stores/session';
 const LIMIT = 25;
 
 const session = useSessionStore();
+
+// ── The kill switch, from the list ──────────────────────────────────────────
+
+/** The code whose disable dialog is open, or null. */
+const pendingDisable = ref<GiftCodeView | null>(null);
+/** The public id being written, so every button on the table disables at once. */
+const toggling = ref<string | null>(null);
+
+/**
+ * Turn one code on or off.
+ *
+ * `POST /gift-codes/:publicId/active` is the same endpoint the detail page has
+ * always called — this adds a second caller, not a second rule. Addressed by
+ * `publicId` rather than by the code itself, for the reason `gift_code.public_id`
+ * exists at all (ADR-0016): a code in a URL is a live secret in every access log
+ * between here and the database.
+ */
+async function setActive(code: GiftCodeView, isActive: boolean): Promise<void> {
+  if (toggling.value !== null) return;
+  toggling.value = code.publicId;
+  error.value = null;
+
+  try {
+    await request<GiftCodeView>(`/gift-codes/${encodeURIComponent(code.publicId)}/active`, {
+      method: 'POST',
+      body: { isActive },
+    });
+    notice.value = isActive
+      ? 'کد دوباره فعال شد.'
+      : 'کد غیرفعال شد. دریافت‌های انجام‌شده و سکه‌های اعطاشده دست‌نخورده می‌مانند.';
+    pendingDisable.value = null;
+    await load();
+  } catch (cause) {
+    error.value = messageOf(cause, 'تغییر وضعیت کد انجام نشد.');
+  } finally {
+    toggling.value = null;
+  }
+}
 
 const rows = ref<GiftCodeView[]>([]);
 const total = ref(0);
@@ -601,12 +640,40 @@ onMounted(load);
                 <td class="px-4 py-3"><StatusPill :value="code.state" /></td>
                 <td class="px-4 py-3 text-ink-soft">{{ formatDate(code.expiresAt) }}</td>
                 <td class="px-4 py-3 text-end">
-                  <RouterLink
-                    :to="{ name: 'gift-code-detail', params: { publicId: code.publicId } }"
-                    class="text-brand"
-                  >
-                    گزارش
-                  </RouterLink>
+                  <div class="flex items-center justify-end gap-3">
+                    <!--
+                      The kill switch, on the list rather than only on the detail
+                      page. It has lived on `GiftCodeDetailView` since M19, which
+                      meant switching off a leaked code was: find it, open it,
+                      scroll, confirm — repeated per code, in an incident, with
+                      the last one staying live longest. An operator looking at
+                      the list of live codes is exactly the person who needs it.
+                    -->
+                    <button
+                      v-if="session.canMutate && code.isActive"
+                      type="button"
+                      class="min-h-9 rounded-lg border border-line px-3 text-xs disabled:opacity-40"
+                      :disabled="toggling !== null"
+                      @click="pendingDisable = code"
+                    >
+                      غیرفعال کردن
+                    </button>
+                    <button
+                      v-else-if="session.canMutate && !code.isActive"
+                      type="button"
+                      class="min-h-9 rounded-lg border border-line px-3 text-xs disabled:opacity-40"
+                      :disabled="toggling !== null"
+                      @click="setActive(code, true)"
+                    >
+                      فعال کردن
+                    </button>
+                    <RouterLink
+                      :to="{ name: 'gift-code-detail', params: { publicId: code.publicId } }"
+                      class="text-brand"
+                    >
+                      گزارش
+                    </RouterLink>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -625,5 +692,21 @@ onMounted(load);
         سقف هر دستهٔ ساخت <bdi>{{ toPersianDigits(1000) }}</bdi> کد است و در تنظیمات قابل تغییر است.
       </p>
     </section>
+
+    <!--
+      Disabling is confirmed; re-enabling is not.
+      One of the two directions makes a live code unusable for everybody holding
+      it, and the other undoes that. Asking twice about the reversible half would
+      teach people to click through the dialog that matters.
+    -->
+    <ConfirmDialog
+      :open="pendingDisable !== null"
+      title="غیرفعال کردن این کد"
+      body="از این پس هیچ‌کس نمی‌تواند این کد را استفاده کند. دریافت‌های انجام‌شده و سکه‌های اعطاشده دست‌نخورده می‌مانند و می‌توانید بعداً دوباره فعالش کنید."
+      confirm-label="غیرفعال کن"
+      :busy="toggling !== null"
+      @cancel="pendingDisable = null"
+      @confirm="pendingDisable && setActive(pendingDisable, false)"
+    />
   </div>
 </template>

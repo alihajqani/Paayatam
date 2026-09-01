@@ -178,15 +178,28 @@ export const RATE_LIMITS = {
   /** Reports: 10 a day. */
   REPORT_FILE: { limit: 10, windowSeconds: 86_400 },
   /**
-   * Profile edits: 20 an hour (M22 phase 2).
+   * Bug reports: 5 an hour (v0.6.5).
    *
-   * Generous for a person — nobody edits their bio twenty times in an afternoon —
-   * and tight enough to matter for a script. The reason it is bounded at all is
-   * that the two fields it writes, `display_name` and `bio`, are the product's
-   * only free-text user-authored surface outside a chat, and an unbounded write
-   * to a moderated field is a way to cycle content faster than review can read it.
+   * Its own bucket rather than `REPORT_FILE`'s, because the two are different
+   * acts with different abuse shapes. A moderation report is about a person and
+   * ten a day is generous; a bug report is about the product, arrives in bursts
+   * when something is genuinely broken — somebody finds three problems in one
+   * session and should send three — and each one can carry ten images. Hourly
+   * rather than daily for the same reason: the limit is there to bound a loop,
+   * not to ration a bad afternoon.
    */
-  PROFILE_UPDATE: { limit: 20, windowSeconds: 3_600 },
+  BUG_REPORT_FILE: { limit: 5, windowSeconds: 3_600 },
+  /**
+   * Profile edits: 10 an hour.
+   *
+   * Was 20 in M22 phase 2 and tightened on the operator's instruction. Still
+   * generous for a person — nobody edits their bio ten times in an afternoon —
+   * and half the room a script had. The reason it is bounded at all is that the
+   * two fields it writes, `display_name` and `bio`, are the product's only
+   * free-text user-authored surface outside a chat, and an unbounded write to a
+   * moderated field is a way to cycle content faster than review can read it.
+   */
+  PROFILE_UPDATE: { limit: 10, windowSeconds: 3_600 },
   /**
    * Paid invitations: 10 a day (M22 phase 11).
    *

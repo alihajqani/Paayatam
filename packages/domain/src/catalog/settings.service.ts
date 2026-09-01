@@ -324,6 +324,41 @@ export const SETTING_DEFAULTS = {
    */
   'giftcode.max_batch_size': 1000,
   'giftcode.max_per_user_limit': 1,
+  /**
+   * The gift-code kill switch — `1` is on, `0` is off.
+   *
+   * A **platform** switch, which is what makes it belong here rather than on a
+   * row: `gift_code.is_active` stops one campaign, and stopping one campaign is
+   * not the thing an operator needs when a code has leaked to a channel with
+   * forty thousand members and the answer is "no codes at all until we work out
+   * what happened". Doing that today meant disabling every campaign one at a
+   * time, in an order that leaves the last one live longest.
+   *
+   * Off refuses redemption on **every** surface — the bot's form, `/gift <code>`
+   * and `POST /gift-codes/redeem` — because the check is in the service that owns
+   * the act, which is where the channel-membership gate is and for the same
+   * reason. Minting and disabling codes in the panel keep working while it is
+   * off: an operator has to be able to clean up during the incident they turned
+   * it off for.
+   */
+  'giftcode.enabled': 1,
+
+  /**
+   * Whether a deploy tells every user that it happened — `1` is on, `0` is off.
+   *
+   * The message is one sentence and one instruction («یک بار /start را بزنید»),
+   * and it exists because a deploy silently invalidates things the user is
+   * holding: reply-keyboard labels that moved, a half-finished wizard whose step
+   * keys changed, inline buttons whose `callback_data` this build may no longer
+   * parse. Without it, the release reaches people as «این دکمه دیگر کار نمی‌کند».
+   *
+   * A switch rather than a constant because a broadcast to the entire user base
+   * is the single loudest thing this product can do, and an operator shipping
+   * three hotfixes in an afternoon must be able to turn it off for the second
+   * and third. `ReleaseAnnouncementService` reads it at boot, so flipping it
+   * takes effect on the next deploy — which is exactly when it is decided.
+   */
+  'release.announce_enabled': 1,
 } as const satisfies Record<string, number>;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

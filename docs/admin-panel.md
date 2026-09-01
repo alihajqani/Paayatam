@@ -125,9 +125,11 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | پروندهٔ کاربر | `user.read` | Profile, reputation, balance and where it came from, events, participations, referrals, gift codes, reports both ways. Suspend/ban/restore needs `user.ban`; manual coin and trust adjustment need `coin.adjust` / `trust.adjust` |
 | فعالیت‌ها | `event.moderate` | Search, filter, hide, restore |
 | گزارش‌های تخلف | `report.review` | The report queue, oldest first, with filters and decisions |
+| گزارش‌های مشکل | `report.review` | What users say is broken about the **product** — see §13 |
 | پرونده‌های بررسی | `event.moderate` | The moderation cases the automation opens, with the `falsePositive` classification |
 | کدهای هدیه | `giftcode.manage` | Mint one, mint a batch, campaign roll-up, filter, find an exact code |
 | گزارش کد هدیه | `giftcode.manage` | Per-code analytics, redemption history, retune, disable |
+| کدهای هدیه (list) | `giftcode.manage` | Disabling and re-enabling a code is on the **list** as well as the detail page (v0.6.5) — see §4 |
 | معرفی دوستان | `referral.manage` | The fraud queue, with reject and reinstate |
 | دفتر سکه | `ledger.read` | Search the ledger, and reconcile balances against it |
 | گزارش رخدادها | `audit.read` | The audit trail, filterable, with payloads |
@@ -168,6 +170,20 @@ Lists render `NOWR••••4F2Z`. The plaintext is returned **once**, by the 
 nothing in the product returns it again. A stolen admin session can therefore watch every campaign
 and spend none of them.
 
+### Disabling one, from the list (v0.6.5)
+
+The kill switch lived only on «گزارش کد هدیه» — so switching off a leaked code was
+find it, open it, scroll, confirm, repeated per code, in an incident, with the last
+one staying live longest. It is now on the list too, beside «گزارش», and it is the
+same endpoint either way.
+
+Disabling asks for confirmation; re-enabling does not. One of the two directions
+makes a live code unusable for everybody holding it, and asking twice about the
+reversible half teaches people to click through the dialog that matters.
+
+When the incident is bigger than one campaign, `giftcode.enabled` in §7 turns
+redemption off everywhere at once.
+
 ### Bulk codes are gone when you close the tab
 
 `POST /admin/v1/gift-codes/batch` generates on the server with a CSPRNG and hands the list back once.
@@ -188,6 +204,41 @@ and in your browser history. So:
 **exactly**, normalized server-side. An operator holding a code a user quoted at them finds its row;
 an operator holding nothing cannot enumerate a campaign. A prefix search would have handed the
 campaign over, which is why there is not one.
+
+### A code is matched **exactly** (v0.6.5)
+
+Case, spaces and dashes all count. Until v0.6.5 the input was upper-cased and
+stripped of separators before anything compared it — the same normalization
+referral codes use — so a campaign code `test1` was also redeemable as `test 1`,
+`TEST-1` and `T E S T 1`. Coins were granted for codes nobody had issued.
+
+That normalization is right for a referral code: it is generated from a fixed
+alphabet, and «abc-123» and «ABC123» are the same nine characters read aloud. It
+is wrong for a gift code, whose text you choose and which is worth money — every
+string within one edit of a real code was a live code.
+
+What this means for you: **the code you type when you mint one is the code**. It
+is stored exactly as written, lower case included, and the panel refuses a code
+with a space in it — a code with a space will be mistyped by somebody, and mistyped
+now means refused. Leading and trailing whitespace is still forgiven, because it is
+invisible and comes from pasting.
+
+Bulk codes are unaffected: they are generated from `CODE_ALPHABET` in upper case
+and always were.
+
+**Check your live campaigns before you announce this one.** Codes minted *before*
+v0.6.5 were transformed on the way into the table, so a code you created as
+`summer-24` is stored as `SUMMER24` — and from this release on, `SUMMER24` is the
+only string that redeems it. Nothing in the database changed and no code stopped
+working; what changed is that only one spelling of it works now, and it is the
+stored one rather than the one you typed.
+
+The stored spelling is what the «کدهای هدیه» list has always displayed, so a code
+you hand out by copying it off that screen is already correct. The one that bites
+is a code printed on something — a poster, a channel post, a partner's message —
+in the form you originally typed. Search for the campaign in the list, read the
+code as it appears there, and either use that spelling from now on or mint a
+replacement in the casing you want and disable the old one.
 
 ### `perUserLimit` is 1
 
@@ -263,6 +314,14 @@ Each row shows its documented default beside its current value. A change needs a
 
 No setting needs a restart.
 
+**Three switches worth knowing by name** (v0.6.5). Each is `1` for on and `0` for
+off, and each turns a whole feature rather than tuning a number:
+
+| Key | Off means |
+|---|---|
+| `channel.enabled` | The product stops writing to the Telegram channel. A kill switch rather than a feature flag: a public surface the product cannot stop posting to keeps posting through an incident |
+| `giftcode.enabled` | **No gift code can be redeemed, on any surface.** `gift_code.is_active` stops one campaign; this stops all of them, for the case where a code has leaked to a large channel and the answer is "no codes until we know what happened". Minting and disabling keep working while it is off — you have to be able to clean up during the incident you turned it off for |
+| `release.announce_enabled` | A deploy no longer tells every user that it happened. Read by the **worker at boot**, so flipping it takes effect on the next deploy, which is when the decision is made. Leave it on unless you are shipping three hotfixes in an afternoon |
 
 ### 7.1 Activity tags — «تفریحات» (M21)
 
@@ -296,6 +355,22 @@ and a screen for hand-editing 1,252 generated rows would invite the drift the ge
 any of this from a seed file instead.
 
 ---
+
+
+### 7.2 The daily activity limit, and the number that used to lie about it
+
+`events.max_per_day` and `events.max_concurrent_active` are two different quotas.
+Until v0.6.5 both refused with one error code whose Persian named the **daily**
+limit — so a host stopped by the *concurrency* quota was told they had hit a daily
+cap, and an operator who then raised `events.max_per_day` from 5 to 30 watched the
+product carry on refusing and reasonably reported the setting as broken.
+
+They are now separate codes with separate messages, and the bot's message names
+the number you actually configured. If a host says they cannot create an activity,
+the message they were shown now tells you which of the two to look at.
+
+The daily quota also counts **created**, not *live*: an event created and then
+cancelled has still spent a slot for that Tehran day.
 
 ## 8. Deploying it
 
@@ -439,7 +514,7 @@ actions the requirement gates. An empty list means the requirement is inert.
 
 | Action | Enforced by |
 | --- | --- |
-| `APP_ACCESS` | The Mini App's router. The whole app is replaced by the join screen. |
+| `APP_ACCESS` | **The bot's router** (v0.6.5), and the Mini App's. Every command, message and tap is refused with the join screen. |
 | `EVENT_CREATE` | `EventService.create` |
 | `EVENT_JOIN` | `ParticipationService.join` |
 | `EVENT_CHANNEL_SEND` | `EventService.publishToChannel` |
@@ -448,11 +523,38 @@ actions the requirement gates. An empty list means the requirement is inert.
 `APP_ACCESS` is the odd one and the panel says so under the checkbox. The other
 four name a server-enforced operation and no client can talk its way past them.
 `APP_ACCESS` has no single operation behind it — it means "do not let this person
-browse the Mini App at all", which is a navigation rule. It is deliberately *not*
+use the product at all", which is a navigation rule. It is deliberately *not*
 in `AuthGuard`: a gate over every authenticated route would also refuse `/me`,
 `/me/policies` and the membership check, which are the three calls the screen
 that clears the gate is built from, so switching it on would lock the product
 shut with no way back.
+
+### What changed in v0.6.5, and why the requirement looked broken
+
+Three things, and together they were the whole of "the channels are configured
+and nothing happens".
+
+**`APP_ACCESS` was enforced by nothing on the bot.** It was documented as the
+Mini App router's job, and the Mini App is being retired — so an operator who
+switched the requirement on, chose the widest action and watched the bot carry on
+answering was reading the feature correctly. The bot's router is the equivalent
+place: one point every update passes through. `/start` and `/help` are exempt,
+because a gate over account creation would refuse the deep links the join screen
+sends people back through, and somebody stuck behind a wall has to be able to
+read what the product is.
+
+**The gate fired once and never again.** The only call site was immediately after
+the consent step, so anybody who had accepted the terms before you configured a
+channel was never asked again.
+
+**The refusal was a sentence with no buttons.** When `EventService.create` or
+`ParticipationService.join` refused, the bot rendered the generic Persian message
+and threw away the channel list and join links the refusal carried — so a user was
+told to join a channel and given no way to. The join screen is now drawn from the
+refusal itself, and it has a «بررسی دوباره» button that drops the probe's cache
+and asks Telegram again. Without it the only way to clear the gate was to guess
+that repeating the action might work, and for the length of the cache it would
+not.
 
 ### The gate fails open, on purpose
 
@@ -513,6 +615,14 @@ disruptive button in the panel.
 Exactly one version per type can be current; the database enforces it with a
 partial unique index rather than trusting the application.
 
+**Type it in whichever digits your keyboard produces** (v0.6.5). The panel renders
+every number in Persian digits, so the dialog says «۳» — and until v0.6.5 the
+confirmation was parsed with `Number()`, for which `'۳'` is `NaN`. The publish
+button therefore never enabled for anybody typing on a Persian keyboard, which is
+everybody who uses this panel: the only way to satisfy it was to switch layouts,
+which the screen did not say to do. Persian, Arabic-Indic and Latin digits are now
+all read the same way.
+
 ### The acceptance log
 
 «پذیرش‌ها», behind `policy.consent.read`, is the evidence: who accepted which
@@ -522,7 +632,61 @@ themselves.
 
 ---
 
-## 13. Conventions, if you are adding a screen
+## 13. Bug reports — «گزارش‌های مشکل» (v0.6.5)
+
+What users say is broken about the product, filed from the bot with `/bug` or the
+«🐞 گزارش مشکل» button. Behind `report.review`, so both `MODERATOR` and `SUPPORT`
+see it — support is who somebody writing «دکمه کار نمی‌کند» is really addressing.
+
+### It is not the report queue, and the tables are not shared
+
+«گزارش‌های تخلف» is moderation: every row is about a person or something they
+posted, it counts distinct reporters against `moderation.report_threshold`,
+enough of them auto-hide the subject, and `UNIQUE (target_type, target_id,
+reporter_user_id)` means one report per subject per person **forever**.
+
+None of that is right for a bug. There is no subject to hide, three people
+hitting the same broken button is not grounds to hide anything, and a user who
+finds three problems in an afternoon has to be able to send three. `bug_report`
+is its own table with its own lifecycle, and `BugReportService` carries the
+argument in full.
+
+### The screenshots are not shown, and cannot be
+
+A screenshot is stored as a Telegram **`file_id`** — a handle scoped to this
+deployment's bot token, not a URL. `<img src>` would resolve to nothing, and the
+alternative is proxying every image through the API with an auth check, a cache
+and a bandwidth question for pictures somebody opens a handful of a day. The
+panel shows the count and the ids; opening one is `getFile` from the bot, which
+is where the token already lives.
+
+The images are never copied into this deployment. That is deliberate: a copy
+would mean owning a retention policy, a deletion path and a scanning question for
+a file the reporter has already handed to the bot.
+
+### The release is recorded, not asked for
+
+Every report carries the release the reporter was on. It is the single most
+useful field on a bug report and the one nobody remembers to include, so the bot
+attaches it rather than asking.
+
+### Your note is not a reply
+
+`adminNote` is a triage annotation and the reporter never sees it. A channel back
+to them would need a tone, a sender and somebody answerable for what it says;
+writing to a reporter is a deliberate act on «پیام‌ها», by a person.
+
+### Statuses
+
+`OPEN` → `ACKNOWLEDGED` / `RESOLVED` / `DISMISSED`, and back to `OPEN` if you
+reopen one. Anything other than `OPEN` records **who** settled it and **when**; a
+CHECK on the table keeps those three moving together, and reopening clears them.
+
+---
+
+---
+
+## 14. Conventions, if you are adding a screen
 
 - **A route declares its permission in `meta`.** The navigation and the guard both read it. A route
   with a `group` and no `permission` fails `router.test.ts`.

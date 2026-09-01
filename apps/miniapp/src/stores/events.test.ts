@@ -22,6 +22,9 @@ function discovered(overrides: Partial<DiscoveredEventView> = {}): DiscoveredEve
     customCategoryLabel: null,
     city: named,
     district: null,
+    // A curated district, or the neighbourhood the host typed (v0.6.5). Never
+    // both — the fixture takes the shape the catalogue-less case produces.
+    districtLabel: null,
     startsAt: '2026-08-20T16:00:00.000Z',
     endsAt: '2026-08-20T18:00:00.000Z',
     capacity: 6,

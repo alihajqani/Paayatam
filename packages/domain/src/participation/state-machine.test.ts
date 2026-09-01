@@ -4,6 +4,8 @@ import { terminalStates } from '../state-machine';
 import {
   PARTICIPANT_TRANSITIONS,
   SEAT_HOLDING_STATUSES,
+  SLOT_HOLDING_STATUSES,
+  holdsSlot,
   assertParticipantTransition,
   holdsSeat,
 } from './state-machine';
@@ -90,17 +92,26 @@ describe('the participation lifecycle', () => {
 
 describe('which statuses hold a seat', () => {
   /**
-   * `event.accepted_count` counts seats taken, not people accepted. A PENDING
-   * request holds one, which is what makes the waitlist meaningful at join time
-   * and what gives a cancellation a seat to free.
+   * `event.accepted_count` counts **people the host accepted**, and nothing else.
+   *
+   * It used to count PENDING as well, on the reading that a request "holds" the
+   * seat it is asking for. What that produced in production was an activity with
+   * two places reporting «ظرفیت تکمیل» while one request had been rejected and
+   * another had expired unanswered: each release promoted somebody off the
+   * waiting list into PENDING, which re-took the seat, so the counter never came
+   * down and nobody had been accepted at all.
+   *
+   * `capacity - accepted_count` is rendered to users as «جای خالی». A seat held
+   * by a question the host has not answered is not an empty seat or a full one,
+   * and the number stopped being about seats. Now it is.
    */
-  it('is exactly PENDING and ACCEPTED', () => {
-    expect([...SEAT_HOLDING_STATUSES].sort()).toEqual(['ACCEPTED', 'PENDING']);
+  it('is exactly ACCEPTED', () => {
+    expect([...SEAT_HOLDING_STATUSES]).toEqual(['ACCEPTED']);
   });
 
   it.each<[ParticipantStatus, boolean]>([
-    ['PENDING', true],
     ['ACCEPTED', true],
+    ['PENDING', false],
     ['WAITLISTED', false],
     ['REJECTED', false],
     ['EXPIRED', false],
@@ -120,16 +131,58 @@ describe('which statuses hold a seat', () => {
   it('releases the seat on every transition out of one', () => {
     for (const status of SEAT_HOLDING_STATUSES) {
       for (const next of PARTICIPANT_TRANSITIONS[status]) {
-        if (status === 'PENDING' && next === 'ACCEPTED') continue; // seat is kept
         expect(holdsSeat(next), `${status} → ${next} must free the seat`).toBe(false);
       }
     }
   });
 
-  it('takes a seat on the one transition into one', () => {
-    // WAITLISTED → PENDING is promotion (M7): the only edge that acquires a seat
-    // after the request was made.
-    expect(holdsSeat('WAITLISTED')).toBe(false);
-    expect(holdsSeat('PENDING')).toBe(true);
+  /**
+   * PENDING → ACCEPTED is now the **only** edge that takes one.
+   *
+   * Which is what makes `ParticipationService.accept`'s capacity assertion a live
+   * guard rather than the defensive one it used to be: before this change no
+   * reachable path could accept a row that held no seat, so it could not fire.
+   */
+  it('takes a seat on exactly one transition', () => {
+    const acquiring = (Object.keys(PARTICIPANT_TRANSITIONS) as ParticipantStatus[]).flatMap(
+      (from) =>
+        PARTICIPANT_TRANSITIONS[from]
+          .filter((to) => !holdsSeat(from) && holdsSeat(to))
+          .map((to) => `${from} → ${to}`),
+    );
+
+    expect(acquiring).toEqual(['PENDING → ACCEPTED']);
+  });
+});
+
+/**
+ * The counterpart, and the reason the change above did not kill the waiting
+ * list.
+ *
+ * If PENDING held nothing and nothing else changed, `join` would admit everybody
+ * and nobody would ever be waitlisted. A PENDING request holds a **slot in the
+ * host's queue** instead, and `join` admits while `accepted_count + slots <
+ * capacity` — the same arithmetic as before, with the two quantities kept apart
+ * rather than summed into one column.
+ */
+describe('which statuses hold a queue slot', () => {
+  it('is exactly PENDING', () => {
+    expect([...SLOT_HOLDING_STATUSES]).toEqual(['PENDING']);
+  });
+
+  it('is disjoint from the seat-holding set', () => {
+    for (const status of SLOT_HOLDING_STATUSES) {
+      expect(holdsSeat(status), `${status} must not hold both`).toBe(false);
+    }
+  });
+
+  it.each<[ParticipantStatus, boolean]>([
+    ['PENDING', true],
+    ['WAITLISTED', false],
+    ['ACCEPTED', false],
+    ['REJECTED', false],
+    ['EXPIRED', false],
+  ])('%s holds a slot: %s', (status, expected) => {
+    expect(holdsSlot(status)).toBe(expected);
   });
 });

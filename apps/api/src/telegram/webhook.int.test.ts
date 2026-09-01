@@ -1700,8 +1700,9 @@ describe('POST /telegram/:secret — settings', () => {
   it('meters the privacy switch on the bucket the API uses', async () => {
     const userId = await seedGuest(GUEST_TELEGRAM_ID);
 
-    // Twenty an hour is the bucket; the twenty-first is refused.
-    for (let index = 0; index < 21; index += 1) {
+    // Ten an hour is the bucket from v0.6.5 — it was twenty, and was halved on
+    // the operator's instruction. The eleventh tap is refused.
+    for (let index = 0; index < 11; index += 1) {
       await tap(GUEST_TELEGRAM_ID, index % 2 === 0 ? 'st:p0:x' : 'st:p1:x');
     }
 
@@ -1709,10 +1710,10 @@ describe('POST /telegram/:secret — settings', () => {
       where: { userId },
       select: { inviteOptOut: true },
     });
-    // Twenty writes landed, the last of which was `st:p1:x` — the twenty-first
-    // tap never reached the service.
+    // Ten writes landed, the last of which was `st:p1:x` — the eleventh tap
+    // never reached the service.
     expect(profile.inviteOptOut).toBe(false);
-    expect(await prisma.auditLog.count({ where: { action: 'profile.updated' } })).toBe(20);
+    expect(await prisma.auditLog.count({ where: { action: 'profile.updated' } })).toBe(10);
   });
 
   /**
@@ -2322,12 +2323,31 @@ describe('POST /telegram/:secret — entering a code in the bot', () => {
     await seedGiftCode('SUMMER24', 25);
 
     await tap(GUEST_TELEGRAM_ID, 'cd:gift:x');
-    await type(GUEST_TELEGRAM_ID, 'summer-24');
+    await type(GUEST_TELEGRAM_ID, 'SUMMER24');
 
     const balance = await coins.balanceOf(guestId);
     expect(balance).toBe(25);
     // The form has done its job and must stop claiming what the user types.
     expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(0);
+  });
+
+  /**
+   * The reported bug, through the form that produced it (v0.6.5).
+   *
+   * An operator's `test1` was redeemed by somebody who typed `test 1`, because
+   * the shared normalizer stripped the space before anything compared them.
+   * Every string within one edit of a real code was a live code.
+   */
+  it('refuses a code that is one edit away from a real one', async () => {
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await seedGiftCode('SUMMER24', 25);
+
+    await tap(GUEST_TELEGRAM_ID, 'cd:gift:x');
+    await type(GUEST_TELEGRAM_ID, 'summer 24');
+
+    expect(await coins.balanceOf(guestId)).toBe(0);
+    // The form stays open, because a refused code is usually a typo.
+    expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(1);
   });
 
   /**
@@ -2703,33 +2723,89 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     const filters = all.filter((button) => button.callbackData.startsWith('dc:'));
     // Three whens, two costs, and «همه» plus every category.
     expect(filters.length).toBeGreaterThanOrEqual(6);
-    // Nothing is filtered yet, so «هر زمان» is the marked one.
-    expect(filters.find((button) => button.callbackData === 'dc:aa:all')?.text).toContain('✅');
+    // Nothing is filtered yet, so «هر زمان» is the marked one. The third flag
+    // character is the page (v0.6.5): `dc:<when><cost><page>:<category>`.
+    expect(filters.find((button) => button.callbackData === 'dc:aa0:all')?.text).toContain('✅');
   });
 
-  /** A tap is «run this search», not «add this to what you remember about me». */
-  it('re-runs the search with the filters the button carries', async () => {
+  /**
+   * A tap **redraws** the list it is attached to (v0.6.5).
+   *
+   * It used to answer every filter with a whole new message, so narrowing a
+   * search three times left four near-identical lists stacked in the chat and
+   * the one the user was reading scrolled off the top. Filters are a control on
+   * a list, not four separate answers.
+   *
+   * The redraw is a `BOT_EDIT_MESSAGE` job rather than a `notification` row, and
+   * this process runs no worker — so what is asserted here is that **no second
+   * message was made**. What the redrawn body and keyboard say is asserted
+   * without a database in `discover-paging.test.ts`.
+   */
+  it('redraws the list in place rather than sending another one', async () => {
     await seedHostAndEvent();
     await seedGuest(GUEST_TELEGRAM_ID);
 
+    await type(GUEST_TELEGRAM_ID, '/discover');
+    const before = await prisma.notification.count({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+    });
+    expect(before).toBe(1);
+
+    await tap(GUEST_TELEGRAM_ID, 'dc:tf0:all');
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_DISCOVER } }),
+    ).toBe(before);
+  });
+
+  /**
+   * Every `/discover` message sent before v0.6.5 still has two-flag buttons on
+   * it, in somebody's chat. They have to keep working — a filter that answers
+   * «این دکمه دیگر کار نمی‌کند» is worse than one that does not page.
+   */
+  it('still accepts a filter button minted before paging existed', async () => {
+    await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/discover');
+    const before = await prisma.notification.count({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+    });
+
     await tap(GUEST_TELEGRAM_ID, 'dc:tf:all');
+
+    // Redrawn, not refused: a refused button would have left the count alone
+    // *and* produced a «این دکمه دیگر کار نمی‌کند» toast, which this asserts
+    // against by way of the callback answer below.
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_DISCOVER } }),
+    ).toBe(before);
+  });
+
+  /**
+   * The body still names what it searched for — «فعالیتی پیدا نشد» under an
+   * active filter otherwise reads as "your city is empty". Asserted on the
+   * *command* path, which is the one that still sends a message.
+   */
+  it('names the active filters in the body', async () => {
+    await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/discover');
 
     const digest = await prisma.notification.findFirstOrThrow({
       where: { templateKey: TEMPLATES.BOT_DISCOVER },
       orderBy: { createdAt: 'desc' },
       select: { payload: true },
     });
-    const text = String((digest.payload as Record<string, unknown>)['text']);
-    // The body names what it searched for: «فعالیتی پیدا نشد» under an active
-    // filter otherwise reads as "your city is empty".
-    expect(text).toContain('امروز');
-    expect(text).toContain('رایگان');
-
     const filters = keyboardOf(digest.payload)
       .flat()
       .filter((button) => button.callbackData.startsWith('dc:'));
-    // The active pair is marked, and tapping it again is what clears it.
-    expect(filters.find((button) => button.callbackData === 'dc:tf:all')?.text).toContain('✅');
+
+    // Every button carries the whole query, so «امروز» is reachable in one tap
+    // and the page it would land on is the first.
+    expect(filters.some((button) => button.callbackData === 'dc:ta0:all')).toBe(true);
+    expect(filters.some((button) => button.callbackData === 'dc:af0:all')).toBe(true);
   });
 
   /** A malformed filter is not a search against everything. */
@@ -2956,7 +3032,9 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
 
     await type(NEWCOMER_TELEGRAM_ID, 'شوماخر');
     await tap(NEWCOMER_TELEGRAM_ID, 'wz:gender:MALE');
-    await type(NEWCOMER_TELEGRAM_ID, '1990');
+    // Jalali, because that is what the form asks for (v0.6.5). The column stays
+    // Gregorian and the conversion happens at the wizard boundary.
+    await type(NEWCOMER_TELEGRAM_ID, '۱۳۶۹');
     await tap(NEWCOMER_TELEGRAM_ID, `wz:prov:${provinceId}`);
     await tap(NEWCOMER_TELEGRAM_ID, `wz:city:${fixture.tehranId}`);
     await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // bio
@@ -3027,17 +3105,38 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
   });
 
   /**
-   * The mistake this product will actually see: a Persian speaker types their
-   * Jalali birth year. The refusal has to name the conversion, or they retype
-   * the same number.
+   * The direction this used to run in, inverted (v0.6.5).
+   *
+   * The form asked for a **Gregorian** year and refused ۱۳۷۰ with an explanation
+   * of how to convert it — the product asking a Persian speaker to do arithmetic
+   * it could do itself, three screens after a Jalali date picker. It now asks in
+   * Jalali and converts, so ۱۳۷۰ is the *right* answer and moves the form on.
    */
-  it('explains the Jalali year rather than only refusing it', async () => {
+  it('takes a Jalali year and moves on', async () => {
     await seedGuest(GUEST_TELEGRAM_ID, 'نام');
 
     await type(GUEST_TELEGRAM_ID, '/edit_profile');
     await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // name
     await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
     await type(GUEST_TELEGRAM_ID, '۱۳۷۰');
+
+    const state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.step).toBe('prov');
+  });
+
+  /**
+   * And the mistake the change itself creates: somebody who learned the old form
+   * types ۱۹۹۱. «سال تولد معتبر نیست» would be true, unhelpful, and identical to
+   * what a typo produces — so the refusal names the question and their own answer
+   * in it.
+   */
+  it('explains a Gregorian year rather than only refusing it', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID, 'نام');
+
+    await type(GUEST_TELEGRAM_ID, '/edit_profile');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // name
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
+    await type(GUEST_TELEGRAM_ID, '۱۹۹۱');
 
     const state = await prisma.conversationState.findFirstOrThrow();
     // Held on the same step rather than advanced past a value it refused.

@@ -46,33 +46,58 @@ describe('display name', () => {
   });
 });
 
+/**
+ * The question is asked in Jalali and the answer is stored in Gregorian.
+ *
+ * This inverted in v0.6.5. The form used to ask for a Gregorian year and refuse
+ * ۱۳۷۰ with an explanation of how to convert it — which is the product asking a
+ * Persian user to do arithmetic it could do itself, three screens after a date
+ * picker that renders «۱۵ شهریور ۱۴۰۵» for exactly the opposite reason.
+ *
+ * The **column is unchanged**: `birth_year` is Gregorian in the schema, in
+ * `completeProfileRequest` and in `ageFromBirthYear`, and the conversion happens
+ * here at the boundary. So every assertion below reads "Jalali in, Gregorian
+ * out".
+ */
 describe('birth year', () => {
-  it('accepts a Gregorian year', () => {
-    expect(accept('birth', '1991')).toEqual({ ok: true, patch: { birthYear: 1991 } });
+  it('takes a Jalali year and stores the Gregorian one', () => {
+    expect(accept('birth', '۱۳۷۰')).toEqual({ ok: true, patch: { birthYear: 1991 } });
   });
 
-  it('reads Persian digits', () => {
-    expect(accept('birth', '۱۹۹۱')).toEqual({ ok: true, patch: { birthYear: 1991 } });
+  it('reads Latin digits too', () => {
+    expect(accept('birth', '1370')).toEqual({ ok: true, patch: { birthYear: 1991 } });
+  });
+
+  /** Arabic-Indic, which is what several Android keyboards emit. */
+  it('reads Arabic-Indic digits', () => {
+    expect(accept('birth', '١٣٧٠')).toEqual({ ok: true, patch: { birthYear: 1991 } });
   });
 
   /**
-   * The mistake this product will actually see: a Persian speaker in a bot that
-   * has just shown them a Jalali calendar types ۱۳۷۰. "Out of range" would leave
-   * them retyping it, so the refusal names the conversion.
+   * The mistake the change itself creates: somebody who learned the old form, or
+   * who simply thinks in Gregorian, types ۱۹۹۱. «سال تولد معتبر نیست» would be
+   * true, unhelpful, and identical to what a typo produces — so the refusal says
+   * what the question is now and what their own answer is in it.
    */
-  it('recognises a Jalali year and says how to convert it', () => {
-    const result = accept('birth', '۱۳۷۰');
+  it('recognises a Gregorian year and gives back the Jalali one', () => {
+    const result = accept('birth', '۱۹۹۱');
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain('میلادی');
-      expect(result.error).toContain('۱۹۹۱');
+      expect(result.error).toContain('شمسی');
+      expect(result.error).toContain('۱۳۷۰');
     }
   });
 
   it('refuses something that is not a four-digit year', () => {
     expect(accept('birth', '91').ok).toBe(false);
     expect(accept('birth', 'پارسال').ok).toBe(false);
+  });
+
+  /** A typo, not a claim: nobody is 130 and nobody is unborn. */
+  it('refuses a year outside a plausible lifetime', () => {
+    expect(accept('birth', '۱۲۰۰').ok).toBe(false);
+    expect(accept('birth', '۱۴۵۰').ok).toBe(false);
   });
 });
 

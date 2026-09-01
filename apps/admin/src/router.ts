@@ -76,6 +76,20 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'گزارش‌های تخلف', permission: PERMISSIONS.REPORT_REVIEW, group: 'moderation' },
   },
   {
+    /**
+     * Bug reports, beside the moderation queues rather than in `system`.
+     *
+     * They are worked the same way — a list of things people sent, oldest first,
+     * each ending in a decision — and both MODERATOR and SUPPORT hold
+     * `report.review`, which is the pair who should see these. Filing one under
+     * «سامانه» would put it behind a permission support does not have.
+     */
+    path: '/bug-reports',
+    name: 'bug-reports',
+    component: () => import('@/views/BugReportsView.vue'),
+    meta: { title: 'گزارش‌های مشکل', permission: PERMISSIONS.REPORT_REVIEW, group: 'moderation' },
+  },
+  {
     path: '/cases',
     name: 'cases',
     component: () => import('@/views/CasesView.vue'),

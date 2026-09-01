@@ -444,8 +444,17 @@ describe('EventService.create — quotas (plan §11)', () => {
       );
     }
 
+    /**
+     * Its **own** error code as of v0.6.5, and the reason is the message behind
+     * it. Both quotas used to raise `EVENT_QUOTA_EXCEEDED`, whose Persian names
+     * the *daily* limit — so a host stopped by concurrency was told the wrong
+     * thing, and the operator who then raised `events.max_per_day` from 5 to 30
+     * watched the product carry on refusing and reported the setting as broken.
+     * The two are cleared by different actions: one by waiting for tomorrow, the
+     * other by finishing an event you already have.
+     */
     await expect(events.create(hostId, validInput())).rejects.toMatchObject({
-      code: 'EVENT_QUOTA_EXCEEDED',
+      code: 'EVENT_ACTIVE_QUOTA_EXCEEDED',
       details: { scope: 'concurrent_active', limit: 3 },
     });
   });
@@ -482,6 +491,112 @@ describe('EventService.create — quotas (plan §11)', () => {
     await expect(events.create(hostId, validInput())).rejects.toMatchObject({
       code: 'EVENT_QUOTA_EXCEEDED',
       details: { limit: 1 },
+    });
+  });
+});
+
+/**
+ * The pre-flight, and the reason it exists.
+ *
+ * The bot's create-event wizard asks fourteen questions. Until v0.6.5 the quota
+ * was discovered by `create` at the end of them: a host who had already reached
+ * the limit filled in a title, a description, a category, a place, a date, a
+ * capacity and a price, pressed «ثبت فعالیت», and was told they could not create
+ * an event today. The refusal was correct and arrived after every opportunity to
+ * act on it had passed.
+ *
+ * It is the **same** check — `assertWithinQuota` is written in terms of this, so
+ * the two cannot disagree — offered where a flow begins rather than where it
+ * ends. Deliberately a snapshot and not a reservation: `create` re-checks under
+ * its own transaction, because a host may create an event on another surface
+ * while this conversation is open.
+ */
+describe('EventService.quotaFor — the pre-flight', () => {
+  it('reports both counts and both limits with nothing created', async () => {
+    expect(await events.quotaFor(hostId)).toEqual({
+      createdToday: 0,
+      maxPerDay: 5,
+      activeCount: 0,
+      maxConcurrentActive: 3,
+      blockedBy: null,
+    });
+  });
+
+  it('counts what has been created today', async () => {
+    await events.create(hostId, validInput());
+
+    expect(await events.quotaFor(hostId)).toMatchObject({
+      createdToday: 1,
+      activeCount: 1,
+      blockedBy: null,
+    });
+  });
+
+  it('names the daily quota once it is spent', async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await events.create(
+        hostId,
+        validInput({
+          startsAt: new Date(`2026-09-${String(20 + index)}T15:00:00.000Z`),
+          endsAt: new Date(`2026-09-${String(20 + index)}T18:00:00.000Z`),
+        }),
+      );
+      await prisma.event.updateMany({ where: { hostUserId: hostId }, data: { status: 'EXPIRED' } });
+    }
+
+    expect(await events.quotaFor(hostId)).toMatchObject({
+      createdToday: 5,
+      blockedBy: 'per_day',
+    });
+  });
+
+  it('names the concurrency quota when that is the one that binds', async () => {
+    for (let index = 0; index < 3; index += 1) {
+      await events.create(
+        hostId,
+        validInput({
+          startsAt: new Date(`2026-09-${String(20 + index)}T15:00:00.000Z`),
+          endsAt: new Date(`2026-09-${String(20 + index)}T18:00:00.000Z`),
+        }),
+      );
+    }
+
+    expect(await events.quotaFor(hostId)).toMatchObject({
+      createdToday: 3,
+      activeCount: 3,
+      blockedBy: 'concurrent_active',
+    });
+  });
+
+  /**
+   * The operator's report, as a test: raising the number in the panel raises the
+   * number the product enforces *and* the number it reports.
+   */
+  it('follows `events.max_per_day` when an operator changes it', async () => {
+    await prisma.appSetting.upsert({
+      where: { key: 'events.max_per_day' },
+      create: { key: 'events.max_per_day', value: 30 },
+      update: { value: 30 },
+    });
+
+    expect(await events.quotaFor(hostId)).toMatchObject({ maxPerDay: 30, blockedBy: null });
+  });
+
+  it('agrees with what `create` actually does', async () => {
+    for (let index = 0; index < 3; index += 1) {
+      await events.create(
+        hostId,
+        validInput({
+          startsAt: new Date(`2026-09-${String(20 + index)}T15:00:00.000Z`),
+          endsAt: new Date(`2026-09-${String(20 + index)}T18:00:00.000Z`),
+        }),
+      );
+    }
+
+    const quota = await events.quotaFor(hostId);
+    expect(quota.blockedBy).toBe('concurrent_active');
+    await expect(events.create(hostId, validInput())).rejects.toMatchObject({
+      code: 'EVENT_ACTIVE_QUOTA_EXCEEDED',
     });
   });
 });

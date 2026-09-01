@@ -35,7 +35,18 @@ export const ErrorCode = {
   // Events
   EVENT_NOT_FOUND: 'EVENT_NOT_FOUND',
   EVENT_NOT_JOINABLE: 'EVENT_NOT_JOINABLE',
+  /**
+   * Too many events created **today** (`events.max_per_day`).
+   *
+   * Split from the concurrency quota below in v0.6.5. The two shared one code and
+   * therefore one Persian sentence — the daily one — so a host stopped by the
+   * concurrency limit read that they had hit a daily cap, and the operator who
+   * then raised the daily cap in the panel saw nothing change. A message that
+   * names the wrong limit makes the right limit look broken.
+   */
   EVENT_QUOTA_EXCEEDED: 'EVENT_QUOTA_EXCEEDED',
+  /** Too many events still ahead of this host at once (`events.max_concurrent_active`). */
+  EVENT_ACTIVE_QUOTA_EXCEEDED: 'EVENT_ACTIVE_QUOTA_EXCEEDED',
   CONTENT_BLOCKED: 'CONTENT_BLOCKED',
   CAPACITY_BELOW_ACCEPTED: 'CAPACITY_BELOW_ACCEPTED',
   CONFLICT_STALE_VERSION: 'CONFLICT_STALE_VERSION',
@@ -90,6 +101,16 @@ export const ErrorCode = {
   GIFT_CODE_ALREADY_REDEEMED: 'GIFT_CODE_ALREADY_REDEEMED',
   GIFT_CODE_EXHAUSTED: 'GIFT_CODE_EXHAUSTED',
   GIFT_CODE_DUPLICATE: 'GIFT_CODE_DUPLICATE',
+  /**
+   * The whole feature is switched off — `giftcode.enabled` is 0.
+   *
+   * Separate from `GIFT_CODE_INVALID`, and it does not weaken the oracle argument
+   * above: this answer is the same for every string anybody types, so it
+   * distinguishes no code from any other. What it distinguishes is "the product
+   * is not taking codes right now" from "that code is wrong", which is the
+   * difference between a user retyping and a user stopping.
+   */
+  GIFT_CODE_DISABLED: 'GIFT_CODE_DISABLED',
 
   // Reviews (ADR-0011)
   ALREADY_REVIEWED: 'ALREADY_REVIEWED',
@@ -209,7 +230,9 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
 
   EVENT_NOT_FOUND: 'این فعالیت یافت نشد.',
   EVENT_NOT_JOINABLE: 'امکان ثبت درخواست برای این فعالیت وجود ندارد.',
-  EVENT_QUOTA_EXCEEDED: 'به سقف ساخت فعالیت در روز رسیده‌اید.',
+  EVENT_QUOTA_EXCEEDED: 'به سقف ساخت فعالیت در روز رسیده‌اید. فردا دوباره تلاش کنید.',
+  EVENT_ACTIVE_QUOTA_EXCEEDED:
+    'به سقف فعالیت‌های همزمان رسیده‌اید. یکی از فعالیت‌های در پیش رو را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.',
   CONTENT_BLOCKED: 'متن واردشده با قوانین انتشار مطابقت ندارد. لطفاً آن را ویرایش کنید.',
   CAPACITY_BELOW_ACCEPTED: 'ظرفیت نمی‌تواند کمتر از تعداد افراد پذیرفته‌شده باشد.',
   CONFLICT_STALE_VERSION: 'این مورد در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
@@ -244,6 +267,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   GIFT_CODE_ALREADY_REDEEMED: 'شما پیش‌تر از این کد هدیه استفاده کرده‌اید.',
   GIFT_CODE_EXHAUSTED: 'ظرفیت استفاده از این کد هدیه تکمیل شده است.',
   GIFT_CODE_DUPLICATE: 'کدی با این عنوان از قبل وجود دارد.',
+  GIFT_CODE_DISABLED: 'استفاده از کدهای هدیه در حال حاضر غیرفعال است.',
 
   ALREADY_REVIEWED: 'شما قبلاً بازخورد خود را ثبت کرده‌اید.',
   REVIEW_WINDOW_CLOSED: 'مهلت ثبت بازخورد به پایان رسیده است.',
@@ -324,6 +348,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   GIFT_CODE_ALREADY_REDEEMED: 409,
   GIFT_CODE_EXHAUSTED: 409,
   GIFT_CODE_DUPLICATE: 409,
+  GIFT_CODE_DISABLED: 403,
   ALREADY_REVIEWED: 409,
   ALREADY_REPORTED: 409,
   CANNOT_REPORT_OWN_CONTENT: 403,

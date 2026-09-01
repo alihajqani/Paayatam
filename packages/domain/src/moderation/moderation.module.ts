@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
 import { BlacklistService } from './blacklist.service';
+import { BugReportService } from './bug-report.service';
 import { ModerationService } from './moderation.service';
 import { ReportService } from './report.service';
 
@@ -15,10 +16,15 @@ import { ReportService } from './report.service';
  *
  * `CatalogModule` for `SettingsService`: the report threshold is a policy number,
  * so it is read from `app_setting` like every other one.
+ *
+ * `BugReportService` sits here rather than in its own module because it is the
+ * same kind of thing — something a user tells staff about — even though it
+ * deliberately shares no table, threshold or lifecycle with `ReportService`. Its
+ * own note explains why the two are not one service.
  */
 @Module({
   imports: [CatalogModule],
-  providers: [BlacklistService, ModerationService, ReportService],
-  exports: [BlacklistService, ModerationService, ReportService],
+  providers: [BlacklistService, ModerationService, ReportService, BugReportService],
+  exports: [BlacklistService, ModerationService, ReportService, BugReportService],
 })
 export class ModerationModule {}
