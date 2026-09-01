@@ -1155,10 +1155,11 @@ describe('EventService.publishToChannel — the paid channel post', () => {
       orderBy: { republishSeq: 'asc' },
     });
     expect(posts.map((post) => post.republishSeq)).toEqual([0, 1, 2]);
-    // The posted one was replaced and is queued for takedown; the unposted one
-    // had no message to remove, so nothing marked it.
+    // Each delivered post was replaced by the next and is queued for takedown.
+    // The newest is the live one and is marked by nothing.
     expect(posts[0]?.supersededAt).not.toBeNull();
-    expect(posts[1]?.supersededAt).toBeNull();
+    expect(posts[1]?.supersededAt).not.toBeNull();
+    expect(posts[2]?.supersededAt).toBeNull();
 
     // One row for the registration's placement, one per renewal.
     await expect(prisma.coinLedger.count({ where: { type: 'CHANNEL_POST_SPEND' } })).resolves.toBe(
