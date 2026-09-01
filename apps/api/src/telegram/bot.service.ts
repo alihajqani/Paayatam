@@ -2803,10 +2803,17 @@ export class BotService {
       title: event.title,
       description: event.description,
       categoryName: event.customCategoryLabel ?? event.category.nameFa,
-      where:
-        event.district === null
+      /**
+       * A picked neighbourhood, or the one the host typed. Never both — the
+       * wizard's `dist` step clears one when it sets the other, and a CHECK is
+       * the backstop — so `??` reads the whichever-is-there without deciding.
+       */
+      where: (() => {
+        const neighbourhood = event.district?.nameFa ?? event.districtLabel;
+        return neighbourhood === null || neighbourhood === undefined
           ? event.city.nameFa
-          : `${event.city.nameFa} — ${event.district.nameFa}`,
+          : `${event.city.nameFa} — ${neighbourhood}`;
+      })(),
       startsAt: event.startsAt,
       endsAt: event.endsAt,
       status: event.status,
