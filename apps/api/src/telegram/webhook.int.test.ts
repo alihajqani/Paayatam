@@ -174,6 +174,7 @@ async function seedHostAndEvent(): Promise<{ hostId: string; eventPublicId: stri
     },
     select: { id: true },
   });
+  await prisma.coinAccount.create({ data: { userId: host.id, balance: 1_000 } });
 
   const title = 'دورهمی بازی رومیزی';
   const description = 'یک شب دوستانه برای بازی و گفتگو.';
@@ -210,6 +211,11 @@ async function seedGuest(telegramUserId: number, displayName = 'میهمان'): 
     },
     select: { id: true },
   });
+  // Funded, because registering and promoting are priced and the precondition
+  // now refuses before the form rather than after it. These tests are about the
+  // wiring, not about affordability — the affordability rules have their own
+  // suite in `event.service.int.test.ts`.
+  await prisma.coinAccount.create({ data: { userId: guest.id, balance: 1_000 } });
   return guest.id;
 }
 
@@ -1958,7 +1964,7 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     return row.payload as Record<string, unknown>;
   }
 
-  it('offers guests, channel, boost, invite and cancel on every open event', async () => {
+  it('offers guests and cancel on one row, and the three paid actions on another', async () => {
     const { eventPublicId } = await seedHostAndEvent();
 
     await type(HOST_TELEGRAM_ID, '/myevents');
@@ -1967,13 +1973,17 @@ describe('POST /telegram/:secret — acting on your own events', () => {
       text: string;
       callbackData: string;
     }[][];
-    expect(rows).toHaveLength(1);
+    // Two rows per activity: what a host reads on top, what costs coins or
+    // cannot be undone underneath.
+    expect(rows).toHaveLength(2);
     expect(rows[0]?.map((button) => button.callbackData)).toEqual([
       `ev:who:${eventPublicId}`,
-      `ev:post:${eventPublicId}`,
-      `ev:boost:${eventPublicId}`,
-      `ev:invite:${eventPublicId}`,
       `ev:drop:${eventPublicId}`,
+    ]);
+    expect(rows[1]?.map((button) => button.callbackData)).toEqual([
+      `ev:post:${eventPublicId}`,
+      `ev:invite:${eventPublicId}`,
+      `ev:boost:${eventPublicId}`,
     ]);
   });
 

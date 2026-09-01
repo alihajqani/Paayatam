@@ -134,6 +134,16 @@ const HOST_ENDOWMENT = 1_000;
 /** What creating an event costs, read from the same table the service reads. */
 const CREATE_COST = SETTING_DEFAULTS['economy.event_create_coins'];
 
+/**
+ * The channel placement a registration includes, and the two together.
+ *
+ * A published event costs both; a BLOCKed one costs only `CREATE_COST`, because
+ * there is nothing to place in the channel and the service does not claim one.
+ * That difference is why the assertions below do not all use the same constant.
+ */
+const CHANNEL_PUBLISH_COST = SETTING_DEFAULTS['economy.event_channel_publish_coins'];
+const REGISTER_COST = CREATE_COST + CHANNEL_PUBLISH_COST;
+
 /** A host who has finished onboarding, which authoring requires. */
 async function createHost(): Promise<string> {
   const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: HOST_ENDOWMENT });
@@ -827,7 +837,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
 
     // 40 coins for 24 hours, from `SETTING_DEFAULTS`.
     expect(boosted.boostedUntil).toEqual(new Date(NOW.getTime() + 24 * 3_600_000));
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST - 40);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - REGISTER_COST - 40);
   });
 
   /**
@@ -847,7 +857,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
 
     // 24 h remaining at purchase + 24 h bought, measured from the first expiry.
     expect(second.boostedUntil).toEqual(new Date(NOW.getTime() + 48 * 3_600_000));
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST - 80);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - REGISTER_COST - 80);
   });
 
   it('starts a lapsed window from now, not from the old expiry', async () => {
@@ -876,7 +886,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
 
     expect(first.isVip).toBe(true);
     expect(second.isVip).toBe(true);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 250 - CREATE_COST - 100);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 250 - REGISTER_COST - 100);
     await expect(prisma.coinLedger.count({ where: { type: 'VIP_SPEND' } })).resolves.toBe(1);
   });
 
@@ -884,7 +894,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
     // A host with exactly enough to author and nothing to promote with. The
     // shared `hostId` is deliberately not used: it is endowed so that every
     // other test in this file is about something other than affordability.
-    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: CREATE_COST + 10 });
+    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: REGISTER_COST + 10 });
     await prisma.userProfile.create({
       data: { userId: poor, displayName: 'کم‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
     });
@@ -954,7 +964,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
     await expect(events.boost(hostId, created.publicId, 'BOOST')).rejects.toMatchObject({
       code: 'EVENT_NOT_BOOSTABLE',
     });
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - REGISTER_COST);
   });
 });
 
@@ -981,7 +991,9 @@ describe('EventService.create — the creation charge (M22 phase 5)', () => {
     expect(entry.refType).toBe('event');
     expect(entry.refId).toBe(row.id);
     expect(entry.actorType).toBe('USER');
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CREATE_COST);
+    // The create row alone is `CREATE_COST`; the balance also carries the channel
+    // placement the registration includes.
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - REGISTER_COST);
   });
 
   it('refuses, and creates nothing, when the host cannot afford it', async () => {
@@ -1025,7 +1037,7 @@ describe('EventService.create — the creation charge (M22 phase 5)', () => {
    * against the HTTP layer where the header exists.
    */
   it('charges once per event under concurrency, and never oversells the balance', async () => {
-    const broke = await createUser(prisma, 'PROFILE_COMPLETE', { coins: CREATE_COST });
+    const broke = await createUser(prisma, 'PROFILE_COMPLETE', { coins: REGISTER_COST });
     await prisma.userProfile.create({
       data: { userId: broke, displayName: 'یک‌بار', cityId: fixture.tehranId, birthYear: 1995 },
     });
@@ -1056,7 +1068,10 @@ describe('EventService.create — the creation charge (M22 phase 5)', () => {
     await expect(prisma.coinLedger.count({ where: { type: 'EVENT_CREATE_SPEND' } })).resolves.toBe(
       0,
     );
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT);
+    // Only the create half was zeroed. The channel placement is a separate
+    // setting and still costs what it costs — which is the point of pricing the
+    // two apart even though the host is quoted their sum.
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CHANNEL_PUBLISH_COST);
   });
 });
 
@@ -1077,36 +1092,88 @@ describe('EventService.publishToChannel — the paid channel post', () => {
     await events.publishToChannel(hostId, created.publicId);
 
     const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
-    const post = await prisma.channelPost.findFirstOrThrow({ where: { eventId: row.id } });
-    expect(post.kind).toBe('PAID');
+    // Two now: the one registration claimed at sequence 0, and the renewal at 1.
+    const posts = await prisma.channelPost.findMany({
+      where: { eventId: row.id },
+      orderBy: { republishSeq: 'asc' },
+    });
+    expect(posts.map((post) => post.republishSeq)).toEqual([0, 1]);
+    expect(posts.every((post) => post.kind === 'PAID')).toBe(true);
     // Unposted: nothing here talks to Telegram, the worker's sweep does.
-    expect(post.postedAt).toBeNull();
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CREATE_COST - SEND_COST);
+    expect(posts[1]?.postedAt).toBeNull();
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - REGISTER_COST - SEND_COST);
 
     const entry = await prisma.coinLedger.findFirstOrThrow({
       where: { type: 'CHANNEL_POST_SPEND' },
+      orderBy: { createdAt: 'desc' },
     });
     expect(entry.amount).toBe(-SEND_COST);
     expect(entry.refId).toBe(row.id);
   });
 
-  it('refuses a second purchase, and charges nothing for it', async () => {
+  /**
+   * What this test used to assert is now the opposite of the rule.
+   *
+   * It pinned *"an event reaches the channel by purchase at most once, ever"* —
+   * a second call was `EVENT_ALREADY_IN_CHANNEL` and charged nothing. Renewal is
+   * the feature that replaced that rule, so the property worth pinning is the one
+   * that took over: each renewal is its own purchase at its own sequence, and the
+   * post it replaces is superseded so the channel does not end up holding two
+   * copies of one activity.
+   */
+  it('charges each renewal separately and supersedes the post it replaces', async () => {
     const created = await events.create(hostId, validInput());
-    await events.publishToChannel(hostId, created.publicId);
-    const after = await coins.balanceOf(hostId);
-
-    await expect(events.publishToChannel(hostId, created.publicId)).rejects.toMatchObject({
-      code: 'EVENT_ALREADY_IN_CHANNEL',
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
+    // The registration's own post, as the sweep would leave it once Telegram
+    // accepted it — `supersede` only acts on a post that actually reached the
+    // channel.
+    await prisma.channelPost.updateMany({
+      where: { eventId: row.id, republishSeq: 0 },
+      data: { postedAt: new Date(), telegramMessageId: 4242 },
     });
 
-    await expect(coins.balanceOf(hostId)).resolves.toBe(after);
+    await events.publishToChannel(hostId, created.publicId);
+    await events.publishToChannel(hostId, created.publicId);
+
+    const posts = await prisma.channelPost.findMany({
+      where: { eventId: row.id },
+      orderBy: { republishSeq: 'asc' },
+    });
+    expect(posts.map((post) => post.republishSeq)).toEqual([0, 1, 2]);
+    // The posted one was replaced and is queued for takedown; the unposted one
+    // had no message to remove, so nothing marked it.
+    expect(posts[0]?.supersededAt).not.toBeNull();
+    expect(posts[1]?.supersededAt).toBeNull();
+
+    // One row for the registration's placement, one per renewal.
     await expect(prisma.coinLedger.count({ where: { type: 'CHANNEL_POST_SPEND' } })).resolves.toBe(
-      1,
+      3,
+    );
+    await expect(coins.balanceOf(hostId)).resolves.toBe(
+      HOST_ENDOWMENT - REGISTER_COST - SEND_COST * 2,
     );
   });
 
+  /**
+   * A double tap is one renewal, and the sequence is what makes that true: both
+   * calls resolve to the same next sequence, so the second collides on the unique
+   * index before it can charge.
+   */
+  it('refuses a second concurrent renewal rather than charging twice', async () => {
+    const created = await events.create(hostId, validInput());
+
+    const results = await Promise.allSettled([
+      events.publishToChannel(hostId, created.publicId),
+      events.publishToChannel(hostId, created.publicId),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - REGISTER_COST - SEND_COST);
+  });
+
   it('claims nothing when the host cannot afford it', async () => {
-    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: CREATE_COST });
+    // Exactly enough to register and nothing left to renew with.
+    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: REGISTER_COST });
     await prisma.userProfile.create({
       data: { userId: poor, displayName: 'کم‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
     });
@@ -1116,10 +1183,12 @@ describe('EventService.publishToChannel — the paid channel post', () => {
       code: 'INSUFFICIENT_COINS',
     });
 
-    // The claim was taken first and rolled back with the charge, so the event is
-    // not silently barred from a future purchase by a row nobody paid for.
+    // The renewal's claim was taken first and rolled back with the charge, so the
+    // event is not silently barred from a future purchase by a row nobody paid
+    // for. The registration's own post at sequence 0 stays: it was paid for.
     const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
-    await expect(prisma.channelPost.count({ where: { eventId: row.id } })).resolves.toBe(0);
+    const posts = await prisma.channelPost.findMany({ where: { eventId: row.id } });
+    expect(posts.map((post) => post.republishSeq)).toEqual([0]);
   });
 
   it('tells a stranger the event does not exist, and charges them nothing', async () => {
@@ -1145,13 +1214,15 @@ describe('EventService.publishToChannel — the paid channel post', () => {
     const created = await events.create(hostId, validInput());
     await events.publishToChannel(hostId, created.publicId);
 
+    // Two unposted claims: the registration's, and the renewal's. Both were paid
+    // for and both are the sweep's to deliver.
     const pending = await channel.findUnpostedPaid();
 
-    expect(pending.map((post) => post.eventPublicId)).toEqual([created.publicId]);
-    expect(pending[0]?.kind).toBe('PAID');
+    expect(pending.map((post) => post.eventPublicId)).toEqual([created.publicId, created.publicId]);
+    expect(pending.every((post) => post.kind === 'PAID')).toBe(true);
     // Still there on the next pass: the worker never releases a paid claim,
     // because it is the record that somebody paid.
-    await expect(channel.findUnpostedPaid()).resolves.toHaveLength(1);
+    await expect(channel.findUnpostedPaid()).resolves.toHaveLength(2);
   });
 });
 

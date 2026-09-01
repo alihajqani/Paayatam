@@ -63,8 +63,12 @@ describe('CatalogService promotion pricing', () => {
       boostDurationHours: 24,
       vipCoins: 100,
       eventCreateCoins: 5,
-      eventChannelSendCoins: 15,
-      eventTopInviteCoins: 10,
+      eventChannelPublishCoins: 10,
+      // The one number a host is quoted, and the reason the two above are never
+      // shown apart.
+      eventRegisterCoins: 15,
+      eventChannelSendCoins: 5,
+      eventTopInviteCoins: 20,
       topInviteMaxRecipients: 20,
     });
   });
