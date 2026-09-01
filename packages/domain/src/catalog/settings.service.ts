@@ -50,8 +50,28 @@ export const SETTING_DEFAULTS = {
    * claiming somebody paid nothing.
    */
   'economy.event_create_coins': 5,
-  'economy.event_channel_send_coins': 15,
-  'economy.event_top_invite_coins': 10,
+  /**
+   * The channel publication a new activity gets by default.
+   *
+   * Charged **with** `event_create_coins` in the same transaction, so registering
+   * an activity costs `5 + 10 = 15` and puts it in the channel without the host
+   * asking. Two settings rather than one `event_register_coins`, because the two
+   * halves buy different things and an operator has to be able to price them
+   * apart — and because the create charge already exists in the ledger under its
+   * own type, which a merged number would have made unreadable.
+   *
+   * **The split is deliberately not shown to the user.** The bot says «ثبت فعالیت
+   * ۱۵ سکه هزینه دارد» and stops; a host choosing between two line items they
+   * cannot decline is a choice that does not exist.
+   */
+  'economy.event_channel_publish_coins': 10,
+  /**
+   * Renewing a channel post — publishing the same activity again so it is seen
+   * again. Cheaper than the original publication because the activity is already
+   * in the channel's history; what is being bought is position, not reach.
+   */
+  'economy.event_channel_send_coins': 5,
+  'economy.event_top_invite_coins': 20,
   /**
    * What asking to join an activity costs (v0.6.3).
    *

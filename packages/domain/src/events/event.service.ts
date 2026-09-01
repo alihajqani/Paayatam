@@ -113,12 +113,21 @@ export function eventCreateSpendKey(eventId: string): string {
 /**
  * The paid channel publication's key.
  *
- * The event, and nothing else: an event reaches the channel by purchase at most
- * once, ever. A host who pays twice for the same event is a host who tapped
- * twice, and the second tap must cost nothing.
+ * The event plus the renewal sequence. It used to be the event alone, on the
+ * grounds that *"an event reaches the channel by purchase at most once, ever"* —
+ * which stopped being true when renewals arrived. The sequence is what keeps a
+ * double-tapped renewal free while letting a deliberate second renewal pay: two
+ * taps resolve to the same sequence and collide on
+ * `coin_ledger.idempotency_key`; a genuine renewal a week later resolves to the
+ * next one.
+ *
+ * Sequence 0 renders as the original string, so every ledger row written before
+ * 0036 keeps the key it was written with.
  */
-export function channelPostSpendKey(eventId: string): string {
-  return `channel-post:${eventId}`;
+export function channelPostSpendKey(eventId: string, republishSeq = 0): string {
+  return republishSeq === 0
+    ? `channel-post:${eventId}`
+    : `channel-post:${eventId}:${String(republishSeq)}`;
 }
 
 /**
@@ -352,7 +361,10 @@ export class EventService {
     // Read before the transaction: it is one indexed lookup, and taking a
     // connection for it while holding the outer one is what `SettingsService`
     // warns about (pool exhaustion under concurrency).
-    const createCost = await this.settings.getInt('economy.event_create_coins');
+    const [createCost, channelCost] = await Promise.all([
+      this.settings.getInt('economy.event_create_coins'),
+      this.settings.getInt('economy.event_channel_publish_coins'),
+    ]);
 
     const created = await this.prisma.$transaction(async (tx) => {
       await this.assertWithinQuota(tx, hostUserId, now);
@@ -472,6 +484,48 @@ export class EventService {
               tx,
             )
           : null;
+
+      /**
+       * The channel publication every registration includes.
+       *
+       * Claimed and charged here rather than left to the host to buy afterwards:
+       * registering is one act at one price, and «۱۵ سکه» is what the form says.
+       * Two ledger rows rather than one, because the ledger's job is to say what
+       * the coins bought — `EVENT_CREATE_SPEND` and `CHANNEL_POST_SPEND` are
+       * different purchases and a merged row could answer neither "what did I pay
+       * to register?" nor "what did the channel cost?".
+       *
+       * In the same transaction as everything above, so a host who can afford the
+       * first half and not the second gets `INSUFFICIENT_COINS` and no event —
+       * rather than an activity that was charged for a channel post it will never
+       * receive.
+       *
+       * Only for an event that actually became publishable. A BLOCKed or
+       * pending-moderation activity has nothing to put in the channel, and the
+       * claim's own sweep would skip it anyway; charging for it would be selling
+       * a placement that cannot exist.
+       */
+      const publishedToChannel =
+        outcome.status === 'PUBLISHED'
+          ? await this.channel.claimPaidPublication(tx, event.id)
+          : false;
+
+      if (publishedToChannel && channelCost > 0) {
+        await this.coins.apply(
+          {
+            userId: hostUserId,
+            amount: -channelCost,
+            type: 'CHANNEL_POST_SPEND',
+            reasonCode: EVENT_CHANNEL_POST_REASON,
+            idempotencyKey: channelPostSpendKey(event.id),
+            actorType: 'USER',
+            actorId: hostUserId,
+            refType: 'event',
+            refId: event.id,
+          },
+          tx,
+        );
+      }
 
       await this.audit.record(
         {
@@ -888,10 +942,31 @@ export class EventService {
         if (locked.status !== 'PUBLISHED') throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
         if (locked.startsAt <= now) throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
 
+        /**
+         * What is being renewed.
+         *
+         * A registration already bought the first publication, so this path is
+         * now always a *re*-publication and the previous post is what tells us
+         * which sequence to take. Its absence means the activity is not in the
+         * channel at all — which after 0036 can only happen to an event created
+         * before renewals existed, or one whose post a moderator took down. Both
+         * are legitimately re-publishable, from sequence 0.
+         */
+        const current = await this.channel.currentPaidPublication(tx, locked.id);
+        const nextSeq = current === null ? 0 : current.republishSeq + 1;
+
         // Claimed **before** the charge, so a second purchase is refused rather
         // than charged and then refunded. The unique index is the guard.
-        const claimed = await this.channel.claimPaidPublication(tx, locked.id);
+        const claimed = await this.channel.claimPaidPublication(tx, locked.id, nextSeq);
         if (!claimed) throw new AppError(ErrorCode.EVENT_ALREADY_IN_CHANNEL);
+
+        // The old message comes down once the new one is claimed, so the channel
+        // never shows the same activity twice. Only when there was one, and only
+        // when it actually reached Telegram — an unposted claim has no message to
+        // remove and the sweep will simply skip it.
+        if (current !== null && current.postedAt !== null) {
+          await this.channel.supersedePaidPublication(tx, current.id);
+        }
 
         if (cost > 0) {
           const movement = await this.coins.apply(
@@ -900,9 +975,9 @@ export class EventService {
               amount: -cost,
               type: 'CHANNEL_POST_SPEND',
               reasonCode: EVENT_CHANNEL_POST_REASON,
-              // The event, and nothing else: an event reaches the channel by
-              // purchase at most once, ever.
-              idempotencyKey: channelPostSpendKey(locked.id),
+              // The event and the renewal it is: a double tap collides here, a
+              // renewal a week later does not.
+              idempotencyKey: channelPostSpendKey(locked.id, nextSeq),
               actorType: 'USER',
               actorId: hostUserId,
               refType: 'event',
@@ -918,7 +993,7 @@ export class EventService {
               action: 'event.channel_post_purchased',
               targetType: 'event',
               targetId: locked.id,
-              after: { coinsSpent: cost, balance: movement.balance },
+              after: { coinsSpent: cost, balance: movement.balance, republishSeq: nextSeq },
             },
             tx,
           );

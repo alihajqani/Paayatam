@@ -756,12 +756,34 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return opened(prerendered(payload), `home`);
 
     /** The event exists, and here is the way to it. */
+    /**
+     * Registered, in the channel, and here is what else it can buy.
+     *
+     * The two options are explained **after** the registration rather than during
+     * it, deliberately: they are not part of the price the host agreed to, and a
+     * form that offers three purchases before it has produced anything is a form
+     * people abandon. By this point the activity exists and is already in the
+     * channel, so both options are about reaching further rather than about
+     * whether the thing happens at all.
+     *
+     * The prices arrive on the payload, from `app_setting` via the caller. A
+     * number written into this template would be a fourth place to remember on
+     * the day an operator changes one — and the one that quotes a price nobody
+     * will be charged.
+     */
     case TEMPLATES.BOT_EVENT_CREATED:
       return opened(
         `<b>فعالیت ثبت شد</b> ✅\n\n` +
-          `«${str(payload, 'title')}» ساخته شد. ` +
+          `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n` +
           `از دکمهٔ «${menuLabelFor('myevents') ?? 'فعالیت‌های من'}» می‌توانید ` +
-          `درخواست‌ها را ببینید و پاسخ بدهید.`,
+          `درخواست‌ها را ببینید و پاسخ بدهید.\n\n` +
+          `<b>اگر بخواهید بیشتر دیده شود:</b>\n` +
+          `📨 <b>دعوت ویژه</b> — فعالیت شما با پیام اختصاصی برای حداکثر ` +
+          `${str(payload, 'inviteRecipients')} نفر از مناسب‌ترین کاربران فرستاده می‌شود ` +
+          `(${str(payload, 'inviteCost')} سکه).\n` +
+          `🔄 <b>انتشار دوباره</b> — فعالیت دوباره در کانال منتشر می‌شود تا از نو دیده شود ` +
+          `(${str(payload, 'republishCost')} سکه).\n\n` +
+          `<i>هر دو از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`,
         `my-events`,
       );
 

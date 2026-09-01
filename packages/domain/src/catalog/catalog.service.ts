@@ -17,8 +17,13 @@ export interface PromotionPricingSnapshot {
   boostCoins: number;
   boostDurationHours: number;
   vipCoins: number;
-  /** The three M22 sinks (phase 5). Zero means free. */
+  /** The M22 sinks (phase 5). Zero means free. */
   eventCreateCoins: number;
+  /** The channel placement a registration includes, charged with the create. */
+  eventChannelPublishCoins: number;
+  /** `eventCreateCoins + eventChannelPublishCoins` — the only one a host is quoted. */
+  eventRegisterCoins: number;
+  /** Renewing that placement afterwards, which a host may do repeatedly. */
   eventChannelSendCoins: number;
   eventTopInviteCoins: number;
   topInviteMaxRecipients: number;
@@ -166,6 +171,7 @@ export class CatalogService {
       'economy.boost_duration_hours',
       'economy.vip_coins',
       'economy.event_create_coins',
+      'economy.event_channel_publish_coins',
       'economy.event_channel_send_coins',
       'economy.event_top_invite_coins',
       'events.top_invite_max_recipients',
@@ -176,6 +182,12 @@ export class CatalogService {
       boostDurationHours: values['economy.boost_duration_hours'],
       vipCoins: values['economy.vip_coins'],
       eventCreateCoins: values['economy.event_create_coins'],
+      eventChannelPublishCoins: values['economy.event_channel_publish_coins'],
+      // What registering actually costs, summed here rather than in each of the
+      // four surfaces that show it — the split is an implementation detail and a
+      // client that adds it up itself is a client that can disagree.
+      eventRegisterCoins:
+        values['economy.event_create_coins'] + values['economy.event_channel_publish_coins'],
       eventChannelSendCoins: values['economy.event_channel_send_coins'],
       eventTopInviteCoins: values['economy.event_top_invite_coins'],
       topInviteMaxRecipients: values['events.top_invite_max_recipients'],

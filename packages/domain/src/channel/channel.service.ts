@@ -164,10 +164,14 @@ export class ChannelService {
    * when the row already exists, so the caller can refuse the second purchase with
    * a message instead of taking the coins again.
    */
-  async claimPaidPublication(tx: Prisma.TransactionClient, eventId: string): Promise<boolean> {
+  async claimPaidPublication(
+    tx: Prisma.TransactionClient,
+    eventId: string,
+    republishSeq = 0,
+  ): Promise<boolean> {
     try {
       await tx.channelPost.create({
-        data: { eventId, kind: 'PAID', createdAt: this.clock.now() },
+        data: { eventId, kind: 'PAID', republishSeq, createdAt: this.clock.now() },
         select: { id: true },
       });
       return true;
@@ -175,6 +179,39 @@ export class ChannelService {
       if (isUniqueViolation(error)) return false;
       throw error;
     }
+  }
+
+  /**
+   * The live paid post for an event, and the sequence a renewal would take.
+   *
+   * Read under the caller's event lock, so the sequence it returns cannot be
+   * taken by a concurrent renewal between the read and the insert — the unique
+   * index on `(event_id, kind, republish_seq)` is the backstop either way.
+   */
+  async currentPaidPublication(
+    tx: Prisma.TransactionClient,
+    eventId: string,
+  ): Promise<{ id: string; postedAt: Date | null; republishSeq: number } | null> {
+    return tx.channelPost.findFirst({
+      where: { eventId, kind: 'PAID', deletedAt: null, supersededAt: null },
+      orderBy: { republishSeq: 'desc' },
+      select: { id: true, postedAt: true, republishSeq: true },
+    });
+  }
+
+  /**
+   * Mark the post a renewal replaces, so the sweep takes the old message down.
+   *
+   * `supersededAt` rather than `deletedAt`: the message is still in the channel
+   * at this moment, and `deletedAt` means Telegram has confirmed it is gone.
+   * Writing the latter here would make the takedown sweep skip the very row it
+   * needs to act on, leaving two copies of one activity in the channel forever.
+   */
+  async supersedePaidPublication(tx: Prisma.TransactionClient, postId: string): Promise<void> {
+    await tx.channelPost.update({
+      where: { id: postId },
+      data: { supersededAt: this.clock.now() },
+    });
   }
 
   /**
@@ -268,6 +305,10 @@ export class ChannelService {
           { event: { deletedAt: { not: null } } },
           { event: { moderationStatus: 'REJECTED' } },
           { event: { startsAt: { lte: now } } },
+          // A renewal replaced this post. The event is perfectly fine — which is
+          // why none of the conditions above catch it — and the old message still
+          // has to come down, or the channel carries two copies of one activity.
+          { supersededAt: { not: null } },
         ],
       },
       take: limit,

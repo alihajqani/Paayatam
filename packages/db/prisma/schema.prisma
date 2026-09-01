@@ -2332,12 +2332,19 @@ model ChannelPost {
   postedAt          DateTime? @map("posted_at") @db.Timestamptz(3)
   /// Set when the post was removed because the event stopped being publishable.
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(3)
+  /// Set when a paid renewal replaced this post, so the sweep takes the old one
+  /// down. Distinct from `deletedAt`, which records that Telegram confirmed it.
+  supersededAt      DateTime? @map("superseded_at") @db.Timestamptz(3)
+
+  /// 0 for every claim the sweeps derive; incremented only by a paid renewal, so
+  /// a taken-down post still blocks a free re-post at its own sequence (0036).
+  republishSeq Int @default(0) @map("republish_seq")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  @@unique([eventId, kind])
+  @@unique([eventId, kind, republishSeq])
   /// The delete sweep's read: posts that are live and whose event no longer is.
   @@index([deletedAt, postedAt])
   @@map("channel_post")

@@ -726,12 +726,42 @@ export class BotService {
         const actionable = owned.filter(
           (event) => isPublicId(event.publicId) && OPEN_EVENT_STATUSES.has(event.status),
         );
-        const rows = actionable.map((event) => [
-          { text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) },
-          { text: '📣 کانال', callbackData: encodeEventCallback('post', event.publicId) },
-          { text: '🚀 ارتقا', callbackData: encodeEventCallback('boost', event.publicId) },
-          { text: '👥 دعوت', callbackData: encodeEventCallback('invite', event.publicId) },
-          { text: '✖️ لغو', callbackData: encodeEventCallback('drop', event.publicId) },
+        // Read once for the whole list rather than per event: the prices are the
+        // same for every row and a settings read per activity is a round trip per
+        // activity to print the same number.
+        const [republishCost, inviteCost, boostCost] = await Promise.all([
+          this.settings.getInt('economy.event_channel_send_coins'),
+          this.settings.getInt('economy.event_top_invite_coins'),
+          this.settings.getInt('economy.boost_coins'),
+        ]);
+        /**
+         * Two rows per activity rather than one.
+         *
+         * Five buttons on a single row render as five slivers of text on a phone,
+         * and the two that cost coins were the least legible of them. The split is
+         * by consequence: what a host *reads* on top, what a host *pays for* or
+         * cannot undo underneath, with the prices named in the labels so the cost
+         * is known before the tap rather than in the dialog after it.
+         */
+        const rows = actionable.flatMap((event) => [
+          [
+            { text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) },
+            { text: '✖️ لغو فعالیت', callbackData: encodeEventCallback('drop', event.publicId) },
+          ],
+          [
+            {
+              text: `🔄 انتشار دوباره (${toPersianDigits(String(republishCost))})`,
+              callbackData: encodeEventCallback('post', event.publicId),
+            },
+            {
+              text: `📨 دعوت ویژه (${toPersianDigits(String(inviteCost))})`,
+              callbackData: encodeEventCallback('invite', event.publicId),
+            },
+            {
+              text: `🚀 ارتقا (${toPersianDigits(String(boostCost))})`,
+              callbackData: encodeEventCallback('boost', event.publicId),
+            },
+          ],
         ]);
 
         return this.reply(updateId, user.id, TEMPLATES.BOT_MY_EVENTS, {
@@ -921,6 +951,17 @@ export class BotService {
          * and arrived after every possible opportunity to act on it.
          */
         if (await this.quotaBlocked(updateId, user)) return;
+        /**
+         * And the price, for the same reason and at the same moment.
+         *
+         * Registration costs `create + channel publish` and the host is told one
+         * number for the pair — the split is how the product is built, not a
+         * choice they are being offered, so quoting it would be describing an
+         * internal boundary.
+         */
+        if (await this.affordBlocked(updateId, user, await this.registrationCost(), 'ثبت فعالیت')) {
+          return;
+        }
         const outcome = await this.conversations.start(user.id, 'CREATE_EVENT', updateId);
         return this.drawWizard(updateId, user, outcome);
       }
@@ -1836,20 +1877,24 @@ export class BotService {
         case 'post': {
           const cost = await this.settings.getInt('economy.event_channel_send_coins');
           await this.answer(callbackQueryId, '');
+          // Affordability first, so «بله» is never the moment somebody learns
+          // they are short. See `affordBlocked`.
+          if (await this.affordBlocked(updateId, user, cost, 'انتشار دوباره در کانال')) return;
           return this.confirmSpend(
             updateId,
             user,
-            `<b>انتشار در کانال</b>\n\n` +
-              `این فعالیت در کانال پایه‌تَم منتشر می‌شود و ` +
-              `<b>${toPersianDigits(String(cost))} سکه</b> از موجودی شما کم می‌شود.`,
-            '📣 بله، منتشر کن',
+            `<b>انتشار دوباره در کانال</b>\n\n` +
+              `این فعالیت دوباره در کانال پایه‌تَم منتشر می‌شود تا از نو دیده شود، و ` +
+              `<b>${toPersianDigits(String(cost))} سکه</b> از موجودی شما کم می‌شود.\n` +
+              `پست قبلی برداشته می‌شود تا کانال دو نسخه از یک فعالیت نداشته باشد.`,
+            '🔄 بله، دوباره منتشر کن',
             encodeEventCallback('postyes', callback.id),
           );
         }
 
         case 'postyes':
           await this.events.publishToChannel(user.id, callback.id);
-          await this.answer(callbackQueryId, 'در کانال منتشر شد 📣');
+          await this.answer(callbackQueryId, 'دوباره در کانال منتشر شد 🔄');
           return;
 
         case 'boost': {
@@ -1858,6 +1903,7 @@ export class BotService {
             this.settings.getInt('economy.boost_duration_hours'),
           ]);
           await this.answer(callbackQueryId, '');
+          if (await this.affordBlocked(updateId, user, cost, 'ارتقای فعالیت')) return;
           return this.confirmSpend(
             updateId,
             user,
@@ -3197,6 +3243,61 @@ export class BotService {
     return true;
   }
 
+  /**
+   * What registering an activity costs, as one number.
+   *
+   * The base and the channel placement are two settings and two ledger rows, and
+   * exactly one number reaches the user. Summed here rather than at each of the
+   * places that quote it, so the precondition, the wizard's opening line and the
+   * confirmation cannot drift apart.
+   */
+  private async registrationCost(): Promise<number> {
+    const [create, channel] = await Promise.all([
+      this.settings.getInt('economy.event_create_coins'),
+      this.settings.getInt('economy.event_channel_publish_coins'),
+    ]);
+    return create + channel;
+  }
+
+  /**
+   * Can they pay for this, asked **before** the thing that costs it.
+   *
+   * ── The pattern, and why it is a helper ─────────────────────────────────────
+   *
+   * Every priced action already refuses correctly — `CoinService.apply` throws
+   * `INSUFFICIENT_COINS` and the transaction rolls back, so nobody is ever
+   * charged for something they did not get. What was wrong was *when* a host
+   * found out. The create wizard asks fourteen questions before it spends
+   * anything, and the three promotion buttons each open a confirmation dialog
+   * whose «بله» is the first moment the balance is consulted. So the product
+   * asked somebody to commit to a purchase and only then told them they could
+   * not afford it.
+   *
+   * This is the read that moves that answer to the front. It is deliberately
+   * **not** a reservation: the authority stays in the service, under the row
+   * lock, inside the transaction. Between this check and the spend a host may
+   * have bought something else on another surface, and the service will refuse
+   * then — correctly. What this buys is that the common case is answered before
+   * any effort is asked of the user, not that the answer is binding.
+   *
+   * Zero costs nothing and blocks nobody: a price an operator has set to zero is
+   * a free action, and a free action has no precondition to fail.
+   */
+  private async affordBlocked(
+    updateId: number,
+    user: BotUser,
+    cost: number,
+    what: string,
+  ): Promise<boolean> {
+    if (cost <= 0) return false;
+
+    const balance = await this.coins.balanceOf(user.id);
+    if (balance >= cost) return false;
+
+    await this.notice(updateId, user, insufficientCoinsNotice(what, cost, balance));
+    return true;
+  }
+
   // ── conversation wizards (ADR-0017) ─────────────────────────────────────────
 
   /**
@@ -3832,9 +3933,20 @@ export class BotService {
     try {
       const created = await this.events.create(user.id, request);
       await this.conversations.clear(user.id);
+      // The two paid options the success message explains. Read after the event
+      // exists, so a settings read cannot be the thing that fails a registration
+      // that has already been paid for.
+      const [inviteCost, inviteRecipients, republishCost] = await Promise.all([
+        this.settings.getInt('economy.event_top_invite_coins'),
+        this.settings.getInt('events.top_invite_max_recipients'),
+        this.settings.getInt('economy.event_channel_send_coins'),
+      ]);
       await this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_CREATED, {
         title: form.title ?? '',
         eventPublicId: created.publicId,
+        inviteCost: toPersianDigits(String(inviteCost)),
+        inviteRecipients: toPersianDigits(String(inviteRecipients)),
+        republishCost: toPersianDigits(String(republishCost)),
       });
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -4437,6 +4549,21 @@ function quotaMessage(quota: HostQuotaStatus): string {
     : `به سقف فعالیت‌های همزمان رسیده‌اید ` +
         `(${toPersianDigits(String(quota.maxConcurrentActive))} فعالیت در پیش رو). ` +
         `یکی از فعالیت‌های خود را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.`;
+}
+
+/**
+ * "You need N, you have M" — the refusal a precondition gives before the work.
+ *
+ * Both numbers, because "not enough coins" alone leaves a host to go and look up
+ * a balance the bot already knows, and the gap is what tells them whether this is
+ * one referral away or out of reach today.
+ */
+function insufficientCoinsNotice(what: string, cost: number, balance: number): string {
+  return (
+    `${what} <b>${toPersianDigits(String(cost))} سکه</b> هزینه دارد و ` +
+    `موجودی شما <b>${toPersianDigits(String(balance))} سکه</b> است.\n\n` +
+    `می‌توانید با دعوت دوستان یا کد هدیه سکه به دست بیاورید — /referral و /gift.`
+  );
 }
 
 function suspendedNotice(supportContact: string | undefined): string {

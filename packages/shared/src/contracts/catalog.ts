@@ -119,6 +119,9 @@ export const promotionPricing = z.object({
    * rolled back — so a client must render "رایگان" rather than «۰ سکه».
    */
   eventCreateCoins: z.number().int().nonnegative(),
+  eventChannelPublishCoins: z.number().int().nonnegative(),
+  /** `eventCreateCoins + eventChannelPublishCoins` — the one number a host is told. */
+  eventRegisterCoins: z.number().int().nonnegative(),
   eventChannelSendCoins: z.number().int().nonnegative(),
   eventTopInviteCoins: z.number().int().nonnegative(),
   /** How many people one paid invitation reaches, at most. */
