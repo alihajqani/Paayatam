@@ -1086,8 +1086,25 @@ describe('EventService.create — the creation charge (M22 phase 5)', () => {
 describe('EventService.publishToChannel — the paid channel post', () => {
   const SEND_COST = SETTING_DEFAULTS['economy.event_channel_send_coins'];
 
+  /**
+   * Put the registration's own placement in the channel.
+   *
+   * A renewal renews something that has actually been posted, so every test here
+   * has to get the sequence-0 claim past the sweep first — which in production is
+   * the worker calling Telegram and writing back the message id.
+   */
+  async function deliverRegistrationPost(eventPublicId: string): Promise<string> {
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
+    await prisma.channelPost.updateMany({
+      where: { eventId: row.id, republishSeq: 0 },
+      data: { postedAt: new Date(), telegramMessageId: 4242 },
+    });
+    return row.id;
+  }
+
   it('claims a PAID post and charges the configured price', async () => {
     const created = await events.create(hostId, validInput());
+    await deliverRegistrationPost(created.publicId);
 
     await events.publishToChannel(hostId, created.publicId);
 
@@ -1123,16 +1140,14 @@ describe('EventService.publishToChannel — the paid channel post', () => {
    */
   it('charges each renewal separately and supersedes the post it replaces', async () => {
     const created = await events.create(hostId, validInput());
-    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
-    // The registration's own post, as the sweep would leave it once Telegram
-    // accepted it — `supersede` only acts on a post that actually reached the
-    // channel.
-    await prisma.channelPost.updateMany({
-      where: { eventId: row.id, republishSeq: 0 },
-      data: { postedAt: new Date(), telegramMessageId: 4242 },
-    });
+    const row = { id: await deliverRegistrationPost(created.publicId) };
 
     await events.publishToChannel(hostId, created.publicId);
+    // The first renewal has to reach the channel before a second is allowed.
+    await prisma.channelPost.updateMany({
+      where: { eventId: row.id, republishSeq: 1 },
+      data: { postedAt: new Date(), telegramMessageId: 4343 },
+    });
     await events.publishToChannel(hostId, created.publicId);
 
     const posts = await prisma.channelPost.findMany({
@@ -1155,12 +1170,17 @@ describe('EventService.publishToChannel — the paid channel post', () => {
   });
 
   /**
-   * A double tap is one renewal, and the sequence is what makes that true: both
-   * calls resolve to the same next sequence, so the second collides on the unique
-   * index before it can charge.
+   * A double tap must not be two purchases.
+   *
+   * The event lock *serialises* the two rather than colliding them, so the second
+   * would otherwise see the first's claim, take the next sequence and pay again —
+   * both perfectly legal as far as the unique index is concerned. What refuses it
+   * is that a renewal renews something the channel has actually shown, and the
+   * first renewal is still unposted.
    */
-  it('refuses a second concurrent renewal rather than charging twice', async () => {
+  it('refuses a second renewal while the first is still unposted', async () => {
     const created = await events.create(hostId, validInput());
+    await deliverRegistrationPost(created.publicId);
 
     const results = await Promise.allSettled([
       events.publishToChannel(hostId, created.publicId),
@@ -1178,6 +1198,7 @@ describe('EventService.publishToChannel — the paid channel post', () => {
       data: { userId: poor, displayName: 'کم‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
     });
     const created = await events.create(poor, validInput());
+    await deliverRegistrationPost(created.publicId);
 
     await expect(events.publishToChannel(poor, created.publicId)).rejects.toMatchObject({
       code: 'INSUFFICIENT_COINS',
@@ -1203,6 +1224,7 @@ describe('EventService.publishToChannel — the paid channel post', () => {
 
   it('refuses an event that has already started', async () => {
     const created = await events.create(hostId, validInput());
+    await deliverRegistrationPost(created.publicId);
     clock.set(new Date('2026-08-20T16:00:00.000Z'));
 
     await expect(events.publishToChannel(hostId, created.publicId)).rejects.toMatchObject({
@@ -1212,17 +1234,15 @@ describe('EventService.publishToChannel — the paid channel post', () => {
 
   it('hands the unposted claim to the sweep, and keeps it after a failure', async () => {
     const created = await events.create(hostId, validInput());
-    await events.publishToChannel(hostId, created.publicId);
 
-    // Two unposted claims: the registration's, and the renewal's. Both were paid
-    // for and both are the sweep's to deliver.
+    // The registration's own claim, before anything renews it.
     const pending = await channel.findUnpostedPaid();
 
-    expect(pending.map((post) => post.eventPublicId)).toEqual([created.publicId, created.publicId]);
-    expect(pending.every((post) => post.kind === 'PAID')).toBe(true);
+    expect(pending.map((post) => post.eventPublicId)).toEqual([created.publicId]);
+    expect(pending[0]?.kind).toBe('PAID');
     // Still there on the next pass: the worker never releases a paid claim,
     // because it is the record that somebody paid.
-    await expect(channel.findUnpostedPaid()).resolves.toHaveLength(2);
+    await expect(channel.findUnpostedPaid()).resolves.toHaveLength(1);
   });
 });
 

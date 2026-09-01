@@ -953,6 +953,26 @@ export class EventService {
          * are legitimately re-publishable, from sequence 0.
          */
         const current = await this.channel.currentPaidPublication(tx, locked.id);
+
+        /**
+         * A renewal renews something that is actually in the channel.
+         *
+         * The event lock serialises two taps rather than colliding them, so
+         * without this a double-tapped «بله» is two sequences and two charges —
+         * both legitimate as far as the unique index is concerned. Requiring the
+         * previous post to have *reached* Telegram is what makes the second tap
+         * refuse: the sweep runs every five minutes, so a host cannot accidentally
+         * buy the same placement twice inside one, and a host who deliberately
+         * renews an hour later still can.
+         *
+         * It also says something true. Renewing a post the channel has not shown
+         * yet buys nothing: the pending claim would be posted and then immediately
+         * superseded by the one that replaced it.
+         */
+        if (current !== null && current.postedAt === null) {
+          throw new AppError(ErrorCode.EVENT_ALREADY_IN_CHANNEL);
+        }
+
         const nextSeq = current === null ? 0 : current.republishSeq + 1;
 
         // Claimed **before** the charge, so a second purchase is refused rather

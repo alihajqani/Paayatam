@@ -202,6 +202,21 @@ async function seedHostAndEvent(): Promise<{ hostId: string; eventPublicId: stri
   return { hostId: host.id, eventPublicId: event.publicId };
 }
 
+/**
+ * A user who can afford to register an activity.
+ *
+ * `/create_event` checks the price before opening the form (v0.6.6), so a wizard
+ * test seeded with an empty wallet never gets a wizard. Separate from `seedGuest`
+ * rather than folded into it, because several suites assert an exact balance and
+ * a helper that silently funded everybody would make those assertions about the
+ * helper.
+ */
+async function seedFundedHost(telegramUserId: number, displayName = 'میزبان'): Promise<string> {
+  const userId = await seedGuest(telegramUserId, displayName);
+  await prisma.coinAccount.create({ data: { userId, balance: 1_000 } });
+  return userId;
+}
+
 async function seedGuest(telegramUserId: number, displayName = 'میهمان'): Promise<string> {
   const guest = await prisma.user.create({
     data: {
@@ -211,11 +226,6 @@ async function seedGuest(telegramUserId: number, displayName = 'میهمان'): 
     },
     select: { id: true },
   });
-  // Funded, because registering and promoting are priced and the precondition
-  // now refuses before the form rather than after it. These tests are about the
-  // wiring, not about affordability — the affordability rules have their own
-  // suite in `event.service.int.test.ts`.
-  await prisma.coinAccount.create({ data: { userId: guest.id, balance: 1_000 } });
   return guest.id;
 }
 
@@ -1507,7 +1517,7 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
 
   /** A refusal holds the step; it does not advance past the question. */
   it('refuses a title that is too short and stays on the step', async () => {
-    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await seedFundedHost(HOST_TELEGRAM_ID);
     await type(HOST_TELEGRAM_ID, '/create_event');
     await type(HOST_TELEGRAM_ID, 'ab');
 
@@ -1521,7 +1531,7 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
    */
   it('does not relay wizard text into an open chat', async () => {
     const { eventPublicId } = await seedHostAndEvent();
-    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const guestId = await seedFundedHost(GUEST_TELEGRAM_ID, 'میهمان');
     await participation.join(guestId, eventPublicId);
 
     await type(GUEST_TELEGRAM_ID, '/create_event');
@@ -1532,7 +1542,7 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
 
   /** Telegram retries any webhook call that did not answer 200. */
   it('does not advance twice on a redelivered update', async () => {
-    await seedGuest(HOST_TELEGRAM_ID, 'میزبان');
+    await seedFundedHost(HOST_TELEGRAM_ID);
     await type(HOST_TELEGRAM_ID, '/create_event');
 
     const replayed = update({
