@@ -87,6 +87,16 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     case 'participation.no_show':
       return recipient(row, 'participantUserPublicId', TEMPLATES.NO_SHOW_RECORDED);
 
+    /**
+     * The guest withdrew, and only the host is told.
+     *
+     * One recipient, unlike `participation.requested`: the guest performed this
+     * action themselves and got the answer in the reply to their own tap, so a
+     * notification would be the product telling them what they just did.
+     */
+    case 'participation.cancelled':
+      return recipient(row, 'hostUserPublicId', TEMPLATES.PARTICIPATION_CANCELLED_HOST);
+
     /** D8: **both** parties, immediately, from one row. */
     case 'waitlist.promoted': {
       const planned: PlannedNotification[] = [];

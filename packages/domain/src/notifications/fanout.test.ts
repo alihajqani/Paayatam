@@ -31,6 +31,26 @@ describe('single-recipient events', () => {
     expect(planned[0]).toMatchObject({ userPublicId: GUEST, templateKey });
   });
 
+  /**
+   * The host, and only the host. The guest cancelled it themselves and already
+   * has their answer; telling them would be the product narrating their own tap.
+   */
+  it('participation.cancelled tells the host', () => {
+    const planned = planNotifications(
+      row('participation.cancelled', {
+        hostUserPublicId: HOST,
+        eventTitle: 'قهوه و بازی',
+        statusBefore: 'PENDING',
+      }),
+    );
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]).toMatchObject({
+      userPublicId: HOST,
+      templateKey: TEMPLATES.PARTICIPATION_CANCELLED_HOST,
+    });
+  });
+
   /** M12: the owner, and never the reporters. */
   it('moderation.content_hidden tells only the owner', () => {
     const planned = planNotifications(

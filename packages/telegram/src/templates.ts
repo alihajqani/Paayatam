@@ -29,6 +29,8 @@ export const TEMPLATES = {
   PARTICIPATION_REQUESTED_GUEST: 'participation.requested.guest',
   PARTICIPATION_ACCEPTED: 'participation.accepted',
   PARTICIPATION_REJECTED: 'participation.rejected',
+  /** The host learns a guest withdrew — before a decision, or after one. */
+  PARTICIPATION_CANCELLED_HOST: 'participation.cancelled.host',
   WAITLIST_PROMOTED_GUEST: 'waitlist.promoted.guest',
   WAITLIST_PROMOTED_HOST: 'waitlist.promoted.host',
   EVENT_CANCELLED: 'event.cancelled',
@@ -293,6 +295,24 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `درخواست شما برای «${str(payload, 'eventTitle')}» پذیرفته نشد.\n` +
           `فعالیت‌های دیگری هم هست — سری بزنید.`,
       };
+
+    /**
+     * Two sentences for two situations, because they ask different things of the
+     * host. A withdrawal before a decision removes something from their queue and
+     * needs no action; one after a decision hands a seat back, which they may
+     * want to fill.
+     */
+    case TEMPLATES.PARTICIPATION_CANCELLED_HOST: {
+      const decided = str(payload, 'statusBefore') === 'ACCEPTED';
+      return {
+        text:
+          `<b>یک درخواست لغو شد</b>\n\n` +
+          `«${str(payload, 'eventTitle')}»\n` +
+          (decided
+            ? `یکی از مهمان‌های پذیرفته‌شده شرکت خود را لغو کرد و یک جا آزاد شد.`
+            : `درخواستی که در انتظار پاسخ شما بود، از سوی خودِ فرد لغو شد. کاری لازم نیست.`),
+      };
+    }
 
     /** D8: the promoted participant learns their status changed, immediately. */
     case TEMPLATES.WAITLIST_PROMOTED_GUEST:

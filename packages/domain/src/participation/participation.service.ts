@@ -602,6 +602,40 @@ export class ParticipationService {
           tx,
         );
 
+        /**
+         * The host learns the request is gone.
+         *
+         * Missing until now, and the gap was worst in exactly the case the host
+         * is most likely to act on: a guest who withdraws *before* a decision
+         * leaves a request sitting in «درخواست‌ها» that the host still believes
+         * they owe an answer to. They open the chat, find it closed, and get no
+         * statement of why. A withdrawal after acceptance mattered too — the
+         * seat came free and nothing said so.
+         *
+         * `statusBefore` is carried because the two cases read differently to a
+         * host: an undecided request has simply gone, while an accepted one
+         * gives a seat back. The template says which.
+         *
+         * Emitted inside the transaction like every other user-visible
+         * consequence, so a rollback cannot leave the host told about a
+         * cancellation that did not happen (ADR-0005).
+         */
+        await this.outbox.emit(
+          {
+            aggregateType: 'event_participant',
+            aggregateId: participant.id,
+            eventType: 'participation.cancelled',
+            payload: {
+              participantPublicId: participant.publicId,
+              eventPublicId: event.publicId,
+              eventTitle: event.title,
+              hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
+              statusBefore: participant.status,
+            },
+          },
+          tx,
+        );
+
         // ADR-0011's D8: the seat a cancellation frees goes to the next person in
         // the queue, immediately and in this transaction.
         await this.fillFreedSeats(tx, event, now);
