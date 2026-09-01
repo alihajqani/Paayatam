@@ -3,11 +3,12 @@ import {
   MENU_COMMANDS,
   MODERATION_MENU_LABEL,
   menuCommandFor,
+  menuGroupKeyFor,
   menuKeyboard,
   menuLabelFor,
 } from './keyboards';
 import { TEMPLATES, render } from './templates';
-import { BOT_COMMANDS } from './commands';
+import { BOT_COMMANDS, COMMAND_GROUPS, commandGroupFor } from './commands';
 
 describe('the persistent menu', () => {
   it('lays out in rows of two', () => {
@@ -21,12 +22,79 @@ describe('the persistent menu', () => {
     expect(menuCommandFor('👤 نمایه من')).toBe('profile');
   });
 
-  it('offers every label it knows how to map back', () => {
-    const labels = menuKeyboard()
-      .flat()
-      .map((button) => button.text);
+  /**
+   * The invariant that actually matters, and the one that must never lapse.
+   *
+   * A reply-keyboard tap arrives as ordinary text. A label this build cannot
+   * resolve is handed to `onText`, which would give it to a wizard as an answer
+   * or **relay it into an anonymous chat** — and a stranger would receive «🎟
+   * فعالیت‌ها» from somebody they are deciding whether to meet.
+   *
+   * It is no longer "the labels are the command map": the keyboard draws two
+   * commands and five categories, and the map is a resolver that is deliberately
+   * wider than the layout. So the assertion is resolvability, by either route.
+   */
+  it('draws nothing it cannot resolve', () => {
+    for (const button of menuKeyboard(true).flat()) {
+      const resolved = menuCommandFor(button.text) ?? menuGroupKeyFor(button.text);
+      expect(resolved, `unresolvable label: ${button.text}`).not.toBeNull();
+    }
+  });
 
-    expect(labels.sort()).toEqual([...MENU_COMMANDS.keys()].sort());
+  /**
+   * A reply keyboard lives on the client until a message replaces it, so on the
+   * day the layout changes there are users holding the previous one. Every label
+   * the keyboard has ever offered therefore stays resolvable whether or not it
+   * is still drawn.
+   */
+  it('still resolves a label it no longer draws', () => {
+    const drawn = new Set(menuKeyboard().flat().map((button) => button.text));
+
+    expect(drawn.has('📨 درخواست‌های من')).toBe(false);
+    expect(menuCommandFor('📨 درخواست‌های من')).toBe('requests');
+  });
+
+  /** The five categories, the same five the inline menu groups by. */
+  it('carries every command group', () => {
+    const drawn = menuKeyboard().flat().map((button) => button.text);
+
+    for (const group of COMMAND_GROUPS) {
+      expect(drawn).toContain(group.label);
+    }
+  });
+
+  it('resolves a category tap to a group the build knows', () => {
+    for (const group of COMMAND_GROUPS) {
+      const key = menuGroupKeyFor(group.label);
+      expect(key).toBe(group.key);
+      expect(commandGroupFor(key as string)).not.toBeNull();
+    }
+  });
+
+  it('tells a category apart from a command', () => {
+    expect(menuGroupKeyFor('➕ ساختن فعالیت')).toBeNull();
+    expect(menuCommandFor('🎟 فعالیت‌ها')).toBeNull();
+    expect(menuGroupKeyFor('سلام')).toBeNull();
+  });
+
+  /**
+   * The product's core action stays one tap away. Everything else is two, which
+   * is the trade the categories make; making *this* two would put creating an
+   * activity behind a menu.
+   */
+  it('keeps the two verbs on their own buttons', () => {
+    const drawn = menuKeyboard().flat().map((button) => button.text);
+
+    expect(drawn).toContain(menuLabelFor('create_event'));
+    expect(drawn).toContain(menuLabelFor('discover'));
+  });
+
+  it('gives a moderator a row of their own', () => {
+    const rows = menuKeyboard(true);
+    const last = rows[rows.length - 1];
+
+    expect(last).toEqual([{ text: MODERATION_MENU_LABEL }]);
+    expect(menuKeyboard().flat().map((b) => b.text)).not.toContain(MODERATION_MENU_LABEL);
   });
 
   /**

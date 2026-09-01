@@ -24,6 +24,7 @@ export {
   menuGroupKeyboard,
   menuGroupText,
   menuKeyboard,
+  menuGroupKeyFor,
   menuLabelFor,
   menuOpenerKeyboard,
   menuRootKeyboard,

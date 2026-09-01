@@ -87,6 +87,7 @@ import {
   encodeChatCallback,
   commandGroupFor,
   decodeMenuCallback,
+  menuGroupKeyFor,
   menuGroupKeyboard,
   menuGroupText,
   menuRootKeyboard,
@@ -1368,6 +1369,23 @@ export class BotService {
      */
     const menuCommand = menuCommandFor(message.text);
     if (menuCommand !== null) return this.onCommand(updateId, user, menuCommand);
+
+    /**
+     * A tap on one of the keyboard's **category** buttons.
+     *
+     * Same reasoning and the same position as the line above: a label the bot
+     * cannot resolve is relayed into an anonymous chat, so both lookups happen
+     * before the wizard and long before the relay. What differs is the answer —
+     * a category is a menu to draw rather than a command to run.
+     *
+     * Sent rather than edited: the user's own message is what arrived, so there
+     * is no bot message on screen to redraw. The group's inline keyboard then
+     * behaves exactly as it does from `/menu`, because it is the same keyboard.
+     */
+    const groupKey = menuGroupKeyFor(message.text);
+    if (groupKey !== null) {
+      return this.reply(updateId, user.id, TEMPLATES.BOT_MENU, { groupKey });
+    }
 
     /**
      * A form in progress claims the message first (ADR-0017).

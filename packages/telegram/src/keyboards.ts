@@ -165,35 +165,27 @@ export interface ReplyButton {
 export type ReplyKeyboard = readonly (readonly ReplyButton[])[];
 
 /**
- * What the bottom keyboard offers.
+ * The labels the bottom keyboard resolves, and what each stands for.
  *
- * ── Why these seven ─────────────────────────────────────────────────────────
+ * ── This is a resolver, not the layout ──────────────────────────────────────
  *
- * The bot answers many commands and this shows seven, because a menu that
- * lists everything is a menu nobody reads. These are the ones with a *verb* —
- * things somebody opens the bot intending to do — and the rest stay discoverable
- * through the "/" menu and `/help`.
+ * It was both until the keyboard grew categories, and the two have to be
+ * separated for one concrete reason: **a reply keyboard lives on the client**.
+ * It stays under the compose box until a message replaces it, so on the day the
+ * layout changes there are users holding the previous one — and a label this
+ * build could not resolve would be handed to `onText` and **relayed into an
+ * anonymous chat**, where a stranger would receive «📨 درخواست‌های من».
  *
- * «تنظیمات» is the seventh, and it is here rather than behind a command
- * because that is the whole point of it: a settings screen nobody can find is a
- * settings screen nobody uses, and `/settings` exists only as a fallback for
- * somebody who types it.
- *
- * «نمایه من» is the sixth and was the one people asked for. It is not a verb,
- * but it is the answer to "what does this thing know about me, and what is my
- * trust score" — and `/profile` was previously reachable only by typing it,
- * which meant only by having read `/help` first.
+ * So every label this keyboard has ever offered stays resolvable, whether or not
+ * it is still drawn. `menuKeyboard` decides what is drawn; this decides what a
+ * tap means, and it is deliberately the wider of the two.
  *
  * ── Why the labels are not the commands ─────────────────────────────────────
  *
  * A reply-keyboard tap sends its label as an ordinary text message, so «ساختن
- * فعالیت» arrives as that text and not as `/create_event`. `BotService` maps
- * them back — see `MENU_COMMANDS`. Labelling the buttons `/create_event` would
- * work and would put slash-commands in the chat transcript, which is exactly the
- * awkwardness this keyboard exists to remove.
- *
- * The mapping is here rather than in the bot so the label and the command it
- * stands for cannot drift into two files.
+ * فعالیت» arrives as that text and not as `/create_event`. Labelling the buttons
+ * `/create_event` would work and would put slash-commands in the chat
+ * transcript, which is exactly the awkwardness this keyboard exists to remove.
  */
 export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['➕ ساختن فعالیت', 'create_event'],
@@ -203,17 +195,19 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['💬 گفتگوها', 'chats'],
   ['👤 نمایه من', 'profile'],
   ['⚙️ تنظیمات', 'settings'],
-  /**
-   * Last row, beside settings.
-   *
-   * A `/bug` command that only exists in the slash menu is a command found by
-   * people who already know it exists. The button is for the other case — the
-   * one this feature is actually for — where somebody is stuck, is not going to
-   * read `/help`, and needs the way to say so to be visible on the screen they
-   * are already looking at.
-   */
   ['🐞 گزارش مشکل', 'bug'],
 ]);
+
+/**
+ * The two commands that keep a button of their own.
+ *
+ * Everything else on the keyboard is a **category**, and these two are the
+ * exceptions because they are the verbs somebody opens the bot intending to do.
+ * Making them two taps to save a row would put the product's core action behind
+ * a menu, which is the trade the categories exist to avoid making everywhere
+ * else — not to make here.
+ */
+const QUICK_COMMANDS: readonly string[] = ['create_event', 'discover'];
 
 /**
  * The moderation button, and why it is not in the map above (ADR-0018).
@@ -235,32 +229,74 @@ export const MODERATION_MENU_LABEL = '🛡 داوری';
 export const MODERATION_MENU_COMMAND = 'moderate';
 
 /**
- * The persistent menu, in rows of two.
+ * The persistent menu: two verbs, then the same five categories as the inline
+ * menu.
+ *
+ * ── Why the categories are down here as well ────────────────────────────────
+ *
+ * The inline menu groups nineteen commands into five and it works — but it is
+ * *on a message*, so finding it means finding a message that has it, or knowing
+ * to type `/menu`. The bottom keyboard is the one control that is always on
+ * screen, and it was eight flat shortcuts chosen by guesswork: eleven commands
+ * had no button anywhere except behind a slash somebody had to have read
+ * `/help` to know about.
+ *
+ * The two are now the same hierarchy reached two ways. Nothing is lost that was
+ * not already inside a group — «درخواست‌های من» is under «فعالیت‌ها», «تنظیمات»
+ * and «نمایه من» under «حساب من», «گزارش مشکل» under a group whose own hint is
+ * «اگر جایی گیر کردید» — and eleven commands gained a route that does not
+ * require knowing they exist.
+ *
+ * ── The layout ──────────────────────────────────────────────────────────────
  *
  * `is_persistent` keeps it open rather than collapsing to an icon the moment
- * something else is sent; `resize_keyboard` stops Telegram giving six buttons
+ * something else is sent; `resize_keyboard` stops Telegram giving seven buttons
  * the height of a full phone keyboard.
  *
  * Two per row rather than three. Telegram truncates a reply-keyboard label that
- * does not fit its share of the width, and «🔎 دیدن فعالیت‌ها» is long enough
- * that three across would show some of these as an ellipsis — a menu you cannot
- * read is the problem this keyboard exists to solve.
- *
- * Chunked rather than sliced by hand, so adding a seventh label lays itself out.
+ * does not fit its share of the width, and «🆘 راهنما و پشتیبانی» is long enough
+ * that three across would show it as an ellipsis — a menu you cannot read is the
+ * problem this keyboard exists to solve. Four rows, which is what a phone can
+ * show above the compose box without the conversation disappearing.
  */
 export function menuKeyboard(moderator = false): ReplyKeyboard {
-  const labels = [...MENU_COMMANDS.keys()];
-  // Appended rather than woven in, so it lands on a row of its own when the
-  // count is even — a staff control beside «گفتگوها» is a mis-tap waiting to
-  // happen, and this is the only button on the keyboard that opens somebody
-  // else's content.
-  if (moderator) labels.push(MODERATION_MENU_LABEL);
-
+  const labels = [
+    ...QUICK_COMMANDS.map((command) => menuLabelFor(command)).filter(
+      (label): label is string => label !== null,
+    ),
+    ...COMMAND_GROUPS.map((group) => group.label),
+  ];
   const rows: ReplyButton[][] = [];
   for (let index = 0; index < labels.length; index += 2) {
     rows.push(labels.slice(index, index + 2).map((text) => ({ text })));
   }
+
+  /**
+   * The staff control, on a row of its own — always, not when the count happens
+   * to be odd.
+   *
+   * It used to be appended to the label list and chunked with the rest, which
+   * put it beside whatever the arithmetic left over. This is the only button on
+   * the keyboard that opens somebody else's content, and a mis-tap on it is a
+   * moderator queue opening in front of a guest looking over a shoulder.
+   */
+  if (moderator) rows.push([{ text: MODERATION_MENU_LABEL }]);
+
   return rows;
+}
+
+/**
+ * Whether a plain text message is a tap on one of the **category** buttons.
+ *
+ * Returns the group's key, or null. Separate from `menuCommandFor` because the
+ * two answers are different things — a command to run, versus a menu to draw —
+ * and because the same rule applies to both: a label the bot cannot resolve is
+ * relayed into somebody's anonymous chat, so both lookups happen before the
+ * relay ever sees the text.
+ */
+export function menuGroupKeyFor(text: string): string | null {
+  const trimmed = text.trim();
+  return COMMAND_GROUPS.find((group) => group.label === trimmed)?.key ?? null;
 }
 
 /**
