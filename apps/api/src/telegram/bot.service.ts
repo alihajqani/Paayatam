@@ -1639,7 +1639,7 @@ export class BotService {
         return;
       }
       await this.answer(callbackQueryId, '');
-      return this.onAdminCallback(update.updateId, user, session, adminCallback);
+      return this.onAdminCallback(update.updateId, user, session, adminCallback, messageId);
     }
 
     /**
@@ -1651,16 +1651,25 @@ export class BotService {
      * policy gate is applied here or nowhere.
      */
     /**
-     * A settings toggle: write it, then redraw the board.
+     * A settings toggle: write it, then redraw the board **in place**.
      *
-     * The redraw is a fresh message rather than an edit, for the reason every
-     * other digest is: `BOT_SETTINGS` is a notification row like any other, and
-     * the wizard's edit path belongs to the wizard. The cost is a short trail of
-     * boards in the chat, which is the same cost `/discover` pays for filters.
+     * The redraw used to be a fresh message, on the argument that
+     * `BOT_SETTINGS` is a notification row like any other and the edit path
+     * belonged to the wizard. That was the wrong trade: flipping three switches
+     * left three dead boards above the live one, each still showing the state it
+     * was drawn with, and the only way to tell which one answers is to press it.
+     * `repaint` is not the wizard's any more — the discovery list and the
+     * command menu both use it — so a control panel behaves like one.
      */
     const settingCallback = parseSettingCallback(data);
     if (settingCallback !== null) {
-      return this.onSettingCallback(update.updateId, user, callbackQueryId, settingCallback);
+      return this.onSettingCallback(
+        update.updateId,
+        user,
+        callbackQueryId,
+        settingCallback,
+        messageId,
+      );
     }
 
     /**
@@ -2299,9 +2308,11 @@ export class BotService {
     user: BotUser,
     session: AdminSession,
     callback: AdminCallback,
+    /** The queue the tap came from, so «بازگشت» redraws it rather than stacking. */
+    editMessageId?: number,
   ): Promise<void> {
     if (callback.action === 'list' || callback.id === null) {
-      return this.drawModerationQueue(updateId, user, session);
+      return this.drawModerationQueue(updateId, user, session, editMessageId);
     }
 
     /**
@@ -2376,6 +2387,8 @@ export class BotService {
     updateId: number,
     user: BotUser,
     session: AdminSession,
+    /** Present when the queue is being redrawn over itself; absent for «داوری». */
+    editMessageId?: number,
   ): Promise<void> {
     let cases;
     try {
@@ -2408,8 +2421,14 @@ export class BotService {
       }));
 
     const rows = adminQueueRows(lines);
+    const text = formatAdminQueue(lines);
+
+    if (editMessageId !== undefined) {
+      return this.repaint(updateId, user, editMessageId, text, rows);
+    }
+
     await this.reply(updateId, user.id, TEMPLATES.BOT_ADMIN_CASES, {
-      text: formatAdminQueue(lines),
+      text,
       ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
     });
   }
@@ -2919,13 +2938,21 @@ export class BotService {
     user: BotUser,
     callbackQueryId: string,
     callback: SettingCallback,
+    /**
+     * The board the switch was flipped on, when Telegram named one.
+     *
+     * Every path below that redraws passes it through, so a settings board is
+     * one message that changes rather than one message per tap. See
+     * `drawSettings`.
+     */
+    editMessageId?: number,
   ): Promise<void> {
     if (isNotificationField(callback.field)) {
       await this.userSettings.update(user.id, {
         [SETTING_FIELDS[callback.field]]: callback.value,
       });
       await this.answer(callbackQueryId, callback.value ? 'روشن شد' : 'خاموش شد');
-      return this.drawSettings(updateId, user);
+      return this.drawSettings(updateId, user, editMessageId);
     }
 
     if (callback.field === SETTING_PRIVACY) {
@@ -2957,13 +2984,13 @@ export class BotService {
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
         await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
-        return this.drawSettings(updateId, user);
+        return this.drawSettings(updateId, user, editMessageId);
       }
       await this.answer(
         callbackQueryId,
         callback.value ? 'دعوت‌ها روشن شد' : 'دیگر دعوتی دریافت نمی‌کنید',
       );
-      return this.drawSettings(updateId, user);
+      return this.drawSettings(updateId, user, editMessageId);
     }
 
     /**
@@ -3011,7 +3038,27 @@ export class BotService {
    * is duplicated into a settings table, because a setting with two homes is a
    * setting that will disagree with itself.
    */
-  private async drawSettings(updateId: number, user: BotUser): Promise<void> {
+  private async drawSettings(
+    updateId: number,
+    user: BotUser,
+    /**
+     * The board this redraw belongs to, when there is one.
+     *
+     * Absent for `/settings` typed as a command or tapped from the menu — there
+     * is nothing on screen yet to redraw — and present for every switch flipped
+     * on a board that is already there.
+     *
+     * ── Why a tap redraws ───────────────────────────────────────────────────
+     *
+     * A settings board is a *control panel*, not four separate answers. Sending
+     * a new one per tap left a column of near-identical boards in the chat, each
+     * showing a state that was true when it was drawn, and the user had to work
+     * out which of them was the live one — the same problem the discovery
+     * filters had before v0.5.9, and it reads worse here because a stale board
+     * shows a switch in the wrong position rather than merely an old list.
+     */
+    editMessageId?: number,
+  ): Promise<void> {
     const [settings, profile] = await Promise.all([
       this.userSettings.get(user.id),
       this.profiles.find(user.id),
@@ -3029,10 +3076,18 @@ export class BotService {
       hasProfile: profile !== null,
     };
 
-    await this.reply(updateId, user.id, TEMPLATES.BOT_SETTINGS, {
-      text: formatSettings(state),
-      keyboard: JSON.stringify(settingsRows(state)),
-    });
+    const text = formatSettings(state);
+    const rows = settingsRows(state);
+
+    if (editMessageId === undefined) {
+      await this.reply(updateId, user.id, TEMPLATES.BOT_SETTINGS, {
+        text,
+        keyboard: JSON.stringify(rows),
+      });
+      return;
+    }
+
+    await this.repaint(updateId, user, editMessageId, text, rows);
   }
 
   /**
