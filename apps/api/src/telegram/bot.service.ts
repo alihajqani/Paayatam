@@ -4106,7 +4106,21 @@ export class BotService {
     const form = asCreateEventForm(raw);
     const request = toCreateEventRequest(form);
     if (request === null) {
-      await this.notice(updateId, user, 'فرم کامل نیست. با «ویرایش» آن را تکمیل کنید.');
+      /**
+       * Which questions are still unanswered, by name.
+       *
+       * «فرم کامل نیست» is a true sentence that leaves somebody staring at a
+       * fourteen-step form with no idea which step to go back to — and the
+       * summary shows «—» for an unanswered field, which is easy to read past.
+       * Naming them turns «ویرایش» from a search into a destination.
+       */
+      await this.notice(
+        updateId,
+        user,
+        `فرم هنوز کامل نیست. این مورد${missingFields(form).length > 1 ? 'ها' : ''} مانده است: ` +
+          `${missingFields(form).join('، ')}.\n\n` +
+          `با «ویرایش» به فرم برگردید و آن را کامل کنید.`,
+      );
       return;
     }
 
@@ -4559,6 +4573,30 @@ export class BotService {
       return this.notice(updateId, user, quotaMessage(await this.events.quotaFor(user.id)));
     }
 
+    /**
+     * A validation refusal names the field it is about.
+     *
+     * `VALIDATION_FAILED` renders as «اطلاعات واردشده کامل یا معتبر نیست», which
+     * is the catalogue being honest about how little it knows: the codes are
+     * total over `ErrorCode` and cannot interpolate. The *refusal* knows more —
+     * `details.fields` is `[{ path, message }]` and every service that raises it
+     * fills it in — and a user who has just answered fourteen questions is owed
+     * the one that was wrong.
+     *
+     * The service's `message` is English and internal («is not a selectable
+     * category»), so it is deliberately not shown; the `path` is mapped to the
+     * question the wizard asked, and an unmapped path degrades to the sentence
+     * alone rather than to a field name nobody recognises.
+     */
+    const named = validationFields(error);
+    if (named.length > 0) {
+      return this.notice(
+        updateId,
+        user,
+        `${ERROR_MESSAGES_FA[error.code]}\n\nاین مورد را بررسی کنید: ${named.join('، ')}.`,
+      );
+    }
+
     await this.notice(updateId, user, ERROR_MESSAGES_FA[error.code]);
   }
 
@@ -4899,6 +4937,87 @@ function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
     ...(form.maxAge !== undefined ? { maxAge: form.maxAge } : {}),
     ...(form.externalLink !== undefined ? { externalLink: form.externalLink } : {}),
   };
+}
+
+/**
+ * The questions a draft has not answered, in Persian, in the order they are
+ * asked.
+ *
+ * The mirror of `toCreateEventRequest`'s refusal — same fields, same order —
+ * because a list that disagreed with the thing that produced it would send
+ * somebody back to a step that was already filled in. Kept beside it for that
+ * reason rather than in the message catalogue.
+ */
+/**
+ * The Persian name of each field a `VALIDATION_FAILED` may point at.
+ *
+ * The wizard's own wording, not the schema's: the user is being sent back to a
+ * question, and «دسته» is what that question was called on the screen they
+ * answered it on.
+ */
+const FIELD_LABELS_FA: Record<string, string> = {
+  title: 'نام فعالیت',
+  description: 'توضیح',
+  categoryId: 'دسته',
+  customCategoryLabel: 'عنوان دسته',
+  cityId: 'شهر',
+  districtId: 'محله',
+  districtLabel: 'محله',
+  startsAt: 'زمان شروع',
+  endsAt: 'زمان پایان',
+  capacity: 'ظرفیت',
+  costType: 'نوع هزینه',
+  costAmount: 'مبلغ',
+  costNote: 'توضیح هزینه',
+  rules: 'قواعد',
+  genderPreference: 'برای چه کسانی',
+  minAge: 'کمترین سن',
+  maxAge: 'بیشترین سن',
+  externalLink: 'لینک',
+  displayName: 'نام نمایشی',
+  birthYear: 'سال تولد',
+  gender: 'جنسیت',
+  bio: 'معرفی',
+};
+
+/**
+ * The fields a refusal named, translated — or nothing.
+ *
+ * `details` is `unknown` on `AppError` and arrives from a service rather than
+ * from a client, but it is still narrowed rather than cast: an older deploy's
+ * shape, or a code that carries different details entirely, must produce an
+ * empty list and the plain sentence rather than «undefined» in a message.
+ */
+function validationFields(error: AppError): string[] {
+  if (error.code !== ErrorCode.VALIDATION_FAILED) return [];
+
+  const details = error.details as { fields?: unknown };
+  if (!Array.isArray(details?.fields)) return [];
+
+  const labels = details.fields
+    .map((entry: unknown) => {
+      const path = (entry as { path?: unknown })?.path;
+      return typeof path === 'string' ? (FIELD_LABELS_FA[path] ?? null) : null;
+    })
+    .filter((label: string | null): label is string => label !== null);
+
+  return [...new Set(labels)];
+}
+
+function missingFields(form: CreateEventForm): string[] {
+  const missing: string[] = [];
+  if (form.title === undefined) missing.push('نام فعالیت');
+  if (form.description === undefined) missing.push('توضیح');
+  if (form.categoryId === undefined) missing.push('دسته');
+  if (form.cityId === undefined) missing.push('شهر');
+  if (form.day === undefined || parseIsoDay(form.day) === null) missing.push('روز');
+  if (form.hour === undefined) missing.push('ساعت');
+  if (form.capacity === undefined) missing.push('ظرفیت');
+  if (form.costType === undefined) missing.push('هزینه');
+  // Never empty in practice — `toCreateEventRequest` only answers null when one
+  // of the above is missing — but a refusal that named nothing would be worse
+  // than the sentence this replaced.
+  return missing.length > 0 ? missing : ['یکی از پاسخ‌ها'];
 }
 
 /** «رایگان» / «۵۰٬۰۰۰ تومان» / «دنگی», for the summary. */

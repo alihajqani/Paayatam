@@ -1,7 +1,7 @@
 import { gender, type Gender } from '@payetam/shared';
 import { toPersianDigits, type Choice } from '@payetam/telegram';
+import { acceptText, quoted, toAsciiDigits } from './answers';
 import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
-import { toAsciiDigits } from './create-event';
 
 /**
  * Editing a profile, as a conversation (ADR-0017).
@@ -122,7 +122,12 @@ const MAX_JALALI_BIRTH_YEAR = 1420;
  */
 function birthYearOf(input: WizardInput): number | string {
   const raw = toAsciiDigits(input.value.trim());
-  if (!/^\d{4}$/.test(raw)) return 'سال تولد را به شمسی و با چهار رقم بنویسید. برای نمونه: ۱۳۷۰';
+  if (!/^\d{4}$/.test(raw)) {
+    return (
+      `سال تولد را به شمسی و با چهار رقم بنویسید — برای نمونه ۱۳۷۰. ` +
+      `${quoted(input.value)} چهار رقم نبود.`
+    );
+  }
 
   const year = Number.parseInt(raw, 10);
 
@@ -134,7 +139,11 @@ function birthYearOf(input: WizardInput): number | string {
     );
   }
   if (year < MIN_JALALI_BIRTH_YEAR || year > MAX_JALALI_BIRTH_YEAR) {
-    return 'سال تولد معتبر نیست.';
+    return (
+      `سال تولد باید بین ${toPersianDigits(String(MIN_JALALI_BIRTH_YEAR))} و ` +
+      `${toPersianDigits(String(MAX_JALALI_BIRTH_YEAR))} شمسی باشد — ` +
+      `${toPersianDigits(String(year))} فرستادید.`
+    );
   }
 
   return jalaliYearToGregorian(year);
@@ -147,12 +156,8 @@ const steps: WizardStep<EditProfileForm>[] = [
     optional: true,
     prompt: () => 'نام نمایشی‌تان چه باشد؟ برای تغییر ندادن، «رد کردن» را بزنید.',
     accept: (input) => {
-      if (input.kind !== 'text') return { ok: false, error: 'نام را بنویسید و بفرستید.' };
-      const value = input.value.trim();
-      if (value.length < 2 || value.length > 40) {
-        return { ok: false, error: 'نام نمایشی باید بین ۲ تا ۴۰ نویسه باشد.' };
-      }
-      return { ok: true, patch: { displayName: value } };
+      const result = acceptText(input, 2, 40, 'نام نمایشی');
+      return result.ok ? { ok: true, patch: { displayName: result.value } } : result;
     },
   },
   {
@@ -163,7 +168,14 @@ const steps: WizardStep<EditProfileForm>[] = [
     load: () => Promise.resolve(GENDERS.map((value) => ({ value, label: GENDER_FA[value] }))),
     accept: (input) => {
       const value = GENDERS.find((candidate) => candidate === input.value);
-      if (value === undefined) return { ok: false, error: 'یکی از گزینه‌ها را انتخاب کنید.' };
+      if (value === undefined) {
+        return {
+          ok: false,
+          error:
+            `یکی از دکمه‌های زیر را بزنید، یا «رد کردن» برای تغییر ندادن — ` +
+            `${quoted(input.value)} گزینهٔ این مرحله نیست.`,
+        };
+      }
       return { ok: true, patch: { gender: value } };
     },
   },
@@ -186,7 +198,12 @@ const steps: WizardStep<EditProfileForm>[] = [
     load: (_form, deps) => deps.provinces(),
     accept: (input) => {
       const id = chosenId(input);
-      if (id === null) return { ok: false, error: 'یکی از استان‌ها را انتخاب کنید.' };
+      if (id === null) {
+        return {
+          ok: false,
+          error: `استان را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+        };
+      }
       // The city belonged to the old province; keeping it would put somebody in
       // a city they did not choose.
       return { ok: true, patch: { provinceId: id, cityId: undefined, districtId: undefined } };
@@ -200,7 +217,14 @@ const steps: WizardStep<EditProfileForm>[] = [
     load: (form, deps) => deps.citiesOf(form.provinceId ?? ''),
     accept: (input) => {
       const id = chosenId(input);
-      if (id === null) return { ok: false, error: 'یکی از شهرها را انتخاب کنید.' };
+      if (id === null) {
+        return {
+          ok: false,
+          error:
+            `شهر را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست. ` +
+            `اگر شهرتان در فهرست نیست، با «بازگشت» استان دیگری را امتحان کنید.`,
+        };
+      }
       return { ok: true, patch: { cityId: id, districtId: undefined } };
     },
   },
@@ -210,10 +234,9 @@ const steps: WizardStep<EditProfileForm>[] = [
     optional: true,
     prompt: () => 'یکی دو جمله دربارهٔ خودتان.',
     accept: (input) => {
-      if (input.kind !== 'text') return { ok: false, error: 'متن را بنویسید و بفرستید.' };
-      const value = input.value.trim();
-      if (value.length > 500) return { ok: false, error: 'معرفی نباید بیش از ۵۰۰ نویسه باشد.' };
-      return { ok: true, patch: { bio: value } };
+      // One character is a legitimate bio; the floor is only "you sent something".
+      const result = acceptText(input, 1, 500, 'معرفی');
+      return result.ok ? { ok: true, patch: { bio: result.value } } : result;
     },
   },
 ];

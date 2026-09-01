@@ -1,5 +1,12 @@
 import { costType, genderPreference, type CostType, type GenderPreference } from '@payetam/shared';
 import { parseIsoDay, toJalali, toPersianDigits, type Choice } from '@payetam/telegram';
+import {
+  acceptInteger,
+  acceptText,
+  quoted,
+  toAsciiDigits,
+  type TextResult,
+} from './answers';
 import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
 
 /**
@@ -86,59 +93,21 @@ function chosenId(input: WizardInput): string | null {
 }
 
 /**
- * Free text, trimmed and bounded, with the bound stated in the refusal.
+ * Free text, and an integer — both delegated to `answers.ts`.
  *
- * Returns the value rather than a patch, because the caller knows which field it
- * is filling and this helper does not. A discriminated union rather than an
- * optional `value`, so the success branch cannot be read without narrowing.
+ * The rules used to live here and said only what the bound was. A refusal that
+ * restates a rule at somebody who believes they satisfied it is not a refusal
+ * they can act on: it never said that the two spaces they typed were trimmed
+ * away, or which of the characters they sent was not a digit. The shared
+ * versions echo what actually arrived, and every wizard gets the same treatment
+ * rather than the one whose author remembered.
  */
-type TextResult = { ok: true; value: string } | { ok: false; error: string };
-
 function text(input: WizardInput, min: number, max: number, what: string): TextResult {
-  if (input.kind !== 'text') {
-    return { ok: false, error: `${what} را بنویسید و بفرستید.` };
-  }
-  const value = input.value.trim();
-  if (value.length < min) {
-    return { ok: false, error: `${what} باید دست‌کم ${toPersianDigits(String(min))} نویسه باشد.` };
-  }
-  if (value.length > max) {
-    return { ok: false, error: `${what} نباید بیش از ${toPersianDigits(String(max))} نویسه باشد.` };
-  }
-  return { ok: true, value };
+  return acceptText(input, min, max, what);
 }
 
-/**
- * Every digit a Persian keyboard can produce, folded to ASCII.
- *
- * Three systems reach this product, not one: ASCII, **Persian** `۰-۹`
- * (U+06F0…) and **Arabic-Indic** `٠-٩` (U+0660…). iOS Persian keyboards emit
- * the second, several Android keyboards emit the third, and a user pasting from
- * a website can produce either. Handling only Persian — which this did — refuses
- * a number the user can see perfectly well on their own screen.
- *
- * `packages/shared`'s `unifyDigits` does this for search and moderation; this is
- * the same rule at the wizard boundary, kept local because the domain must not
- * depend on the normalizer's whole pipeline for one character class.
- */
-export function toAsciiDigits(value: string): string {
-  return value
-    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
-    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
-}
-
-/** An integer from typed text or a tapped button, within bounds. */
 function integer(input: WizardInput, min: number, max: number, what: string): number | string {
-  // Thousands separators, both kinds, because «۵۰,۰۰۰» and «۵۰٬۰۰۰» are how a
-  // price is written by hand.
-  const raw = toAsciiDigits(input.value.trim()).replace(/[,٬\s]/g, '');
-  if (!/^\d{1,9}$/.test(raw)) return `${what} را با عدد بنویسید.`;
-
-  const value = Number.parseInt(raw, 10);
-  if (value < min || value > max) {
-    return `${what} باید بین ${toPersianDigits(String(min))} و ${toPersianDigits(String(max))} باشد.`;
-  }
-  return value;
+  return acceptInteger(input, min, max, what);
 }
 
 const COST_TYPES = costType.options;
@@ -208,14 +177,22 @@ function durationHours(input: WizardInput): number | string {
 
   const digits = /(\d{1,3})/.exec(raw);
   if (digits === null) {
-    return 'مدت را به ساعت بنویسید — برای نمونه «۳ ساعت» یا «تمام روز».';
+    return (
+      `در ${quoted(input.value)} عددی پیدا نکردم. ` +
+      `مدت را به ساعت بنویسید — برای نمونه «۳ ساعت» یا «تمام روز».`
+    );
   }
 
   const hours = Number.parseInt(digits[1] ?? '', 10);
   // Days, when somebody writes «۲ روز».
   const inDays = /روز|day/.test(raw);
   const total = inDays ? hours * 12 : hours;
-  if (total < 1 || total > 24) return 'مدت باید بین ۱ تا ۲۴ ساعت باشد.';
+  if (total < 1 || total > 24) {
+    return (
+      `مدت باید بین ۱ تا ۲۴ ساعت باشد — ` +
+      `${quoted(input.value)} یعنی ${toPersianDigits(String(total))} ساعت.`
+    );
+  }
   return total;
 }
 const CAPACITIES = [2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 50] as const;
@@ -246,7 +223,12 @@ const steps: WizardStep<CreateEventForm>[] = [
     load: (_form, deps) => deps.categories(),
     accept: (input) => {
       const id = chosenId(input);
-      if (id === null) return { ok: false, error: 'یکی از دسته‌ها را انتخاب کنید.' };
+      if (id === null) {
+        return {
+          ok: false,
+          error: `دسته را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+        };
+      }
       return {
         ok: true,
         patch: { categoryId: id, categoryAllowsLabel: input.value.endsWith('.L') },
@@ -270,7 +252,12 @@ const steps: WizardStep<CreateEventForm>[] = [
     load: (_form, deps) => deps.provinces(),
     accept: (input) => {
       const id = chosenId(input);
-      if (id === null) return { ok: false, error: 'یکی از استان‌ها را انتخاب کنید.' };
+      if (id === null) {
+        return {
+          ok: false,
+          error: `استان را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+        };
+      }
       // The city and district are cleared: they belonged to the old province,
       // and leaving them would publish an event in a city the host did not pick.
       return {
@@ -291,7 +278,14 @@ const steps: WizardStep<CreateEventForm>[] = [
     load: (form, deps) => deps.citiesOf(form.provinceId ?? ''),
     accept: (input) => {
       const id = chosenId(input);
-      if (id === null) return { ok: false, error: 'یکی از شهرها را انتخاب کنید.' };
+      if (id === null) {
+        return {
+          ok: false,
+          error:
+            `شهر را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست. ` +
+            `اگر شهرتان در فهرست نیست، با «بازگشت» استان دیگری را امتحان کنید.`,
+        };
+      }
       return { ok: true, patch: { cityId: id, districtId: undefined, districtLabel: undefined } };
     },
   },
@@ -341,7 +335,12 @@ const steps: WizardStep<CreateEventForm>[] = [
       }
 
       const id = chosenId(input);
-      if (id === null) return { ok: false, error: 'یکی از محله‌ها را انتخاب کنید یا بنویسید.' };
+      if (id === null) {
+        return {
+          ok: false,
+          error: `محله را بنویسید یا یکی از دکمه‌ها را بزنید — ${quoted(input.value)} محله‌ای نبود.`,
+        };
+      }
       return { ok: true, patch: { districtId: id, districtLabel: undefined } };
     },
   },
@@ -351,7 +350,14 @@ const steps: WizardStep<CreateEventForm>[] = [
     prompt: () => 'چه روزی؟',
     accept: (input) => {
       const day = parseIsoDay(input.value);
-      if (day === null) return { ok: false, error: 'یکی از روزهای تقویم را انتخاب کنید.' };
+      if (day === null) {
+        return {
+          ok: false,
+          error:
+            'روز را از تقویم زیر انتخاب کنید. تاریخ را دستی ننویسید — ' +
+            'اگر ماه دیگری می‌خواهید، «ماه بعد» را بزنید.',
+        };
+      }
       return { ok: true, patch: { day: input.value } };
     },
   },
@@ -409,7 +415,12 @@ const steps: WizardStep<CreateEventForm>[] = [
       Promise.resolve(COST_TYPES.map((type) => ({ value: type, label: COST_TYPE_FA[type] }))),
     accept: (input) => {
       const type = COST_TYPES.find((candidate) => candidate === input.value);
-      if (type === undefined) return { ok: false, error: 'یکی از گزینه‌ها را انتخاب کنید.' };
+      if (type === undefined) {
+        return {
+          ok: false,
+          error: `نوع هزینه را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+        };
+      }
       // FREE and SPLIT carry no amount, and the contract refuses one on them.
       if (type === 'FREE' || type === 'SPLIT') {
         return { ok: true, patch: { costType: type, costAmount: undefined } };
@@ -443,7 +454,14 @@ const steps: WizardStep<CreateEventForm>[] = [
       Promise.resolve(GENDER_PREFERENCES.map((value) => ({ value, label: GENDER_FA[value] }))),
     accept: (input) => {
       const value = GENDER_PREFERENCES.find((candidate) => candidate === input.value);
-      if (value === undefined) return { ok: false, error: 'یکی از گزینه‌ها را انتخاب کنید.' };
+      if (value === undefined) {
+        return {
+          ok: false,
+          error:
+            `یکی از دکمه‌های زیر را بزنید، یا «رد کردن» اگر فرقی ندارد — ` +
+            `${quoted(input.value)} گزینهٔ این مرحله نیست.`,
+        };
+      }
       return { ok: true, patch: { genderPreference: value } };
     },
   },
@@ -471,7 +489,13 @@ const steps: WizardStep<CreateEventForm>[] = [
       // The one cross-field rule that has to be checked here rather than skipped
       // around: both ends are numbers and the user is looking at the second one.
       if (form.minAge !== undefined && value < form.minAge) {
-        return { ok: false, error: 'بیشترین سن نمی‌تواند از کمترین سن کمتر باشد.' };
+        return {
+          ok: false,
+          error:
+            `بیشترین سن نمی‌تواند از کمترین سن کمتر باشد — ` +
+            `کمترین سن را ${toPersianDigits(String(form.minAge))} گذاشتید و ` +
+            `${toPersianDigits(String(value))} فرستادید.`,
+        };
       }
       return { ok: true, patch: { maxAge: value } };
     },
@@ -496,12 +520,25 @@ const steps: WizardStep<CreateEventForm>[] = [
     accept: (input) => {
       const value = input.value.trim();
       if (!/^https:\/\/\S+$/.test(value)) {
-        return { ok: false, error: 'لینک باید با https:// شروع شود.' };
+        return {
+          ok: false,
+          error:
+            `لینک باید با https:// شروع شود و فاصله نداشته باشد — ` +
+            `${quoted(value)} این شکل را ندارد. اگر لینکی ندارید، «رد کردن» را بزنید.`,
+        };
       }
       return { ok: true, patch: { externalLink: value } };
     },
   },
 ];
+
+/**
+ * Re-exported from `answers.ts`, where the rule now lives.
+ *
+ * Kept as a name on this module because `edit-profile.ts` and the tests import
+ * it from here, and the digit folding is one rule rather than two.
+ */
+export { toAsciiDigits };
 
 export const createEventWizard: WizardDefinition<CreateEventForm> = {
   steps,
