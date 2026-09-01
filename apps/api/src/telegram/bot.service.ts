@@ -117,6 +117,10 @@ import {
   formatMyChats,
   formatPendingReviews,
   formatMyEvents,
+  formatOwnedEvent,
+  myEventsPageRow,
+  parseMyEventsCallback,
+  parseMyEventCommand,
   formatMyRequests,
   parseChatCallback,
   parseEventCallback,
@@ -474,6 +478,13 @@ export class BotService {
       return this.onEventCommand(updateId, user, eventCode, commandMessageId);
     }
 
+    /** `/myevent_01a05d3478` — the same idea, on the host's own list. */
+    const myEventCode = parseMyEventCommand(command);
+    if (myEventCode !== null) {
+      if (!(await this.mayWrite(updateId, user))) return;
+      return this.drawOwnedEvent(updateId, user, myEventCode, commandMessageId);
+    }
+
     switch (command.toLowerCase()) {
       /**
        * `/menu` — every command, two taps away.
@@ -745,72 +756,8 @@ export class BotService {
         });
       }
 
-      case 'myevents': {
-        const owned = await this.events.listOwned(user.id);
-        const text = formatMyEvents(
-          owned.map((event) => ({
-            title: event.title,
-            startsAt: event.startsAt,
-            status: event.status,
-            acceptedCount: event.acceptedCount,
-            capacity: event.capacity,
-          })),
-        );
-        /**
-         * A host console, not a list.
-         *
-         * Publishing to the channel, inviting likely guests and cancelling all
-         * lived in `MyEventsView`; a host using the bot could see their
-         * activities and do nothing to them. One row per event, in the digest's
-         * order, and only for the ones the action is legal on — a button that
-         * exists to be refused is worse than no button.
-         */
-        const actionable = owned.filter(
-          (event) => isPublicId(event.publicId) && OPEN_EVENT_STATUSES.has(event.status),
-        );
-        // Read once for the whole list rather than per event: the prices are the
-        // same for every row and a settings read per activity is a round trip per
-        // activity to print the same number.
-        const [republishCost, inviteCost, boostCost] = await Promise.all([
-          this.settings.getInt('economy.event_channel_send_coins'),
-          this.settings.getInt('economy.event_top_invite_coins'),
-          this.settings.getInt('economy.boost_coins'),
-        ]);
-        /**
-         * Two rows per activity rather than one.
-         *
-         * Five buttons on a single row render as five slivers of text on a phone,
-         * and the two that cost coins were the least legible of them. The split is
-         * by consequence: what a host *reads* on top, what a host *pays for* or
-         * cannot undo underneath, with the prices named in the labels so the cost
-         * is known before the tap rather than in the dialog after it.
-         */
-        const rows = actionable.flatMap((event) => [
-          [
-            { text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) },
-            { text: '✖️ لغو فعالیت', callbackData: encodeEventCallback('drop', event.publicId) },
-          ],
-          [
-            {
-              text: `🔄 انتشار دوباره (${toPersianDigits(String(republishCost))})`,
-              callbackData: encodeEventCallback('post', event.publicId),
-            },
-            {
-              text: `📨 دعوت ویژه (${toPersianDigits(String(inviteCost))})`,
-              callbackData: encodeEventCallback('invite', event.publicId),
-            },
-            {
-              text: `🚀 ارتقا (${toPersianDigits(String(boostCost))})`,
-              callbackData: encodeEventCallback('boost', event.publicId),
-            },
-          ],
-        ]);
-
-        return this.reply(updateId, user.id, TEMPLATES.BOT_MY_EVENTS, {
-          text,
-          ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
-        });
-      }
+      case 'myevents':
+        return this.drawMyEvents(updateId, user, 0);
 
       /**
        * `/chats` — the other half of the advice `ambiguityAdvice` already gives.
@@ -1705,6 +1652,17 @@ export class BotService {
     if (codeCallback !== null) {
       await this.answer(callbackQueryId, '');
       return this.openCodeForm(update.updateId, user, codeCallback === 'ref' ? 'referral' : 'gift');
+    }
+
+    /**
+     * A page of «فعالیت‌های من», redrawn over the list it was tapped on.
+     *
+     * A read, like the discovery paging beside it, so no `mayWrite`.
+     */
+    const myEventsPage = parseMyEventsCallback(data);
+    if (myEventsPage !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.drawMyEvents(update.updateId, user, myEventsPage, messageId);
     }
 
     /**
@@ -2720,6 +2678,182 @@ export class BotService {
               ...backRow,
             ],
       ),
+    });
+  }
+
+  /**
+   * «فعالیت‌های من» — the host's own activities, one page at a time.
+   *
+   * ── Why this is a list and not the console it was ───────────────────────────
+   *
+   * The console put five buttons under every activity — guests, cancel,
+   * republish, invite, boost. Six activities is thirty buttons, and two of them
+   * spend coins: the only thing between a host and paying to republish the wrong
+   * activity was matching a number in a keyboard to a number in a list they had
+   * scrolled past. The actions now live under the activity they act on, where
+   * there is one of each and nothing to match.
+   *
+   * ── Why the paging is in memory ─────────────────────────────────────────────
+   *
+   * `listOwned` already takes at most a hundred rows, which is where the honest
+   * ceiling is — and a hundred rows of a host's own activities is one indexed
+   * read on `host_user_id`. Adding an offset to it would be a second query shape
+   * for a table that is small by construction, and «بعدی» would still need to
+   * know whether a further page exists.
+   */
+  private async drawMyEvents(
+    updateId: number,
+    user: BotUser,
+    page: number,
+    /** The list being redrawn, when a page button was tapped rather than typed. */
+    editMessageId?: number,
+  ): Promise<void> {
+    const owned = await this.events.listOwned(user.id);
+    const start = page * MY_EVENTS_LIMIT;
+    const shown = owned.slice(start, start + MY_EVENTS_LIMIT);
+    const hasNext = owned.length > start + MY_EVENTS_LIMIT;
+
+    /**
+     * A page past the end is a stale button, not an empty list.
+     *
+     * It happens: a host on page three cancels two activities and taps «بعدی» on
+     * a message drawn before that. Redrawing the last page they can actually see
+     * is better than an empty screen that reads as "you have nothing".
+     */
+    if (shown.length === 0 && page > 0) {
+      return this.drawMyEvents(updateId, user, 0, editMessageId);
+    }
+
+    const text = formatMyEvents(
+      shown.map((event) => ({
+        title: event.title,
+        startsAt: event.startsAt,
+        status: event.status,
+        acceptedCount: event.acceptedCount,
+        capacity: event.capacity,
+        publicId: event.publicId,
+      })),
+      page,
+    );
+    const rows = myEventsPageRow(page, hasNext);
+
+    if (editMessageId === undefined) {
+      await this.reply(updateId, user.id, TEMPLATES.BOT_MY_EVENTS, {
+        text,
+        ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+      });
+      return;
+    }
+
+    await this.repaint(updateId, user, editMessageId, text, rows);
+  }
+
+  /**
+   * `/myevent_01a05d3478` — one of the host's own activities, and what they can
+   * do to it.
+   *
+   * ── Why the lookup is against the list ──────────────────────────────────────
+   *
+   * `listOwned` is host-scoped and capped at a hundred, and it is a read this
+   * screen would make anyway to know whether the code names something of theirs.
+   * Matching the code against it is therefore free, and it is also the
+   * *authorisation*: a code naming somebody else's activity is not in this list,
+   * so it answers «پیدا نشد» — the same answer a code naming nothing gets, which
+   * is what stops the link being an existence oracle (T3.3).
+   *
+   * ── Why the console is four buttons and not five ────────────────────────────
+   *
+   * Read, cancel, republish, invite. Each is drawn only where it is legal, which
+   * is the rule the console already followed — a button that exists to be
+   * refused is worse than no button — and the two that cost coins name their
+   * price in the label, so the number is known before the tap rather than in the
+   * dialog after it.
+   */
+  private async drawOwnedEvent(
+    updateId: number,
+    user: BotUser,
+    code: string,
+    commandMessageId?: number,
+  ): Promise<void> {
+    const prefix = publicIdPrefixOf(code);
+    if (prefix === null) return this.unknownCommand(updateId, user);
+
+    const owned = await this.events.listOwned(user.id);
+    const event = owned.find((candidate) => candidate.publicId.startsWith(prefix));
+    if (event === undefined) {
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.EVENT_NOT_FOUND]);
+    }
+
+    /**
+     * The prices, and who is waiting on an answer.
+     *
+     * `listForEvent` is the read «مهمان‌ها» makes, done once here so the console
+     * can say *why* to open it: «۲ درخواست در انتظار پاسخ شما» is the line that
+     * turns a screen a host is glancing at into one they act on. Bounded by
+     * capacity plus the waitlist, and host-scoped by the service.
+     */
+    const [republishCost, inviteCost, participants] = await Promise.all([
+      this.settings.getInt('economy.event_channel_send_coins'),
+      this.settings.getInt('economy.event_top_invite_coins'),
+      this.participation.listForEvent(user.id, event.publicId),
+    ]);
+    const pendingCount = participants.filter((row) => row.status === 'PENDING').length;
+
+    const text = formatOwnedEvent({
+      title: event.title,
+      description: event.description,
+      categoryName: event.customCategoryLabel ?? event.category.nameFa,
+      where:
+        event.district === null
+          ? event.city.nameFa
+          : `${event.city.nameFa} — ${event.district.nameFa}`,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      status: event.status,
+      capacity: event.capacity,
+      acceptedCount: event.acceptedCount,
+      pendingCount,
+      costType: event.costType,
+      costAmount: event.costAmount,
+    });
+
+    /**
+     * Only what is legal on this activity.
+     *
+     * `OPEN_EVENT_STATUSES` is the same set the console filtered on: a cancelled
+     * or finished activity cannot be published, invited for, or cancelled again,
+     * and `EventService` refuses all three. The guest list stays, because reading
+     * who came is exactly what a host does *after* an activity is over.
+     */
+    const open = OPEN_EVENT_STATUSES.has(event.status);
+    const rows: { text: string; callbackData: string }[][] = [
+      [{ text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) }],
+    ];
+    if (open) {
+      rows.push([
+        {
+          text: `🔄 انتشار دوباره (${toPersianDigits(String(republishCost))})`,
+          callbackData: encodeEventCallback('post', event.publicId),
+        },
+        {
+          text: `📨 دعوت ویژه (${toPersianDigits(String(inviteCost))})`,
+          callbackData: encodeEventCallback('invite', event.publicId),
+        },
+      ]);
+      rows.push([
+        { text: '✖️ لغو فعالیت', callbackData: encodeEventCallback('drop', event.publicId) },
+      ]);
+    }
+    rows.push([
+      {
+        text: '‹ بازگشت به فهرست',
+        callbackData: encodeBackCallback('m', commandMessageId ?? null),
+      },
+    ]);
+
+    await this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
+      text,
+      keyboard: JSON.stringify(rows),
     });
   }
 
@@ -4722,6 +4856,15 @@ export class BotService {
  * and `discoverPageRow` renders the control.
  */
 const DISCOVER_LIMIT = 5;
+
+/**
+ * How many of a host's own activities one page renders.
+ *
+ * The same five, and for the same reason: five entries of four lines each is
+ * most of a phone screen, and a host with thirty activities scrolls past a wall
+ * rather than reading it. The paging control is what makes the sixth reachable.
+ */
+const MY_EVENTS_LIMIT = 5;
 
 /**
  * What a suspended account is told, wherever it tries to write.

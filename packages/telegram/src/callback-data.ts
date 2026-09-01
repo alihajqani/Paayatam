@@ -543,6 +543,42 @@ export function parseBackCallback(data: string): BackCallback | null {
 }
 
 /**
+ * Paging «فعالیت‌های من»: `mv:<page>:x`.
+ *
+ * ── Why it is not the discovery codec ───────────────────────────────────────
+ *
+ * Because there is nothing to filter. A host's own activities are a list of
+ * theirs, ordered newest first, and the only control it needs is which page —
+ * so borrowing a payload with three filter slots would put three fields in a
+ * button that can never mean anything.
+ *
+ * The third field is `x` for the reason the settings protocol's is: every parser
+ * here expects a colon-separated triple, and a two-part shape would be one more
+ * arity for all of them to agree on.
+ */
+const MY_EVENTS_PREFIX = 'mv';
+
+/** The same ceiling `MAX_DISCOVER_PAGE` sets, for the same base-36 reason. */
+export const MAX_MY_EVENTS_PAGE = 35;
+
+export function encodeMyEventsCallback(page: number): string {
+  const clamped = Math.min(Math.max(Math.trunc(page), 0), MAX_MY_EVENTS_PAGE);
+  return `${MY_EVENTS_PREFIX}:${clamped.toString(36)}:x`;
+}
+
+export function parseMyEventsCallback(data: string): number | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, page] = parts;
+  if (prefix !== MY_EVENTS_PREFIX || page === undefined) return null;
+  if (!/^[0-9a-z]$/.test(page)) return null;
+
+  const value = Number.parseInt(page, 36);
+  return value > MAX_MY_EVENTS_PAGE ? null : value;
+}
+
+/**
  * The settings protocol: `st:<field><value>:x`.
  *
  * ── Why a board and not a wizard ────────────────────────────────────────────

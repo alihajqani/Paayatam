@@ -8,8 +8,8 @@ export type { ChannelPostContent, RenderedChannelPost } from './channel';
 export { renderEventInvitation } from './invitation';
 export { formatMyRequests } from './requests';
 export type { MyRequestLine } from './requests';
-export { formatMyEvents } from './events-digest';
-export type { MyEventLine } from './events-digest';
+export { formatMyEvents, formatOwnedEvent, myEventsPageRow } from './events-digest';
+export type { MyEventLine, OwnedEventLine } from './events-digest';
 export { formatMyChats } from './chats-digest';
 export type { MyChatLine } from './chats-digest';
 export { ENTRY_SEPARATOR, formatDiscovered } from './discover-digest';
@@ -55,13 +55,17 @@ export type { AdminCallback, AdminCallbackAction } from './callback-data';
 export { CODE_CALLBACK_KINDS, encodeCodeCallback, parseCodeCallback } from './callback-data';
 export { encodeChannelRecheckCallback, isChannelRecheckCallback } from './callback-data';
 export { MAX_DISCOVER_PAGE } from './callback-data';
+export { MAX_MY_EVENTS_PAGE, encodeMyEventsCallback, parseMyEventsCallback } from './callback-data';
 export { BACK_TARGETS, encodeBackCallback, parseBackCallback } from './callback-data';
 export type { BackCallback, BackTarget, DiscoverView } from './callback-data';
 export {
   EVENT_COMMAND,
+  MY_EVENT_COMMAND,
   eventCodeOf,
   eventCommandFor,
+  myEventCommandFor,
   parseEventCommand,
+  parseMyEventCommand,
   publicIdPrefixOf,
 } from './event-code';
 export type { CodeCallbackKind } from './callback-data';

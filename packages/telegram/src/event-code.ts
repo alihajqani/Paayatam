@@ -48,6 +48,18 @@ const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 /** The command that opens one activity from the discovery list. */
 export const EVENT_COMMAND = 'event_';
 
+/**
+ * The command that opens one of the caller's **own** activities.
+ *
+ * A second command rather than one that behaves differently for a host, for two
+ * reasons. «بازگشت به فهرست» has to know which list to return to, and the two
+ * lists are different messages. And the screens are different — a stranger gets
+ * a join button, a host gets a console that can cancel the activity — so
+ * deciding from *who is asking* would make one link mean two things and put an
+ * ownership check in front of every open.
+ */
+export const MY_EVENT_COMMAND = 'myevent_';
+
 /** `01a05d34-7820-…` → `01a05d3478`. Null for anything that is not a public id. */
 export function eventCodeOf(publicId: string): string | null {
   if (!PUBLIC_ID.test(publicId)) return null;
@@ -77,6 +89,12 @@ export function eventCommandFor(publicId: string): string | null {
   return code === null ? null : `/${EVENT_COMMAND}${code}`;
 }
 
+/** `/myevent_01a05d3478`, for a line of «فعالیت‌های من». */
+export function myEventCommandFor(publicId: string): string | null {
+  const code = eventCodeOf(publicId);
+  return code === null ? null : `/${MY_EVENT_COMMAND}${code}`;
+}
+
 /**
  * The code a `/event_…` command carries.
  *
@@ -84,9 +102,18 @@ export function eventCommandFor(publicId: string): string | null {
  * its fixed names before the `switch` sees them.
  */
 export function parseEventCommand(command: string): string | null {
-  const lowered = command.toLowerCase();
-  if (!lowered.startsWith(EVENT_COMMAND)) return null;
+  return codeAfter(command, EVENT_COMMAND);
+}
 
-  const code = lowered.slice(EVENT_COMMAND.length);
+/** The code a `/myevent_…` command carries. */
+export function parseMyEventCommand(command: string): string | null {
+  return codeAfter(command, MY_EVENT_COMMAND);
+}
+
+function codeAfter(command: string, prefix: string): string | null {
+  const lowered = command.toLowerCase();
+  if (!lowered.startsWith(prefix)) return null;
+
+  const code = lowered.slice(prefix.length);
   return CODE.test(code) ? code : null;
 }

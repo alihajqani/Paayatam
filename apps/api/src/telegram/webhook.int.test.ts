@@ -609,7 +609,7 @@ describe('commands', () => {
       select: { payload: true },
     });
 
-    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز رویدادی نساخته‌اید');
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز فعالیتی نساخته‌اید');
   });
 
   /** The seats are the point: "do I still need people" without opening anything. */
@@ -1974,27 +1974,62 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     return row.payload as Record<string, unknown>;
   }
 
-  it('offers guests and cancel on one row, and the three paid actions on another', async () => {
+  /**
+   * The console moved off the list and under the activity (v0.6.7).
+   *
+   * Five buttons per activity meant thirty buttons for six activities, two of
+   * which spend coins — and the only thing between a host and paying to
+   * republish the wrong one was matching a number in a keyboard to a number in a
+   * list they had scrolled past.
+   */
+  it('lists the activities with a command each, and no per-activity buttons', async () => {
     const { eventPublicId } = await seedHostAndEvent();
 
     await type(HOST_TELEGRAM_ID, '/myevents');
 
-    const rows = JSON.parse(String((await latest(TEMPLATES.BOT_MY_EVENTS))['keyboard'])) as {
+    const payload = await latest(TEMPLATES.BOT_MY_EVENTS);
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    expect(String(payload['text'])).toContain(`/myevent_${code}`);
+    // One activity fits on one page, so there is no keyboard at all.
+    expect(payload['keyboard']).toBeUndefined();
+  });
+
+  it('opens one activity with the four things a host can do to it', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    await type(HOST_TELEGRAM_ID, `/myevent_${code}`);
+
+    const rows = JSON.parse(String((await latest(TEMPLATES.BOT_EVENT_DETAIL))['keyboard'])) as {
       text: string;
       callbackData: string;
     }[][];
-    // Two rows per activity: what a host reads on top, what costs coins or
-    // cannot be undone underneath.
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.map((button) => button.callbackData)).toEqual([
-      `ev:who:${eventPublicId}`,
-      `ev:drop:${eventPublicId}`,
-    ]);
-    expect(rows[1]?.map((button) => button.callbackData)).toEqual([
-      `ev:post:${eventPublicId}`,
-      `ev:invite:${eventPublicId}`,
-      `ev:boost:${eventPublicId}`,
-    ]);
+    const data = rows.flat().map((button) => button.callbackData);
+
+    expect(data).toContain(`ev:who:${eventPublicId}`);
+    expect(data).toContain(`ev:post:${eventPublicId}`);
+    expect(data).toContain(`ev:invite:${eventPublicId}`);
+    expect(data).toContain(`ev:drop:${eventPublicId}`);
+    // And the way back, carrying the command message so it can be tidied away.
+    expect(data.some((entry) => /^bk:m:\d+$/.test(entry))).toBe(true);
+  });
+
+  /**
+   * A code naming somebody else's activity is not in `listOwned`, so it answers
+   * the same «پیدا نشد» a code naming nothing gets — which is what stops the
+   * link being an existence oracle (T3.3).
+   */
+  it('does not open an activity the caller does not host', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    await type(GUEST_TELEGRAM_ID, `/myevent_${code}`);
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL } }),
+    ).toBe(0);
   });
 
   /**
