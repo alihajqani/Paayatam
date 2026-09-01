@@ -329,6 +329,35 @@ export function menuLabelFor(command: string): string | null {
   return null;
 }
 
+/**
+ * The button on the **drawn** keyboard that gets you to a command.
+ *
+ * ── Why `menuLabelFor` is no longer enough for copy ─────────────────────────
+ *
+ * `MENU_COMMANDS` is a resolver and is deliberately wider than the layout: it
+ * keeps every label the keyboard has ever drawn, so a client still holding the
+ * previous one is understood rather than relaying «📨 درخواست‌های من» into a
+ * stranger's chat. That makes it exactly the wrong thing for a *sentence* to be
+ * built from — «فهرست گفتگوها زیر دکمهٔ «💬 گفتگوها» است» names a button that is
+ * no longer under anybody's compose box.
+ *
+ * This answers the question copy actually asks: **where do I tap?** For the two
+ * verbs that keep a button of their own, that is the button. For everything
+ * else it is the category the command lives in, which is one tap from the same
+ * keyboard and is where the reader will find it.
+ *
+ * Null for a command in no group and on no button — `/start` — so the copy can
+ * fall back to naming a command, which is what somebody types when nothing else
+ * has worked.
+ */
+export function menuPathFor(command: string): string | null {
+  const own = menuLabelFor(command);
+  if (own !== null && QUICK_COMMANDS.includes(command)) return own;
+
+  const group = COMMAND_GROUPS.find((candidate) => candidate.commands.includes(command));
+  return group?.label ?? own;
+}
+
 export function menuCommandFor(text: string): string | null {
   const trimmed = text.trim();
   // Resolved for everybody, authorised for nobody — see `MODERATION_MENU_LABEL`.

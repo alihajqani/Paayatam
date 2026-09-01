@@ -6,6 +6,7 @@ import {
   menuGroupKeyFor,
   menuKeyboard,
   menuLabelFor,
+  menuPathFor,
 } from './keyboards';
 import { TEMPLATES, render } from './templates';
 import { BOT_COMMANDS, COMMAND_GROUPS, commandGroupFor } from './commands';
@@ -146,6 +147,56 @@ describe('the persistent menu', () => {
  * sentence telling somebody to type something, in a product whose whole point is
  * that they never have to, given at the exact moment they are stuck.
  */
+/**
+ * Copy names a button somebody can see, which since v0.6.7 is not the same
+ * question as "what is this command's label".
+ */
+describe('menuPathFor', () => {
+  it('names the button itself for a command that has one', () => {
+    const drawn = menuKeyboard()
+      .flat()
+      .map((button) => button.text);
+
+    for (const command of ['create_event', 'discover']) {
+      const path = menuPathFor(command) as string;
+      expect(path).toBe(menuLabelFor(command));
+      expect(drawn).toContain(path);
+    }
+  });
+
+  /**
+   * The one that used to be wrong. «فهرست گفتگوها زیر دکمهٔ «💬 گفتگوها» است»
+   * named a button that is no longer under anybody's compose box — the label
+   * survives in `MENU_COMMANDS` because a stale client's tap has to resolve, and
+   * that is exactly why the resolver is the wrong thing for a sentence.
+   */
+  it('names the category for a command that lives inside one', () => {
+    const drawn = menuKeyboard()
+      .flat()
+      .map((button) => button.text);
+
+    for (const command of ['chats', 'settings', 'myevents', 'requests', 'bug', 'trust']) {
+      const path = menuPathFor(command) as string;
+      expect(path, command).not.toBeNull();
+      expect(drawn, command).toContain(path);
+    }
+  });
+
+  it('never names a button the keyboard does not draw', () => {
+    const drawn = new Set(
+      menuKeyboard()
+        .flat()
+        .map((button) => button.text),
+    );
+
+    for (const { command } of BOT_COMMANDS) {
+      const path = menuPathFor(command);
+      if (path === null) continue;
+      expect(drawn.has(path), `${command} → ${path}`).toBe(true);
+    }
+  });
+});
+
 describe('menuLabelFor', () => {
   it('round-trips with menuCommandFor for every button', () => {
     for (const [label, command] of MENU_COMMANDS) {

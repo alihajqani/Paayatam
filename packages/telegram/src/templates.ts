@@ -7,7 +7,7 @@ import {
   hostDecisionKeyboard,
   menuGroupKeyboard,
   menuGroupText,
-  menuLabelFor,
+  menuPathFor,
   menuOpenerKeyboard,
   menuRootKeyboard,
   menuRootText,
@@ -554,15 +554,15 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `<b>گفتگوها</b>\n` +
           `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
           `اگر فقط یک گفتگوی باز دارید، نوشتن پیام کافی است. ` +
-          `فهرست گفتگوهای باز زیر دکمهٔ «${menuLabelFor('chats') ?? 'گفتگوها'}» است.\n\n` +
+          `فهرست گفتگوهای باز زیر دکمهٔ «${menuPathFor('chats') ?? 'گفتگو و نظرها'}» است.\n\n` +
           `<b>درخواست‌ها</b>\n` +
           `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
           `لازم نیست چیزی را باز کنید.\n\n` +
           `<b>بقیهٔ کارها</b>\n` +
           `لازم نیست چیزی تایپ کنید: دکمه‌های پایین صفحه — ` +
-          `«${menuLabelFor('create_event') ?? 'ساختن فعالیت'}»، ` +
-          `«${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}»، ` +
-          `«${menuLabelFor('settings') ?? 'تنظیمات'}» — همه‌چیز را باز می‌کنند. ` +
+          `«${menuPathFor('create_event') ?? 'ساختن فعالیت'}»، ` +
+          `«${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}»، ` +
+          `«${menuPathFor('settings') ?? 'حساب من'}» — همه‌چیز را باز می‌کنند. ` +
           `فرمان‌های بالا هم کار می‌کنند، برای وقتی که تایپ کردن سریع‌تر است.`,
         `home`,
       );
@@ -756,7 +756,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      *
      * **The buttons, by their own labels.** It used to name two commands, which
      * is the first thing a brand-new user reads and therefore the worst place to
-     * teach them that this product is typed at. `menuLabelFor` reverse-looks-up
+     * teach them that this product is typed at. `menuPathFor` reverse-looks-up
      * the keyboard, so a renamed button cannot leave this sentence pointing at
      * one that no longer says that.
      */
@@ -764,8 +764,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return opened(
         `<b>ثبت شد</b> ✅\n\n` +
           `حالا می‌توانید از پایه‌تم استفاده کنید. از دکمه‌های پایین صفحه:\n` +
-          `<b>${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}</b> — فعالیت‌های نزدیک شما\n` +
-          `<b>${menuLabelFor('create_event') ?? 'ساختن فعالیت'}</b> — ساختن فعالیت تازه`,
+          `<b>${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}</b> — فعالیت‌های نزدیک شما\n` +
+          `<b>${menuPathFor('create_event') ?? 'ساختن فعالیت'}</b> — ساختن فعالیت تازه`,
         `home`,
       );
 
@@ -845,7 +845,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return opened(
         `<b>فعالیت ثبت شد</b> ✅\n\n` +
           `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n` +
-          `از دکمهٔ «${menuLabelFor('myevents') ?? 'فعالیت‌های من'}» می‌توانید ` +
+          `از دکمهٔ «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید ` +
           `درخواست‌ها را ببینید و پاسخ بدهید.\n\n` +
           `<b>اگر بخواهید بیشتر دیده شود:</b>\n` +
           `📨 <b>دعوت ویژه</b> — فعالیت شما با پیام اختصاصی برای حداکثر ` +

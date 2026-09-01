@@ -103,7 +103,7 @@ import {
   formatAdminCasePrompt,
   formatAdminQueue,
   isNotificationField,
-  menuLabelFor,
+  menuPathFor,
   MODERATION_MENU_COMMAND,
   SETTING_FIELDS,
   SETTING_LANGUAGE,
@@ -3739,7 +3739,7 @@ export class BotService {
         return this.notice(
           updateId,
           user,
-          `فرم بسته شد. هر وقت خواستید دکمهٔ «${menuLabelFor('create_event') ?? 'ساختن فعالیت'}» را بزنید.`,
+          `فرم بسته شد. هر وقت خواستید دکمهٔ «${menuPathFor('create_event') ?? 'ساختن فعالیت'}» را بزنید.`,
         );
 
       case 'submit':
@@ -4430,8 +4430,8 @@ export class BotService {
         updateId,
         user,
         'نمایه شما ساخته شد ✅\n\nحالا از دکمه‌های پایین صفحه، ' +
-          `«${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}» فعالیت‌های نزدیک را نشان می‌دهد ` +
-          `و «${menuLabelFor('create_event') ?? 'ساختن فعالیت'}» یکی می‌سازد.`,
+          `«${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» فعالیت‌های نزدیک را نشان می‌دهد ` +
+          `و «${menuPathFor('create_event') ?? 'ساختن فعالیت'}» یکی می‌سازد.`,
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -4836,8 +4836,8 @@ export class BotService {
     );
 
     return live.length === 0
-      ? `گفتگوی بازی ندارید. با دکمهٔ «${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}» یک فعالیت پیدا کنید و درخواست پیوستن بفرستید.`
-      : `چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. فهرست گفتگوها زیر دکمهٔ «${menuLabelFor('chats') ?? 'گفتگوها'}» است.`;
+      ? `گفتگوی بازی ندارید. با دکمهٔ «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» یک فعالیت پیدا کنید و درخواست پیوستن بفرستید.`
+      : `چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. فهرست گفتگوها زیر دکمهٔ «${menuPathFor('chats') ?? 'گفتگو و نظرها'}» است.`;
   }
 }
 

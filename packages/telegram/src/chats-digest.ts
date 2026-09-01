@@ -1,7 +1,7 @@
 import { CHAT_STATUS_FA, type ChatStatus } from '@payetam/shared';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
-import { menuLabelFor } from './keyboards';
+import { menuPathFor } from './keyboards';
 
 /** One line of the conversation digest: who it is with, what it is about, where it stands. */
 export interface MyChatLine {
@@ -62,7 +62,7 @@ export function formatMyChats(lines: readonly MyChatLine[]): string {
   return buildDigest({
     title: 'گفتگوهای شما',
     empty:
-      `گفتگوی بازی ندارید. از دکمهٔ «${menuLabelFor('discover') ?? 'دیدن فعالیت‌ها'}» ` +
+      `گفتگوی بازی ندارید. از دکمهٔ «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» ` +
       `یک فعالیت انتخاب کنید و درخواست پیوستن بفرستید.`,
     entries,
   });
