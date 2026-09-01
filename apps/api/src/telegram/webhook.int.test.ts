@@ -2696,9 +2696,14 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       : [];
   }
 
-  it('offers detail and join on every discovered event, and joining works', async () => {
+  /**
+   * The list is opened by a command on the line, not by a numbered button under
+   * it (v0.6.7). Five activities used to mean ten buttons whose labels were
+   * numbers the reader had to match back to lines.
+   */
+  it('gives every discovered activity a command that opens it', async () => {
     const { eventPublicId } = await seedHostAndEvent();
-    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await seedGuest(GUEST_TELEGRAM_ID);
 
     await type(GUEST_TELEGRAM_ID, '/discover');
 
@@ -2707,12 +2712,43 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       orderBy: { createdAt: 'desc' },
       select: { payload: true },
     });
-    const buttons = keyboardOf(digest.payload).flat();
-    expect(buttons.length).toBeGreaterThan(0);
-    // Read it before joining it: «جزئیات» is the first button, and the ids in
-    // both are the event's and nothing else.
-    expect(buttons[0]?.callbackData).toBe(`ev:show:${eventPublicId}`);
-    expect(buttons[1]?.callbackData).toBe(`ev:join:${eventPublicId}`);
+    const body = String((digest.payload as Record<string, unknown>)['text']);
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    expect(body).toContain(`/event_${code}`);
+    // The keyboard is the list's own controls now — paging and the filters —
+    // and carries nothing addressed to one activity.
+    expect(
+      keyboardOf(digest.payload)
+        .flat()
+        .some((button) => button.callbackData.startsWith('ev:')),
+    ).toBe(false);
+  });
+
+  /**
+   * The command opens the activity in full, with the join button on it and a way
+   * back that takes both messages out of the chat again.
+   */
+  it('opens one activity, with a way to join it and a way back', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    await type(GUEST_TELEGRAM_ID, `/event_${code}`);
+
+    const detail = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const buttons = keyboardOf(detail.payload).flat();
+
+    expect(buttons.some((b) => b.callbackData === `ev:join:${eventPublicId}`)).toBe(true);
+    expect(buttons.some((b) => b.text.includes('گزارش'))).toBe(true);
+    // The back button carries the id of the user's own command message, which is
+    // the only place that id exists.
+    const back = buttons.find((b) => b.callbackData.startsWith('bk:'));
+    expect(back?.callbackData).toMatch(/^bk:d:\d+$/);
 
     await tap(GUEST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
 
@@ -2723,12 +2759,23 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     expect(participant.status).toBe('PENDING');
   });
 
+  /** A code that names nothing is refused the way an unknown activity is. */
+  it('refuses a code that matches no published activity', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await type(GUEST_TELEGRAM_ID, '/event_0000000000');
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL } }),
+    ).toBe(0);
+  });
+
   /**
    * `/discover` was city-only since M13 because the bot holds no query state.
    * It does not have to: the whole filter set fits in the callback, so every
    * button carries the complete query it produces.
    */
-  it('offers when, cost and category filters under the events', async () => {
+  it('puts the filters one tap away rather than under the list', async () => {
     await seedHostAndEvent();
     await seedGuest(GUEST_TELEGRAM_ID);
 
@@ -2740,12 +2787,12 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       select: { payload: true },
     });
     const all = keyboardOf(digest.payload).flat();
-    const filters = all.filter((button) => button.callbackData.startsWith('dc:'));
-    // Three whens, two costs, and «همه» plus every category.
-    expect(filters.length).toBeGreaterThanOrEqual(6);
-    // Nothing is filtered yet, so «هر زمان» is the marked one. The third flag
-    // character is the page (v0.6.5): `dc:<when><cost><page>:<category>`.
-    expect(filters.find((button) => button.callbackData === 'dc:aa0:all')?.text).toContain('✅');
+
+    // One control, carrying the whole query plus «show me the panel».
+    // `dc:<when><cost><page><view>:<category>` (v0.6.7).
+    expect(all.some((button) => button.callbackData === 'dc:aa0f:all')).toBe(true);
+    // Six filter rows and five activities do not fit on a phone together.
+    expect(all.filter((button) => button.callbackData.startsWith('dc:'))).toHaveLength(1);
   });
 
   /**
@@ -2771,7 +2818,7 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     });
     expect(before).toBe(1);
 
-    await tap(GUEST_TELEGRAM_ID, 'dc:tf0:all');
+    await tap(GUEST_TELEGRAM_ID, 'dc:tf0l:all');
 
     expect(
       await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_DISCOVER } }),
@@ -2803,29 +2850,30 @@ describe('POST /telegram/:secret — joining and standing down', () => {
   });
 
   /**
-   * The body still names what it searched for — «فعالیتی پیدا نشد» under an
-   * active filter otherwise reads as "your city is empty". Asserted on the
-   * *command* path, which is the one that still sends a message.
+   * Opening the filter panel is a **redraw of the same message**, not a second
+   * one — the list and the panel are one message with two faces (v0.6.7).
+   *
+   * The redraw is a `BOT_EDIT_MESSAGE` job rather than a `notification` row, and
+   * this process runs no worker, so what is asserted here is that no second
+   * message was made. What the panel's keyboard says is asserted without a
+   * database in `discover-views.test.ts`.
    */
-  it('names the active filters in the body', async () => {
+  it('opens the filter panel in place', async () => {
     await seedHostAndEvent();
     await seedGuest(GUEST_TELEGRAM_ID);
 
     await type(GUEST_TELEGRAM_ID, '/discover');
-
-    const digest = await prisma.notification.findFirstOrThrow({
+    const before = await prisma.notification.count({
       where: { templateKey: TEMPLATES.BOT_DISCOVER },
-      orderBy: { createdAt: 'desc' },
-      select: { payload: true },
     });
-    const filters = keyboardOf(digest.payload)
-      .flat()
-      .filter((button) => button.callbackData.startsWith('dc:'));
 
-    // Every button carries the whole query, so «امروز» is reachable in one tap
-    // and the page it would land on is the first.
-    expect(filters.some((button) => button.callbackData === 'dc:ta0:all')).toBe(true);
-    expect(filters.some((button) => button.callbackData === 'dc:af0:all')).toBe(true);
+    await tap(GUEST_TELEGRAM_ID, 'dc:aa0f:all');
+    await tap(GUEST_TELEGRAM_ID, 'dc:ta0f:all');
+    await tap(GUEST_TELEGRAM_ID, 'dc:ta0l:all');
+
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_DISCOVER } }),
+    ).toBe(before);
   });
 
   /** A malformed filter is not a search against everything. */

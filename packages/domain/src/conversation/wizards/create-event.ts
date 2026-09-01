@@ -1,12 +1,6 @@
 import { costType, genderPreference, type CostType, type GenderPreference } from '@payetam/shared';
 import { parseIsoDay, toJalali, toPersianDigits, type Choice } from '@payetam/telegram';
-import {
-  acceptInteger,
-  acceptText,
-  quoted,
-  toAsciiDigits,
-  type TextResult,
-} from './answers';
+import { acceptInteger, acceptText, quoted, toAsciiDigits, type TextResult } from './answers';
 import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
 
 /**

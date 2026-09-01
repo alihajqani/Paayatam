@@ -153,6 +153,13 @@ export interface RankExplanation {
 export interface SearchProvider {
   search(request: SearchRequest): Promise<DiscoveredEvent[]>;
   findPublished(publicId: string): Promise<DiscoveredEvent | null>;
+  /**
+   * The same read, addressed by the first eleven characters of the public id.
+   *
+   * A Telegram command cannot carry a 36-character UUID, so the discovery list's
+   * `/event_…` links carry ten hex digits of one. See `findPublishedByPrefix`.
+   */
+  findPublishedByPrefix(prefix: string): Promise<DiscoveredEvent | null>;
   explain(
     publicId: string,
     request: Omit<SearchRequest, 'limit' | 'after'>,

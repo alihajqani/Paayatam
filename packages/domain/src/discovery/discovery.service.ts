@@ -152,6 +152,19 @@ export class DiscoveryService {
   }
 
   /**
+   * The same activity, named by the short code a `/event_…` command carries.
+   *
+   * `EVENT_NOT_FOUND` for a code that matches nothing and for one that names an
+   * unpublished activity, identically — the same non-oracle `findPublished`
+   * holds, and a shorter name must not be a weaker one.
+   */
+  async findPublishedByPrefix(prefix: string): Promise<DiscoveredEvent> {
+    const event = await this.provider.findPublishedByPrefix(prefix);
+    if (!event) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+    return event;
+  }
+
+  /**
    * Why this event ranks where it does, for this viewer.
    *
    * Exists because a ranking nobody can inspect is one nobody can debug or

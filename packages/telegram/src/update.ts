@@ -79,7 +79,22 @@ export type BotIntent =
    * carry the code. Null rather than an empty string, so «they typed nothing»
    * and «they typed spaces» are the same case for every handler.
    */
-  | { kind: 'COMMAND'; from: BotSender; command: string; argument: string | null }
+  | {
+      kind: 'COMMAND';
+      from: BotSender;
+      command: string;
+      argument: string | null;
+      /**
+       * The user's own message, so a handler can take it back out of the chat.
+       *
+       * One reader: `/event_…`, whose detail screen carries a «بازگشت به فهرست»
+       * that deletes the activity *and the command that opened it*, so the list
+       * becomes the last thing in the conversation again. Nothing else in the
+       * update names that message, and the button that will delete it is built
+       * before the message could be looked up any other way.
+       */
+      messageId?: number;
+    }
   /** Plain text in the bot's DM: a chat message, once we know which chat. */
   | { kind: 'TEXT'; from: BotSender; message: BotInboundText; replyToMessageId: number | null }
   /** The sender edited a message they had already sent (D10). */
@@ -317,7 +332,13 @@ function intentOf(parsed: z.infer<typeof update>): BotIntent | null {
       const rest = command[2]?.trim();
       const argument = rest === undefined || rest === '' ? null : rest;
       if (name.toLowerCase() !== 'start') {
-        return { kind: 'COMMAND', from, command: name, argument };
+        return {
+          kind: 'COMMAND',
+          from,
+          command: name,
+          argument,
+          messageId: parsed.message.message_id,
+        };
       }
       return { kind: 'START', from, payload: argument };
     }

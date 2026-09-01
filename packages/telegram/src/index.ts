@@ -12,7 +12,7 @@ export { formatMyEvents } from './events-digest';
 export type { MyEventLine } from './events-digest';
 export { formatMyChats } from './chats-digest';
 export type { MyChatLine } from './chats-digest';
-export { formatDiscovered } from './discover-digest';
+export { ENTRY_SEPARATOR, formatDiscovered } from './discover-digest';
 export type { DiscoverLine } from './discover-digest';
 export { formatPendingReviews } from './reviews-digest';
 export type { PendingReviewLine } from './reviews-digest';
@@ -55,6 +55,15 @@ export type { AdminCallback, AdminCallbackAction } from './callback-data';
 export { CODE_CALLBACK_KINDS, encodeCodeCallback, parseCodeCallback } from './callback-data';
 export { encodeChannelRecheckCallback, isChannelRecheckCallback } from './callback-data';
 export { MAX_DISCOVER_PAGE } from './callback-data';
+export { BACK_TARGETS, encodeBackCallback, parseBackCallback } from './callback-data';
+export type { BackCallback, BackTarget, DiscoverView } from './callback-data';
+export {
+  EVENT_COMMAND,
+  eventCodeOf,
+  eventCommandFor,
+  parseEventCommand,
+  publicIdPrefixOf,
+} from './event-code';
 export type { CodeCallbackKind } from './callback-data';
 export {
   CASE_STATUS_FA,
@@ -157,9 +166,12 @@ export {
 export type { ReportCallback, ReportReasonValue, ReportTargetLetter } from './callback-data';
 export { encodeDiscoverCallback, parseDiscoverCallback } from './callback-data';
 export {
+  activeFilterCount,
   describeFilters,
   discoverCategoryRows,
+  discoverFilterPanelRows,
   discoverFilterRows,
+  discoverListRows,
   discoverPageRow,
 } from './discover-filters';
 export type { DiscoverFilters, DiscoverWhen, DiscoverCost } from './callback-data';

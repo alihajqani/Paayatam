@@ -1,0 +1,39 @@
+-- Migration 0040: find an activity by the short code a Telegram command carries.
+--
+-- Additive. One expression index, no column, no data touched.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Why the lookup is by prefix at all
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- The discovery list gives every activity a `/event_…` link, which Telegram
+-- renders as a tap target on the line it belongs to — a much better control than
+-- a keyboard of numbered buttons under a list of numbered lines. What it cannot
+-- carry is a public id: a bot command is at most 32 characters and a UUID is 36.
+--
+-- So the link carries the first ten hex digits, and `publicIdPrefixOf` turns
+-- those back into the first eleven characters of the stored id — ten digits plus
+-- the dash at position nine. Forty bits: at ten thousand activities the chance
+-- any two share a prefix is about one in two hundred thousand, and the
+-- consequence would be one link opening the other published activity. A
+-- `short_code` column with a generator, a uniqueness constraint, a retry loop
+-- and a backfill is not worth buying that down.
+--
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Why an expression index and not a LIKE
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- `public_id LIKE 'abc%'` is the obvious spelling and it cannot use
+-- `event_public_id_key`: a btree in any collation but `C` does not order by byte
+-- prefix, so Postgres falls back to a sequential scan of `event` for every tap
+-- on a link. That is survivable today and is exactly the kind of thing that
+-- stops being survivable without anybody changing the query.
+--
+-- `substr(public_id, 1, 11) = $1` is an equality, and an index on the same
+-- expression serves it under any collation. The literal 11 is duplicated in
+-- `PUBLIC_ID_PREFIX_LENGTH` and in `findPublishedByPrefix`; it is the width of
+-- «eight hex digits, a dash, two hex digits» and cannot change without the code
+-- that builds the link changing too.
+
+CREATE INDEX IF NOT EXISTS "event_public_id_prefix_idx"
+  ON "event" (substr("public_id", 1, 11));

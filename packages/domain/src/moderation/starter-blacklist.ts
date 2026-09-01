@@ -92,8 +92,7 @@ export const STARTER_BLACKLIST: readonly StarterTerm[] = [
     patternType: 'SUBSTRING',
     severity: 'BLOCK',
     category: 'drugs',
-    rationale:
-      'Ecstasy. A phrase rather than «اکس» alone, which is also «ex» and a photograph.',
+    rationale: 'Ecstasy. A phrase rather than «اکس» alone, which is also «ex» and a photograph.',
   },
   {
     termRaw: 'شیشه',
@@ -253,7 +252,8 @@ export const STARTER_BLACKLIST: readonly StarterTerm[] = [
     patternType: 'EXACT',
     severity: 'BLOCK',
     category: 'solicitation',
-    rationale: 'The inflection EXACT on the stem cannot reach, and the one a listing actually uses.',
+    rationale:
+      'The inflection EXACT on the stem cannot reach, and the one a listing actually uses.',
   },
   {
     termRaw: 'رابطه جنسی',

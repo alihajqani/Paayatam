@@ -40,8 +40,7 @@ const ECHO_LIMIT = 40;
 export function quoted(value: string): string {
   const collapsed = value.replace(/\s+/g, ' ').trim();
   if (collapsed.length === 0) return '';
-  const shown =
-    collapsed.length > ECHO_LIMIT ? `${collapsed.slice(0, ECHO_LIMIT)}…` : collapsed;
+  const shown = collapsed.length > ECHO_LIMIT ? `${collapsed.slice(0, ECHO_LIMIT)}…` : collapsed;
   return `«${shown}»`;
 }
 
@@ -69,12 +68,7 @@ export function wrongShape(input: WizardInput, what: string): string {
 /** Free text, trimmed and bounded, with both the bound and what arrived stated. */
 export type TextResult = { ok: true; value: string } | { ok: false; error: string };
 
-export function acceptText(
-  input: WizardInput,
-  min: number,
-  max: number,
-  what: string,
-): TextResult {
+export function acceptText(input: WizardInput, min: number, max: number, what: string): TextResult {
   if (input.kind !== 'text') return { ok: false, error: wrongShape(input, what) };
 
   const value = input.value.trim();

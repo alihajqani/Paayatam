@@ -85,6 +85,47 @@ export class PostgresSearchProvider implements SearchProvider {
     return row ? toDiscoveredEvent(row, { sort: 'SOONEST' }) : null;
   }
 
+  /**
+   * One published activity by the short code a `/event_…` command carries.
+   *
+   * ── Why the predicate is a prefix and not a join ────────────────────────────
+   *
+   * A Telegram command is at most 32 characters and a UUID is 36, so the link in
+   * a list cannot carry a public id. `@payetam/telegram`'s `publicIdPrefixOf`
+   * turns the ten hex digits it *can* carry back into the first eleven
+   * characters of the stored id, and this asks for equality on exactly that —
+   * `substr(...) = $1` rather than `LIKE $1 || '%'`, because an expression index
+   * can serve the first under any collation and the second only under `C`.
+   * Migration 0040 creates that index.
+   *
+   * The visibility predicate is `findPublished`'s, word for word, and for the
+   * same reason: a code is a shorter way of naming an activity, not a wider way
+   * of reading one. A `PENDING_MODERATION` activity is invisible here exactly as
+   * it is there.
+   *
+   * `LIMIT 1` on a prefix that is unique in practice but not by constraint —
+   * forty bits, so about one in two hundred thousand at ten thousand activities.
+   * If two ever collide, one link opens the other activity; nothing is disclosed
+   * that a public id would not have disclosed, and both are published.
+   */
+  async findPublishedByPrefix(prefix: string): Promise<DiscoveredEvent | null> {
+    const rows = await this.prisma.$queryRaw<SearchRow[]>(
+      Prisma.sql`
+        SELECT ${SELECT_COLUMNS}, 0::double precision AS score
+        FROM "event" e
+        ${JOINS}
+        WHERE substr(e."public_id", 1, 11) = ${prefix}
+          AND e."status" = 'PUBLISHED'
+          AND e."deleted_at" IS NULL
+        ORDER BY e."public_id"
+        LIMIT 1
+      `,
+    );
+
+    const row = rows[0];
+    return row ? toDiscoveredEvent(row, { sort: 'SOONEST' }) : null;
+  }
+
   async explain(
     publicId: string,
     request: Omit<SearchRequest, 'limit' | 'after'>,

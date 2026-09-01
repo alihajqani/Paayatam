@@ -61,18 +61,17 @@ import {
   RateLimitService,
   jobId,
 } from '@payetam/platform';
-import {
-  AppError,
-  ERROR_MESSAGES_FA,
-  ErrorCode,
-  resolveVersion,
-} from '@payetam/shared';
+import { AppError, ERROR_MESSAGES_FA, ErrorCode, resolveVersion } from '@payetam/shared';
 import {
   TEMPLATES,
   describeFilters,
-  discoverCategoryRows,
-  discoverFilterRows,
-  discoverPageRow,
+  activeFilterCount,
+  discoverFilterPanelRows,
+  discoverListRows,
+  encodeBackCallback,
+  parseBackCallback,
+  parseEventCommand,
+  publicIdPrefixOf,
   encodeChannelRecheckCallback,
   isChannelRecheckCallback,
   formatDiscovered,
@@ -144,6 +143,7 @@ import {
   type BotSender,
   type EventCallback,
   type DiscoverFilters,
+  type BackCallback,
   type DiscoverWhen,
   type ReportCallback,
   type ReportTargetLetter,
@@ -377,7 +377,13 @@ export class BotService {
             );
 
           case 'COMMAND':
-            return this.onCommand(update.updateId, user, intent.command, intent.argument);
+            return this.onCommand(
+              update.updateId,
+              user,
+              intent.command,
+              intent.argument,
+              intent.messageId,
+            );
         }
       }
     }
@@ -445,7 +451,29 @@ export class BotService {
     command: string,
     /** Whatever followed the command name, trimmed. Only `/gift` reads it. */
     argument: string | null = null,
+    /**
+     * The message the command arrived on, when it was typed or tapped rather
+     * than dispatched from a menu button.
+     *
+     * Exactly one thing reads it: `/event_…`, whose detail screen carries a
+     * «بازگشت به فهرست» that has to delete the command as well as itself, and
+     * the id of the user's own message exists nowhere else in the update.
+     */
+    commandMessageId?: number,
   ): Promise<void> {
+    /**
+     * `/event_01a05d3478` — one activity, opened from a list.
+     *
+     * Before the `switch` because it is not a fixed name: the code is part of
+     * the command, which is what lets a *line of a list* be a tap target instead
+     * of a numbered button under one. See `event-code.ts` for why the code is
+     * ten hex digits of the public id and not a stored column.
+     */
+    const eventCode = parseEventCommand(command);
+    if (eventCode !== null) {
+      return this.onEventCommand(updateId, user, eventCode, commandMessageId);
+    }
+
     switch (command.toLowerCase()) {
       /**
        * `/menu` — every command, two taps away.
@@ -902,6 +930,7 @@ export class BotService {
           cost: 'a',
           categoryId: null,
           page: 0,
+          view: 'l',
         });
 
       /**
@@ -1676,6 +1705,29 @@ export class BotService {
     if (codeCallback !== null) {
       await this.answer(callbackQueryId, '');
       return this.openCodeForm(update.updateId, user, codeCallback === 'ref' ? 'referral' : 'gift');
+    }
+
+    /**
+     * «بازگشت به فهرست» — take the activity, and the command that opened it,
+     * back out of the chat.
+     *
+     * Nothing is redrawn: the list is still up there, two messages above, and
+     * deleting the two below it makes it the last thing the reader sees again.
+     * That is the whole behaviour, and it is what makes opening an activity feel
+     * like pushing a screen rather than appending to a transcript.
+     *
+     * No gate and no service call — it deletes two of this chat's own messages
+     * and reads nothing. `tidy` is keyed on the user and the message, because
+     * Telegram numbers messages per chat and two people's ids collide routinely.
+     */
+    const backCallback = parseBackCallback(data);
+    if (backCallback !== null) {
+      await this.answer(callbackQueryId, '');
+      if (messageId !== undefined) await this.tidy(user, messageId);
+      if (backCallback.commandMessageId !== null) {
+        await this.tidy(user, backCallback.commandMessageId);
+      }
+      return;
     }
 
     /**
@@ -2525,6 +2577,52 @@ export class BotService {
   }
 
   /**
+   * `/event_01a05d3478` — the link on a line of the discovery list.
+   *
+   * ── Why this is a command and not a button ──────────────────────────────────
+   *
+   * The list used to carry two inline buttons per activity, so five activities
+   * meant ten buttons whose labels were numbers the reader had to match back to
+   * lines. A `/command` renders as a tap target *on the line it belongs to*, and
+   * hands the keyboard back to the two controls that are about the list rather
+   * than about one activity: paging, and the filters.
+   *
+   * ── It is a read, so there is no gate ───────────────────────────────────────
+   *
+   * `discoverWith` has none either. The consent gate is about writes, and the
+   * «پیوستن» button on the screen this draws is where the write happens and
+   * where `mayWrite` already runs.
+   *
+   * ── What the back button has to carry ───────────────────────────────────────
+   *
+   * The id of the user's own `/event_…` message. «بازگشت به فهرست» deletes both
+   * that and the activity, so the list is the last thing in the chat again — and
+   * this is the only moment that id is in hand.
+   */
+  private async onEventCommand(
+    updateId: number,
+    user: BotUser,
+    code: string,
+    commandMessageId?: number,
+  ): Promise<void> {
+    const prefix = publicIdPrefixOf(code);
+    if (prefix === null) return this.unknownCommand(updateId, user);
+
+    let event;
+    try {
+      event = await this.discovery.findPublishedByPrefix(prefix);
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.refuse(updateId, user, error);
+    }
+
+    return this.paintEventDetail(updateId, user, event, {
+      target: 'd',
+      commandMessageId: commandMessageId ?? null,
+    });
+  }
+
+  /**
    * The event, or null with the refusal already relayed.
    *
    * Split out because `onStartLink` has to know whether the activity exists
@@ -2550,8 +2648,28 @@ export class BotService {
     updateId: number,
     user: BotUser,
     event: Awaited<ReturnType<DiscoveryService['findPublished']>>,
+    /**
+     * Where this was opened from, when it was opened from a list.
+     *
+     * Absent for a `?start=` deep link out of the channel and for the `ev:show`
+     * button that still exists on older messages — neither has a list to go back
+     * to, and a button that took somebody "back" to a screen they never saw
+     * would be worse than no button.
+     */
+    back?: BackCallback,
   ): Promise<void> {
     const eventPublicId = event.publicId;
+    const backRow =
+      back === undefined
+        ? []
+        : [
+            [
+              {
+                text: '‹ بازگشت به فهرست',
+                callbackData: encodeBackCallback(back.target, back.commandMessageId),
+              },
+            ],
+          ];
     return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
       text: formatEventDetail({
         title: event.title,
@@ -2579,6 +2697,7 @@ export class BotService {
                   callbackData: encodeEventCallback('who', eventPublicId),
                 },
               ],
+              ...backRow,
             ]
           : [
               [
@@ -2598,6 +2717,7 @@ export class BotService {
                     ]
                   : []),
               ],
+              ...backRow,
             ],
       ),
     });
@@ -3156,44 +3276,34 @@ export class BotService {
     const hasNext = page.events.length > DISCOVER_LIMIT;
     const shown = page.events.slice(0, DISCOVER_LIMIT);
 
+    /**
+     * The list, and the panel that filters it — one message with two faces.
+     *
+     * The body is the same list in both: somebody choosing «امروز» is looking at
+     * what they are narrowing, and a filter panel drawn over a blank screen makes
+     * them apply a filter before they can see whether it helped. What changes is
+     * the keyboard, which is why the two are a `view` flag rather than two
+     * messages.
+     */
     const text =
       formatDiscovered(
         shown.map((event) => ({
           title: event.title,
-          categoryName: event.customCategoryLabel ?? event.categoryNameFa,
-          where: whereOf(event),
           startsAt: event.startsAt,
+          capacity: event.capacity,
           remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
+          publicId: event.publicId,
         })),
+        filters.page,
       ) + describeFilters(filters, category?.nameFa ?? null);
 
-    const joinable = shown.filter((event) => isPublicId(event.publicId));
-    const eventRows = joinable.map((event, index) => [
-      {
-        text: `${toPersianDigits(String(index + 1))} جزئیات`,
-        callbackData: encodeEventCallback('show', event.publicId),
-      },
-      {
-        text: `${toPersianDigits(String(index + 1))} پیوستن`,
-        callbackData: encodeEventCallback('join', event.publicId),
-      },
-    ]);
-
-    /**
-     * The events first, then the filters.
-     *
-     * A keyboard is read top-down and the events are what somebody came for; a
-     * filter row above them would make the list look like a settings screen.
-     */
-    const rows = [
-      ...eventRows,
-      ...discoverPageRow(filters, hasNext),
-      ...discoverFilterRows(filters),
-      ...discoverCategoryRows(
-        filters,
-        catalog.categories.map((row) => ({ id: row.id, label: row.nameFa })),
-      ),
-    ];
+    const rows =
+      filters.view === 'f'
+        ? discoverFilterPanelRows(
+            filters,
+            catalog.categories.map((row) => ({ id: row.id, label: row.nameFa })),
+          )
+        : discoverListRows(filters, hasNext, activeFilterCount(filters));
 
     /**
      * A tap **redraws**; a command sends.

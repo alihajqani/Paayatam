@@ -10,7 +10,7 @@ import { describeFilters, discoverFilterRows, discoverPageRow } from './discover
 const CATEGORY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
 function filters(overrides: Partial<DiscoverFilters> = {}): DiscoverFilters {
-  return { when: 'a', cost: 'a', categoryId: null, page: 0, ...overrides };
+  return { when: 'a', cost: 'a', categoryId: null, page: 0, view: 'l', ...overrides };
 }
 
 /**
@@ -47,7 +47,27 @@ describe('the discovery callback with a page in it', () => {
       cost: 'f',
       categoryId: null,
       page: 0,
+      view: 'l',
     });
+  });
+
+  /**
+   * The same argument one release later. Every `/discover` message sent before
+   * v0.6.7 carries three-character flags, and those buttons must still draw the
+   * list rather than answering «این دکمه دیگر کار نمی‌کند».
+   */
+  it('reads a pre-panel payload as the list view', () => {
+    expect(parseDiscoverCallback('dc:wf2:all')).toEqual({
+      when: 'w',
+      cost: 'f',
+      categoryId: null,
+      page: 2,
+      view: 'l',
+    });
+  });
+
+  it('refuses a view character outside the encoding', () => {
+    expect(parseDiscoverCallback('dc:aa0x:all')).toBeNull();
   });
 
   it('stays inside Telegram’s 64 bytes at its widest', () => {

@@ -366,6 +366,28 @@ export type DiscoverWhen = (typeof DISCOVER_WHEN)[number];
 export const DISCOVER_COST = ['a', 'f'] as const;
 export type DiscoverCost = (typeof DISCOVER_COST)[number];
 
+/**
+ * Which half of the discovery screen is drawn: the list, or the filters.
+ *
+ * ── Why this is in the callback and not in a row somewhere ──────────────────
+ *
+ * Because it is the same argument the rest of this record makes. The bot holds
+ * no per-user query state, so «باز کردن فیلترها» cannot be "remember that they
+ * opened the filters" — it has to be a button that carries the complete screen
+ * it produces, exactly as a filter button carries the complete search it runs.
+ *
+ * ── Why the two halves are one message and not two ──────────────────────────
+ *
+ * Six filter rows and five activities do not fit on a phone together, and the
+ * list is what somebody came for. So the filters are behind a button and open
+ * *in place* — the message becomes the filter panel, applying a filter redraws
+ * it, and «بازگشت به فهرست» turns it back into the list. One message, three
+ * states, which is what an anonymous-chat bot does and what makes it feel like
+ * a screen rather than a transcript.
+ */
+export const DISCOVER_VIEWS = ['l', 'f'] as const;
+export type DiscoverView = (typeof DISCOVER_VIEWS)[number];
+
 export interface DiscoverFilters {
   /** `a` any time, `t` today, `w` the next seven days. */
   when: DiscoverWhen;
@@ -385,6 +407,8 @@ export interface DiscoverFilters {
    * character, which keeps the payload the same width it was.
    */
   page: number;
+  /** `l` the numbered list, `f` the filter panel. See `DISCOVER_VIEWS`. */
+  view: DiscoverView;
 }
 
 const DISCOVER_PREFIX = 'dc';
@@ -417,7 +441,9 @@ function decodePage(letter: string | undefined): number | null {
 
 export function encodeDiscoverCallback(filters: DiscoverFilters): string {
   const category = filters.categoryId ?? ANY_CATEGORY;
-  const data = `${DISCOVER_PREFIX}:${filters.when}${filters.cost}${encodePage(filters.page)}:${category}`;
+  const data =
+    `${DISCOVER_PREFIX}:${filters.when}${filters.cost}${encodePage(filters.page)}${filters.view}` +
+    `:${category}`;
   if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
     throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
   }
@@ -430,8 +456,16 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
 
   const [prefix, flags, category] = parts;
   if (prefix !== DISCOVER_PREFIX || flags === undefined || category === undefined) return null;
-  // Two characters is the pre-v0.6.5 shape and means page 0; three carries the page.
-  if (flags.length !== 2 && flags.length !== 3) return null;
+  /**
+   * Two, three or four characters — one shape per release, and every one of them
+   * still parses.
+   *
+   * Two is pre-v0.6.5 and means page 0; three carries the page; four carries the
+   * view as well. A button lives in a message for as long as the message does,
+   * and «این دکمه دیگر کار نمی‌کند» on a two-day-old list is a bug rather than a
+   * graceful degradation.
+   */
+  if (flags.length < 2 || flags.length > 4) return null;
 
   const when = DISCOVER_WHEN.find((candidate) => candidate === flags[0]);
   const cost = DISCOVER_COST.find((candidate) => candidate === flags[1]);
@@ -440,8 +474,72 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
   const page = decodePage(flags[2]);
   if (page === null) return null;
 
-  if (category === ANY_CATEGORY) return { when, cost, categoryId: null, page };
-  return isPublicId(category) ? { when, cost, categoryId: category, page } : null;
+  // Absent is the list, which is what every button minted before v0.6.7 means.
+  const view = flags[3] === undefined ? 'l' : DISCOVER_VIEWS.find((c) => c === flags[3]);
+  if (view === undefined) return null;
+
+  if (category === ANY_CATEGORY) return { when, cost, categoryId: null, page, view };
+  return isPublicId(category) ? { when, cost, categoryId: category, page, view } : null;
+}
+
+/**
+ * «بازگشت به فهرست»: `bk:<list>:<message id>`.
+ *
+ * ── What the payload has to carry, and why ──────────────────────────────────
+ *
+ * Going back from an activity means the list becomes the last thing in the chat
+ * again — so two messages have to go: the activity the bot drew, and the
+ * `/event_…` the reader tapped to open it. The first is the message the button
+ * is on, which Telegram names in the callback. The second is **the user's own
+ * message**, and nothing else in the update knows its id, so the button that
+ * will delete it is the only place to keep it.
+ *
+ * Zero means "there was none": a detail opened from somewhere other than a
+ * tapped command has nothing of the user's to tidy away, and a missing id must
+ * not be confused with message zero.
+ *
+ * ── Why the list is named ───────────────────────────────────────────────────
+ *
+ * `d` and `m` are the discovery list and «فعالیت‌های من», and they are different
+ * messages further up the chat. Nothing is redrawn — both lists are still
+ * there — but the letter is what a future "and refresh it" would need, and a
+ * protocol that cannot say which list it came from is one that has to guess.
+ */
+export const BACK_TARGETS = ['d', 'm'] as const;
+export type BackTarget = (typeof BACK_TARGETS)[number];
+
+export interface BackCallback {
+  target: BackTarget;
+  /** The `/event_…` message to delete with the detail, or null if there was none. */
+  commandMessageId: number | null;
+}
+
+const BACK_PREFIX = 'bk';
+
+export function encodeBackCallback(target: BackTarget, commandMessageId: number | null): string {
+  const id = commandMessageId === null || commandMessageId <= 0 ? 0 : Math.trunc(commandMessageId);
+  const data = `${BACK_PREFIX}:${target}:${String(id)}`;
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+export function parseBackCallback(data: string): BackCallback | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, target, id] = parts;
+  if (prefix !== BACK_PREFIX || id === undefined) return null;
+
+  const found = BACK_TARGETS.find((candidate) => candidate === target);
+  if (found === undefined) return null;
+  // A message id is a positive integer Telegram assigns per chat. Anything else
+  // is a tampered or truncated button, and fails the parse like every other one.
+  if (!/^\d{1,12}$/.test(id)) return null;
+
+  const messageId = Number.parseInt(id, 10);
+  return { target: found, commandMessageId: messageId === 0 ? null : messageId };
 }
 
 /**

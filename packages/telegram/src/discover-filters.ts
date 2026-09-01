@@ -92,6 +92,74 @@ export function discoverCategoryRows(
 }
 
 /**
+ * The two controls a **list** carries: paging, and the way into the filters.
+ *
+ * ── Why the filters are not on the list ─────────────────────────────────────
+ *
+ * Six filter rows and five activities do not fit on a phone together, and the
+ * list is what somebody came for — so the panel is one button away and opens *in
+ * place*. `discoverPageRow` still produces the paging row; this stacks the
+ * opener under it, and names how many filters are in force so the button is not
+ * a mystery box.
+ */
+export function discoverListRows(
+  current: DiscoverFilters,
+  hasNext: boolean,
+  activeFilters: number,
+): FilterButton[][] {
+  return [
+    ...discoverPageRow(current, hasNext),
+    [
+      {
+        text:
+          activeFilters === 0
+            ? '⚙️ فیلترها'
+            : `⚙️ فیلترها (${toPersianDigits(String(activeFilters))})`,
+        callbackData: encodeDiscoverCallback({ ...current, view: 'f' }),
+      },
+    ],
+  ];
+}
+
+/**
+ * The filter **panel**: every choice, and the way back to what it filters.
+ *
+ * The back button is not optional, and it is the same argument the command
+ * menu's is: a screen you can open and not close is one whose only exit is
+ * re-running the command that drew it, which loses the page the reader was on.
+ *
+ * Applying a filter stays in the panel — `withWhen` and the rest keep `view: 'f'`
+ * — because narrowing a search is usually two or three taps, and being thrown
+ * back to the list after each one would make the third tap a navigation problem.
+ * The counts in the list button are what the reader checks against; «بازگشت» is
+ * when they are done.
+ */
+export function discoverFilterPanelRows(
+  current: DiscoverFilters,
+  categories: readonly { id: string; label: string }[],
+): FilterButton[][] {
+  return [
+    ...discoverFilterRows(current),
+    ...discoverCategoryRows(current, categories),
+    [
+      {
+        text: '‹ بازگشت به فهرست',
+        callbackData: encodeDiscoverCallback({ ...current, view: 'l' }),
+      },
+    ],
+  ];
+}
+
+/** How many of the three filters are narrowing the search, for the panel's label. */
+export function activeFilterCount(current: DiscoverFilters): number {
+  return (
+    (current.when === 'a' ? 0 : 1) +
+    (current.cost === 'a' ? 0 : 1) +
+    (current.categoryId === null ? 0 : 1)
+  );
+}
+
+/**
  * «قبلی · صفحهٔ ۲ · بعدی», or nothing when the whole list fits on one page.
  *
  * ── Why the page number is a button and not text ────────────────────────────

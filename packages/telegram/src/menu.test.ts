@@ -48,7 +48,11 @@ describe('the persistent menu', () => {
    * is still drawn.
    */
   it('still resolves a label it no longer draws', () => {
-    const drawn = new Set(menuKeyboard().flat().map((button) => button.text));
+    const drawn = new Set(
+      menuKeyboard()
+        .flat()
+        .map((button) => button.text),
+    );
 
     expect(drawn.has('📨 درخواست‌های من')).toBe(false);
     expect(menuCommandFor('📨 درخواست‌های من')).toBe('requests');
@@ -56,7 +60,9 @@ describe('the persistent menu', () => {
 
   /** The five categories, the same five the inline menu groups by. */
   it('carries every command group', () => {
-    const drawn = menuKeyboard().flat().map((button) => button.text);
+    const drawn = menuKeyboard()
+      .flat()
+      .map((button) => button.text);
 
     for (const group of COMMAND_GROUPS) {
       expect(drawn).toContain(group.label);
@@ -83,7 +89,9 @@ describe('the persistent menu', () => {
    * activity behind a menu.
    */
   it('keeps the two verbs on their own buttons', () => {
-    const drawn = menuKeyboard().flat().map((button) => button.text);
+    const drawn = menuKeyboard()
+      .flat()
+      .map((button) => button.text);
 
     expect(drawn).toContain(menuLabelFor('create_event'));
     expect(drawn).toContain(menuLabelFor('discover'));
@@ -94,7 +102,11 @@ describe('the persistent menu', () => {
     const last = rows[rows.length - 1];
 
     expect(last).toEqual([{ text: MODERATION_MENU_LABEL }]);
-    expect(menuKeyboard().flat().map((b) => b.text)).not.toContain(MODERATION_MENU_LABEL);
+    expect(
+      menuKeyboard()
+        .flat()
+        .map((b) => b.text),
+    ).not.toContain(MODERATION_MENU_LABEL);
   });
 
   /**

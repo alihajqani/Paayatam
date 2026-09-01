@@ -1,77 +1,98 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
+import { eventCommandFor } from './event-code';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
-/** One line of the discovery digest: what it is, when, and whether there is room. */
+/** One line of the discovery list: what it is, when, room, and how to open it. */
 export interface DiscoverLine {
   title: string;
-  categoryName: string;
-  /** City, or «city — district» when the event names one. */
-  where: string;
   startsAt: Date;
+  capacity: number;
   remainingCapacity: number;
+  /** The activity's public id — the command that opens it is derived from this. */
+  publicId: string;
 }
+
+/**
+ * The separator between two activities.
+ *
+ * Ten of them, which is about the width of a phone in this font. A list whose
+ * entries are separated by a blank line reads as one wall of text the moment any
+ * entry wraps — and every entry here wraps, because a title plus a date plus a
+ * command is three lines. The rule makes each activity a card.
+ */
+export const ENTRY_SEPARATOR = '〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️';
 
 /**
  * `/discover` — activities in the sender's own city, soonest first.
  *
- * ── Why it takes no arguments ────────────────────────────────────────────────
+ * ── Why it is a list of commands and not a keyboard ─────────────────────────
  *
- * The city comes from the sender's profile, which makes this single-turn and
- * therefore something the bot may do at all. `DiscoveryQuery` has fourteen
- * filters and `DiscoverView` renders all of them; asking for any of them here
- * would mean holding a half-built query between two updates, which is the
- * per-user conversation state `BotService` deliberately has none of. The bot
- * answers the common question — "what is on near me?" — and the other thirteen
- * filters remain a gap rather than a link to somewhere else.
+ * It used to carry two inline buttons per activity — «۱ جزئیات», «۱ پیوستن» —
+ * which is a keyboard taller than the list it sits under, and every label is a
+ * number the reader has to match back to a line. Ten tap targets, none of them
+ * next to the thing they act on.
  *
- * ── Why the entries are numbered ────────────────────────────────────────────
+ * Now each activity ends with `/event_…`, which Telegram renders as a tap target
+ * **on the line it belongs to**. The keyboard is freed for the two controls that
+ * are about the list rather than about one activity: paging, and the filters.
  *
- * Because they are now actionable. Each event carries a «پیوستن» button, and a
- * keyboard cannot fit an event title — «۱ پیوستن» is short enough for a button
- * and unambiguous next to a numbered list. Without the numbers the buttons would
- * be five identical labels under five different events, which is a mis-tap that
- * sends a join request to the wrong stranger.
+ * ── What each entry says ────────────────────────────────────────────────────
+ *
+ * Name, date, time, room. Four facts, which is what somebody scanning a list
+ * decides on — the category and the neighbourhood moved to the detail screen,
+ * because they are what you read *after* something has caught your eye, and
+ * seven lines per activity is a list nobody reaches the bottom of.
  *
  * ── The disclaimer ───────────────────────────────────────────────────────────
  *
- * Once, at the top, covering every event below it, exactly as a channel post
- * carries it above the one event it is about. It is a liability statement and it
- * is not optional: an event listed without it is an event this product is
+ * Once, at the top, covering every activity below it, exactly as a channel post
+ * carries it above the one activity it is about. It is a liability statement and
+ * it is not optional: an activity listed without it is one this product is
  * silently vouching for. Escaped like everything else, even though it is our own
  * constant — the day somebody puts an angle bracket in it, the message should
  * not break.
  */
-export function formatDiscovered(lines: readonly DiscoverLine[]): string {
+export function formatDiscovered(lines: readonly DiscoverLine[], page = 0): string {
+  if (lines.length === 0) {
+    return (
+      `<b>فعالیت‌های نزدیک شما</b>\n\n` +
+      `با این فیلترها فعالیتی پیدا نشد. فیلترها را باز کنید و بازه یا دسته را عوض کنید.`
+    );
+  }
+
   const entries = lines.map((line, index) => {
     /**
-     * «۳ جای خالی» is the number somebody scanning a list actually decides on.
-     * A full event is not silently rendered as zero: `hasCapacity` filters those
-     * out upstream, and if one slips through, saying so beats an empty count.
+     * «۳ جای خالی از ۶» — the number somebody scanning a list actually decides
+     * on, and the total beside it so «۳ جای خالی» on a party of thirty reads
+     * differently from «۳ جای خالی» on a hike of four. A full activity is not
+     * silently rendered as zero: `hasCapacity` filters those out upstream, and
+     * if one slips through, saying so beats an empty count.
      */
     const seats =
       line.remainingCapacity > 0
-        ? `${toPersianDigits(String(line.remainingCapacity))} جای خالی`
+        ? `${toPersianDigits(String(line.remainingCapacity))} جای خالی از ` +
+          `${toPersianDigits(String(line.capacity))}`
         : 'ظرفیت تکمیل';
 
+    // Numbered from the top of the *page*, so the reader's «۳» is the third
+    // thing they can see rather than the third of a set they cannot.
+    const number = toPersianDigits(String(page * lines.length + index + 1));
+    const command = eventCommandFor(line.publicId);
+
     return (
-      `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.title)}</b>\n` +
-      `  🗂 ${escapeHtml(line.categoryName)}\n` +
-      `  📍 ${escapeHtml(line.where)}\n` +
-      `  🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)} · 👥 ${seats}`
+      `<b>${number}. ${escapeHtml(line.title)}</b>\n` +
+      `🗓 ${formatJalali(line.startsAt)} — ساعت ${formatJalaliTime(line.startsAt)}\n` +
+      `👥 ${seats}` +
+      // An activity whose public id is malformed gets no command rather than a
+      // broken one: the line is still readable, and nothing renders `/event_null`.
+      (command === null ? '' : `\n${command}`)
     );
   });
 
-  const digest = buildDigest({
-    title: 'فعالیت‌های نزدیک شما',
-    empty: 'فعلاً فعالیتی در شهر شما ثبت نشده است. کمی بعد دوباره سر بزنید.',
-    entries,
-  });
-
-  // No disclaimer over an empty list: there is nothing to disclaim, and the
-  // sentence would read as a warning about the absence of events.
-  if (entries.length === 0) return digest;
-
-  return `${digest}\n\n<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`;
+  return (
+    `<b>فعالیت‌های نزدیک شما</b>\n\n` +
+    `${entries.join(`\n${ENTRY_SEPARATOR}\n`)}\n\n` +
+    `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`
+  );
 }
