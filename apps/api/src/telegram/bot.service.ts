@@ -737,17 +737,25 @@ export class BotService {
           })),
         );
         /**
-         * «لغو» on the requests that can still be stood down from.
+         * «لغو» on every live request, **including an accepted one** (v0.7.0).
          *
-         * PENDING and WAITLISTED only: `cancel` refuses anything else, and a
-         * button that exists to be refused is worse than no button. ACCEPTED is
-         * deliberately not cancellable from here — standing somebody up after
-         * they have counted on you is a conversation, and `/chats` is where it
-         * happens.
+         * It used to be PENDING and WAITLISTED only, on the argument that
+         * standing somebody up after they have counted on you is a conversation
+         * and `/chats` is where it happens. The conversation is right and it is
+         * not a cancellation: a guest who tells their host they cannot come and
+         * then has no way to say so to the *product* stays ACCEPTED, holds a seat
+         * nobody can fill, and is settled as having attended.
+         *
+         * So all three live statuses get the button, and the accepted one is
+         * asked first — `cancel` quotes what standing down costs and `cancelyes`
+         * does it. `PARTICIPANT_TRANSITIONS` is the authority on which rows are
+         * live, and a settled request still gets no button, because a button that
+         * exists to be refused is worse than no button.
          */
         const cancellable = mine.filter(
           (row) =>
-            (row.status === 'PENDING' || row.status === 'WAITLISTED') && isPublicId(row.publicId),
+            (row.status === 'PENDING' || row.status === 'WAITLISTED' || row.status === 'ACCEPTED') &&
+            isPublicId(row.publicId),
         );
         const buttons = cancellable.map((row) => ({
           text: `${toPersianDigits(String(mine.indexOf(row) + 1))} لغو`,
@@ -1923,9 +1931,44 @@ export class BotService {
           return;
         }
 
-        case 'cancel':
+        /**
+         * Standing down — asked, then done.
+         *
+         * The ask states what it costs, read at the moment it is shown from the
+         * same `previewCancellation` that will do the charging (invariant 9: one
+         * function, so the number quoted and the number taken cannot disagree).
+         *
+         * A withdrawal from the queue is priced at nothing and still asks,
+         * because the two are the same button on the same list and a confirmation
+         * that appears only sometimes is one nobody learns to expect. What it
+         * says differs: «چیزی کم نمی‌شود» versus the figure.
+         */
+        case 'cancel': {
+          const preview = await this.participation.previewCancellation(user.id, callback.id);
+          await this.answer(callbackQueryId, '');
+
+          const cost =
+            preview.price.coins === 0 && preview.price.trust === 0
+              ? 'این کار هزینه‌ای ندارد.'
+              : `<b>${toPersianDigits(String(preview.price.coins))} سکه</b> از موجودی شما کم ` +
+                `می‌شود و <b>${toPersianDigits(String(preview.price.trust))} امتیاز</b> از ` +
+                `امتیاز اعتمادتان کاسته می‌شود.`;
+
+          return this.confirmSpend(
+            updateId,
+            user,
+            `<b>لغو شرکت در این فعالیت</b>\n\n` +
+              `${cost}\n\n` +
+              `اگر پذیرفته شده بودید، جای شما به نفر بعدی در نوبت انتظار می‌رسد و ` +
+              `میزبان خبردار می‌شود.`,
+            '✖️ بله، لغو کن',
+            encodeEventCallback('cancelyes', callback.id),
+          );
+        }
+
+        case 'cancelyes':
           await this.participation.cancel(user.id, callback.id);
-          await this.answer(callbackQueryId, 'درخواست شما لغو شد');
+          await this.answer(callbackQueryId, 'شرکت شما در این فعالیت لغو شد.');
           return;
 
         /**

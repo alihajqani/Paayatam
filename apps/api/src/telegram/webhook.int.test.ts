@@ -3085,13 +3085,74 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     const buttons = keyboardOf(digest.payload).flat();
     expect(buttons).toHaveLength(1);
 
+    // Asked first, since v0.7.0: a withdrawal and a paid cancellation are the
+    // same button on the same list, so the confirmation is not conditional.
     await tap(GUEST_TELEGRAM_ID, buttons[0]?.callbackData ?? '');
+    const ask = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CONFIRM_SPEND },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const confirm = keyboardOf(ask.payload).flat()[0];
+    expect(confirm?.callbackData).toMatch(/^ev:cancelyes:/);
+
+    await tap(GUEST_TELEGRAM_ID, confirm?.callbackData ?? '');
 
     const participant = await prisma.eventParticipant.findFirstOrThrow({
       where: { userId: guestId },
       select: { status: true },
     });
     expect(participant.status).toBe('CANCELLED_BY_PARTICIPANT');
+  });
+
+  /**
+   * The gap this closes: an **accepted** guest had no way to stand down.
+   *
+   * The list offered «لغو» on PENDING and WAITLISTED only, on the argument that
+   * standing somebody up is a conversation. The conversation is right and it is
+   * not a cancellation — a guest who tells their host they cannot come and has no
+   * way to tell the *product* stays ACCEPTED, holds a seat nobody can fill, and
+   * is settled as having attended.
+   */
+  it('lets an accepted guest stand down, and says what it costs first', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.accept(hostId, joined.publicId);
+
+    await type(GUEST_TELEGRAM_ID, '/requests');
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_REQUESTS },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const cancel = keyboardOf(digest.payload).flat()[0];
+    expect(cancel?.callbackData).toBe(`ev:cancel:${joined.publicId}`);
+
+    await tap(GUEST_TELEGRAM_ID, cancel?.callbackData ?? '');
+    const ask = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CONFIRM_SPEND },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    // Inside the grace window the honest answer is that it is free, and the ask
+    // says so rather than quoting a figure nobody will be charged.
+    expect(String((ask.payload as Record<string, unknown>)['text'])).toContain('لغو شرکت');
+
+    await tap(GUEST_TELEGRAM_ID, keyboardOf(ask.payload).flat()[0]?.callbackData ?? '');
+
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { userId: guestId },
+      select: { status: true },
+    });
+    expect(participant.status).toBe('CANCELLED_BY_PARTICIPANT');
+
+    // And the seat went back, which is the reason this had to exist.
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { acceptedCount: true },
+    });
+    expect(event.acceptedCount).toBe(0);
   });
 });
 

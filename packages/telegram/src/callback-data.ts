@@ -111,7 +111,18 @@ function isChatAction(value: string | undefined): value is ChatCallbackAction {
  */
 export const EVENT_CALLBACK_ACTIONS = [
   'join',
+  /**
+   * A guest standing down, in two steps — the ask and the act.
+   *
+   * `cancel` quotes what it costs and `cancelyes` does it, the same shape the
+   * host's paid actions use. It was one step and free, because the only rows it
+   * was offered on were PENDING and WAITLISTED — a queue withdrawal, priced at
+   * nothing. From v0.7.0 an **accepted** guest can stand down too, and that one
+   * is priced by how late it is (ADR-0011 D9), so it must not happen on a single
+   * tap on a list somebody opened to read.
+   */
   'cancel',
+  'cancelyes',
   /** One activity in full, before deciding to spend an evening on it. */
   'show',
   /**
