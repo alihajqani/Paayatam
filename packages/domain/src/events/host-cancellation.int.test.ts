@@ -65,6 +65,28 @@ const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
 /**
+ * Enough coins to ask to join, several times over.
+ *
+ * `economy.event_join_coins` is 5 from v0.7.0 and `join` charges it inside the
+ * same transaction, so a joiner with an empty account is refused with
+ * `INSUFFICIENT_COINS` before reaching any of the behaviour this suite is about.
+ * **Exactly one join's worth**, so a participant's balance is back to zero the
+ * moment they have joined — which is the baseline every `fund(…, 100)` below
+ * counts from, and keeps those assertions about the refund rather than about the
+ * endowment.
+ */
+const JOIN_BUDGET = 5;
+
+/**
+ * What the host holds before they cancel anything.
+ *
+ * `fund(hostId, 500)` on top of the endowment every profiled user now gets, so
+ * the number the penalty is subtracted from is written down once rather than
+ * assumed at seven call sites.
+ */
+const HOST_BALANCE = 500 + JOIN_BUDGET;
+
+/**
  * The channel-membership gate, in its permissive default state.
  *
  * `event_channel_config` is truncated between tests, so `membershipRequired` is
@@ -111,7 +133,7 @@ let fixture: CatalogFixture;
 let hostId: string;
 
 async function createProfiledUser(): Promise<string> {
-  const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+  const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: JOIN_BUDGET });
   await prisma.userProfile.create({
     data: { userId, displayName: 'کاربر', cityId: fixture.tehranId, birthYear: 1995 },
   });
@@ -280,7 +302,10 @@ describe('what a host cancellation does (ADR-0011, D9)', () => {
  */
 describe('what it costs the host', () => {
   const CASES = [
-    { label: 'more than a day out', when: at(25), coins: 0, trust: 5 },
+    // 5 × 1.5 = 7.5, rounded. GT_24H stopped being free in v0.7.0, and the host
+    // price is the participant price for the same lateness times the multiplier —
+    // which is what "symmetrical thresholds" buys: pricing one moved the other.
+    { label: 'more than a day out', when: at(25), coins: 8, trust: 5 },
     // 15 × 1.5 = 22.5, rounded rather than floored.
     { label: 'inside 24 hours', when: at(23), coins: 23, trust: 12 },
     // 40 × 1.5 = 60.
@@ -296,7 +321,7 @@ describe('what it costs the host', () => {
     const result = await events.cancelByHost(hostId, eventPublicId);
 
     expect(result.coinsCharged).toBe(row.coins);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(500 - row.coins);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_BALANCE - row.coins);
     await expect(trust.scoreOf(hostId)).resolves.toBe(scoreBefore - row.trust);
   });
 
@@ -317,7 +342,7 @@ describe('what it costs the host', () => {
 
     expect(result.cancelled).toBe(0);
     expect(result.coinsCharged).toBe(0);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(500);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_BALANCE);
     await expect(trust.scoreOf(hostId)).resolves.toBe(scoreBefore);
   });
 
@@ -350,7 +375,7 @@ describe('what it costs the host', () => {
     clock.set(at(1));
     await events.cancelByHost(hostId, eventPublicId);
 
-    await expect(coins.balanceOf(hostId)).resolves.toBe(500);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_BALANCE);
     await expect(trust.scoreOf(hostId)).resolves.toBe(scoreBefore);
   });
 });
@@ -365,7 +390,16 @@ describe('what it costs the host', () => {
  * participant-side cost is introduced.
  */
 describe('the refund (D9a)', () => {
-  it('reverses an empty set today, because taking part is free', async () => {
+  /**
+   * D9a went live in v0.7.0.
+   *
+   * This used to assert that the refund reversed an *empty set*, because joining
+   * cost nothing — the mechanism was written generically and tested with a
+   * synthetic charge so it would be known to work on the day a participant-side
+   * cost appeared. `economy.event_join_coins` is that day: the guest paid five to
+   * ask, the host called the activity off, and the five comes back.
+   */
+  it('gives back what taking part actually cost', async () => {
     const eventPublicId = await publishEvent();
     const person = await accepted(eventPublicId);
     await fund(person.userId, 100);
@@ -373,8 +407,8 @@ describe('the refund (D9a)', () => {
     clock.set(at(1));
     const result = await events.cancelByHost(hostId, eventPublicId);
 
-    expect(result.coinsRefunded).toBe(0);
-    await expect(coins.balanceOf(person.userId)).resolves.toBe(100);
+    expect(result.coinsRefunded).toBe(5);
+    await expect(coins.balanceOf(person.userId)).resolves.toBe(105);
   });
 
   it('gives back a synthetic participant-side charge in full', async () => {
@@ -389,8 +423,10 @@ describe('the refund (D9a)', () => {
       })
     ).id;
 
-    // The charge the MVP does not yet make. Everything about the refund path is
-    // exercised by putting one in.
+    // A second, differently-typed participant-side charge on top of the join
+    // fee. The refund is written generically — reverse every ledger row whose
+    // subject is this participation — and this is what proves it is generic
+    // rather than a hard-coded reversal of the one charge that exists today.
     await coins.apply({
       userId: person.userId,
       amount: -25,
@@ -406,14 +442,18 @@ describe('the refund (D9a)', () => {
     clock.set(at(1));
     const result = await events.cancelByHost(hostId, eventPublicId);
 
-    expect(result.coinsRefunded).toBe(25);
-    await expect(coins.balanceOf(person.userId)).resolves.toBe(100);
+    // Both of them: the synthetic 25 and the 5 the join actually cost.
+    expect(result.coinsRefunded).toBe(30);
+    await expect(coins.balanceOf(person.userId)).resolves.toBe(105);
 
-    const reversal = await prisma.coinLedger.findFirstOrThrow({
+    const reversals = await prisma.coinLedger.findMany({
       where: { userId: person.userId, type: 'REVERSAL' },
+      select: { amount: true, reasonCode: true },
     });
-    expect(reversal.amount).toBe(25);
-    expect(reversal.reasonCode).toBe('cancellation.host_refund');
+    expect(reversals.map((row) => row.amount).sort((a, b) => a - b)).toEqual([5, 25]);
+    for (const reversal of reversals) {
+      expect(reversal.reasonCode).toBe('cancellation.host_refund');
+    }
   });
 
   /**
@@ -435,9 +475,11 @@ describe('the refund (D9a)', () => {
 
     const result = await events.cancelByHost(hostId, eventPublicId);
 
-    // Only the one who still had a seat is in the count.
+    // Only the one who still had a seat is in the count — and only their join
+    // fee comes back. The leaver's is not refunded either: they gave up the seat
+    // themselves, before the host called anything off.
     expect(result.hadSeats).toBe(1);
-    expect(result.coinsRefunded).toBe(0);
+    expect(result.coinsRefunded).toBe(5);
     await expect(coins.balanceOf(leaver.userId)).resolves.toBe(60);
     expect(stayer.userId).toBeTruthy();
   });
@@ -485,7 +527,7 @@ describe('the host dry run', () => {
     const preview = await events.previewHostCancellation(hostId, eventPublicId);
 
     expect(preview).toEqual({ bucket: 'LT_3H', affected: 1, price: { coins: 60, trust: 12 } });
-    await expect(coins.balanceOf(hostId)).resolves.toBe(500);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_BALANCE);
 
     const row = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
     expect(row.status).toBe('PUBLISHED');

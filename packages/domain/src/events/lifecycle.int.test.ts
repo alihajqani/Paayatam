@@ -112,6 +112,21 @@ const participation = new ParticipationService(
 
 const STARTS_AT = new Date('2026-09-20T15:00:00.000Z');
 const ENDS_AT = new Date(STARTS_AT.getTime() + 3 * 3_600_000);
+/**
+ * What asking to join costs, and enough of it (`economy.event_join_coins`).
+ *
+ * Five from v0.7.0, charged by `join` inside the same transaction — so a joiner
+ * with an empty account is refused with `INSUFFICIENT_COINS` before reaching any
+ * of the behaviour this suite is about. The endowment covers several, because
+ * the attendance-cap test deliberately joins one person to three activities.
+ *
+ * The balance assertions below are written **relative to these two**, rather
+ * than as bare numbers, so they stay about the reward or the penalty they are
+ * testing when the join price changes again.
+ */
+const JOIN_COST = 5;
+const JOIN_BUDGET = 100;
+
 /** Past the end and past the settlement delay, so a sweep will act. */
 const AFTER_SETTLEMENT = new Date(ENDS_AT.getTime() + 25 * 3_600_000);
 
@@ -119,7 +134,7 @@ let fixture: CatalogFixture;
 let hostId: string;
 
 async function createProfiledUser(): Promise<string> {
-  const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+  const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: JOIN_BUDGET });
   await prisma.userProfile.create({
     data: { userId, displayName: 'کاربر', cityId: fixture.tehranId, birthYear: 1995 },
   });
@@ -370,8 +385,9 @@ describe('settling who attended', () => {
       select: { status: true },
     });
     expect(referral.status).toBe('QUALIFIED');
-    await expect(coins.balanceOf(referrer)).resolves.toBe(30);
-    await expect(coins.balanceOf(person.userId)).resolves.toBe(10);
+    // The referrer never joined anything, so their endowment is untouched.
+    await expect(coins.balanceOf(referrer)).resolves.toBe(JOIN_BUDGET + 30);
+    await expect(coins.balanceOf(person.userId)).resolves.toBe(JOIN_BUDGET - JOIN_COST + 10);
   });
 });
 
@@ -414,7 +430,7 @@ describe('reporting a no-show', () => {
     expect(row.cancellationBucket).toBe('NO_SHOW');
     expect(row.penaltyLedgerId).not.toBeNull();
 
-    await expect(coins.balanceOf(person.userId)).resolves.toBe(440);
+    await expect(coins.balanceOf(person.userId)).resolves.toBe(JOIN_BUDGET - JOIN_COST + 500 - 60);
     await expect(trust.scoreOf(person.userId)).resolves.toBe(before - 15);
   });
 

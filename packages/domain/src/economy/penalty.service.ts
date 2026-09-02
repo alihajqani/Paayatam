@@ -29,16 +29,33 @@ export interface ChargedPenalty {
   ledgerId: string | null;
 }
 
-/** Free by policy, and therefore absent from `app_setting` rather than zero there. */
-const FREE_BUCKETS: readonly CancellationBucket[] = ['GRACE', 'GT_24H'];
+/**
+ * Free by policy, and therefore absent from `app_setting` rather than zero there.
+ *
+ * **`GRACE` alone since v0.7.0.** `GT_24H` used to sit here too, on §11's reading
+ * that a cancellation more than a day out costs nothing — and because most
+ * activities are created a few days ahead and dropped out of within hours of
+ * being joined, that made *most* cancellations free. Which is the report: coins
+ * are not deducted when somebody stands down. It is priced now, at a token, and
+ * an operator who disagrees sets `cancellation.coins_gt_24h` to 0 and gets the
+ * old behaviour with no deploy.
+ *
+ * The fifteen minutes after being accepted stay free by construction. Changing
+ * your mind immediately is not a cancellation anybody is harmed by, and a key
+ * holding zero would invite somebody to price a window the product promises is
+ * free.
+ */
+const FREE_BUCKETS: readonly CancellationBucket[] = ['GRACE'];
 
 const COIN_KEYS: Partial<Record<CancellationBucket, SettingKey>> = {
+  GT_24H: 'cancellation.coins_gt_24h',
   H24_TO_H3: 'cancellation.coins_h24_to_h3',
   LT_3H: 'cancellation.coins_lt_3h',
   NO_SHOW: 'cancellation.coins_no_show',
 };
 
 const TRUST_KEYS: Partial<Record<CancellationBucket, SettingKey>> = {
+  GT_24H: 'cancellation.trust_gt_24h',
   H24_TO_H3: 'cancellation.trust_h24_to_h3',
   LT_3H: 'cancellation.trust_lt_3h',
   NO_SHOW: 'cancellation.trust_no_show',
@@ -124,7 +141,7 @@ export class PenaltyService {
 
     const coinKey = COIN_KEYS[bucket];
     const trustKey = TRUST_KEYS[bucket];
-    // Unreachable while `CancellationBucket` has five members and two are free,
+    // Unreachable while `CancellationBucket` has five members and one is free,
     // but a sixth added without a price would otherwise charge `NaN`.
     if (!coinKey || !trustKey) return { coins: 0, trust: 0 };
 
@@ -161,10 +178,10 @@ export class PenaltyService {
 
     return {
       coins: Math.round(participant.coins * multiplier),
-      // A host who cancels more than a day out pays no coins — the participant
-      // price for GT_24H is zero — but still loses reputation. That asymmetry is
-      // §11's, and it is the right one: a cancelled event costs people their
-      // Saturday whether or not it was cheap to call off.
+      // The trust half is the host's own table, split at 24 hours where a
+      // participant has four priced buckets. A cancelled activity costs people
+      // their Saturday whether or not it was cheap to call off, so the
+      // reputation cost does not scale with the coin one.
       trust: Math.abs(bucket === 'GT_24H' ? trustGt24h : trustLt24h),
     };
   }

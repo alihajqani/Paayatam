@@ -123,6 +123,19 @@ const ENDS_AT = new Date(STARTS_AT.getTime() + 3 * 3_600_000);
 const AFTER_SETTLEMENT = new Date(ENDS_AT.getTime() + 25 * 3_600_000);
 /** Inside the review window: opens at end + 24 h, closes at end + 7 d. */
 const IN_WINDOW = new Date(ENDS_AT.getTime() + 48 * 3_600_000);
+/**
+ * What asking to join costs, and enough of it (`economy.event_join_coins`).
+ *
+ * Five from v0.7.0, charged by `join` inside the same transaction — so a joiner
+ * with an empty account is refused with `INSUFFICIENT_COINS` before reaching any
+ * of the behaviour this suite is about.
+ *
+ * The balance assertion below is written relative to the endowment rather than
+ * as a bare number, so it stays about the review reward when the join price
+ * changes again.
+ */
+const JOIN_BUDGET = 100;
+
 /** Past the deadline. */
 const AFTER_DEADLINE = new Date(ENDS_AT.getTime() + 8 * 24 * 3_600_000);
 
@@ -131,7 +144,7 @@ let hostId: string;
 let hostPublicId: string;
 
 async function createProfiledUser(): Promise<{ id: string; publicId: string }> {
-  const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+  const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: JOIN_BUDGET });
   await prisma.userProfile.create({
     data: { userId, displayName: 'کاربر', cityId: fixture.tehranId, birthYear: 1995 },
   });
@@ -456,7 +469,8 @@ describe('what a review is worth (plan §11)', () => {
 
     await reviews.submit(hostId, participantPublicId, { rating: 5 });
 
-    await expect(coins.balanceOf(hostId)).resolves.toBe(10);
+    // The host reviews; they never joined, so their endowment is untouched.
+    await expect(coins.balanceOf(hostId)).resolves.toBe(JOIN_BUDGET + 10);
   });
 
   it.each([

@@ -65,26 +65,33 @@ export const SETTING_DEFAULTS = {
   'economy.event_channel_send_coins': 5,
   'economy.event_top_invite_coins': 20,
   /**
-   * What asking to join an activity costs (v0.6.3).
+   * What asking to join an activity costs (v0.6.3; **five since v0.7.0**).
    *
-   * **Zero, and the zero is the point.** Joining has been free on every surface
+   * It shipped at zero, deliberately: joining had been free on every surface
    * since M6, and the channel post's «پایتم» button reaches the same
-   * `ParticipationService.join` the in-bot button does — so a non-zero default
-   * would start charging for every join everywhere, on a live product, as a side
-   * effect of adding a button to a channel post.
+   * `ParticipationService.join` the in-bot button does, so a non-zero default
+   * would have started charging for every join everywhere as a side effect of
+   * adding a button to a channel post. The price existed so an operator could
+   * set one without a deploy.
    *
-   * The price exists so an operator can set one without a deploy, which is what
-   * §11 puts tunable numbers in the database for. At zero the service writes no
-   * ledger row at all: `coin_ledger.amount` may not be zero, and a row claiming
-   * somebody paid nothing is worse than no row.
+   * Five is now the product's answer rather than an operator's. The reason is
+   * the same one that puts a price on creating an activity: a request costs a
+   * host their attention and a slot of their queue, and a free ask is one
+   * somebody sends to nine activities to see which answers.
+   *
+   * **Zero still works and still means free** — the service skips the ledger
+   * write entirely, because `coin_ledger.amount` may not be zero and a row
+   * claiming somebody paid nothing is worse than no row. That is the rollback.
    *
    * A waitlisted request is charged like an accepted one, and deliberately: what
-   * is being paid for is the *ask*, which consumes a host's attention and a slot
-   * of the daily quota whether or not a seat was free. Refunding a rejection
-   * would make the price a deposit, which is a different product decision and
-   * one nobody has taken.
+   * is being paid for is the *ask*, which consumes the host's attention whether
+   * or not a seat was free. Refunding a rejection would make the price a
+   * deposit, which is a different product decision and one nobody has taken. A
+   * **host** cancelling the whole activity does refund it — see
+   * `PenaltyService.refundParticipant`, which reverses every charge whose
+   * subject is that participation.
    */
-  'economy.event_join_coins': 0,
+  'economy.event_join_coins': 5,
   /**
    * How many people one paid invitation reaches (phase 11).
    *
@@ -203,15 +210,25 @@ export const SETTING_DEFAULTS = {
    * minus sign, and "how much does a late cancellation cost?" is a question whose
    * answer should never be negative.
    *
-   * `GRACE` and `GT_24H` are absent on purpose rather than present as zeros: §11
-   * prices only the two late buckets and the no-show. A cancellation more than a
-   * day out is free, and a key holding zero would invite somebody to price it
-   * without noticing that the whole product promises it is free.
+   * `GRACE` is absent on purpose rather than present as a zero: the fifteen
+   * minutes after being accepted are free by construction, and a key holding
+   * zero would invite somebody to price a window the product promises is free.
+   *
+   * **`GT_24H` is now priced** (v0.7.0). §11 left it out and the product read
+   * that as "a cancellation more than a day out costs nothing" — which, since
+   * most activities are created a few days ahead and cancelled within hours of
+   * being joined, meant most cancellations cost nothing at all. That is the
+   * report: coins are not deducted when somebody drops out. Five is a token
+   * rather than a deterrent, and the trust cost stays at zero, because standing
+   * down early is the *good* version of not coming and should not damage a
+   * reputation.
    *
    * **Rollback is a config change, no deploy**: set these to 0 and cancellation
    * stops costing anything, which is exactly what the plan's rollback line asks
    * for.
    */
+  'cancellation.coins_gt_24h': 5,
+  'cancellation.trust_gt_24h': 0,
   'cancellation.coins_h24_to_h3': 15,
   'cancellation.trust_h24_to_h3': 3,
   'cancellation.coins_lt_3h': 40,

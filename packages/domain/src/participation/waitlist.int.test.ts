@@ -107,8 +107,19 @@ async function createEvent(capacity = 1, startsAt: Date = STARTS_AT): Promise<st
   return event.publicId;
 }
 
+/**
+ * Enough coins to ask to join, several times over.
+ *
+ * `economy.event_join_coins` is 5 from v0.7.0 and `join` charges it inside the
+ * same transaction, so a joiner with an empty account is refused with
+ * `INSUFFICIENT_COINS` before reaching any of the behaviour this suite is about.
+ * The endowment is deliberately generous and round: nothing here asserts a bare
+ * balance, so the number only has to be out of the way.
+ */
+const JOIN_BUDGET = 500;
+
 async function createJoiner(): Promise<string> {
-  const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+  const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: JOIN_BUDGET });
   await prisma.userProfile.create({
     data: {
       userId,

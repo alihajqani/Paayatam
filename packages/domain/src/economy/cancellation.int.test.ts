@@ -112,6 +112,16 @@ async function publishEvent(capacity = 5): Promise<string> {
   return event.publicId;
 }
 
+/**
+ * What asking to join costs, since v0.7.0 (`economy.event_join_coins`).
+ *
+ * Named here because every balance assertion below is about what a
+ * *cancellation* costs, and the join charge sits between the funding and the
+ * cancellation. Adding it to the grant rather than subtracting it from every
+ * expectation is what keeps those assertions readable as the thing they test.
+ */
+const JOIN_COST = 5;
+
 /** Coins in hand, granted the only way anything may: through the ledger. */
 async function fund(userId: string, amount: number): Promise<void> {
   // A zero movement is rejected as a bug, correctly — an account with no coins is
@@ -141,7 +151,9 @@ async function acceptedParticipant(balance = 500): Promise<{
 }> {
   const eventPublicId = await publishEvent();
   const userId = await createProfiledUser();
-  await fund(userId, balance);
+  // `balance` is what the account holds **after joining**, which is what every
+  // caller means by it: the money a cancellation will be charged against.
+  await fund(userId, balance + JOIN_COST);
 
   const request = await participation.join(userId, eventPublicId);
   await participation.accept(hostId, request.publicId);
@@ -181,7 +193,12 @@ const TABLE: Array<{
   trust: number;
 }> = [
   { label: 'inside the grace window', when: NOW, bucket: 'GRACE', coins: 0, trust: 0 },
-  { label: '25 hours before', when: at(25), bucket: 'GT_24H', coins: 0, trust: 0 },
+  // Priced since v0.7.0. §11 left GT_24H out and the product read that as free —
+  // and because most activities are created days ahead and dropped out of within
+  // hours of being joined, that made *most* cancellations cost nothing. A token
+  // rather than a deterrent, and no trust cost: standing down early is the good
+  // version of not coming.
+  { label: '25 hours before', when: at(25), bucket: 'GT_24H', coins: 5, trust: 0 },
   { label: '23 hours before', when: at(23), bucket: 'H24_TO_H3', coins: 15, trust: 3 },
   {
     label: '3 hours 1 minute before',
@@ -222,7 +239,7 @@ describe('what a cancellation costs (plan §11)', () => {
   it('is free inside grace even minutes before the event', async () => {
     const eventPublicId = await publishEvent();
     const userId = await createProfiledUser();
-    await fund(userId, 500);
+    await fund(userId, 500 + JOIN_COST);
 
     const request = await participation.join(userId, eventPublicId);
     clock.set(at(2));
@@ -240,10 +257,11 @@ describe('what a cancellation costs (plan §11)', () => {
   it('does not price a waitlisted request at all', async () => {
     const eventPublicId = await publishEvent(1);
     const seated = await createProfiledUser();
+    await fund(seated, JOIN_COST);
     await participation.accept(hostId, (await participation.join(seated, eventPublicId)).publicId);
 
     const queued = await createProfiledUser();
-    await fund(queued, 500);
+    await fund(queued, 500 + JOIN_COST);
     const request = await participation.join(queued, eventPublicId);
     expect(request.status).toBe('WAITLISTED');
 
@@ -261,7 +279,7 @@ describe('what a cancellation costs (plan §11)', () => {
   it('does not price a request the host never answered', async () => {
     const eventPublicId = await publishEvent();
     const userId = await createProfiledUser();
-    await fund(userId, 500);
+    await fund(userId, 500 + JOIN_COST);
     const request = await participation.join(userId, eventPublicId);
 
     clock.set(at(1));
@@ -388,9 +406,11 @@ describe('the dry run (§6)', () => {
 
     expect(preview).toEqual({ bucket: 'LT_3H', price: { coins: 40, trust: 8 } });
     await expect(coins.balanceOf(userId)).resolves.toBe(500);
-    await expect(prisma.coinLedger.count({ where: { userId, amount: { lt: 0 } } })).resolves.toBe(
-      0,
-    );
+    // No *penalty* row. The join charge is a negative row and is not what a dry
+    // run must avoid writing.
+    await expect(
+      prisma.coinLedger.count({ where: { userId, type: 'CANCELLATION_PENALTY' } }),
+    ).resolves.toBe(0);
   });
 
   it('agrees with what the cancellation then charges, at every threshold', async () => {
@@ -446,7 +466,8 @@ describe('the server clock is the only clock (invariant 9)', () => {
     const early = await acceptedParticipant();
     clock.set(at(25));
     await participation.cancel(early.userId, early.participantPublicId);
-    await expect(coins.balanceOf(early.userId)).resolves.toBe(500);
+    // GT_24H, priced at a token since v0.7.0.
+    await expect(coins.balanceOf(early.userId)).resolves.toBe(495);
 
     const late = await acceptedParticipant();
     clock.set(at(1));
