@@ -23,7 +23,6 @@ export {
   menuCommandFor,
   menuGroupKeyboard,
   menuGroupText,
-  menuKeyboard,
   menuGroupKeyFor,
   menuLabelFor,
   menuPathFor,
@@ -31,7 +30,6 @@ export {
   menuRootKeyboard,
   menuRootText,
 } from './keyboards';
-export type { ReplyButton, ReplyKeyboard } from './keyboards';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export { formatEventDetail } from './event-detail';
 export { insufficientCoinsNotice } from './notices';

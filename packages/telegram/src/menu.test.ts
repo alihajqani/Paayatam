@@ -4,73 +4,35 @@ import {
   MODERATION_MENU_LABEL,
   menuCommandFor,
   menuGroupKeyFor,
-  menuKeyboard,
   menuLabelFor,
   menuPathFor,
 } from './keyboards';
 import { TEMPLATES, render } from './templates';
 import { BOT_COMMANDS, COMMAND_GROUPS, commandGroupFor } from './commands';
 
-describe('the persistent menu', () => {
-  it('lays out in rows of two', () => {
-    for (const row of menuKeyboard()) {
-      expect(row.length).toBeLessThanOrEqual(2);
-    }
-  });
-
-  /** Report: `/profile` was reachable only by typing it. Now it is a button. */
-  it('offers the profile', () => {
+/**
+ * The bottom keyboard is gone (v0.7.0); its resolver is not.
+ *
+ * Nothing draws a reply keyboard any more and every message carries
+ * `remove_keyboard`, but a keyboard lives on the *client* until a message
+ * replaces it — so until a user hears from this build they are still holding the
+ * old one. A label this build could not resolve would be handed to `onText` and
+ * relayed into an anonymous chat, where a stranger would receive «📨
+ * درخواست‌های من». That is what this suite protects.
+ */
+describe('the retired bottom keyboard still resolves', () => {
+  /** Report: `/profile` was reachable only by typing it. It resolves as a label. */
+  it('resolves the profile', () => {
     expect(menuCommandFor('👤 نمایه من')).toBe('profile');
   });
 
-  /**
-   * The invariant that actually matters, and the one that must never lapse.
-   *
-   * A reply-keyboard tap arrives as ordinary text. A label this build cannot
-   * resolve is handed to `onText`, which would give it to a wizard as an answer
-   * or **relay it into an anonymous chat** — and a stranger would receive «🎟
-   * فعالیت‌ها» from somebody they are deciding whether to meet.
-   *
-   * It is no longer "the labels are the command map": the keyboard draws two
-   * commands and five categories, and the map is a resolver that is deliberately
-   * wider than the layout. So the assertion is resolvability, by either route.
-   */
-  it('draws nothing it cannot resolve', () => {
-    for (const button of menuKeyboard(true).flat()) {
-      const resolved = menuCommandFor(button.text) ?? menuGroupKeyFor(button.text);
-      expect(resolved, `unresolvable label: ${button.text}`).not.toBeNull();
+  it('resolves every label the keyboard ever drew', () => {
+    for (const [label, command] of MENU_COMMANDS) {
+      expect(menuCommandFor(label), label).toBe(command);
     }
   });
 
-  /**
-   * A reply keyboard lives on the client until a message replaces it, so on the
-   * day the layout changes there are users holding the previous one. Every label
-   * the keyboard has ever offered therefore stays resolvable whether or not it
-   * is still drawn.
-   */
-  it('still resolves a label it no longer draws', () => {
-    const drawn = new Set(
-      menuKeyboard()
-        .flat()
-        .map((button) => button.text),
-    );
-
-    expect(drawn.has('📨 درخواست‌های من')).toBe(false);
-    expect(menuCommandFor('📨 درخواست‌های من')).toBe('requests');
-  });
-
-  /** The five categories, the same five the inline menu groups by. */
-  it('carries every command group', () => {
-    const drawn = menuKeyboard()
-      .flat()
-      .map((button) => button.text);
-
-    for (const group of COMMAND_GROUPS) {
-      expect(drawn).toContain(group.label);
-    }
-  });
-
-  it('resolves a category tap to a group the build knows', () => {
+  it('resolves every category label the keyboard ever drew', () => {
     for (const group of COMMAND_GROUPS) {
       const key = menuGroupKeyFor(group.label);
       expect(key).toBe(group.key);
@@ -85,40 +47,12 @@ describe('the persistent menu', () => {
   });
 
   /**
-   * The product's core action stays one tap away. Everything else is two, which
-   * is the trade the categories make; making *this* two would put creating an
-   * activity behind a menu.
+   * Resolved for everybody, authorised for nobody. A stranger who guesses the
+   * moderator's label gets «این فرمان را نمی‌شناسم» — and, crucially, does not
+   * get it relayed to whoever they are talking to.
    */
-  it('keeps the two verbs on their own buttons', () => {
-    const drawn = menuKeyboard()
-      .flat()
-      .map((button) => button.text);
-
-    expect(drawn).toContain(menuLabelFor('create_event'));
-    expect(drawn).toContain(menuLabelFor('discover'));
-  });
-
-  it('gives a moderator a row of their own', () => {
-    const rows = menuKeyboard(true);
-    const last = rows[rows.length - 1];
-
-    expect(last).toEqual([{ text: MODERATION_MENU_LABEL }]);
-    expect(
-      menuKeyboard()
-        .flat()
-        .map((b) => b.text),
-    ).not.toContain(MODERATION_MENU_LABEL);
-  });
-
-  /**
-   * A reply-keyboard tap arrives as ordinary text. Unmapped, it would be handed
-   * to a wizard as an answer or relayed into an anonymous chat — and a stranger
-   * would receive «🎟 فعالیت‌های من».
-   */
-  it('maps a label back to its command', () => {
-    for (const [label, command] of MENU_COMMANDS) {
-      expect(menuCommandFor(label)).toBe(command);
-    }
+  it('resolves the moderation label without authorising it', () => {
+    expect(menuCommandFor(MODERATION_MENU_LABEL)).toBe('moderate');
   });
 
   it('tolerates the whitespace a client may add', () => {
@@ -130,8 +64,8 @@ describe('the persistent menu', () => {
     expect(menuCommandFor('')).toBeNull();
   });
 
-  /** A menu button that dispatches nothing is a button that answers «این فرمان را نمی‌شناسم». */
-  it('only offers commands the bot advertises', () => {
+  /** A label that dispatches nothing would answer «این فرمان را نمی‌شناسم». */
+  it('only maps to commands the bot advertises', () => {
     const known = new Set(BOT_COMMANDS.map((c) => c.command));
 
     for (const command of MENU_COMMANDS.values()) {
@@ -146,53 +80,45 @@ describe('the persistent menu', () => {
  * The bot's own advice used to read «با /discover یک فعالیت پیدا کنید» — a
  * sentence telling somebody to type something, in a product whose whole point is
  * that they never have to, given at the exact moment they are stuck.
- */
-/**
- * Copy names a button somebody can see, which since v0.6.7 is not the same
- * question as "what is this command's label".
+ *
+ * Since v0.7.0 the button it names is in the inline menu (`/menu` and the `☰`
+ * opener), because there is no keyboard under the compose box any more.
  */
 describe('menuPathFor', () => {
-  it('names the button itself for a command that has one', () => {
-    const drawn = menuKeyboard()
-      .flat()
-      .map((button) => button.text);
+  /** Every label the inline menu actually shows: the five group buttons. */
+  const inlineMenuLabels = new Set(COMMAND_GROUPS.map((group) => group.label));
 
+  it('names the command itself for the two verbs', () => {
     for (const command of ['create_event', 'discover']) {
-      const path = menuPathFor(command) as string;
-      expect(path).toBe(menuLabelFor(command));
-      expect(drawn).toContain(path);
+      expect(menuPathFor(command)).toBe(menuLabelFor(command));
     }
   });
 
   /**
    * The one that used to be wrong. «فهرست گفتگوها زیر دکمهٔ «💬 گفتگوها» است»
-   * named a button that is no longer under anybody's compose box — the label
-   * survives in `MENU_COMMANDS` because a stale client's tap has to resolve, and
-   * that is exactly why the resolver is the wrong thing for a sentence.
+   * named a button nobody could see — the label survives in `MENU_COMMANDS`
+   * because a stale client's tap has to resolve, and that is exactly why the
+   * resolver is the wrong thing for a sentence to be built from.
    */
   it('names the category for a command that lives inside one', () => {
-    const drawn = menuKeyboard()
-      .flat()
-      .map((button) => button.text);
-
     for (const command of ['chats', 'settings', 'myevents', 'requests', 'bug', 'trust']) {
       const path = menuPathFor(command) as string;
       expect(path, command).not.toBeNull();
-      expect(drawn, command).toContain(path);
+      expect(inlineMenuLabels.has(path), `${command} → ${path}`).toBe(true);
     }
   });
 
-  it('never names a button the keyboard does not draw', () => {
-    const drawn = new Set(
-      menuKeyboard()
-        .flat()
-        .map((button) => button.text),
-    );
+  it('never names something the reader cannot find', () => {
+    const findable = new Set([
+      ...inlineMenuLabels,
+      menuLabelFor('create_event') ?? '',
+      menuLabelFor('discover') ?? '',
+    ]);
 
     for (const { command } of BOT_COMMANDS) {
       const path = menuPathFor(command);
       if (path === null) continue;
-      expect(drawn.has(path), `${command} → ${path}`).toBe(true);
+      expect(findable.has(path), `${command} → ${path}`).toBe(true);
     }
   });
 });
@@ -213,8 +139,8 @@ describe('menuLabelFor', () => {
   it('answers null for a command with no button', () => {
     expect(menuLabelFor('help')).toBeNull();
     expect(menuLabelFor('start')).toBeNull();
-    // The moderation label is deliberately outside the map: only a linked
-    // moderator's keyboard carries it.
+    // The moderation label is deliberately outside the map: it was only ever
+    // appended to a linked moderator's keyboard.
     expect(menuLabelFor('moderate')).toBeNull();
     expect(menuCommandFor(MODERATION_MENU_LABEL)).toBe('moderate');
   });

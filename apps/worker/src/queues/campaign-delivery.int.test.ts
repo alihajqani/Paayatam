@@ -140,9 +140,6 @@ function buildProcessors(): Processors {
     {} as never, // CoinService — the nightly reconciliation is not this suite
     alerts as never,
     {} as never, // ConversationService — this suite never reaches a wizard
-    // AdminTelegramService: nobody here is a moderator, so the menu carries no
-    // moderation button.
-    { isLinked: () => Promise.resolve(false) } as never,
   );
 }
 

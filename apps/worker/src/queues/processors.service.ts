@@ -1,7 +1,6 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
-  AdminTelegramService,
   ChannelService,
   ChatService,
   CoinService,
@@ -23,7 +22,6 @@ import {
   TEMPLATES,
   notificationCategory,
   preferenceKeyFor,
-  menuKeyboard,
   render,
   renderChannelPost,
   type InlineKeyboard,
@@ -116,16 +114,6 @@ export class Processors implements OnModuleInit {
      * is the API's, because it is the process the update arrives at.
      */
     private readonly conversations: ConversationService,
-    /**
-     * Whether the recipient is a linked moderator (ADR-0018).
-     *
-     * Asked here because here is where the persistent menu is attached, and the
-     * menu is per-recipient. One indexed count against a table with a handful of
-     * rows, on a path already bounded by Telegram's ~30/s — so it is not cached,
-     * and a revoked link therefore stops showing the button on the very next
-     * message rather than a minute later.
-     */
-    private readonly adminTelegram: AdminTelegramService,
   ) {}
 
   /**
@@ -301,41 +289,21 @@ export class Processors implements OnModuleInit {
     }
 
     /**
-     * The persistent menu, on the messages that can carry it.
+     * No persistent menu (v0.7.0).
      *
-     * `reply_markup` holds one thing, so a message with inline buttons cannot
-     * also carry the menu. The first version attached it only when there were no
-     * inline buttons — and almost every bot message had them, because `opened()`
-     * put an open-app button on nearly every template. The menu therefore almost
-     * never went out, which is how it was reported as missing, and `BOT_WELCOME`
-     * had to be special-cased to force it.
-     *
-     * The open-app buttons are gone now, so the condition finally means what it
-     * says: what is left with inline buttons is the handful of messages with
-     * something to *decide* — accept, reject, close, share — and every other
-     * message carries the menu. The welcome no longer needs an exception, since
-     * it no longer has a keyboard to lose.
-     *
-     * The menu persists on the client between them, so re-attaching it is belt
-     * and braces for a client that missed the first one.
+     * This used to attach one to every message that had no inline keyboard of
+     * its own, and to ask `adminTelegram.isLinked` first so a moderator's
+     * keyboard gained its extra button. Both are gone with the keyboard: the
+     * menu is `/menu` and the `☰` opener, which are inline and belong to the
+     * message they are on. `TelegramClient.send` now sends `remove_keyboard`
+     * instead, which is what actually takes the old one off a client that still
+     * has it.
      */
-    /**
-     * The moderation button, for the accounts that have one (ADR-0018).
-     *
-     * Only asked when a menu is actually going out — a message with inline
-     * buttons carries no menu, `reply_markup` holding one thing, so there is
-     * nothing to decide and no reason to spend a query deciding it.
-     */
-    const menu =
-      message.keyboard === undefined
-        ? menuKeyboard(await this.adminTelegram.isLinked(notification.telegramUserId))
-        : undefined;
-
     const outcome = await this.telegram.send(
       notification.telegramUserId,
       message.text,
       message.keyboard,
-      { parseMode: 'HTML', menu },
+      { parseMode: 'HTML' },
     );
 
     switch (outcome.kind) {

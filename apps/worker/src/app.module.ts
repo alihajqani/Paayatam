@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '@payetam/db';
 import {
-  AdminAccessModule,
   AuditModule,
   CatalogModule,
   ChannelModule,
@@ -54,18 +53,6 @@ import { TelegramClient } from './telegram/telegram.client';
     PiiHashModule,
     AuditModule,
     OutboxModule,
-    /**
-     * For `AdminTelegramService` alone (ADR-0018): whether the recipient of a
-     * message is a linked moderator, which decides whether their persistent menu
-     * carries the moderation button.
-     *
-     * The whole module rather than a narrower one, because Nest scopes providers
-     * to the module that declares them and `AdminTelegramService` is declared
-     * here — the trap `app.module.test.ts` exists to catch. Nothing else in this
-     * process resolves an admin service, and none of them opens a connection or
-     * starts anything at construction.
-     */
-    AdminAccessModule,
     CatalogModule,
     ChannelModule,
     ChatModule,

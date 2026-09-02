@@ -150,42 +150,28 @@ export function chatKeyboard(
 }
 
 /**
- * A button on the persistent keyboard below the text box.
+ * The labels a bottom keyboard used to draw, and what each stands for.
  *
- * A `ReplyKeyboard`, not an inline one. The difference is the whole point:
- * inline buttons belong to *a message* and scroll away with it, while this sits
- * under the compose box until it is replaced. That is what makes it a menu
- * rather than a prompt.
- */
-export interface ReplyButton {
-  text: string;
-}
-
-/** Rows of reply buttons, as Telegram lays them out. */
-export type ReplyKeyboard = readonly (readonly ReplyButton[])[];
-
-/**
- * The labels the bottom keyboard resolves, and what each stands for.
+ * ── The keyboard is gone; this is not ───────────────────────────────────────
  *
- * ── This is a resolver, not the layout ──────────────────────────────────────
+ * v0.7.0 removed the persistent reply keyboard entirely, and every message the
+ * bot sends now carries `remove_keyboard` so a client holding one drops it. That
+ * does **not** make this map deletable, and the reason is the whole of why it
+ * was ever separate from the layout: a reply keyboard lives on the client, and
+ * until the user receives a message from this build they are still holding the
+ * old one. A label this build could not resolve would be handed to `onText` and
+ * **relayed into an anonymous chat**, where a stranger would receive «📨
+ * درخواست‌های من».
  *
- * It was both until the keyboard grew categories, and the two have to be
- * separated for one concrete reason: **a reply keyboard lives on the client**.
- * It stays under the compose box until a message replaces it, so on the day the
- * layout changes there are users holding the previous one — and a label this
- * build could not resolve would be handed to `onText` and **relayed into an
- * anonymous chat**, where a stranger would receive «📨 درخواست‌های من».
- *
- * So every label this keyboard has ever offered stays resolvable, whether or not
- * it is still drawn. `menuKeyboard` decides what is drawn; this decides what a
- * tap means, and it is deliberately the wider of the two.
+ * So every label the keyboard ever offered stays resolvable, whether or not
+ * anything still draws it. This decides what a tap *means*; nothing decides what
+ * is drawn any more.
  *
  * ── Why the labels are not the commands ─────────────────────────────────────
  *
  * A reply-keyboard tap sends its label as an ordinary text message, so «ساختن
- * فعالیت» arrives as that text and not as `/create_event`. Labelling the buttons
- * `/create_event` would work and would put slash-commands in the chat
- * transcript, which is exactly the awkwardness this keyboard exists to remove.
+ * فعالیت» arrives as that text and not as `/create_event`. That is what makes
+ * the resolution necessary rather than incidental.
  */
 export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['➕ ساختن فعالیت', 'create_event'],
@@ -199,24 +185,20 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * The two commands that keep a button of their own.
+ * The two commands copy names directly rather than by their category.
  *
- * Everything else on the keyboard is a **category**, and these two are the
- * exceptions because they are the verbs somebody opens the bot intending to do.
- * Making them two taps to save a row would put the product's core action behind
- * a menu, which is the trade the categories exist to avoid making everywhere
- * else — not to make here.
+ * They are the verbs somebody opens the bot intending to do, so «با دکمهٔ «🔎
+ * دیدن فعالیت‌ها» …» is more use than naming the group it lives in. Everything
+ * else is named by its category, which is one tap inside `/menu`.
  */
 const QUICK_COMMANDS: readonly string[] = ['create_event', 'discover'];
 
 /**
- * The moderation button, and why it is not in the map above (ADR-0018).
+ * The moderation label, and why it is not in the map above (ADR-0018).
  *
- * `MENU_COMMANDS` is what every user's keyboard is built from and what
- * `menuCommandFor` resolves a tap against. This label is in *neither* list by
- * default: it is appended to the keyboard only for a Telegram account that has
- * a moderator link, and `menuCommandFor` resolves it for anybody — because
- * resolving it is not authorising it.
+ * `menuCommandFor` resolves it for anybody — because resolving it is not
+ * authorising it. It was appended to a moderator's keyboard while there was a
+ * keyboard; a moderator still holding one must not have the tap relayed.
  *
  * That split matters. If the label were unresolvable for a non-moderator, a
  * stranger who typed it would have it **relayed into an anonymous chat** — the
@@ -227,63 +209,6 @@ const QUICK_COMMANDS: readonly string[] = ['create_event', 'discover'];
  */
 export const MODERATION_MENU_LABEL = '🛡 داوری';
 export const MODERATION_MENU_COMMAND = 'moderate';
-
-/**
- * The persistent menu: two verbs, then the same five categories as the inline
- * menu.
- *
- * ── Why the categories are down here as well ────────────────────────────────
- *
- * The inline menu groups nineteen commands into five and it works — but it is
- * *on a message*, so finding it means finding a message that has it, or knowing
- * to type `/menu`. The bottom keyboard is the one control that is always on
- * screen, and it was eight flat shortcuts chosen by guesswork: eleven commands
- * had no button anywhere except behind a slash somebody had to have read
- * `/help` to know about.
- *
- * The two are now the same hierarchy reached two ways. Nothing is lost that was
- * not already inside a group — «درخواست‌های من» is under «فعالیت‌ها», «تنظیمات»
- * and «نمایه من» under «حساب من», «گزارش مشکل» under a group whose own hint is
- * «اگر جایی گیر کردید» — and eleven commands gained a route that does not
- * require knowing they exist.
- *
- * ── The layout ──────────────────────────────────────────────────────────────
- *
- * `is_persistent` keeps it open rather than collapsing to an icon the moment
- * something else is sent; `resize_keyboard` stops Telegram giving seven buttons
- * the height of a full phone keyboard.
- *
- * Two per row rather than three. Telegram truncates a reply-keyboard label that
- * does not fit its share of the width, and «🆘 راهنما و پشتیبانی» is long enough
- * that three across would show it as an ellipsis — a menu you cannot read is the
- * problem this keyboard exists to solve. Four rows, which is what a phone can
- * show above the compose box without the conversation disappearing.
- */
-export function menuKeyboard(moderator = false): ReplyKeyboard {
-  const labels = [
-    ...QUICK_COMMANDS.map((command) => menuLabelFor(command)).filter(
-      (label): label is string => label !== null,
-    ),
-    ...COMMAND_GROUPS.map((group) => group.label),
-  ];
-  const rows: ReplyButton[][] = [];
-  for (let index = 0; index < labels.length; index += 2) {
-    rows.push(labels.slice(index, index + 2).map((text) => ({ text })));
-  }
-
-  /**
-   * The staff control, on a row of its own — always, not when the count happens
-   * to be odd.
-   *
-   * It used to be appended to the label list and chunked with the rest, which
-   * put it beside whatever the arithmetic left over. This is the only button on
-   * the keyboard that opens somebody else's content, and a mis-tap on it is a
-   * moderator queue opening in front of a guest looking over a shoulder.
-   */
-  if (moderator) rows.push([{ text: MODERATION_MENU_LABEL }]);
-
-  return rows;
-}
 
 /**
  * Whether a plain text message is a tap on one of the **category** buttons.

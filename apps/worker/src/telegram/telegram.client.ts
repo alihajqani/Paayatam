@@ -4,7 +4,7 @@ import type { InlineKeyboardButton } from 'grammy/types';
 import { autoRetry } from '@grammyjs/auto-retry';
 import type { Env } from '@payetam/config';
 import { ENV } from '@payetam/platform';
-import type { InlineKeyboard, ReplyKeyboard } from '@payetam/telegram';
+import type { InlineKeyboard } from '@payetam/telegram';
 
 /** What a send attempt produced, classified so the caller can decide what to do. */
 export type SendOutcome =
@@ -164,32 +164,29 @@ export class TelegramClient {
     chatId: bigint,
     text: string,
     keyboard?: InlineKeyboard,
-    options: { parseMode?: 'HTML' | undefined; menu?: ReplyKeyboard | undefined } = {
-      parseMode: 'HTML',
-    },
+    options: { parseMode?: 'HTML' | undefined } = { parseMode: 'HTML' },
   ): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 
     /**
-     * A message carries **either** an inline keyboard or the persistent menu.
+     * An inline keyboard, or an instruction to take the old bottom one away.
      *
-     * `reply_markup` is one field, so Telegram cannot be given both at once. The
-     * inline keyboard wins wherever there is one, because it is the thing the
-     * message is asking about; the menu is re-attached by the next message that
-     * has no buttons of its own, and it persists on the client in between.
+     * `reply_markup` is one field, so Telegram cannot be given both at once, and
+     * the inline keyboard wins wherever there is one because it is the thing the
+     * message is asking about.
+     *
+     * `remove_keyboard` on everything else is v0.7.0's half of removing the
+     * persistent menu. **Deleting the code that sent it would not have removed
+     * it**: a reply keyboard lives on the client and stays under the compose box
+     * until a message replaces it, so every user who had one would have kept it
+     * indefinitely, tapping labels at a build that no longer draws them. This is
+     * what actually takes it away, and it is idempotent — a client with no
+     * keyboard ignores it.
      */
     const markup =
       keyboard !== undefined
         ? { reply_markup: toReplyMarkup(keyboard) }
-        : options.menu !== undefined
-          ? {
-              reply_markup: {
-                keyboard: options.menu.map((row) => row.map((button) => ({ text: button.text }))),
-                resize_keyboard: true,
-                is_persistent: true,
-              },
-            }
-          : {};
+        : { reply_markup: { remove_keyboard: true as const } };
 
     try {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
