@@ -1,5 +1,5 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { encodeChatCallback, isPublicId } from './callback-data';
+import { encodeChatCallback, encodeDirectCallback, isPublicId } from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
@@ -53,6 +53,21 @@ export const TEMPLATES = {
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
   CONTENT_HIDDEN: 'moderation.content_hidden',
+  /**
+   * A direct message about an activity, and the read receipt for it (v0.7.0).
+   *
+   * **The body is not in either of them.** `DIRECT_MESSAGE_RECEIVED` says who
+   * wrote, about what, and carries a «مشاهده» button — the same shape the chat
+   * relay deliberately does *not* use, and here for the opposite reason: pressing
+   * it is what marks the message read, and a notification that already contained
+   * the words would make the receipt a lie.
+   *
+   * It is also what keeps the plaintext out of `notification.payload`, which is
+   * a jsonb column staff can read. The row points at the message; the bot decrypts
+   * it when the recipient asks.
+   */
+  DIRECT_MESSAGE_RECEIVED: 'direct.message_received',
+  DIRECT_MESSAGE_SEEN: 'direct.message_seen',
   /**
    * The other half of `CONTENT_HIDDEN`, which had no counterpart (v0.7.0).
    *
@@ -540,6 +555,47 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `بپیوندد.\n\n` +
           `کسانی که پیش‌تر پذیرفته شده‌اند سر جای خود می‌مانند، و نتیجهٔ بررسی را ` +
           `همین‌جا به شما می‌گوییم.`,
+      };
+
+    /**
+     * Somebody wrote about an activity. Who, and about what — never the words.
+     *
+     * The button is the whole design: pressing it is what marks the message read
+     * and tells the sender so, and a notification carrying the text would make
+     * that receipt false. It also keeps the plaintext out of
+     * `notification.payload`.
+     */
+    case TEMPLATES.DIRECT_MESSAGE_RECEIVED: {
+      const message = id(payload, 'messagePublicId');
+      const reply = bool(payload, 'isReply');
+
+      return {
+        text:
+          `<b>${reply ? 'پاسخ تازه' : 'پیام تازه'}</b> ✉️\n\n` +
+          `${str(payload, 'senderDisplayName')} دربارهٔ «${str(payload, 'eventTitle')}» ` +
+          `${reply ? 'به شما پاسخ داد' : 'برای شما پیام فرستاد'}.`,
+        ...(message !== null
+          ? {
+              keyboard: [
+                [{ text: '👁 مشاهدهٔ پیام', callbackData: encodeDirectCallback('view', message) }],
+              ],
+            }
+          : {}),
+      };
+    }
+
+    /**
+     * «دیده شد» — sent once, on the first read.
+     *
+     * The half that makes the flow a conversation rather than a drop box: without
+     * it a sender has written to a stranger and has no idea whether anybody
+     * looked. Named by activity, because a guest may have written about three.
+     */
+    case TEMPLATES.DIRECT_MESSAGE_SEEN:
+      return {
+        text:
+          `<b>پیامتان دیده شد</b> 👁\n\n` +
+          `پیامی که دربارهٔ «${str(payload, 'eventTitle')}» فرستادید خوانده شد.`,
       };
 
     /**

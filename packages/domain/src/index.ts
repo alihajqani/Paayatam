@@ -424,3 +424,13 @@ export type { AnonymizationResult } from './privacy/anonymization.service';
 export { RetentionService, RETENTION } from './privacy/retention.service';
 export type { PurgeResult } from './privacy/retention.service';
 export { PrivacyModule } from './privacy/privacy.module';
+
+export { DirectModule } from './direct/direct.module';
+export { DirectMessageService } from './direct/direct-message.service';
+export type { DirectMessageDetail } from './direct/direct-message.service';
+export {
+  directMessageWizard,
+  isDirectMessageMode,
+  DIRECT_MESSAGE_MODES,
+} from './conversation/wizards/direct-message';
+export type { DirectMessageForm, DirectMessageMode } from './conversation/wizards/direct-message';

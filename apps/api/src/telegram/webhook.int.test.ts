@@ -6,11 +6,12 @@ import {
   ChatService,
   CoinService,
   ParticipationService,
+  OutboxRelayService,
   TrustService,
   normalize,
 } from '@payetam/domain';
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { TEMPLATES } from '@payetam/telegram';
+import { TEMPLATES, render } from '@payetam/telegram';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
   createTestPrisma,
@@ -60,6 +61,7 @@ const prisma: PrismaClient = createTestPrisma();
 
 let app: NestFastifyApplication;
 let participation: ParticipationService;
+let relay: OutboxRelayService;
 let chats: ChatService;
 let coins: CoinService;
 let trust: TrustService;
@@ -143,6 +145,7 @@ beforeAll(async () => {
   await app.getHttpAdapter().getInstance().ready();
 
   participation = app.get(ParticipationService);
+  relay = app.get(OutboxRelayService);
   chats = app.get(ChatService);
   coins = app.get(CoinService);
   trust = app.get(TrustService);
@@ -3153,6 +3156,163 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       select: { acceptedCount: true },
     });
     expect(event.acceptedCount).toBe(0);
+  });
+});
+
+/**
+ * «دایرکت» — the whole flow, through the webhook (v0.7.0).
+ *
+ * Every step of the brief in one test, because the value of this feature is the
+ * *sequence*: a button on the activity, a compose prompt with a cancel under it,
+ * a notification to the host that names who and what but not the words, a
+ * «مشاهده» that marks the message read, a receipt back to the guest, and a reply
+ * that runs the same way in the other direction.
+ */
+describe('POST /telegram/:secret — direct messages', () => {
+  let sequence = 9000;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  /** The keyboard a notification went out with, as the worker would render it. */
+  function keyboardOf(payload: unknown): { text: string; callbackData: string }[][] {
+    const raw = (payload as Record<string, unknown>)['keyboard'];
+    return typeof raw === 'string'
+      ? (JSON.parse(raw) as { text: string; callbackData: string }[][])
+      : [];
+  }
+
+  /**
+   * The bot's own replies are notification rows written by `BotService`; a
+   * message *about* somebody else's action goes through the outbox, and the relay
+   * is what turns one into the other. The worker runs it every few seconds in
+   * production, so a test that skipped it would be asserting half the path.
+   */
+  async function latest(templateKey: string): Promise<Record<string, unknown>> {
+    await relay.drain();
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    return row.payload as Record<string, unknown>;
+  }
+
+  it('carries a message from a guest to the host and a reply back', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    // 1. The button is on the activity, under the join button.
+    await type(GUEST_TELEGRAM_ID, `/event_${code}`);
+    const detail = await latest(TEMPLATES.BOT_EVENT_DETAIL);
+    const direct = keyboardOf(detail)
+      .flat()
+      .find((button) => button.callbackData === `dm:write:${eventPublicId}`);
+    expect(direct?.text).toContain('دایرکت');
+
+    // 2–3. Pressing it asks for the message, with «انصراف» under the prompt, and
+    // says out loud that sharing contact details is the sender's own risk.
+    await tap(GUEST_TELEGRAM_ID, direct?.callbackData ?? '');
+    const prompt = await latest(TEMPLATES.BOT_WIZARD);
+    expect(String(prompt['text'])).toContain('مسئولیت خودتان');
+    expect(
+      keyboardOf(prompt)
+        .flat()
+        .some((button) => button.text.includes('انصراف')),
+    ).toBe(true);
+
+    // 4–5. The host is told, naming the writer and the activity — and not the
+    // words, which is what keeps the receipt below honest. Rendered the way the
+    // worker renders it: this payload carries structured fields, not a body.
+    await type(GUEST_TELEGRAM_ID, 'سلام، ماشین دارید؟ شماره‌ام ۰۹۱۲…');
+    const received = await latest(TEMPLATES.DIRECT_MESSAGE_RECEIVED);
+    const rendered = render(TEMPLATES.DIRECT_MESSAGE_RECEIVED, received);
+    expect(rendered?.text).toContain('دورهمی بازی رومیزی');
+    // The writer, by display name — never a Telegram handle (invariant 7).
+    expect(rendered?.text).toContain('میهمان');
+    expect(JSON.stringify(received)).not.toContain('۰۹۱۲');
+
+    // 6. With a «مشاهده» button on it.
+    const view = (rendered?.keyboard ?? [])
+      .flat()
+      .find((button) => button.callbackData?.startsWith('dm:view:') === true);
+    expect(view?.text).toContain('مشاهده');
+
+    // 7. Pressing it shows the message and tells the guest it was seen.
+    await tap(HOST_TELEGRAM_ID, view?.callbackData ?? '');
+    const opened = await latest(TEMPLATES.BOT_NOTICE);
+    expect(String(opened['text'])).toContain('ماشین دارید؟');
+    expect(String(opened['text'])).toContain('احتیاط');
+    await expect(
+      prisma.notification.count({ where: { templateKey: TEMPLATES.DIRECT_MESSAGE_SEEN } }),
+    ).resolves.toBe(1);
+
+    // 8–9. And a reply button, which runs the same compose flow the other way.
+    const reply = keyboardOf(opened)
+      .flat()
+      .find((button) => button.callbackData.startsWith('dm:reply:'));
+    expect(reply?.text).toContain('پاسخ');
+
+    await tap(HOST_TELEGRAM_ID, reply?.callbackData ?? '');
+    await type(HOST_TELEGRAM_ID, 'بله، هماهنگ می‌کنیم.');
+
+    const answer = await prisma.directMessage.findFirstOrThrow({
+      orderBy: { createdAt: 'desc' },
+      select: { parentId: true, recipient: { select: { telegramAccount: true } } },
+    });
+    expect(answer.parentId).not.toBeNull();
+    expect(answer.recipient.telegramAccount?.telegramUserId).toBe(BigInt(GUEST_TELEGRAM_ID));
+  });
+
+  /**
+   * The compose form claims what is typed into it.
+   *
+   * Without that, a message meant for the host would be handed to `onText` and
+   * relayed into whatever anonymous chat happened to be open — which is the one
+   * thing that path must never do.
+   */
+  it('cancels without sending anything', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `dm:write:${eventPublicId}`);
+    const prompt = await latest(TEMPLATES.BOT_WIZARD);
+    const cancel = keyboardOf(prompt)
+      .flat()
+      .find((button) => button.text.includes('انصراف'));
+
+    await tap(GUEST_TELEGRAM_ID, cancel?.callbackData ?? '');
+
+    await expect(prisma.directMessage.count()).resolves.toBe(0);
+    await expect(prisma.conversationState.count()).resolves.toBe(0);
+  });
+
+  /** Authorisation is not in the button: a host cannot write to their own activity. */
+  it('refuses the host writing to their own activity', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+
+    await tap(HOST_TELEGRAM_ID, `dm:write:${eventPublicId}`);
+    await type(HOST_TELEGRAM_ID, 'به خودم');
+
+    await expect(prisma.directMessage.count()).resolves.toBe(0);
   });
 });
 

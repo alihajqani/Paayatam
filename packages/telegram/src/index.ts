@@ -36,6 +36,8 @@ export { insufficientCoinsNotice } from './notices';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa, walletPageRow } from './wallet';
 export { capacityLabel, seatsLine, seatsLineFromRemaining } from './seats';
+export { formatDirectMessage } from './direct';
+export type { DirectMessageLine } from './direct';
 export { toPersianAmount } from './escape';
 export { formatTrust, trustLabelFa } from './trust';
 export { REPORT_REASON_CHOICES, reportPrompt, reportReasonLabel } from './report';
@@ -58,6 +60,8 @@ export { encodeChannelRecheckCallback, isChannelRecheckCallback } from './callba
 export { MAX_DISCOVER_PAGE } from './callback-data';
 export { MAX_MY_EVENTS_PAGE, encodeMyEventsCallback, parseMyEventsCallback } from './callback-data';
 export { MAX_WALLET_PAGE, encodeWalletCallback, parseWalletCallback } from './callback-data';
+export { encodeDirectCallback, parseDirectCallback } from './callback-data';
+export type { DirectCallback, DirectCallbackAction } from './callback-data';
 export { BACK_TARGETS, encodeBackCallback, parseBackCallback } from './callback-data';
 export type { BackCallback, BackTarget, DiscoverView } from './callback-data';
 export {

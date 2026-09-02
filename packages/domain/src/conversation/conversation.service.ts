@@ -23,6 +23,7 @@ import { fileReportWizard } from './wizards/file-report';
 import { adminCaseWizard } from './wizards/admin-case';
 import { redeemCodeWizard } from './wizards/redeem-code';
 import { bugReportWizard } from './wizards/bug-report';
+import { directMessageWizard } from './wizards/direct-message';
 
 /**
  * Where the machine records which fields the user answered.
@@ -73,6 +74,16 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
    * message and the seven-day sweep rather than growing its own.
    */
   BUG_REPORT: bugReportWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  /**
+   * «دایرکت» — one message to the other party about one activity (v0.7.0).
+   *
+   * Registered like every other wizard, which is what gives it the redelivery
+   * guard, the single edited message, «انصراف», and the seven-day sweep. It also
+   * gets the property that matters most here: a message typed into the chat while
+   * this form is open is claimed by the form rather than relayed into an
+   * anonymous conversation.
+   */
+  DIRECT_MESSAGE: directMessageWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
 
 export interface ConversationSnapshot {

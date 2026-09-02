@@ -97,6 +97,8 @@ model User {
   messagesReceived    MessageRecipient[]
   invitationsReceived EventInvitation[]
   conversation        ConversationState?
+  directsSent         DirectMessage[]      @relation("DirectMessagesSent")
+  directsReceived     DirectMessage[]      @relation("DirectMessagesReceived")
 
   @@index([status])
   @@index([createdAt])
@@ -1064,6 +1066,7 @@ model Event {
   chats        AnonymousChat[]
   invitations  EventInvitation[]
   campaigns    MessageCampaign[]
+  directs      DirectMessage[]
 
   @@index([status, startsAt])
   @@index([hostUserId, createdAt])
@@ -1554,6 +1557,77 @@ model ModerationCase {
   @@index([status, createdAt])
   @@index([subjectType, subjectId])
   @@map("moderation_case")
+}
+
+/// A direct message about one activity (v0.7.0).
+///
+/// ── Why this is not `AnonymousChat` ──────────────────────────────────────────
+///
+/// The anonymous chat is a *conversation*: it belongs to a participation, opens
+/// when a request is made, has aliases instead of names, masks contact details
+/// until both sides consent, has a status machine, a per-chat sequence, a
+/// retention clock and a relay that routes a typed reply back into it by
+/// remembering which message you pressed reply on. Every one of those exists to
+/// protect two strangers who have not met.
+///
+/// This is the other thing somebody wants: **a message to the host, about their
+/// activity, before deciding anything** — from a reader who may never join, with
+/// no conversation to open and nothing to keep anonymous beyond what they choose
+/// to write. Building it on the chat would mean creating a participation to hang
+/// it from, or a chat with no participation, and either is a lie in a table
+/// somebody will later read as truth.
+///
+/// So: one row per message, addressed by public id, delivered by a button rather
+/// than by reply-routing, and read by whoever it names. Contact details are
+/// **not masked** — exchanging them is the point (the notification says so, in
+/// as many words) — which is precisely why it must not share a table with the
+/// place where masking is the guarantee.
+///
+/// ── What is the same ─────────────────────────────────────────────────────────
+///
+/// The body is encrypted with the same key and the same AES-256-GCM discipline
+/// (ADR-0009): a database dump must not be a transcript. `key_version` is here
+/// for the same rotation story.
+model DirectMessage {
+  id       String @id @default(uuid(7))
+  publicId String @unique @default(uuid(4)) @map("public_id")
+
+  /// What the message is about. Every message names it, in both directions, so
+  /// a host with four activities can tell which one is being asked about.
+  eventId String @map("event_id")
+
+  senderUserId    String @map("sender_user_id")
+  recipientUserId String @map("recipient_user_id")
+
+  bodyCiphertext Bytes @map("body_ciphertext")
+  bodyNonce      Bytes @map("body_nonce")
+  keyVersion     Int   @map("key_version")
+
+  /// The message this one answers. Null for the first in a thread.
+  ///
+  /// A self-relation rather than a thread table: a reply names exactly one
+  /// message, and the chain is what makes "who may answer this" answerable
+  /// without a second row — the recipient of the parent is the only account that
+  /// may reply to it.
+  parentId String? @map("parent_id")
+
+  /// When the recipient opened it. The sender is told, which is the whole of the
+  /// «دیده شد» half of the flow.
+  seenAt DateTime? @map("seen_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  sender    User           @relation("DirectMessagesSent", fields: [senderUserId], references: [id], onDelete: Restrict)
+  recipient User           @relation("DirectMessagesReceived", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  parent    DirectMessage? @relation("DirectMessageReplies", fields: [parentId], references: [id], onDelete: Restrict)
+  replies   DirectMessage[] @relation("DirectMessageReplies")
+
+  /// The recipient's inbox, newest first.
+  @@index([recipientUserId, createdAt(sort: Desc)], map: "direct_message_inbox_idx")
+  /// Everything said about one activity, for a moderator reading a report.
+  @@index([eventId, createdAt], map: "direct_message_event_idx")
+  @@map("direct_message")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2712,6 +2786,15 @@ enum ConversationKind {
   /// bot answers a photo with «این نوع پیام پشتیبانی نمی‌شود», and a bug report
   /// without the screenshot is most of the report missing.
   BUG_REPORT
+  /// «دایرکت» — one message to the other party about one activity (v0.7.0).
+  ///
+  /// One field, like REDEEM_CODE, and a kind of its own for the same reason: the
+  /// thing the answer is handed to differs, and *what it is about* arrives
+  /// seeded. `target_public_id` carries an **event** public id when the message
+  /// starts a thread and a **direct-message** public id when it answers one, and
+  /// the two are told apart by the wizard's own seeded field rather than by
+  /// guessing at a UUID's table.
+  DIRECT_MESSAGE
 
   @@map("conversation_kind")
 }

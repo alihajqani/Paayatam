@@ -162,6 +162,20 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
       return recipient(row, 'recipientUserPublicId', TEMPLATES.CHAT_MESSAGE);
 
     /**
+     * A direct message about an activity, and the receipt for it (v0.7.0).
+     *
+     * One recipient each, and **no body in either payload** — the row points at
+     * the message and the bot decrypts it when the recipient presses «مشاهده».
+     * That is what makes the receipt honest: the notification cannot have been
+     * read without the button being pressed.
+     */
+    case 'direct.message_sent':
+      return recipient(row, 'recipientUserPublicId', TEMPLATES.DIRECT_MESSAGE_RECEIVED);
+
+    case 'direct.message_seen':
+      return recipient(row, 'senderUserPublicId', TEMPLATES.DIRECT_MESSAGE_SEEN);
+
+    /**
      * D10, the halves M13 emitted and never routed.
      *
      * `ChatService` has written `chat.message_edited` and `chat.message_deleted`

@@ -1,0 +1,14 @@
+-- Migration 0043: the direct-message wizard's `conversation_kind` (v0.7.0).
+--
+-- Its own file because `ALTER TYPE … ADD VALUE` cannot run inside a transaction
+-- in Postgres — the same reason 0022, 0023, 0029, 0031, 0032 and 0034 are
+-- separate. It is not rolled back by a later failure; additive-only, so a partial
+-- apply is safe.
+--
+-- One field, like REDEEM_CODE, and a kind of its own for the same reason: what
+-- the answer is handed to differs, and what the message is *about* arrives
+-- seeded. `conversation_state.target_public_id` carries an event public id when
+-- the message starts a thread and a `direct_message` public id when it answers
+-- one; the wizard's own seeded field says which, rather than anything guessing at
+-- a UUID's table.
+ALTER TYPE "conversation_kind" ADD VALUE IF NOT EXISTS 'DIRECT_MESSAGE';

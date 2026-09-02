@@ -46,6 +46,11 @@ const CATEGORY: Record<string, NotificationCategory> = {
 
   // ── Conversations ─────────────────────────────────────────────────────────
   [TEMPLATES.CHAT_MESSAGE]: 'chat',
+  // A direct message and its read receipt. `chat`, not `events`: it is somebody
+  // writing to you, which is what that preference is about — and somebody who has
+  // turned conversation messages off has said they do not want to be written to.
+  [TEMPLATES.DIRECT_MESSAGE_RECEIVED]: 'chat',
+  [TEMPLATES.DIRECT_MESSAGE_SEEN]: 'chat',
   [TEMPLATES.CHAT_MESSAGE_EDITED]: 'chat',
   [TEMPLATES.CHAT_MESSAGE_DELETED]: 'chat',
   // The confirmation before contact details are shared is a *decision screen*,

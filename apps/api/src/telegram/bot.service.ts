@@ -50,6 +50,9 @@ import {
   type GatedAction,
   type HostQuotaStatus,
   type RedeemCodeForm,
+  type DirectMessageForm,
+  isDirectMessageMode,
+  DirectMessageService,
   type ReferralClaim,
 } from '@payetam/domain';
 import {
@@ -81,6 +84,7 @@ import {
   encodeChannelRecheckCallback,
   isChannelRecheckCallback,
   formatDiscovered,
+  formatDirectMessage,
   formatEventDetail,
   insufficientCoinsNotice,
   formatParticipants,
@@ -129,6 +133,8 @@ import {
   myEventsPageRow,
   parseMyEventsCallback,
   parseWalletCallback,
+  encodeDirectCallback,
+  parseDirectCallback,
   parseMyEventCommand,
   formatMyRequests,
   parseChatCallback,
@@ -164,6 +170,7 @@ import {
   type AdminCallback,
   type ParsedUpdate,
   type SettingCallback,
+  type DirectCallback,
   type StartLink,
   type SummaryLine,
   type WizardScreen,
@@ -301,6 +308,8 @@ export class BotService {
      */
     private readonly adminTelegram: AdminTelegramService,
     private readonly admins: AdminOperationsService,
+    /** «دایرکت» (v0.7.0) — see `DirectMessageService` for why it is not the chat. */
+    private readonly directs: DirectMessageService,
   ) {}
 
   /**
@@ -1699,6 +1708,19 @@ export class BotService {
     }
 
     /**
+     * A direct message: write one, read one, answer one (v0.7.0).
+     *
+     * Above the read-only pagings because two of the three are **writes** and
+     * carry the consent gate with them. `mayWrite` draws that gate itself when it
+     * is owed, so a reader arriving from a channel post finishes the acceptance
+     * and taps once more rather than being refused with a sentence.
+     */
+    const directCallback = parseDirectCallback(data);
+    if (directCallback !== null) {
+      return this.onDirectCallback(update.updateId, user, callbackQueryId, directCallback);
+    }
+
+    /**
      * A page of the wallet ledger, redrawn over the wallet it was tapped on.
      *
      * A read, like the two pagings above it, so no `mayWrite` and no gate.
@@ -2733,6 +2755,24 @@ export class BotService {
                   callbackData: encodeEventCallback('join', eventPublicId),
                 },
               ],
+              /**
+               * «دایرکت» — write to the host, without joining anything (v0.7.0).
+               *
+               * Its own row, under the join button and above the report ones,
+               * because it is the *other* thing somebody wants from this screen:
+               * a question about the activity, from a reader who has not decided.
+               * The anonymous chat cannot answer that — it belongs to a
+               * participation, so asking would have meant joining first.
+               *
+               * Not offered on the host's own activity: the branch above draws a
+               * different keyboard entirely, and the service refuses it anyway.
+               */
+              [
+                {
+                  text: '✉️ دایرکت',
+                  callbackData: encodeDirectCallback('write', eventPublicId),
+                },
+              ],
               [
                 { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', eventPublicId) },
                 ...(isPublicId(event.hostPublicId)
@@ -3348,6 +3388,142 @@ export class BotService {
   }
 
   /**
+   * A `dm:` tap: write, view, or answer (v0.7.0).
+   *
+   * ── Three actions, one authorisation story ──────────────────────────────────
+   *
+   * None of it is in the button. `DirectMessageService` derives a new thread's
+   * addressee from the activity rather than taking it from the caller, lets only
+   * the two accounts a message names read it, and lets only its **recipient**
+   * answer it. So a tampered id names a resource the service declines, exactly as
+   * `ev:` and `chat:` already work, and the worst outcome is a 404 in a toast.
+   *
+   * ── Why «مشاهده» is a button and not the message ────────────────────────────
+   *
+   * The notification says who wrote and about what, and stops. Pressing it is
+   * what marks the message read *and* tells the sender so — a notification that
+   * already carried the words would make that receipt a lie, and would put the
+   * plaintext in `notification.payload`, which is a jsonb column staff can read.
+   */
+  private async onDirectCallback(
+    updateId: number,
+    user: BotUser,
+    callbackQueryId: string,
+    callback: DirectCallback,
+  ): Promise<void> {
+    try {
+      switch (callback.action) {
+        /** Open the compose form, seeded with the activity it is about. */
+        case 'write': {
+          await this.answer(callbackQueryId, '');
+          if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+          if (!(await this.mayWrite(updateId, user))) return;
+
+          const outcome = await this.conversations.start(
+            user.id,
+            'DIRECT_MESSAGE',
+            updateId,
+            callback.id,
+            { mode: 'new' },
+          );
+          return this.drawWizard(updateId, user, outcome);
+        }
+
+        /**
+         * Read one, which is also what records that it was read.
+         *
+         * The reply button is offered only to the **recipient**: a sender opening
+         * their own message would otherwise be shown a control that answers their
+         * own message, which the service refuses.
+         */
+        case 'view': {
+          const message = await this.directs.view(user.id, callback.id);
+          await this.answer(callbackQueryId, '');
+
+          const rows = message.viewerIsRecipient
+            ? [
+                [
+                  {
+                    text: '✍️ پاسخ به این پیام',
+                    callbackData: encodeDirectCallback('reply', message.publicId),
+                  },
+                ],
+              ]
+            : [];
+
+          return this.reply(updateId, user.id, TEMPLATES.BOT_NOTICE, {
+            text: formatDirectMessage({
+              senderDisplayName: message.senderDisplayName,
+              eventTitle: message.eventTitle,
+              body: message.body,
+              createdAt: message.createdAt,
+            }),
+            ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+          });
+        }
+
+        /** Answer one, seeded with the message being answered. */
+        case 'reply': {
+          await this.answer(callbackQueryId, '');
+          if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+          if (!(await this.mayWrite(updateId, user))) return;
+
+          const outcome = await this.conversations.start(
+            user.id,
+            'DIRECT_MESSAGE',
+            updateId,
+            callback.id,
+            { mode: 'reply' },
+          );
+          return this.drawWizard(updateId, user, outcome);
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      await this.refuseToast(updateId, user, callbackQueryId, error);
+    }
+  }
+
+  /**
+   * Send what the compose form holds.
+   *
+   * `mode` decides which service call this is, and it was **seeded by the button
+   * that opened the form** rather than asked: `targetPublicId` carries an event
+   * public id for a new thread and a message public id for a reply, both UUIDs,
+   * and nothing downstream could tell them apart by looking.
+   */
+  private async submitDirectMessage(
+    updateId: number,
+    user: BotUser,
+    snapshot: ConversationSnapshot,
+  ): Promise<void> {
+    const form = snapshot.form as DirectMessageForm;
+    const targetPublicId = snapshot.targetPublicId;
+
+    await this.conversations.clear(user.id);
+
+    if (targetPublicId === null || form.body === undefined || !isDirectMessageMode(form.mode)) {
+      return this.notice(updateId, user, 'پیام فرستاده نشد. دوباره تلاش کنید.');
+    }
+
+    try {
+      if (form.mode === 'reply') {
+        await this.directs.reply(user.id, targetPublicId, form.body);
+      } else {
+        await this.directs.send(user.id, targetPublicId, form.body);
+      }
+      return this.notice(
+        updateId,
+        user,
+        'پیامتان فرستاده شد ✉️ وقتی خوانده شود، همین‌جا خبرتان می‌کنیم.',
+      );
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.refuse(updateId, user, error);
+    }
+  }
+
+  /**
    * `/wallet` — the balance, and one page of the ledger behind it.
    *
    * `/balance` answers "how many" and has since M13; it does not answer "why is
@@ -3904,6 +4080,9 @@ export class BotService {
             return this.submitAdminCase(updateId, user, outcome.snapshot);
           case 'REDEEM_CODE':
             return this.submitCode(updateId, user, outcome.snapshot.form);
+          case 'DIRECT_MESSAGE':
+            await this.submitDirectMessage(updateId, user, outcome.snapshot);
+            return;
           case 'BUG_REPORT':
             return this.submitBugReport(updateId, user, outcome.snapshot.form);
           default:
@@ -3928,6 +4107,16 @@ export class BotService {
          */
         if (outcome.snapshot.kind === 'REDEEM_CODE') {
           return this.submitCode(updateId, user, outcome.snapshot.form);
+        }
+        /**
+         * A direct message has nothing to review, for the same reason a code has
+         * not: the whole form is one field and it is still on the screen the user
+         * just typed into. A «بازبینی نهایی» of a sentence somebody can see is a
+         * second tap that buys nothing — and worse here than for a code, because
+         * the natural gesture after writing a message is that it is sent.
+         */
+        if (outcome.snapshot.kind === 'DIRECT_MESSAGE') {
+          return this.submitDirectMessage(updateId, user, outcome.snapshot);
         }
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;

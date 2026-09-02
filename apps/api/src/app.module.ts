@@ -7,6 +7,7 @@ import {
   ChannelModule,
   ChatModule,
   ConversationModule,
+  DirectModule,
   DiscoveryModule,
   AdminAccessModule,
   EconomyModule,
@@ -87,6 +88,10 @@ import { VersionController } from './version/version.controller';
     ParticipationModule,
     ChatModule,
     ConversationModule,
+    // «دایرکت» (v0.7.0). Its own module rather than a service inside `ChatModule`,
+    // because the two things it is deliberately unlike — masking and the
+    // participation a conversation hangs from — are that module's whole subject.
+    DirectModule,
     /**
      * For `ChannelConfigService` and `ChannelMembershipService` (M22 phase 6).
      *

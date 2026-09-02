@@ -588,6 +588,57 @@ export function parseMyEventsCallback(data: string): number | null {
 }
 
 /**
+ * Direct messages: `dm:<action>:<public id>`.
+ *
+ * ── Three actions, and the id means three different things ──────────────────
+ *
+ * `write` carries an **event** public id — the activity the message is about,
+ * from the button under its detail screen. `view` and `reply` carry a
+ * **direct-message** public id. Both are UUIDs and nothing downstream could tell
+ * them apart by looking, which is exactly why the action is in the payload: the
+ * button that was tapped knows, and it is the only thing that does.
+ *
+ * ── Authorisation is not in the button ──────────────────────────────────────
+ *
+ * The same rule `chat:` and `ev:` state. A tampered id names a resource
+ * `DirectMessageService` declines: a new thread's addressee is derived from the
+ * activity rather than taken from the caller, a message may be read only by the
+ * two accounts it names, and only the *recipient* of one may answer it. So the
+ * worst a tamperer achieves is a 404.
+ *
+ * `dm:reply:<uuid>` is 45 bytes, well inside the 64 Telegram allows.
+ */
+export const DIRECT_CALLBACK_ACTIONS = ['write', 'view', 'reply'] as const;
+export type DirectCallbackAction = (typeof DIRECT_CALLBACK_ACTIONS)[number];
+
+export interface DirectCallback {
+  action: DirectCallbackAction;
+  /** An event public id for `write`; a direct-message public id for the rest. */
+  id: string;
+}
+
+const DIRECT_PREFIX = 'dm';
+
+export function encodeDirectCallback(action: DirectCallbackAction, id: string): string {
+  const data = `${DIRECT_PREFIX}:${action}:${id}`;
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+export function parseDirectCallback(data: string): DirectCallback | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, action, id] = parts;
+  if (prefix !== DIRECT_PREFIX || id === undefined || !isPublicId(id)) return null;
+  if (!DIRECT_CALLBACK_ACTIONS.some((candidate) => candidate === action)) return null;
+
+  return { action: action as DirectCallbackAction, id };
+}
+
+/**
  * Paging the wallet ledger: `wl:<page>:x`.
  *
  * The same shape as «فعالیت‌های من», and a separate prefix for the same reason
