@@ -213,12 +213,30 @@ export class TelegramClient {
    * Text is plain, not HTML: Telegram renders a callback answer as a toast and
    * ignores `parse_mode` entirely. It is truncated to Telegram's 200-character
    * limit rather than sent and refused.
+   *
+   * ── How long it stays on screen (v0.7.0) ────────────────────────────────────
+   *
+   * **The Bot API has no duration parameter.** `answerCallbackQuery` takes
+   * `text`, `show_alert`, `url` and `cache_time`, and none of them is "keep this
+   * up for two seconds" — the toast's dwell time is the Telegram client's, not
+   * ours, and on a busy screen a sentence can be gone before it has been read.
+   *
+   * `show_alert` is the one lever there is: the same text as a small dialog the
+   * reader dismisses, so it stays up until they have finished with it. Applied
+   * by length rather than to everything, because a modal on «پذیرفته شد ✅» is a
+   * confirmation somebody has to tap twice, and a host working through five
+   * guests would tap it five times. Anything long enough to be an explanation —
+   * a refusal, a reason, a price — is worth the dismissal; a short
+   * acknowledgement is not.
    */
   async answerCallback(callbackQueryId: string, text: string): Promise<boolean> {
     if (!this.bot) return false;
 
     try {
-      await this.bot.api.answerCallbackQuery(callbackQueryId, { text: text.slice(0, 200) });
+      await this.bot.api.answerCallbackQuery(callbackQueryId, {
+        text: text.slice(0, 200),
+        ...(needsReadingTime(text) ? { show_alert: true } : {}),
+      });
       return true;
     } catch (error) {
       const outcome = classify(error);
@@ -357,4 +375,20 @@ export function classify(error: unknown): SendOutcome {
   if (error instanceof HttpError)
     return { kind: 'RETRY', reason: 'network error reaching Telegram' };
   return { kind: 'RETRY', reason: error instanceof Error ? error.message : 'unknown error' };
+}
+
+/**
+ * Whether a toast has enough in it to be worth holding on screen.
+ *
+ * Forty characters is about a clause of Persian. Below it the message is an
+ * acknowledgement — «درخواست شما لغو شد», «دوباره در کانال منتشر شد 🔄» — which
+ * the reader has already predicted by tapping the button, and a dialog would
+ * charge them a second tap to confirm what they meant. Above it, the message is
+ * telling them something they did not know: why the tap was refused, what it
+ * would cost, what happens next.
+ *
+ * Exported so the threshold is testable as a rule rather than as a rendering.
+ */
+export function needsReadingTime(text: string): boolean {
+  return text.trim().length >= 40;
 }
