@@ -1,6 +1,36 @@
 import { z } from 'zod';
 
 /**
+ * The capacity that means "as many as turn up".
+ *
+ * ── Why a sentinel and not a nullable column ────────────────────────────────
+ *
+ * `event.capacity` is not merely displayed: `accepted_count <= capacity` is a
+ * database CHECK (invariant 1), `join` compares against it under the event row
+ * lock to decide PENDING versus WAITLISTED, and four renderers subtract from it.
+ * Making it nullable would put a `?? Infinity` in every one of those places, and
+ * the one that was forgotten would be a seat check that silently stopped
+ * checking.
+ *
+ * A thousand keeps all of that arithmetic true and unchanged — a full activity
+ * is still `accepted_count === capacity`, the CHECK still holds, the waitlist
+ * still works — while being a number no gathering of strangers in a café will
+ * ever reach. What changes is only the rendering: at this value the screens say
+ * «بدون محدودیت» instead of counting down from it.
+ *
+ * A host who genuinely wants nine hundred and ninety-nine may still type it, and
+ * gets a number rather than the words. That is the correct outcome: they asked
+ * for a limit.
+ */
+export const UNLIMITED_CAPACITY = 1000;
+
+/** Whether a capacity means "no limit" rather than a number of seats. */
+export function isUnlimitedCapacity(capacity: number): boolean {
+  return capacity >= UNLIMITED_CAPACITY;
+}
+
+
+/**
  * Event authoring contracts (M4).
  *
  * Every bound here is also a CHECK constraint in migration 0004. The schema
@@ -81,7 +111,7 @@ const eventBody = z.object({
   districtLabel: z.string().trim().min(2).max(60).optional(),
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
-  capacity: z.number().int().min(1).max(50),
+  capacity: z.number().int().min(1).max(UNLIMITED_CAPACITY),
   costType,
   /** Integer Toman. Present exactly when the cost type needs a number. */
   costAmount: z.number().int().min(0).max(100_000_000).optional(),

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   createEventRequest,
+  UNLIMITED_CAPACITY,
   type CostType,
   type CreateEventRequest,
   type GenderPreference,
@@ -51,6 +52,9 @@ const districtId = ref('');
 const startsAtLocal = ref('');
 const endsAtLocal = ref('');
 const capacity = ref<number | ''>(4);
+
+/** The same seven the bot's wizard offers; «بدون محدودیت» is appended in the markup. */
+const CAPACITY_CHOICES = [1, 2, 3, 4, 5, 10, 15] as const;
 const costType = ref<CostType>('SPLIT');
 const costAmount = ref<number | ''>('');
 const costNote = ref('');
@@ -387,9 +391,16 @@ onMounted(load);
       <label class="flex flex-col gap-1">
         <span class="text-sm text-tg-subtitle">ظرفیت</span>
         <select v-model="capacity" class="min-h-11 rounded-xl bg-tg-secondary-bg px-3">
-          <option v-for="seats in 50" :key="seats" :value="seats">
+          <!--
+            The same seven the bot's wizard offers, plus «بدون محدودیت». Fifty
+            options was a scroll wheel where almost every answer is one to five,
+            and the two ends of it — one companion, and no limit at all — were
+            the two it did not have.
+          -->
+          <option v-for="seats in CAPACITY_CHOICES" :key="seats" :value="seats">
             {{ toPersianDigits(seats) }} نفر
           </option>
+          <option :value="UNLIMITED_CAPACITY">بدون محدودیت</option>
         </select>
         <span v-if="fieldErrors['capacity']" class="text-sm text-tg-destructive">
           {{ fieldErrors['capacity'] }}

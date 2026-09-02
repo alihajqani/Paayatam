@@ -1,4 +1,5 @@
 import { EVENT_DISCLAIMER_FA } from '@payetam/shared';
+import { seatsLine } from './seats';
 import { escapeHtml, toPersianDigits } from './escape';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
@@ -86,11 +87,7 @@ function ageLine(line: EventDetailLine): string | null {
 }
 
 export function formatEventDetail(line: EventDetailLine): string {
-  const remaining = Math.max(line.capacity - line.acceptedCount, 0);
-  const seats =
-    remaining > 0
-      ? `${toPersianDigits(String(remaining))} جای خالی از ${toPersianDigits(String(line.capacity))}`
-      : 'ظرفیت تکمیل';
+  const seats = seatsLine(line.capacity, line.acceptedCount);
 
   /**
    * «تازه‌وارد» rather than a number, when the host has never been judged.

@@ -1,6 +1,7 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { formatTehran } from './datetime';
-import { escapeHtml, toPersianDigits } from './escape';
+import { escapeHtml } from './escape';
+import { capacityLabel } from './seats';
 
 /**
  * The invitation a host pays to send (M22 phase 11).
@@ -50,7 +51,7 @@ export function renderEventInvitation(content: EventInvitationContent): string {
     `🗂 ${escapeHtml(content.categoryName)}`,
     `📍 ${where}`,
     `🗓 ${formatTehran(content.startsAt)}`,
-    `👥 ظرفیت ${toPersianDigits(content.capacity)} نفر`,
+    `👥 ظرفیت ${capacityLabel(content.capacity)}`,
     '',
     // The deep link is built from the **public** id, the only identifier that ever
     // leaves the backend (invariant 7).

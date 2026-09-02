@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { UNLIMITED_CAPACITY } from '@payetam/shared';
 import { ENTRY_SEPARATOR } from './discover-digest';
 import {
   formatMyEvents,
@@ -133,12 +134,20 @@ describe('formatOwnedEvent', () => {
   it('says how full it is, both ways round', () => {
     const text = formatOwnedEvent(owned());
 
-    expect(text).toContain('۳ از ۶ جا پر شده');
-    expect(text).toContain('۳ جای خالی');
+    expect(text).toContain('۳ نفر پذیرفته‌شده');
+    expect(text).toContain('۳ جای خالی از ۶');
   });
 
   it('says «ظرفیت تکمیل» rather than «۰ جای خالی»', () => {
     expect(formatOwnedEvent(owned({ acceptedCount: 6 }))).toContain('ظرفیت تکمیل');
+  });
+
+  /** A host who said «بدون محدودیت» has no shortage to be told about. */
+  it('never counts down from the unlimited sentinel', () => {
+    const text = formatOwnedEvent(owned({ capacity: UNLIMITED_CAPACITY, acceptedCount: 3 }));
+
+    expect(text).toContain('بدون محدودیت');
+    expect(text).not.toContain('۹۹۷');
   });
 
   /**

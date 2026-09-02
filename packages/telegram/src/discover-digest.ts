@@ -1,5 +1,6 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { escapeHtml, toPersianDigits } from './escape';
+import { seatsLineFromRemaining } from './seats';
 import { eventCommandFor } from './event-code';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
@@ -73,17 +74,13 @@ export function formatDiscovered(
 
   const entries = lines.map((line, index) => {
     /**
-     * «۳ جای خالی از ۶» — the number somebody scanning a list actually decides
-     * on, and the total beside it so «۳ جای خالی» on a party of thirty reads
-     * differently from «۳ جای خالی» on a hike of four. A full activity is not
-     * silently rendered as zero: `hasCapacity` filters those out upstream, and
-     * if one slips through, saying so beats an empty count.
+     * «۳ جای خالی از ۶», «ظرفیت تکمیل» or «بدون محدودیت» — see `seatsLine`.
+     *
+     * A full activity is deliberately *not* rendered as an empty count: since
+     * v0.7.0 the list shows full activities on purpose, because a waiting list
+     * you cannot see is a waiting list nobody joins.
      */
-    const seats =
-      line.remainingCapacity > 0
-        ? `${toPersianDigits(String(line.remainingCapacity))} جای خالی از ` +
-          `${toPersianDigits(String(line.capacity))}`
-        : 'ظرفیت تکمیل';
+    const seats = seatsLineFromRemaining(line.capacity, line.remainingCapacity);
 
     // Numbered from the top of the *page*, so the reader's «۳» is the third
     // thing they can see rather than the third of a set they cannot.

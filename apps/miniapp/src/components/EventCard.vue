@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { DiscoveredEventView } from '@payetam/shared';
+import { isUnlimitedCapacity, type DiscoveredEventView } from '@payetam/shared';
 import { formatEventDate, formatEventTime, formatRelative } from '@/format/datetime';
 import { formatToman, toPersianDigits } from '@/format/fa';
 
@@ -28,7 +28,8 @@ const place = computed(() =>
     : props.event.city.nameFa,
 );
 
-const full = computed(() => props.event.remainingCapacity <= 0);
+const unlimited = computed(() => isUnlimitedCapacity(props.event.capacity));
+const full = computed(() => !unlimited.value && props.event.remainingCapacity <= 0);
 </script>
 
 <template>
@@ -51,7 +52,8 @@ const full = computed(() => props.event.remainingCapacity <= 0);
 
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span>{{ cost }}</span>
-      <span v-if="full" class="text-tg-destructive">تکمیل — با نوبت انتظار</span>
+      <span v-if="unlimited" class="text-tg-hint">ظرفیت بدون محدودیت</span>
+      <span v-else-if="full" class="text-tg-destructive">تکمیل — با نوبت انتظار</span>
       <span v-else class="text-tg-hint">
         {{ toPersianDigits(event.remainingCapacity) }} جای خالی از
         {{ toPersianDigits(event.capacity) }}

@@ -113,6 +113,7 @@ import {
   formatTrust,
   formatWallet,
   walletPageRow,
+  capacityLabel,
   menuCommandFor,
   formatTehran,
   formatMyChats,
@@ -4630,7 +4631,10 @@ export class BotService {
             ? '—'
             : `${toPersianDigits(String(form.durationHours))} ساعت`,
       },
-      { label: 'ظرفیت', value: `${toPersianDigits(String(form.capacity ?? 0))} نفر` },
+      {
+        label: 'ظرفیت',
+        value: form.capacity === undefined ? '—' : capacityLabel(form.capacity),
+      },
       { label: 'هزینه', value: costSummary(form) },
     ];
 

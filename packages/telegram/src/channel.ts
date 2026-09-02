@@ -1,6 +1,7 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
+import { seatsLine } from './seats';
 import { botStartUrl, encodeStartPayload } from './deep-link';
 import { type InlineKeyboard } from './keyboards';
 
@@ -122,7 +123,6 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
       ? escapeHtml(content.cityName)
       : `${escapeHtml(content.cityName)}، ${escapeHtml(content.districtName)}`;
 
-  const seatsLeft = Math.max(content.capacity - content.acceptedCount, 0);
   const cost =
     content.costType === 'FREE' || content.costAmount === null
       ? (COST_LABEL[content.costType] ?? '—')
@@ -141,7 +141,7 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
     `📍 ${where}`,
     `🗓 ${formatTehran(content.startsAt)}`,
     `💸 ${cost}`,
-    `👥 ${toPersianDigits(seatsLeft)} جای خالی از ${toPersianDigits(content.capacity)}`,
+    `👥 ${seatsLine(content.capacity, content.acceptedCount)}`,
   ].join('\n');
 
   /**

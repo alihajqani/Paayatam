@@ -1,4 +1,10 @@
-import { costType, genderPreference, type CostType, type GenderPreference } from '@payetam/shared';
+import {
+  costType,
+  genderPreference,
+  UNLIMITED_CAPACITY,
+  type CostType,
+  type GenderPreference,
+} from '@payetam/shared';
 import { parseIsoDay, toJalali, toPersianDigits, type Choice } from '@payetam/telegram';
 import { acceptInteger, acceptText, quoted, toAsciiDigits, type TextResult } from './answers';
 import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
@@ -183,7 +189,32 @@ function durationHours(input: WizardInput): number | string {
   }
   return total;
 }
-const CAPACITIES = [2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 50] as const;
+/**
+ * The capacities a host picks from, and the two escapes beside them.
+ *
+ * ── Why these seven ─────────────────────────────────────────────────────────
+ *
+ * It was twelve — 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 50 — which is two rows
+ * of a keyboard spent on the difference between ten and twelve. Almost every
+ * gathering somebody organises from a phone is one to five people; past that the
+ * number stops being a decision and starts being a guess, so the list thins out
+ * and then stops.
+ *
+ * **One is now offerable**, which it was not: a host looking for a single
+ * companion had to type the number, on a step that showed twelve buttons and did
+ * not say typing was allowed.
+ *
+ * ── The two escapes ─────────────────────────────────────────────────────────
+ *
+ * «بدون محدودیت» carries `UNLIMITED_CAPACITY`, which is a real number the whole
+ * seat-counting stack keeps working against — see the constant for why it is a
+ * sentinel rather than a nullable column. Anything else is typed, and the prompt
+ * says so rather than leaving it to be discovered.
+ */
+const CAPACITIES = [1, 2, 3, 4, 5, 10, 15] as const;
+
+/** What «بدون محدودیت» sends. A letter, so it cannot collide with a typed number. */
+const UNLIMITED_CHOICE = 'u';
 
 const steps: WizardStep<CreateEventForm>[] = [
   {
@@ -374,10 +405,21 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'cap',
     ui: 'choice',
-    prompt: () => 'چند نفر جا دارید؟ (بدون احتساب خودتان)',
-    load: () => Promise.resolve(CAPACITIES.map((n) => ({ value: String(n), label: String(n) }))),
+    prompt: () =>
+      'چند نفر جا دارید؟ (بدون احتساب خودتان)\n' +
+      'یکی را بزنید، یا عدد دلخواهتان را بنویسید.',
+    load: () =>
+      Promise.resolve([
+        ...CAPACITIES.map((n) => ({ value: String(n), label: toPersianDigits(String(n)) })),
+        { value: UNLIMITED_CHOICE, label: '♾ بدون محدودیت' },
+      ]),
     accept: (input) => {
-      const value = integer(input, 1, 50, 'ظرفیت');
+      // The button, before the number parser sees it: `integer` would refuse a
+      // letter with a message about digits, which is not what happened.
+      if (input.value.trim() === UNLIMITED_CHOICE) {
+        return { ok: true, patch: { capacity: UNLIMITED_CAPACITY } };
+      }
+      const value = integer(input, 1, UNLIMITED_CAPACITY, 'ظرفیت');
       if (typeof value === 'string') return { ok: false, error: value };
       return { ok: true, patch: { capacity: value } };
     },

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { ParticipationView } from '@payetam/shared';
+import { isUnlimitedCapacity, type ParticipationView } from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import ChannelGate from '@/components/ChannelGate.vue';
 import EventDisclaimer from '@/components/EventDisclaimer.vue';
@@ -99,6 +99,7 @@ const ageRange = computed(() => {
 const buttonText = computed(() => {
   if (mine.value !== null) return 'گفت‌وگو در تلگرام';
   if (event.value === null) return 'پایتم';
+  if (isUnlimitedCapacity(event.value.capacity)) return 'پایتم';
   return event.value.remainingCapacity <= 0 ? 'ثبت در نوبت انتظار' : 'پایتم';
 });
 
@@ -199,7 +200,8 @@ onMounted(load);
           </p>
           <p>{{ cost }}</p>
           <p>
-            <span v-if="event.remainingCapacity > 0">
+            <span v-if="isUnlimitedCapacity(event.capacity)">ظرفیت بدون محدودیت</span>
+            <span v-else-if="event.remainingCapacity > 0">
               {{ toPersianDigits(event.remainingCapacity) }} جای خالی از
               {{ toPersianDigits(event.capacity) }}
             </span>

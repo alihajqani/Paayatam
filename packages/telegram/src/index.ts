@@ -35,6 +35,7 @@ export { formatEventDetail } from './event-detail';
 export { insufficientCoinsNotice } from './notices';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa, walletPageRow } from './wallet';
+export { capacityLabel, seatsLine, seatsLineFromRemaining } from './seats';
 export { formatTrust, trustLabelFa } from './trust';
 export { REPORT_REASON_CHOICES, reportPrompt, reportReasonLabel } from './report';
 export { notificationCategory, preferenceKeyFor } from './notification-category';

@@ -1,6 +1,8 @@
 export { AppError, ErrorCode, ERROR_MESSAGES_FA, isAppError } from './errors';
 export type { ErrorBody } from './errors';
 
+export { UNLIMITED_CAPACITY, isUnlimitedCapacity } from './contracts/events';
+
 export {
   CHAT_STATUS_FA,
   EVENT_DISCLAIMER_FA,

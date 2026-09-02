@@ -2,6 +2,7 @@ import { EVENT_STATUS_FA, type EventStatus } from '@payetam/shared';
 import { encodeMyEventsCallback } from './callback-data';
 import { ENTRY_SEPARATOR } from './discover-digest';
 import { escapeHtml, toPersianDigits } from './escape';
+import { capacityLabel, seatsLine } from './seats';
 import { myEventCommandFor } from './event-code';
 import type { InlineButton } from './keyboards';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
@@ -74,8 +75,8 @@ export function formatMyEvents(
   }
 
   const entries = lines.map((line, index) => {
-    const seats = `${toPersianDigits(String(line.acceptedCount))} از ${toPersianDigits(
-      String(line.capacity),
+    const seats = `${toPersianDigits(String(line.acceptedCount))} از ${capacityLabel(
+      line.capacity,
     )}`;
     const number = toPersianDigits(String(offset + index + 1));
     const command = myEventCommandFor(line.publicId);
@@ -173,7 +174,6 @@ const COST_TYPE_FA: Record<string, string> = {
  * activity.
  */
 export function formatOwnedEvent(line: OwnedEventLine): string {
-  const remaining = Math.max(line.capacity - line.acceptedCount, 0);
   const cost =
     line.costType === 'FREE'
       ? 'رایگان'
@@ -200,9 +200,8 @@ export function formatOwnedEvent(line: OwnedEventLine): string {
     `📍 ${escapeHtml(line.where)}\n` +
     `🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)} تا ` +
     `${formatJalaliTime(line.endsAt)}\n` +
-    `👥 ${toPersianDigits(String(line.acceptedCount))} از ` +
-    `${toPersianDigits(String(line.capacity))} جا پر شده` +
-    (remaining > 0 ? ` · ${toPersianDigits(String(remaining))} جای خالی` : ' · ظرفیت تکمیل') +
+    `👥 ${toPersianDigits(String(line.acceptedCount))} نفر پذیرفته‌شده · ` +
+    `${seatsLine(line.capacity, line.acceptedCount)}` +
     `${pending}\n` +
     `💵 ${escapeHtml(cost)}`
   );

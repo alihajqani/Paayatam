@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { UNLIMITED_CAPACITY } from '@payetam/shared';
 import { apply, nextStep, progressOf, stepByKey } from '../wizard';
 import { categoryChoice, createEventWizard, type CreateEventForm } from './create-event';
 
@@ -40,7 +41,7 @@ describe('title', () => {
   });
 
   it('states a range in Persian digits too', () => {
-    const result = accept('cap', '99');
+    const result = accept('cap', '9999');
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).not.toMatch(/[0-9]/);
@@ -129,7 +130,34 @@ describe('numbers', () => {
 
   it('refuses a capacity outside what an event may hold', () => {
     expect(accept('cap', '0').ok).toBe(false);
-    expect(accept('cap', '51').ok).toBe(false);
+    expect(accept('cap', '1001').ok).toBe(false);
+  });
+
+  /**
+   * One is a real answer, and the step could not give it.
+   *
+   * The buttons started at two and the prompt did not say typing was allowed, so
+   * a host looking for a single companion had nothing to press.
+   */
+  it('accepts one, which the old button list could not offer', () => {
+    expect(accept('cap', '1')).toEqual({ ok: true, patch: { capacity: 1 } });
+  });
+
+  /**
+   * «بدون محدودیت» sends a letter, so it cannot be confused with a typed number
+   * — and it resolves to a real capacity the seat arithmetic keeps working
+   * against, rather than to a null the whole stack would have to special-case.
+   */
+  it('turns the unlimited button into the sentinel capacity', () => {
+    expect(accept('cap', 'u', {}, 'callback')).toEqual({
+      ok: true,
+      patch: { capacity: UNLIMITED_CAPACITY },
+    });
+  });
+
+  /** A host who types the sentinel meant a number, and gets one. It is the same value. */
+  it('accepts the sentinel typed as a number', () => {
+    expect(accept('cap', '1000')).toEqual({ ok: true, patch: { capacity: 1000 } });
   });
 
   it('refuses text where a number belongs', () => {
