@@ -13,6 +13,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
+import { ChannelService } from '../channel/channel.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
 import { ProfileService } from '../profile/profile.service';
@@ -80,6 +81,11 @@ const operations = new AdminOperationsService(
   // rather than stubbed: `setUserStatus` writes it inside the same transaction
   // as the status change, and a stub would let a broken write pass unnoticed.
   new OutboxService(service, clock),
+  // The channel, for putting a paid post back after a case is dismissed
+  // (v0.7.0). Real rather than stubbed: the reinstatement is a claim row written
+  // inside the same transaction as the restoration, and a stub would let a
+  // broken write pass.
+  new ChannelService(service, clock, settings),
   envForProfile,
 );
 
@@ -154,6 +160,31 @@ describe('moderating an event without a case', () => {
     expect(entry.after).toMatchObject({ status: 'HIDDEN' });
   });
 
+  /**
+   * The automatic hide has told the host since M12; a moderator doing the same
+   * thing by hand told them nothing, so one event produced a message or silence
+   * depending on which path reached it (v0.7.0).
+   */
+  it('tells the host their activity was hidden, naming no reporter', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی');
+
+    await operations.moderateEvent(SUPER, publicId, {
+      action: 'HIDE',
+      reason: 'Reported for advertising a paid service.',
+    });
+
+    const emitted = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'moderation.content_hidden' },
+      select: { payload: true },
+    });
+    const payload = emitted.payload as Record<string, unknown>;
+    expect(payload['subjectPublicId']).toBe(publicId);
+    expect(payload['ownerUserPublicId']).toEqual(expect.any(String));
+    // The reason is for `audit_log`. Naming who objected would make reporting an
+    // act with a personal cost.
+    expect(JSON.stringify(payload)).not.toContain('advertising');
+  });
+
   it('restores a hidden event', async () => {
     const publicId = await seedEvent('شب بازی رومیزی', 'HIDDEN');
 
@@ -165,6 +196,74 @@ describe('moderating an event without a case', () => {
     const row = await prisma.event.findUniqueOrThrow({ where: { publicId } });
     expect(row.status).toBe('PUBLISHED');
     expect(row.moderationStatus).toBe('APPROVED');
+  });
+
+  /**
+   * The half that never existed. A host was told when their activity was hidden
+   * and then told nothing when it came back, so the only way to learn a case had
+   * gone their way was to notice the activity in their own list again.
+   */
+  it('tells the host when it comes back', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی', 'HIDDEN');
+
+    await operations.moderateEvent(SUPER, publicId, {
+      action: 'PUBLISH',
+      reason: 'The complaint did not hold up on review.',
+    });
+
+    await expect(
+      prisma.outboxEvent.count({ where: { eventType: 'moderation.content_restored' } }),
+    ).resolves.toBe(1);
+  });
+
+  /**
+   * And the channel placement comes back with it (v0.7.0).
+   *
+   * Hiding takes the post down; restoring could not put it back, because the
+   * claim row survives a takedown and `UNIQUE (event_id, kind, republish_seq)`
+   * then refuses a second claim at the same sequence. A host cleared by a
+   * moderator silently lost the placement they had paid for.
+   */
+  it('re-claims the paid channel post the takedown removed', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی', 'HIDDEN');
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId },
+      select: { id: true },
+    });
+    // What the sweep leaves behind: posted, then taken down when it was hidden.
+    await prisma.channelPost.create({
+      data: {
+        eventId: event.id,
+        kind: 'PAID',
+        republishSeq: 0,
+        telegramMessageId: 4242,
+        postedAt: NOW,
+        deletedAt: NOW,
+      },
+    });
+
+    await operations.moderateEvent(SUPER, publicId, {
+      action: 'PUBLISH',
+      reason: 'The complaint did not hold up on review.',
+    });
+
+    const reinstated = await prisma.channelPost.findFirstOrThrow({
+      where: { eventId: event.id, deletedAt: null },
+      select: { republishSeq: true, postedAt: true, kind: true },
+    });
+    expect(reinstated).toMatchObject({ kind: 'PAID', republishSeq: 1, postedAt: null });
+  });
+
+  /** Nothing to reinstate for an activity that was never in the channel. */
+  it('claims nothing when there was no paid post', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی', 'HIDDEN');
+
+    await operations.moderateEvent(SUPER, publicId, {
+      action: 'PUBLISH',
+      reason: 'The complaint did not hold up on review.',
+    });
+
+    await expect(prisma.channelPost.count()).resolves.toBe(0);
   });
 
   /**
@@ -274,9 +373,9 @@ describe('changing a policy number', () => {
 
     expect(listed).toHaveLength(Object.keys(SETTING_DEFAULTS).length);
     expect(listed.every((row) => row.overridden === false)).toBe(true);
-    expect(listed.find((row) => row.key === 'economy.boost_coins')).toMatchObject({
-      value: 40,
-      defaultValue: 40,
+    expect(listed.find((row) => row.key === 'economy.event_top_invite_coins')).toMatchObject({
+      value: 20,
+      defaultValue: 20,
     });
   });
 
@@ -301,7 +400,7 @@ describe('changing a policy number', () => {
 
     const entry = await prisma.auditLog.findFirstOrThrow({ where: { action: 'setting.changed' } });
     expect(entry.targetId).toBe('economy.event_top_invite_coins');
-    expect(entry.before).toEqual({ value: 40 });
+    expect(entry.before).toEqual({ value: 20 });
     expect(entry.after).toMatchObject({ value: 55, reason: 'Nowruz campaign pricing.' });
   });
 

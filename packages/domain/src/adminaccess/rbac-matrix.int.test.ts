@@ -23,6 +23,7 @@ import { CatalogAdminService } from './catalog-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ProfileService } from '../profile/profile.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { ChannelService } from '../channel/channel.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelAdminService } from './channel-admin.service';
 import { GeographyAdminService } from './geography-admin.service';
@@ -104,6 +105,11 @@ const operations = new AdminOperationsService(
   profiles,
   // The outbox, for the blocked-account message `setUserStatus` emits (v0.6.5).
   new OutboxService(service, clock),
+  // The channel, for putting a paid post back after a case is dismissed
+  // (v0.7.0). Real rather than stubbed: the reinstatement is a claim row written
+  // inside the same transaction as the restoration, and a stub would let a
+  // broken write pass.
+  new ChannelService(service, clock, settings),
   envForProfile,
 );
 const unseal = new ChatUnsealService(service, clock, settings, cipher, access, audit);

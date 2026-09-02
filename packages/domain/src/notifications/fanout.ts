@@ -197,6 +197,18 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
       return recipient(row, 'ownerUserPublicId', TEMPLATES.CONTENT_HIDDEN);
 
     /**
+     * And the other half (v0.7.0).
+     *
+     * A host was told when their activity was hidden and then told nothing when
+     * it came back, so the only way to learn a case had gone their way was to
+     * notice the activity in «فعالیت‌های من» again. Half a conversation is worse
+     * than none: the message that arrives is the accusation and the one that
+     * never arrives is the exoneration.
+     */
+    case 'moderation.content_restored':
+      return recipient(row, 'ownerUserPublicId', TEMPLATES.CONTENT_RESTORED);
+
+    /**
      * The last thing a blocked account is told (v0.6.5).
      *
      * Fanned out like everything else rather than sent inline by the admin

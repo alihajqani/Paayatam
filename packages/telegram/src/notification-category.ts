@@ -63,6 +63,7 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.REFERRAL_QUALIFIED_REFERRER]: 'essential',
   [TEMPLATES.REFERRAL_QUALIFIED_REFERRED]: 'essential',
   [TEMPLATES.CONTENT_HIDDEN]: 'essential',
+  [TEMPLATES.CONTENT_RESTORED]: 'essential',
   [TEMPLATES.BOT_CONSENT_ACCEPTED]: 'essential',
   [TEMPLATES.BOT_CHANNEL_GATE]: 'essential',
   [TEMPLATES.BOT_TERMS_STANDING]: 'essential',

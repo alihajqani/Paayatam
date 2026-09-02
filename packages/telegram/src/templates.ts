@@ -54,6 +54,16 @@ export const TEMPLATES = {
   NO_SHOW_RECORDED: 'participation.no_show',
   CONTENT_HIDDEN: 'moderation.content_hidden',
   /**
+   * The other half of `CONTENT_HIDDEN`, which had no counterpart (v0.7.0).
+   *
+   * A host was told when their activity was hidden and then told nothing when it
+   * came back, so the only way to learn a case had gone their way was to notice
+   * the activity in «فعالیت‌های من» again. Half a conversation is worse than
+   * none: the message that arrives is the accusation, and the one that never
+   * arrives is the exoneration.
+   */
+  CONTENT_RESTORED: 'moderation.content_restored',
+  /**
    * The last message a blocked account receives (v0.6.5).
    *
    * The bot goes silent for a banned user — `knownUser` returns null and nothing
@@ -524,9 +534,27 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.CONTENT_HIDDEN:
       return {
         text:
-          `<b>محتوای شما موقتاً پنهان شد</b>\n\n` +
+          `<b>فعالیت شما موقتاً پنهان شد</b>\n\n` +
           `تعدادی گزارش دربارهٔ آن ثبت شده و در حال بررسی توسط تیم ماست. ` +
-          `پس از بررسی نتیجه را به شما اطلاع می‌دهیم.`,
+          `تا پایان بررسی در فهرست‌ها و کانال دیده نمی‌شود و کسی نمی‌تواند به آن ` +
+          `بپیوندد.\n\n` +
+          `کسانی که پیش‌تر پذیرفته شده‌اند سر جای خود می‌مانند، و نتیجهٔ بررسی را ` +
+          `همین‌جا به شما می‌گوییم.`,
+      };
+
+    /**
+     * The activity is back. Said because the accusation was said.
+     *
+     * No reason and no reporter, exactly as `CONTENT_HIDDEN` names none: who
+     * objected is not something the host is told, or reporting becomes an act
+     * with a personal cost.
+     */
+    case TEMPLATES.CONTENT_RESTORED:
+      return {
+        text:
+          `<b>فعالیت شما دوباره نمایش داده می‌شود</b> ✅\n\n` +
+          `بررسی تمام شد و موردی پیدا نشد. فعالیت از همین حالا دوباره در فهرست‌ها ` +
+          `دیده می‌شود و می‌توان به آن پیوست.`,
       };
 
     /**

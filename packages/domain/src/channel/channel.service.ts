@@ -207,6 +207,51 @@ export class ChannelService {
   }
 
   /**
+   * Put back a paid publication that moderation took down (v0.7.0).
+   *
+   * ── The gap this closes ─────────────────────────────────────────────────────
+   *
+   * Hiding an activity takes its channel post down — `findTakedowns` matches any
+   * post whose event is no longer PUBLISHED, which is exactly right while the
+   * activity is under review. Restoring it did **not** put the post back, and
+   * could not: `markTakenDown` keeps the row, and `UNIQUE (event_id, kind,
+   * republish_seq)` then refuses every future claim at that sequence.
+   *
+   * So a host whose activity was hidden by three reports and then cleared by a
+   * moderator got the activity back and silently lost the channel placement they
+   * had paid for. Nothing said so, and nothing could be done about it except
+   * paying again.
+   *
+   * ── What this does, and does not, do ────────────────────────────────────────
+   *
+   * It claims the **next sequence** for the same kind, unposted, so the ordinary
+   * five-minute sweep picks it up and posts it. **Free** — the coins were already
+   * spent, and charging a second time for a report that was dismissed would be
+   * the product billing somebody for having been wrongly accused.
+   *
+   * Only when there was a paid post that actually reached Telegram: an activity
+   * that was never in the channel has nothing to reinstate, and one whose claim
+   * is still unposted is already in the sweep's queue.
+   *
+   * Returns whether it claimed anything, so a caller can record that rather than
+   * guess at it.
+   */
+  async reinstatePaidPublication(
+    tx: Prisma.TransactionClient,
+    eventId: string,
+  ): Promise<boolean> {
+    const previous = await tx.channelPost.findFirst({
+      where: { eventId, kind: 'PAID', postedAt: { not: null } },
+      orderBy: { republishSeq: 'desc' },
+      select: { republishSeq: true, deletedAt: true },
+    });
+    // Never published by purchase, or its post is still up.
+    if (!previous || previous.deletedAt === null) return false;
+
+    return this.claimPaidPublication(tx, eventId, previous.republishSeq + 1);
+  }
+
+  /**
    * Paid claims Telegram has not confirmed yet.
    *
    * A separate read from `claimPending` because the two have opposite failure

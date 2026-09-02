@@ -9,6 +9,7 @@ import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
 import { assertEventTransition } from '../events/state-machine';
 import { SETTING_DEFAULTS, type SettingKey } from '../catalog/settings.service';
+import { ChannelService } from '../channel/channel.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { ProfileService, type ProfileDetail } from '../profile/profile.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
@@ -92,6 +93,15 @@ export class AdminOperationsService {
     private readonly profiles: ProfileService,
     /** For the final message a blocked account receives — see `setUserStatus`. */
     private readonly outbox: OutboxService,
+    /**
+     * For putting a paid channel post back after a case is dismissed (v0.7.0).
+     *
+     * Hiding an activity takes its post down; restoring it could not put the post
+     * back, because the claim row survives a takedown and the unique index then
+     * refuses a second claim at the same sequence. A host cleared by a moderator
+     * silently lost the placement they had paid for.
+     */
+    private readonly channel: ChannelService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -307,7 +317,7 @@ export class AdminOperationsService {
     void now;
     const event = await tx.event.findUnique({
       where: { id: eventId },
-      select: { status: true },
+      select: { status: true, publicId: true, hostUserId: true },
     });
     if (!event) return;
 
@@ -326,6 +336,41 @@ export class AdminOperationsService {
         version: { increment: 1 },
       },
     });
+
+    /**
+     * The host is told the case went their way (v0.7.0).
+     *
+     * They were told when it was hidden — `moderation.content_hidden`, from the
+     * report threshold — and then nothing when it came back, so the only way to
+     * learn the outcome was to notice the activity in their own list again. Half
+     * a conversation is worse than none.
+     *
+     * Only on the way back to PUBLISHED. A REJECTED activity stays hidden and the
+     * message about *that* belongs to whatever the moderator decides to say, not
+     * to an automatic sentence that would read as a verdict with no reason.
+     *
+     * Inside the transaction, like every other user-visible consequence, so a
+     * rollback cannot announce a restoration that did not happen (ADR-0005).
+     */
+    if (next === 'PUBLISHED') {
+      // And the channel placement the host paid for, which the takedown sweep
+      // removed while the activity was hidden. Free — see `reinstatePaidPublication`.
+      await this.channel.reinstatePaidPublication(tx, eventId);
+
+      await this.outbox.emit(
+        {
+          aggregateType: 'event',
+          aggregateId: eventId,
+          eventType: 'moderation.content_restored',
+          payload: {
+            subjectType: 'EVENT',
+            subjectPublicId: event.publicId,
+            ownerUserPublicId: await publicIdOf(tx, event.hostUserId),
+          },
+        },
+        tx,
+      );
+    }
 
     await this.audit.record(
       {
@@ -740,7 +785,7 @@ export class AdminOperationsService {
     return this.prisma.$transaction(async (tx) => {
       const event = await tx.event.findUnique({
         where: { publicId: eventPublicId },
-        select: { id: true, status: true, deletedAt: true },
+        select: { id: true, status: true, deletedAt: true, hostUserId: true },
       });
       if (!event || event.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
 
@@ -758,6 +803,42 @@ export class AdminOperationsService {
           version: { increment: 1 },
         },
       });
+
+      /**
+       * The host learns their activity moved, in either direction (v0.7.0).
+       *
+       * The automatic hide has told them since M12; a moderator doing the same
+       * thing by hand told them nothing, so the same event produced a message or
+       * silence depending on which path reached it. And nothing at all was said
+       * when an activity came back.
+       *
+       * `HIDE` and `PUBLISH` only. `REJECT` is terminal and the message about it
+       * belongs to whatever the moderator decides to say.
+       *
+       * The payload carries no reason and no reporter — `moderateEvent`'s reason
+       * is for `audit_log`, and naming the people who objected would make
+       * reporting an act with a personal cost.
+       */
+      if (input.action === 'PUBLISH') {
+        await this.channel.reinstatePaidPublication(tx, event.id);
+      }
+
+      if (input.action === 'HIDE' || input.action === 'PUBLISH') {
+        await this.outbox.emit(
+          {
+            aggregateType: 'event',
+            aggregateId: event.id,
+            eventType:
+              input.action === 'HIDE' ? 'moderation.content_hidden' : 'moderation.content_restored',
+            payload: {
+              subjectType: 'EVENT',
+              subjectPublicId: eventPublicId,
+              ownerUserPublicId: await publicIdOf(tx, event.hostUserId),
+            },
+          },
+          tx,
+        );
+      }
 
       await this.audit.record(
         {
@@ -946,4 +1027,18 @@ export class AdminOperationsService {
       select: { action: true, actorType: true, createdAt: true, targetType: true },
     });
   }
+}
+
+/**
+ * A user's external identifier, for a payload that becomes a Telegram message.
+ *
+ * Internal ids never leave the backend (invariant 7), and an outbox payload is
+ * plain jsonb read by the relay.
+ */
+async function publicIdOf(tx: Prisma.TransactionClient, userId: string): Promise<string> {
+  const user = await tx.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { publicId: true },
+  });
+  return user.publicId;
 }
