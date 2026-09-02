@@ -74,6 +74,22 @@ export const TEMPLATES = {
   /** `/start <code>` with a referral code that was accepted. */
   BOT_REFERRAL_ACCEPTED: 'bot.referral_accepted',
   /**
+   * The referral paid out — one event, two recipients (v0.7.0).
+   *
+   * The reward has always been conditional on the referred user **attending**
+   * something, which is what stops a farm: accounts are free, an evening in a
+   * café is not (T6). What was missing was anybody being told when the condition
+   * was met, so both sides were promised coins and then found out by checking a
+   * balance — or reported it as a bug. A promise is worth nothing if nobody says
+   * it was kept.
+   *
+   * Two keys rather than one, because the two read differently: «کسی که دعوت
+   * کردید…» to the referrer, «پاداش کد دعوتی که وارد کردید…» to the person who
+   * used the code.
+   */
+  REFERRAL_QUALIFIED_REFERRER: 'referral.qualified.referrer',
+  REFERRAL_QUALIFIED_REFERRED: 'referral.qualified.referred',
+  /**
    * Anything the bot has to say about a request it could not carry out.
    *
    * A single passthrough template, deliberately: the Persian text comes from
@@ -529,13 +545,47 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         `home`,
       );
 
-    /** `/start <code>`: the invite worked, and what it is worth is stated plainly. */
+    /**
+     * `/start <code>`: the invite worked, and the condition is stated in full.
+     *
+     * It used to say «پس از شرکت در نخستین فعالیت» and stop, which somebody
+     * reasonably read as "after I press join". The reward lands when the
+     * *activity has happened* and the product has settled who attended — so a
+     * guest who joined, was accepted, and then watched their balance not move had
+     * been told something true and unusable. All three steps are named.
+     */
     case TEMPLATES.BOT_REFERRAL_ACCEPTED:
       return opened(
         `<b>کد دعوت ثبت شد</b> ✅\n\n` +
-          `پس از شرکت در نخستین فعالیت، ${num(payload, 'pendingCoins')} سکه به حساب شما اضافه می‌شود.`,
+          `${num(payload, 'pendingCoins')} سکه پس از نخستین فعالیتی که در آن شرکت کنید ` +
+          `به حساب شما اضافه می‌شود.\n\n` +
+          `<i>یعنی: به فعالیتی «پایتم» بگویید، میزبان بپذیردتان، فعالیت برگزار شود و ` +
+          `چند ساعت از پایانش بگذرد. آن‌وقت سکه‌ها را می‌گیرید و همین‌جا خبرتان می‌کنیم.</i>`,
         `home`,
       );
+
+    /**
+     * The payout, said to the person who invited.
+     *
+     * No name and no public id: who took up an invitation is not something the
+     * inviter is told, and the count on `/referral` is where the number lives.
+     */
+    case TEMPLATES.REFERRAL_QUALIFIED_REFERRER:
+      return {
+        text:
+          `<b>پاداش دعوت شما رسید</b> 🎁\n\n` +
+          `کسی که با کد شما آمده بود در نخستین فعالیتش شرکت کرد، و ` +
+          `${num(payload, 'referrerCoins')} سکه به حساب شما اضافه شد.`,
+      };
+
+    /** And to the person who used the code, naming the condition that was met. */
+    case TEMPLATES.REFERRAL_QUALIFIED_REFERRED:
+      return {
+        text:
+          `<b>پاداش کد دعوت رسید</b> 🎁\n\n` +
+          `در نخستین فعالیتتان شرکت کردید، پس ${num(payload, 'referredCoins')} سکه ` +
+          `به حساب شما اضافه شد.`,
+      };
 
     /**
      * `/help` — the only place the bot's own capabilities are written down.

@@ -9,6 +9,7 @@ import {
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { CoinService } from '../economy/coin.service';
 import { ReferralService } from '../economy/referral.service';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
@@ -50,12 +51,14 @@ const credentials = new AdminCredentials({
 const redis = { client: {} } as unknown as RedisService;
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
 const admin = new ReferralAdminService(service, clock, access, audit);
+const outbox = new OutboxService(service, clock);
 const referrals = new ReferralService(
   service,
   clock,
   settings,
   coins,
   audit,
+  outbox,
   new MetricsRegistry(),
 );
 

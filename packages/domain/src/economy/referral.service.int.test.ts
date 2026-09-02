@@ -10,6 +10,7 @@ import {
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { normalize } from '../moderation/persian-normalizer';
 import { CoinService } from './coin.service';
 import { ReferralService, normalizeCode } from './referral.service';
@@ -33,12 +34,14 @@ const clock = new FakeClock(NOW);
 const settings = new SettingsService(service);
 const coins = new CoinService(service, clock);
 const audit = new AuditService(service, clock);
+const outbox = new OutboxService(service, clock);
 const referrals = new ReferralService(
   service,
   clock,
   settings,
   coins,
   audit,
+  outbox,
   new MetricsRegistry(),
 );
 

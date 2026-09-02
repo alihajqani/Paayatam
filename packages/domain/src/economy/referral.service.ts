@@ -7,6 +7,7 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
 import { isUniqueViolation } from '../identity/user.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { CoinService } from './coin.service';
 
 /**
@@ -95,6 +96,7 @@ export class ReferralService {
     private readonly settings: SettingsService,
     private readonly coins: CoinService,
     private readonly audit: AuditService,
+    private readonly outbox: OutboxService,
     /**
      * Counted by outcome (M18).
      *
@@ -358,6 +360,39 @@ export class ReferralService {
         tx,
       );
 
+      /**
+       * Both sides are told (v0.7.0).
+       *
+       * The reward has always been conditional on the referred user attending
+       * something, which is what stops a farm — accounts are free, an evening in
+       * a café is not (T6). What was missing was anybody being *told* when the
+       * condition was met: `/start <code>` promised coins «پس از شرکت در نخستین
+       * فعالیت» and then nothing ever said it had happened, so both parties found
+       * out by checking a balance, or reported it as a bug.
+       *
+       * Emitted inside the transaction that pays, like every other user-visible
+       * consequence, so a rollback cannot announce a reward nobody received
+       * (ADR-0005). One row, two recipients, two dedupe keys — the fan-out makes
+       * that split, exactly as it does for a waitlist promotion.
+       *
+       * Public ids only, and no display names: who took up an invitation is not
+       * something the inviter is entitled to be told (ADR-0009, invariant 7).
+       */
+      await this.outbox.emit(
+        {
+          aggregateType: 'referral',
+          aggregateId: referral.id,
+          eventType: 'referral.qualified',
+          payload: {
+            referrerUserPublicId: await publicIdOf(tx, referral.referrerUserId),
+            referredUserPublicId: await publicIdOf(tx, userId),
+            referrerCoins,
+            referredCoins,
+          },
+        },
+        tx,
+      );
+
       return true;
     });
   }
@@ -445,4 +480,19 @@ export function generateCode(length: number = CODE_LENGTH): string {
     code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
   }
   return code;
+}
+
+/**
+ * A user's external identifier, for a payload that becomes a Telegram message.
+ *
+ * Internal ids never leave the backend (invariant 7), and an outbox payload is
+ * plain jsonb read by the relay — so the translation happens where the row is
+ * written rather than being left to whoever reads it.
+ */
+async function publicIdOf(tx: Prisma.TransactionClient, userId: string): Promise<string> {
+  const user = await tx.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { publicId: true },
+  });
+  return user.publicId;
 }

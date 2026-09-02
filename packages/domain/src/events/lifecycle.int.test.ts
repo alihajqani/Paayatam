@@ -61,6 +61,7 @@ const referrals = new ReferralService(
   settings,
   coins,
   audit,
+  outbox,
   new MetricsRegistry(),
 );
 const reviews = new ReviewService(
@@ -385,6 +386,27 @@ describe('settling who attended', () => {
       select: { status: true },
     });
     expect(referral.status).toBe('QUALIFIED');
+
+    /**
+     * And both of them are told (v0.7.0).
+     *
+     * The condition — the referred user attended something — is the whole product
+     * decision behind referrals, and until now nothing announced that it had been
+     * met: both sides were promised coins and then found out by checking a
+     * balance. One outbox row, two recipients; the fan-out makes the split.
+     */
+    const announced = await prisma.outboxEvent.findFirst({
+      where: { eventType: 'referral.qualified' },
+      select: { payload: true },
+    });
+    expect(announced).not.toBeNull();
+    const payload = announced?.payload as Record<string, unknown>;
+    expect(payload['referrerCoins']).toBe(30);
+    expect(payload['referredCoins']).toBe(10);
+    // Public ids only: an outbox payload becomes a message body (invariant 7).
+    expect(JSON.stringify(payload)).not.toContain(referrer);
+    expect(JSON.stringify(payload)).not.toContain(person.userId);
+
     // The referrer never joined anything, so their endowment is untouched.
     await expect(coins.balanceOf(referrer)).resolves.toBe(JOIN_BUDGET + 30);
     await expect(coins.balanceOf(person.userId)).resolves.toBe(JOIN_BUDGET - JOIN_COST + 10);

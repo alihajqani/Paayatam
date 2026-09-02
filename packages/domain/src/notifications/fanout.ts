@@ -212,6 +212,39 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     case 'user.blocked':
       return recipient(row, 'userPublicId', TEMPLATES.ACCOUNT_BLOCKED);
 
+    /**
+     * The referral paid out. Both sides, one row, two keys (v0.7.0).
+     *
+     * The same shape as `waitlist.promoted`: two people are told two different
+     * things about one fact, and a shared dedupe key would deliver only the
+     * first. The condition — the referred user attended something — is the whole
+     * product decision behind referrals (T6), and until now nothing announced
+     * that it had been met.
+     */
+    case 'referral.qualified': {
+      const planned: PlannedNotification[] = [];
+      const referrer = text(payload, 'referrerUserPublicId');
+      const referred = text(payload, 'referredUserPublicId');
+
+      if (referrer !== '') {
+        planned.push({
+          userPublicId: referrer,
+          templateKey: TEMPLATES.REFERRAL_QUALIFIED_REFERRER,
+          dedupeKey: `${row.id}:referrer`,
+          payload,
+        });
+      }
+      if (referred !== '') {
+        planned.push({
+          userPublicId: referred,
+          templateKey: TEMPLATES.REFERRAL_QUALIFIED_REFERRED,
+          dedupeKey: `${row.id}:referred`,
+          payload,
+        });
+      }
+      return planned;
+    }
+
     default:
       return [];
   }

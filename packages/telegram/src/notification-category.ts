@@ -55,6 +55,13 @@ const CATEGORY: Record<string, NotificationCategory> = {
 
   // ── Things somebody is entitled to know ───────────────────────────────────
   [TEMPLATES.NO_SHOW_RECORDED]: 'essential',
+  // Coins landing in an account. `essential` rather than `campaigns`: this is not
+  // the product advertising itself, it is the product reporting that money
+  // changed hands — and a preference that could silence it would leave somebody
+  // with a balance they cannot account for, which is what ADR-0007 exists to
+  // prevent.
+  [TEMPLATES.REFERRAL_QUALIFIED_REFERRER]: 'essential',
+  [TEMPLATES.REFERRAL_QUALIFIED_REFERRED]: 'essential',
   [TEMPLATES.CONTENT_HIDDEN]: 'essential',
   [TEMPLATES.BOT_CONSENT_ACCEPTED]: 'essential',
   [TEMPLATES.BOT_CHANNEL_GATE]: 'essential',

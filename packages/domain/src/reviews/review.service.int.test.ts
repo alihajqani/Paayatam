@@ -68,6 +68,7 @@ const referrals = new ReferralService(
   settings,
   coins,
   audit,
+  outbox,
   new MetricsRegistry(),
 );
 const reviews = new ReviewService(
