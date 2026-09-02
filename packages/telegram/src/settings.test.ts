@@ -37,8 +37,9 @@ describe('the settings board', () => {
   it('gives every row a button, so nothing on the board is decoration', () => {
     const data = buttons(base).map((button) => button.callbackData);
 
-    // Three notification switches, privacy, language.
-    expect(data).toHaveLength(5);
+    // Two notification switches, privacy, language. «تبلیغات» went in v0.7.0;
+    // the preference behind it did not.
+    expect(data).toHaveLength(4);
     for (const value of data) expect(parseSettingCallback(value)).not.toBeNull();
   });
 
@@ -46,11 +47,8 @@ describe('the settings board', () => {
     const chat = buttons(base).find((button) => button.text.includes('پیام‌های گفتگو'));
     expect(parseSettingCallback(chat?.callbackData ?? '')).toEqual({ field: 'c', value: false });
 
-    const campaigns = buttons(base).find((button) => button.text.includes('تبلیغات'));
-    expect(parseSettingCallback(campaigns?.callbackData ?? '')).toEqual({
-      field: 'm',
-      value: true,
-    });
+    const events = buttons(base).find((button) => button.text.includes('فعالیت‌ها'));
+    expect(parseSettingCallback(events?.callbackData ?? '')).toEqual({ field: 'e', value: false });
   });
 
   it('carries privacy as the reader sees it, not as the column stores it', () => {

@@ -9,6 +9,21 @@ import {
 /**
  * The settings board (v0.6.1, made entirely tappable in v0.6.3).
  *
+ * ── «تبلیغات» is gone (v0.7.0) ──────────────────────────────────────────────
+ *
+ * The switch that turned campaign messages off is no longer drawn and the body
+ * no longer names them. **The preference behind it is untouched**:
+ * `user_settings.notify_campaigns` still exists, still defaults to on,
+ * `notificationCategory` still classifies a broadcast as `campaigns`, and the
+ * worker still refuses to deliver one to somebody whose row says no. So an
+ * account that opted out before today stays opted out, and the day this screen
+ * wants the row back it is a keyboard row and nothing else.
+ *
+ * `SETTING_FIELDS['m']` also stays resolvable, for the reason the retired
+ * keyboard labels do: a board drawn before this release is still in somebody's
+ * chat, and a tap on its third row must land somewhere rather than parse as
+ * garbage.
+ *
  * ── What is here, and where each value actually lives ───────────────────────
  *
  * Three areas, three stores, and nothing copied between them — a setting with
@@ -68,8 +83,7 @@ export function formatSettings(state: SettingsState): string {
     `<b>تنظیمات</b>\n\n` +
     `<b>اعلان‌ها</b>\n` +
     `💬 پیام‌های گفتگو: ${onOff(state.notifyChat)}\n` +
-    `🎟 فعالیت‌ها و درخواست‌ها: ${onOff(state.notifyEvents)}\n` +
-    `📣 پیام‌های تبلیغاتی: ${onOff(state.notifyCampaigns)}\n\n` +
+    `🎟 فعالیت‌ها و درخواست‌ها: ${onOff(state.notifyEvents)}\n\n` +
     `<b>حریم خصوصی</b>\n` +
     (state.hasProfile
       ? `✉️ دریافت دعوت از میزبان‌ها: ${onOff(!state.inviteOptOut)}\n\n`
@@ -100,7 +114,6 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
   const rows = [
     row('پیام‌های گفتگو', state.notifyChat, 'c'),
     row('فعالیت‌ها', state.notifyEvents, 'e'),
-    row('تبلیغات', state.notifyCampaigns, 'm'),
   ];
 
   /**
