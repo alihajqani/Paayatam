@@ -745,226 +745,39 @@ describe('EventService.listOwned', () => {
 });
 
 /**
- * The two coin sinks (plan §2.9, §11), and the only place in the MVP where a
- * user's own balance goes down because they asked it to.
+ * What the host is told about the channel, and when.
  *
- * What is worth a database here is the pairing: the coins leave and the placement
- * arrives in one transaction, or neither happens. A host charged forty coins for a
- * boost that did not apply has no way to tell the difference between that and a
- * boost that expired, so the failure is invisible to exactly the person it robs.
+ * The post is produced by a five-minute sweep, so the honest sequence is
+ * NONE → QUEUED → PUBLISHED. Reporting `PUBLISHED` at purchase time would be a
+ * claim about Telegram the product has not yet earned.
+ *
+ * This suite replaced the boost/VIP one in v0.7.0. Promotion is gone — there is
+ * no `boost` to call and no `is_vip` to read — so the only thing that puts an
+ * activity in the channel by purchase is `publishToChannel`, and the status is
+ * derived from its claim rows alone.
  */
-describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
-  /** Coins in hand, granted the only way anything may: through the ledger. */
-  async function fund(userId: string, amount: number): Promise<void> {
-    await coins.apply({
-      userId,
-      amount,
-      type: 'ADMIN_ADJUSTMENT',
-      reasonCode: 'test.funding',
-      idempotencyKey: `fund:${userId}:${String(amount)}`,
-      actorType: 'ADMIN',
-    });
-  }
-
-  /**
-   * What the host is told about the channel, and when.
-   *
-   * The post is produced by a five-minute sweep, so the honest sequence is
-   * NONE → QUEUED → PUBLISHED. Reporting `PUBLISHED` at purchase time would be a
-   * claim about Telegram the product has not yet earned, and reading the claim row
-   * alone would flicker back to NONE whenever a failed send released it.
-   */
-  it('reports NONE before anything is bought', async () => {
+describe('EventService — the channel publication status', () => {
+  it('reports QUEUED for a registration, whose publication is bought with it', async () => {
     const created = await events.create(hostId, validInput());
 
-    expect(created.channelStatus).toBe('NONE');
-  });
-
-  it('reports QUEUED the moment coins are spent, not PUBLISHED', async () => {
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-
-    const boosted = await events.boost(hostId, created.publicId, 'BOOST');
-
-    expect(boosted.channelStatus).toBe('QUEUED');
+    expect(created.channelStatus).toBe('QUEUED');
   });
 
   it('reports PUBLISHED once the sweep records a Telegram message id', async () => {
-    await fund(hostId, 250);
     const created = await events.create(hostId, validInput());
-    await events.boost(hostId, created.publicId, 'VIP');
 
-    // What `ChannelService.markPosted` writes after Telegram confirms.
     const row = await prisma.event.findFirstOrThrow({
       where: { publicId: created.publicId },
       select: { id: true },
     });
-    await prisma.channelPost.create({
-      data: { eventId: row.id, kind: 'VIP', telegramMessageId: 4242, postedAt: NOW },
+    // What `ChannelService.markPosted` writes after Telegram confirms.
+    await prisma.channelPost.updateMany({
+      where: { eventId: row.id },
+      data: { telegramMessageId: 4242, postedAt: NOW },
     });
 
     const [mine] = await events.listOwned(hostId);
     expect(mine?.channelStatus).toBe('PUBLISHED');
-  });
-
-  it('stays QUEUED when a failed send released its claim', async () => {
-    // `releaseClaim` deletes the row so the next sweep can retry. The host has paid,
-    // so the answer is still "on its way" rather than "nothing bought".
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-    await events.boost(hostId, created.publicId, 'BOOST');
-
-    const [mine] = await events.listOwned(hostId);
-    expect(mine?.channelStatus).toBe('QUEUED');
-  });
-
-  it('reports NONE again once the boost window has lapsed', async () => {
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-    await events.boost(hostId, created.publicId, 'BOOST');
-
-    clock.set(new Date(NOW.getTime() + 25 * 3_600_000));
-    const [mine] = await events.listOwned(hostId);
-
-    expect(mine?.channelStatus).toBe('NONE');
-  });
-
-  it('opens a window and charges the configured price', async () => {
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-
-    const boosted = await events.boost(hostId, created.publicId, 'BOOST');
-
-    // 40 coins for 24 hours, from `SETTING_DEFAULTS`.
-    expect(boosted.boostedUntil).toEqual(new Date(NOW.getTime() + 24 * 3_600_000));
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - REGISTER_COST - 40);
-  });
-
-  /**
-   * A host who pays twice gets twice.
-   *
-   * Overwriting would silently sell the second window at a discount of however
-   * much of the first one was left — the kind of arithmetic a user notices only
-   * as "I paid and nothing happened".
-   */
-  it('extends a live window rather than overwriting it', async () => {
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-
-    await events.boost(hostId, created.publicId, 'BOOST');
-    clock.set(new Date(NOW.getTime() + 6 * 3_600_000));
-    const second = await events.boost(hostId, created.publicId, 'BOOST');
-
-    // 24 h remaining at purchase + 24 h bought, measured from the first expiry.
-    expect(second.boostedUntil).toEqual(new Date(NOW.getTime() + 48 * 3_600_000));
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - REGISTER_COST - 80);
-  });
-
-  it('starts a lapsed window from now, not from the old expiry', async () => {
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-
-    await events.boost(hostId, created.publicId, 'BOOST');
-    const later = new Date(NOW.getTime() + 30 * 3_600_000);
-    clock.set(later);
-    const second = await events.boost(hostId, created.publicId, 'BOOST');
-
-    expect(second.boostedUntil).toEqual(new Date(later.getTime() + 24 * 3_600_000));
-  });
-
-  /**
-   * VIP is a flag, so its idempotency key is just the event — which makes buying
-   * it twice structurally impossible rather than merely discouraged. This is the
-   * property boost cannot have, because a second boost is a second window.
-   */
-  it('charges for VIP once, however many times it is bought', async () => {
-    await fund(hostId, 250);
-    const created = await events.create(hostId, validInput());
-
-    const first = await events.boost(hostId, created.publicId, 'VIP');
-    const second = await events.boost(hostId, created.publicId, 'VIP');
-
-    expect(first.isVip).toBe(true);
-    expect(second.isVip).toBe(true);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 250 - REGISTER_COST - 100);
-    await expect(prisma.coinLedger.count({ where: { type: 'VIP_SPEND' } })).resolves.toBe(1);
-  });
-
-  it('leaves the event untouched when the host cannot afford it', async () => {
-    // A host with exactly enough to author and nothing to promote with. The
-    // shared `hostId` is deliberately not used: it is endowed so that every
-    // other test in this file is about something other than affordability.
-    const poor = await createUser(prisma, 'PROFILE_COMPLETE', { coins: REGISTER_COST + 10 });
-    await prisma.userProfile.create({
-      data: { userId: poor, displayName: 'کم‌سکه', cityId: fixture.tehranId, birthYear: 1995 },
-    });
-    const created = await events.create(poor, validInput());
-
-    await expect(events.boost(poor, created.publicId, 'BOOST')).rejects.toMatchObject({
-      code: 'INSUFFICIENT_COINS',
-    });
-
-    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
-    expect(row.boostedUntil).toBeNull();
-    await expect(coins.balanceOf(poor)).resolves.toBe(10);
-  });
-
-  /**
-   * The spend is traceable to what it bought.
-   *
-   * ADR-0007's whole point applied to the one purchase a user makes with their
-   * own coins: "where did my forty coins go?" is answered by a row that names the
-   * event, not by a reason code they have to interpret.
-   */
-  it('records the spend against the event that was promoted', async () => {
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-    await events.boost(hostId, created.publicId, 'BOOST');
-
-    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: created.publicId } });
-    const entry = await prisma.coinLedger.findFirstOrThrow({ where: { type: 'BOOST_SPEND' } });
-
-    expect(entry.amount).toBe(-40);
-    expect(entry.refType).toBe('event');
-    expect(entry.refId).toBe(row.id);
-    expect(entry.actorType).toBe('USER');
-    await expect(
-      prisma.auditLog.count({ where: { targetId: row.id, action: 'event.boosted' } }),
-    ).resolves.toBe(1);
-  });
-
-  it('tells a stranger the event does not exist, and charges them nothing', async () => {
-    const created = await events.create(hostId, validInput());
-    const stranger = await createUser(prisma, 'PROFILE_COMPLETE');
-    await fund(stranger, 100);
-
-    await expect(events.boost(stranger, created.publicId, 'BOOST')).rejects.toMatchObject({
-      code: 'EVENT_NOT_FOUND',
-    });
-    await expect(coins.balanceOf(stranger)).resolves.toBe(100);
-  });
-
-  it('refuses to promote something nobody can see', async () => {
-    await fund(hostId, 100);
-    // A BLOCK verdict lands in PENDING_MODERATION, which discovery never shows.
-    const blocked = await events.create(hostId, validInput({ title: 'دورهمی با مشروب' }));
-    expect(blocked.status).toBe('PENDING_MODERATION');
-
-    await expect(events.boost(hostId, blocked.publicId, 'BOOST')).rejects.toMatchObject({
-      code: 'EVENT_NOT_BOOSTABLE',
-    });
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - CREATE_COST);
-  });
-
-  it('refuses to promote an event that has already started', async () => {
-    await fund(hostId, 100);
-    const created = await events.create(hostId, validInput());
-    clock.set(new Date('2026-08-20T16:00:00.000Z'));
-
-    await expect(events.boost(hostId, created.publicId, 'BOOST')).rejects.toMatchObject({
-      code: 'EVENT_NOT_BOOSTABLE',
-    });
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT + 100 - REGISTER_COST);
   });
 });
 
@@ -972,7 +785,7 @@ describe('EventService.boost — the two coin sinks (plan §2.9)', () => {
  * What creating an event costs (M22 phase 5).
  *
  * The property worth a real database is the pairing, and it is the same one the
- * boost suite above checks from the other side: the coins leave and the event
+ * publication suite below checks from the other side: the coins leave and the event
  * arrives in one transaction, or neither does. A host charged for an event that
  * was rolled back has no way to tell that from a bug, and the money is gone
  * either way.
@@ -1078,7 +891,7 @@ describe('EventService.create — the creation charge (M22 phase 5)', () => {
 /**
  * Buying a place in the channel (M22 phase 5).
  *
- * The property worth a real database is the same one boost has, plus one more:
+ * The property worth a real database is the same one creation has, plus one more:
  * `UNIQUE (event_id, kind)` is what makes the purchase exactly-once, and the claim
  * is taken *before* the charge so a second attempt is refused rather than charged
  * and then refunded.

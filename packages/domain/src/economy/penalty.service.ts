@@ -97,7 +97,7 @@ export function bucketForLateness(startsAt: Date, now: Date): CancellationBucket
  *
  * **Lock ordering.** Everything here runs inside a transaction that already holds
  * the event row lock, and takes the coin-account lock and then the trust lock
- * beneath it: **event → coin account → trust score**, the order M9's boost
+ * beneath it: **event → coin account → trust score**, the order M9's spends
  * established and every path that moves value must follow (ADR-0006).
  */
 @Injectable()

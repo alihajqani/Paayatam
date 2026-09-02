@@ -294,7 +294,7 @@ export class ParticipationService {
          *
          * Lock ordering: the **event** row is held by this transaction and
          * `CoinService` takes the coin account second, which is ADR-0006's
-         * event → user → coin-account order — the same one `EventService.boost`
+         * event → user → coin-account order — the same one `EventService.create`
          * set.
          */
         if (joinCost > 0) {

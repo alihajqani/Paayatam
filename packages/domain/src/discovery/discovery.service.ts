@@ -65,7 +65,6 @@ const WEIGHT_KEYS = [
   'ranking.weight_time_proximity',
   'ranking.weight_popularity',
   'ranking.weight_recency',
-  'ranking.weight_boost',
   'ranking.weight_trust',
   'ranking.weight_interest_match',
   // Not a weight, but read with them: the score an unrated host ranks as.
@@ -256,7 +255,6 @@ export class DiscoveryService {
       timeProximity: values['ranking.weight_time_proximity'],
       popularity: values['ranking.weight_popularity'],
       recency: values['ranking.weight_recency'],
-      boost: values['ranking.weight_boost'],
       trust: values['ranking.weight_trust'],
       interestMatch: values['ranking.weight_interest_match'],
       neutralTrust: values['trust.initial_score'],

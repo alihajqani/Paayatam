@@ -38,16 +38,6 @@ const full = computed(() => props.event.remainingCapacity <= 0);
   >
     <div class="flex items-start justify-between gap-2">
       <h3 class="flex-1 font-medium leading-snug">{{ event.title }}</h3>
-      <span
-        v-if="event.isVip"
-        class="rounded-full bg-tg-accent px-2 py-0.5 text-xs text-tg-button-text"
-        >ویژه</span
-      >
-      <span
-        v-else-if="event.isBoosted"
-        class="rounded-full bg-tg-button px-2 py-0.5 text-xs text-tg-button-text"
-        >برجسته</span
-      >
     </div>
 
     <p class="text-sm text-tg-subtitle">

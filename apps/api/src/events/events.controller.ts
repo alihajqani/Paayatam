@@ -7,12 +7,10 @@ import {
   type UpdateEventInput,
 } from '@payetam/domain';
 import {
-  boostEventRequest,
   cancelEventRequest,
   createEventRequest,
   inviteTopRequest,
   updateEventRequest,
-  type BoostEventRequest,
   type CancelEventRequest,
   type CreateEventRequest,
   type EventCancellationResponse,
@@ -88,30 +86,10 @@ export class EventsController {
   }
 
   /**
-   * Spend coins to promote an event — the only two coin sinks in MVP (plan §2.9).
-   *
-   * The response is the event, so the caller sees the new `boostedUntil` or
-   * `isVip` rather than being told "ok" and having to refetch. The coins spent
-   * are in `GET /me/coins` as a ledger row with a reason and this event as its
-   * subject, which is the point of ADR-0007: a purchase somebody can look up
-   * later.
-   */
-  @RequiresCurrentPolicies()
-  @Post('events/:publicId/boost')
-  async boost(
-    @Param('publicId') publicId: string,
-    @Body(new ZodValidationPipe(boostEventRequest)) body: BoostEventRequest,
-    @CurrentUser() current: AuthenticatedUser,
-  ): Promise<EventView> {
-    const hostUserId = await this.users.resolveInternalId(current.publicId);
-    return toEventView(await this.events.boost(hostUserId, publicId, body.kind));
-  }
-
-  /**
    * Buy this event a place in the channel (M22 phase 5).
    *
-   * Distinct from the free `channel-sync` sweep, which keeps publishing VIP,
-   * boosted and trending events exactly as it did before. This is a host saying
+   * Distinct from the free `channel-sync` sweep, which keeps publishing
+   * trending events exactly as it did before. This is a host saying
    * "put mine in" and paying `economy.event_channel_send_coins` for it.
    *
    * **Nothing is sent by this request.** The claim row lands unposted and the

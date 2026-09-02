@@ -59,9 +59,6 @@ describe('CatalogService promotion pricing', () => {
     // the number is exactly what an exact assertion is for. M22 added the last
     // four, and the documented defaults are 5 / 15 / 10 with a cap of 20.
     expect(snapshot.promotion).toEqual({
-      boostCoins: 40,
-      boostDurationHours: 24,
-      vipCoins: 100,
       eventCreateCoins: 5,
       eventChannelPublishCoins: 10,
       // The one number a host is quoted, and the reason the two above are never
@@ -74,15 +71,15 @@ describe('CatalogService promotion pricing', () => {
   });
 
   it('follows the setting once an admin configures one', async () => {
-    await prisma.appSetting.create({ data: { key: 'economy.boost_coins', value: 55 } });
+    await prisma.appSetting.create({ data: { key: 'economy.event_create_coins', value: 55 } });
 
     const snapshot = await catalog.snapshot();
 
-    expect(snapshot.promotion.boostCoins).toBe(55);
+    expect(snapshot.promotion.eventCreateCoins).toBe(55);
     // The others keep their defaults, so one edit cannot silently move a price
     // nobody touched.
-    expect(snapshot.promotion.vipCoins).toBe(100);
-    expect(snapshot.promotion.boostDurationHours).toBe(24);
+    expect(snapshot.promotion.eventChannelPublishCoins).toBe(10);
+    expect(snapshot.promotion.eventTopInviteCoins).toBe(20);
   });
 });
 

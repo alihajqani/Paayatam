@@ -12,12 +12,9 @@ export interface NamedRef {
   nameFa: string;
 }
 
-/** What promoting an event currently costs, straight from `app_setting`. */
+/** What the paid actions on an event cost, straight from `app_setting`. */
 export interface PromotionPricingSnapshot {
-  boostCoins: number;
-  boostDurationHours: number;
-  vipCoins: number;
-  /** The M22 sinks (phase 5). Zero means free. */
+  /** Zero means free. */
   eventCreateCoins: number;
   /** The channel placement a registration includes, charged with the create. */
   eventChannelPublishCoins: number;
@@ -126,13 +123,13 @@ export class CatalogService {
         select: { id: true, slug: true, nameFa: true, categoryId: true },
       }),
       /**
-       * The same three settings `EventService.boost` charges against.
+       * The same settings `EventService` charges against.
        *
        * Read through `SettingsService` rather than duplicated as constants, so the
        * price a host is shown and the price they are charged cannot disagree — and
-       * so an admin changing `economy.boost_coins` changes both at once. The
-       * service falls back to the documented default when a row is missing, which
-       * is why this cannot render a blank price.
+       * so an admin changing `economy.event_create_coins` changes both at once.
+       * The service falls back to the documented default when a row is missing,
+       * which is why this cannot render a blank price.
        */
       this.promotionPricing(),
     ]);
@@ -161,15 +158,12 @@ export class CatalogService {
   /**
    * Public because the price is not a secret — it is what the buyer is agreeing to.
    *
-   * One `getNumbers` rather than seven `getInt`s: this is on the cold-open path
-   * for every session, and seven round trips to `app_setting` to render one form
-   * is six more than the data needs.
+   * One `getNumbers` rather than five `getInt`s: this is on the cold-open path
+   * for every session, and five round trips to `app_setting` to render one form
+   * is four more than the data needs.
    */
   async promotionPricing(): Promise<PromotionPricingSnapshot> {
     const values = await this.settings.getNumbers([
-      'economy.boost_coins',
-      'economy.boost_duration_hours',
-      'economy.vip_coins',
       'economy.event_create_coins',
       'economy.event_channel_publish_coins',
       'economy.event_channel_send_coins',
@@ -178,9 +172,6 @@ export class CatalogService {
     ]);
 
     return {
-      boostCoins: values['economy.boost_coins'],
-      boostDurationHours: values['economy.boost_duration_hours'],
-      vipCoins: values['economy.vip_coins'],
       eventCreateCoins: values['economy.event_create_coins'],
       eventChannelPublishCoins: values['economy.event_channel_publish_coins'],
       // What registering actually costs, summed here rather than in each of the

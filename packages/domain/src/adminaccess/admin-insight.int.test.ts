@@ -495,7 +495,7 @@ describe('the audit viewer', () => {
       actorType: 'ADMIN',
       action: 'setting.changed',
       targetType: 'app_setting',
-      targetId: 'economy.boost_coins',
+      targetId: 'economy.event_top_invite_coins',
       before: { value: 40 },
       after: { value: 45, reason: 'campaign' },
     });

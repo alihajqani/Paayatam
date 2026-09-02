@@ -15,7 +15,7 @@ import type {
   ParticipantSummaryView,
   UpdateEventRequest,
 } from '@payetam/shared';
-import { newIdempotencyKey, request } from '@/api/client';
+import { request } from '@/api/client';
 
 /**
  * Discovery and event authoring.
@@ -181,34 +181,11 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   /**
-   * Promotes an event, and spends coins doing it (M9).
-   *
-   * **The one endpoint that needs `Idempotency-Key`.** A second boost is a second
-   * purchase of a second window — something a host may legitimately want — so the
-   * service cannot tell "asked twice" from "arrived twice" and no unique index can.
-   * The key is generated once per attempt and reused by a retry, which is what makes
-   * a lost response over a mobile network cost nothing instead of 40 coins.
-   */
-  async function boost(publicId: string, kind: 'BOOST' | 'VIP' = 'BOOST'): Promise<EventView> {
-    const event = await request<EventView>(`/events/${publicId}/boost`, {
-      method: 'POST',
-      body: { kind },
-      idempotencyKey: newIdempotencyKey(),
-    });
-    myEvents.value = myEvents.value.map((existing) =>
-      existing.publicId === publicId ? event : existing,
-    );
-    return event;
-  }
-
-  /**
    * Buy this event a place in the channel (M22 phase 5).
    *
    * No `Idempotency-Key` needed and none sent: the server keys the charge on the
-   * event, so an event reaches the channel by purchase at most once ever and a
-   * retry collides on `channel_post`'s unique index rather than on a header. This
-   * is the opposite of `boost`, where a second purchase is a legitimate second
-   * window and only the header can tell the two apart.
+   * event and the renewal sequence, so a double tap collides on
+   * `coin_ledger.idempotency_key` rather than on a header.
    */
   async function publishToChannel(publicId: string): Promise<EventView> {
     const event = await request<EventView>(`/events/${publicId}/publish-to-channel`, {
@@ -278,7 +255,6 @@ export const useEventsStore = defineStore('events', () => {
     update,
     cancelPreview,
     cancel,
-    boost,
     publishToChannel,
     invitePreview,
     inviteTop,

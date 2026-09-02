@@ -928,10 +928,6 @@ beforeAll(async () => {
     { method: 'GET', url: '/api/v1/me/coins' },
     { method: 'GET', url: '/api/v1/me/trust' },
     { method: 'GET', url: '/api/v1/me/referral' },
-    // The only endpoint in the product that spends a user's own coins. Its
-    // response is the event, which carries the host's projection — the same one
-    // `GET /events/:id` is scanned for, reached by a different mapper.
-    { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/boost`, body: { kind: 'BOOST' } },
     /**
      * M10. The host's dry run reads and changes nothing, so it goes above the
      * cancellation it quotes for.
@@ -1099,9 +1095,9 @@ beforeAll(async () => {
     { method: 'GET', url: '/admin/v1/settings', admin: true },
     {
       method: 'POST',
-      url: '/admin/v1/settings/economy.boost_coins',
+      url: '/admin/v1/settings/economy.event_top_invite_coins',
       admin: true,
-      body: { value: 40, reason: 'scan coverage, restoring the documented default' },
+      body: { value: 20, reason: 'scan coverage, restoring the documented default' },
     },
     { method: 'GET', url: '/admin/v1/me', admin: true },
     { method: 'GET', url: '/admin/v1/moderation/cases', admin: true },

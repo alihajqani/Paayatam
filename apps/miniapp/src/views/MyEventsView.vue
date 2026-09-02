@@ -41,12 +41,10 @@ const deciding = ref<string | null>(null);
 /**
  * Which event has the publish dialog open.
  *
- * One dialog now, not two (report 5). `PromotionDialog` — the VIP-and-boost
- * screen — is no longer reachable from anywhere: this deployment has one channel,
- * so «کانال ویژه», «برجسته‌سازی» and «ویژه (دائمی)» described placements that do
- * not exist, and a paid choice between two things that are the same thing is a
- * screen that can only mislead. The endpoints behind it are untouched, so an
- * event that already carries a badge keeps it and the ledger still explains it.
+ * One dialog, and one thing to buy. The VIP-and-boost screen went in v0.6.0
+ * because this deployment has one channel, so «کانال ویژه», «برجسته‌سازی» and
+ * «ویژه (دائمی)» described placements that do not exist; v0.7.0 removed the
+ * endpoints behind it as well, so promotion is gone rather than merely hidden.
  */
 const reaching = ref<string | null>(null);
 const cancelling = ref<string | null>(null);
@@ -343,10 +341,8 @@ onMounted(load);
             success: the channel post is produced by a sweep, so saying "published"
             at purchase time would be a promise the product cannot keep.
 
-            The VIP and boost lines are gone with the dialog that sold them
-            (report 5). An event that already carries either still has the flag in
-            the database and still ranks on it — nothing was migrated away — it is
-            simply no longer described to a host as a thing they can buy.
+            Promotion is gone entirely (v0.7.0), so there is no VIP or boost
+            line to draw and nothing ranks on either column any more.
           -->
           <div v-if="event.channelStatus !== 'NONE'" class="flex flex-col gap-1 text-sm">
             <p v-if="event.channelStatus === 'QUEUED'" class="text-tg-hint">

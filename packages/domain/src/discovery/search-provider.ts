@@ -65,7 +65,6 @@ export interface RankingWeights {
   timeProximity: number;
   popularity: number;
   recency: number;
-  boost: number;
   trust: number;
   interestMatch: number;
   /**
@@ -114,8 +113,6 @@ export interface DiscoveredEvent {
   minAge: number | null;
   maxAge: number | null;
   externalLink: string | null;
-  isVip: boolean;
-  boostedUntil: Date | null;
   publishedAt: Date | null;
   hostPublicId: string;
   hostDisplayName: string;
@@ -142,7 +139,6 @@ export interface RankExplanation {
     timeProximity: number;
     popularity: number;
     recency: number;
-    boost: number;
     trust: number;
     interestMatch: number;
     textRelevance: number | null;

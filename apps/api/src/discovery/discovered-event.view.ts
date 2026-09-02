@@ -44,10 +44,6 @@ export function toDiscoveredEventView(event: DiscoveredEvent): DiscoveredEventVi
     minAge: event.minAge,
     maxAge: event.maxAge,
     externalLink: event.externalLink,
-    isVip: event.isVip,
-    // A boolean, not the timestamp. A client comparing an expiry against its own
-    // clock is a client that disagrees with the server about what is boosted.
-    isBoosted: event.boostedUntil !== null && event.boostedUntil.getTime() > Date.now(),
     publishedAt: event.publishedAt?.toISOString() ?? null,
     host: {
       publicId: event.hostPublicId,

@@ -139,12 +139,6 @@ export const claimReferralResponse = z.object({
 });
 export type ClaimReferralResponse = z.infer<typeof claimReferralResponse>;
 
-/** The two coin sinks (plan §2.9). */
-export const boostEventRequest = z.object({
-  kind: z.enum(['BOOST', 'VIP']).default('BOOST'),
-});
-export type BoostEventRequest = z.infer<typeof boostEventRequest>;
-
 /**
  * Gift and discount codes (M18).
  *

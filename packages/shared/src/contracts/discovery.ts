@@ -84,9 +84,6 @@ export const discoveredEventView = z.object({
   minAge: z.number().int().nullable(),
   maxAge: z.number().int().nullable(),
   externalLink: z.string().nullable(),
-  isVip: z.boolean(),
-  /** Whether a boost is live *now*, rather than the raw timestamp. */
-  isBoosted: z.boolean(),
   publishedAt: z.iso.datetime().nullable(),
   host: z.object({
     publicId: z.uuid(),
@@ -120,7 +117,6 @@ export const rankExplanationResponse = z.object({
     timeProximity: z.number(),
     popularity: z.number(),
     recency: z.number(),
-    boost: z.number(),
     trust: z.number(),
     interestMatch: z.number(),
     textRelevance: z.number().nullable(),
@@ -129,7 +125,6 @@ export const rankExplanationResponse = z.object({
     timeProximity: z.number(),
     popularity: z.number(),
     recency: z.number(),
-    boost: z.number(),
     trust: z.number(),
     interestMatch: z.number(),
   }),

@@ -80,11 +80,7 @@ export class ChannelService {
         startsAt: { gt: now },
         // ADR-0012 on a public surface: FLAG publishes, BLOCK does not.
         moderationStatus: { in: ['APPROVED', 'FLAGGED'] },
-        OR: [
-          { isVip: true },
-          { boostedUntil: { gt: now } },
-          { requestCount: { gte: trendingThreshold } },
-        ],
+        requestCount: { gte: trendingThreshold },
       },
       orderBy: { publishedAt: 'asc' },
       take: limit,
@@ -97,8 +93,6 @@ export class ChannelService {
         acceptedCount: true,
         costType: true,
         costAmount: true,
-        isVip: true,
-        boostedUntil: true,
         requestCount: true,
         category: { select: { nameFa: true } },
         city: { select: { nameFa: true } },
@@ -110,13 +104,11 @@ export class ChannelService {
     const claimed: PublishablePost[] = [];
 
     for (const event of candidates) {
-      // One event can qualify for more than one reason, and each is its own post.
-      // A host who paid for VIP *and* whose event is trending gets both, which is
-      // what they bought and what the audience earned.
-      const kinds: ChannelPostKind[] = [];
-      if (event.isVip) kinds.push('VIP');
-      if (event.boostedUntil !== null && event.boostedUntil > now) kinds.push('BOOSTED');
-      if (event.requestCount >= trendingThreshold) kinds.push('TRENDING');
+      // TRENDING is the only automatic kind left: VIP and BOOSTED were the two
+      // a host *bought*, and promotion is gone (v0.7.0). The loop stays a loop
+      // because `PAID` is claimed on the same table by `publishToChannel`, and a
+      // second automatic kind would land here rather than in a second code path.
+      const kinds: ChannelPostKind[] = ['TRENDING'];
 
       for (const kind of kinds) {
         let postId: string;
@@ -218,8 +210,8 @@ export class ChannelService {
    * Paid claims Telegram has not confirmed yet.
    *
    * A separate read from `claimPending` because the two have opposite failure
-   * behaviour. A VIP or trending claim that fails to send is **released** — the
-   * row is re-derivable from `is_vip` and `request_count`, so deleting it costs
+   * behaviour. A trending claim that fails to send is **released** — the
+   * row is re-derivable from `request_count`, so deleting it costs
    * nothing and leaving it would bar the event forever. A paid claim is the record
    * that somebody paid; it is never released, and every sweep retries it until
    * Telegram accepts it.
@@ -326,7 +318,7 @@ export class ChannelService {
    * Record that a post came down.
    *
    * The row is kept rather than deleted: it is the record that this event *was*
-   * promoted, which a coin dispute needs — a host who paid for VIP and had the
+   * promoted, which a coin dispute needs — a host who paid for a placement had the
    * post removed by moderation has a question, and "there is no row" is not an
    * answer. It also stops the event being re-posted the moment it becomes
    * publishable again, because the unique index still holds.

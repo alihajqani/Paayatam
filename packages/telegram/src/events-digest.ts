@@ -43,7 +43,7 @@ export interface MyEventLine {
  * ── Why this stopped being a console ────────────────────────────────────────
  *
  * It used to carry five buttons per activity: guests, cancel, republish,
- * invite, boost. Six activities is thirty buttons — a keyboard several screens
+ * invite, promote. Six activities is thirty buttons — a keyboard several screens
  * tall, in which every label is a number and an emoji, and two of the buttons
  * spend coins. «انتشار دوباره» on the wrong activity costs money, and the only
  * thing standing between a host and that was matching «۴» in a keyboard to «۴»

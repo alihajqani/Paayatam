@@ -2145,18 +2145,6 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     ).toBe(before);
   });
 
-  /** Boost names both the price and the duration, and both are settings. */
-  it('names the boost duration as well as its price', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-
-    await tap(HOST_TELEGRAM_ID, `ev:boost:${eventPublicId}`);
-
-    const payload = await latest(TEMPLATES.BOT_CONFIRM_SPEND);
-    const rows = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
-    expect(rows[0]?.[0]?.callbackData).toBe(`ev:boostyes:${eventPublicId}`);
-    expect(String(payload['text'])).toContain('ساعت');
-  });
-
   /**
    * The ask states the **live** cost, read from `app_setting` rather than
    * written into a template — a message naming a price the service will not

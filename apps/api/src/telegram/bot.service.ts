@@ -1957,29 +1957,6 @@ export class BotService {
           await this.answer(callbackQueryId, 'دوباره در کانال منتشر شد 🔄');
           return;
 
-        case 'boost': {
-          const [cost, hours] = await Promise.all([
-            this.settings.getInt('economy.boost_coins'),
-            this.settings.getInt('economy.boost_duration_hours'),
-          ]);
-          await this.answer(callbackQueryId, '');
-          if (await this.affordBlocked(updateId, user, cost, 'ارتقای فعالیت')) return;
-          return this.confirmSpend(
-            updateId,
-            user,
-            `<b>ارتقای فعالیت</b>\n\n` +
-              `این فعالیت به مدت ${toPersianDigits(String(hours))} ساعت بالاتر از بقیه ` +
-              `دیده می‌شود و <b>${toPersianDigits(String(cost))} سکه</b> از موجودی شما کم می‌شود.`,
-            '🚀 بله، ارتقا بده',
-            encodeEventCallback('boostyes', callback.id),
-          );
-        }
-
-        case 'boostyes':
-          await this.events.boost(user.id, callback.id, 'BOOST');
-          await this.answer(callbackQueryId, 'فعالیت ارتقا یافت 🚀');
-          return;
-
         /**
          * Inviting is the one that shows a **preview** rather than a price.
          *
@@ -2687,7 +2664,7 @@ export class BotService {
    * ── Why this is a list and not the console it was ───────────────────────────
    *
    * The console put five buttons under every activity — guests, cancel,
-   * republish, invite, boost. Six activities is thirty buttons, and two of them
+   * republish, invite, promote. Six activities is thirty buttons, and two of them
    * spend coins: the only thing between a host and paying to republish the wrong
    * activity was matching a number in a keyboard to a number in a list they had
    * scrolled past. The actions now live under the activity they act on, where

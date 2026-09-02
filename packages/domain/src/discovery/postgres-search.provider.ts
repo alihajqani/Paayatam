@@ -138,7 +138,6 @@ export class PostgresSearchProvider implements SearchProvider {
           ${this.timeProximitySql(request.epoch)}   AS "timeProximity",
           ${POPULARITY_SQL}                          AS "popularity",
           ${this.recencySql(request.epoch)}          AS "recency",
-          ${this.boostSql(request.epoch)}            AS "boost",
           ${trustSql(request.weights.neutralTrust)}   AS "trust",
           ${this.interestMatchSql(request.viewerCategoryIds)} AS "interestMatch",
           ${this.textRelevanceSql(request.filters.query)}     AS "textRelevance",
@@ -165,7 +164,6 @@ export class PostgresSearchProvider implements SearchProvider {
         timeProximity: row.timeProximity,
         popularity: row.popularity,
         recency: row.recency,
-        boost: row.boost,
         trust: row.trust,
         interestMatch: row.interestMatch,
         textRelevance: request.filters.query === undefined ? null : row.textRelevance,
@@ -181,8 +179,8 @@ export class PostgresSearchProvider implements SearchProvider {
    *
    * With a query, relevance is half the score and the business signals are the
    * other half. Text has to weigh heavily or a search for «شطرنج» returns
-   * whatever is soonest; it must not weigh entirely, or a boosted, imminent,
-   * popular event loses to a stale one that happened to repeat the word.
+   * whatever is soonest; it must not weigh entirely, or an imminent, popular
+   * event loses to a stale one that happened to repeat the word.
    */
   private scoreSql(request: SearchRequest): Prisma.Sql {
     const w = request.weights;
@@ -190,7 +188,6 @@ export class PostgresSearchProvider implements SearchProvider {
         ${w.timeProximity}::double precision * ${this.timeProximitySql(request.epoch)}
       + ${w.popularity}::double precision    * ${POPULARITY_SQL}
       + ${w.recency}::double precision       * ${this.recencySql(request.epoch)}
-      + ${w.boost}::double precision         * ${this.boostSql(request.epoch)}
       + ${w.trust}::double precision         * ${trustSql(w.neutralTrust)}
       + ${w.interestMatch}::double precision * ${this.interestMatchSql(request.viewerCategoryIds)}
     )`;
@@ -224,19 +221,6 @@ export class PostgresSearchProvider implements SearchProvider {
         -1.0 * GREATEST(EXTRACT(EPOCH FROM (${epoch}::timestamptz - e."published_at")), 0)::double precision
         / 259200.0
       )
-    END)::double precision`;
-  }
-
-  /**
-   * VIP outranks a plain boost, and an expired boost counts for nothing —
-   * compared against the frozen epoch, so a boost cannot expire between page 1
-   * and page 2 and reshuffle the results underneath the cursor.
-   */
-  private boostSql(epoch: Date): Prisma.Sql {
-    return Prisma.sql`(CASE
-      WHEN e."is_vip" THEN 1.0
-      WHEN e."boosted_until" > ${epoch}::timestamptz THEN 0.7
-      ELSE 0.0
     END)::double precision`;
   }
 
@@ -423,8 +407,6 @@ const SELECT_COLUMNS = Prisma.sql`
   e."min_age"                      AS "minAge",
   e."max_age"                      AS "maxAge",
   e."external_link"                AS "externalLink",
-  e."is_vip"                       AS "isVip",
-  e."boosted_until"                AS "boostedUntil",
   e."published_at"                 AS "publishedAt",
   hu."public_id"                   AS "hostPublicId",
   COALESCE(hp."display_name", 'کاربر پایه‌تَم') AS "hostDisplayName",
@@ -515,8 +497,6 @@ interface SearchRow {
   minAge: number | null;
   maxAge: number | null;
   externalLink: string | null;
-  isVip: boolean;
-  boostedUntil: Date | null;
   publishedAt: Date | null;
   hostPublicId: string;
   hostDisplayName: string;
@@ -528,7 +508,6 @@ interface ExplainRow {
   timeProximity: number;
   popularity: number;
   recency: number;
-  boost: number;
   trust: number;
   interestMatch: number;
   textRelevance: number;

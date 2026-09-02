@@ -281,21 +281,26 @@ describe('changing a policy number', () => {
   });
 
   it('changes one, marks it changed, and records why', async () => {
-    await operations.updateSetting(SUPER, 'economy.boost_coins', 55, 'Nowruz campaign pricing.');
+    await operations.updateSetting(
+      SUPER,
+      'economy.event_top_invite_coins',
+      55,
+      'Nowruz campaign pricing.',
+    );
 
     // The service that actually reads it agrees, which is the only definition of
     // "changed" that matters.
-    expect(await settings.getInt('economy.boost_coins')).toBe(55);
+    expect(await settings.getInt('economy.event_top_invite_coins')).toBe(55);
 
     const listed = await operations.listSettings(SUPER);
-    expect(listed.find((row) => row.key === 'economy.boost_coins')).toMatchObject({
+    expect(listed.find((row) => row.key === 'economy.event_top_invite_coins')).toMatchObject({
       value: 55,
-      defaultValue: 40,
+      defaultValue: 20,
       overridden: true,
     });
 
     const entry = await prisma.auditLog.findFirstOrThrow({ where: { action: 'setting.changed' } });
-    expect(entry.targetId).toBe('economy.boost_coins');
+    expect(entry.targetId).toBe('economy.event_top_invite_coins');
     expect(entry.before).toEqual({ value: 40 });
     expect(entry.after).toMatchObject({ value: 55, reason: 'Nowruz campaign pricing.' });
   });
@@ -316,7 +321,7 @@ describe('changing a policy number', () => {
     // A coin amount that arrives as 12.5 is a corrupted ledger rather than a
     // rounding question.
     await expect(
-      operations.updateSetting(SUPER, 'economy.boost_coins', 12.5, 'Half a coin.'),
+      operations.updateSetting(SUPER, 'economy.event_top_invite_coins', 12.5, 'Half a coin.'),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
@@ -333,7 +338,7 @@ describe('changing a policy number', () => {
 
   it('refuses a change nobody explained', async () => {
     await expect(
-      operations.updateSetting(SUPER, 'economy.boost_coins', 55, 'x'),
+      operations.updateSetting(SUPER, 'economy.event_top_invite_coins', 55, 'x'),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 });

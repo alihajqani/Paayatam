@@ -381,7 +381,7 @@ export class InvitationService {
   /**
    * The host's own event, and only if inviting to it makes sense.
    *
-   * Not-yours and not-found answer identically, exactly as `EventService.boost`
+   * Not-yours and not-found answer identically, exactly as `EventService.update`
    * does: a stranger must not be able to ask this endpoint whether an event exists
    * (T3.3). "Published and still upcoming" is a separate code, because that one the
    * host can act on.

@@ -125,16 +125,8 @@ export {
   ACTIVE_EVENT_STATUSES,
   assertEventTransition,
 } from './events/state-machine';
-export {
-  EventService,
-  EVENT_BOOST_REASON,
-  EVENT_VIP_REASON,
-  boostSpendKey,
-  extendedBoost,
-  vipSpendKey,
-} from './events/event.service';
+export { EventService } from './events/event.service';
 export type {
-  BoostKind,
   CancelledParticipant,
   CreateEventInput,
   UpdateEventInput,

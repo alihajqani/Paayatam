@@ -145,7 +145,6 @@ export {
   referralResponse,
   claimReferralRequest,
   claimReferralResponse,
-  boostEventRequest,
   redeemGiftCodeRequest,
   redeemGiftCodeResponse,
 } from './contracts/economy';
@@ -159,7 +158,6 @@ export type {
   ReferralResponse,
   ClaimReferralRequest,
   ClaimReferralResponse,
-  BoostEventRequest,
   RedeemGiftCodeRequest,
   RedeemGiftCodeResponse,
 } from './contracts/economy';

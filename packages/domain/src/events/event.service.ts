@@ -81,12 +81,6 @@ export interface HostQuotaStatus {
   blockedBy: 'per_day' | 'concurrent_active' | null;
 }
 
-/** The two coin sinks (plan §2.9, §11): a 24-hour window, or a placement flag. */
-export type BoostKind = 'BOOST' | 'VIP';
-
-export const EVENT_BOOST_REASON = 'event.boost';
-export const EVENT_VIP_REASON = 'event.vip';
-
 /**
  * The three M22 sinks (phase 5).
  *
@@ -128,36 +122,6 @@ export function channelPostSpendKey(eventId: string, republishSeq = 0): string {
   return republishSeq === 0
     ? `channel-post:${eventId}`
     : `channel-post:${eventId}:${String(republishSeq)}`;
-}
-
-/**
- * The boost spend's exactly-once key, derived from the window it buys.
- *
- * Deterministic, so a request replayed *before* the first one committed collides
- * — the event lock makes that the only interleaving where two calls compute the
- * same window. A replay that arrives afterwards computes a later window and is
- * treated as a second purchase, which is what plan §6's `Idempotency-Key` header
- * exists to disambiguate and why its absence is recorded as a gap.
- */
-export function boostSpendKey(eventId: string, boostedUntil: Date): string {
-  return `boost:${eventId}:${boostedUntil.toISOString()}`;
-}
-
-/** VIP is a flag, so its key is just the event: buying it twice is impossible. */
-export function vipSpendKey(eventId: string): string {
-  return `vip:${eventId}`;
-}
-
-/**
- * Where a boost window ends after this purchase.
- *
- * Extends from the current expiry when one is still running, so buying a second
- * window while the first is live adds a full 24 hours rather than overwriting
- * four of them — a host who pays twice gets twice.
- */
-export function extendedBoost(current: Date | null, now: Date, hours: number): Date {
-  const from = current !== null && current > now ? current : now;
-  return new Date(from.getTime() + hours * 3_600_000);
 }
 
 /**
@@ -230,24 +194,13 @@ export interface EventDetail {
   moderationStatus: EventModerationStatus;
   publishedAt: Date | null;
   /**
-   * What the host bought (M9), and only ever shown to the host.
+   * How far the channel publication has got.
    *
-   * Discovery has its own mapper and reduces `boostedUntil` to a boolean
-   * `isBoosted`, because a stranger has no business knowing when somebody's
-   * promotion lapses. The owner does: this is the surface where they can see that
-   * the forty coins bought a window and when it ends.
-   */
-  boostedUntil: Date | null;
-  /**
-   * How far the paid promotion has got toward the channel.
-   *
-   * Derived rather than stored: `NONE` when nothing was bought, `PUBLISHED` once a
-   * `channel_post` row carries a Telegram message id, and `QUEUED` in between —
-   * which includes the case where a send failed and released its claim, because
-   * from the host's side "paid, not there yet" is the same answer either way.
+   * Derived rather than stored: `NONE` when there is no live claim, `PUBLISHED`
+   * once a `channel_post` row carries a Telegram message id, and `QUEUED` in
+   * between.
    */
   channelStatus: ChannelPublicationStatus;
-  isVip: boolean;
   version: number;
   createdAt: Date;
 }
@@ -282,7 +235,7 @@ const EVENT_INCLUDE = {
    * Only what says whether a post exists and whether Telegram confirmed it.
    *
    * Live rows only: a taken-down post is not a current publication, and counting
-   * one would tell a host their expired boost is still in the channel.
+   * one would tell a host a superseded post is still in the channel.
    */
   channelPosts: {
     where: { deletedAt: null },
@@ -789,132 +742,11 @@ export class EventService {
   }
 
   /**
-   * Spend coins to promote an event — the only two coin sinks in MVP (plan §2.9).
-   *
-   * `BOOST` buys a window near the top of discovery; `VIP` is a one-off placement
-   * flag. Both go through `CoinService`, so the spend is a ledger row with a
-   * reason and a subject, and a host who asks "where did my forty coins go?" gets
-   * an answer rather than a shrug.
-   *
-   * **Lock ordering.** This takes the event lock first and the coin-account lock
-   * second, inside `CoinService`. ADR-0006 keeps the event row as the single lock
-   * of every *capacity* path, and boost is not one — it never touches
-   * `accepted_count`. But it is the first operation in the product to hold both,
-   * so it sets the order the rest must follow: **event → user → coin account**,
-   * which is already what profile completion does for the last two. M10's host
-   * cancellation needs exactly this pair to refund participants, and getting the
-   * order wrong there is a deadlock against this method.
-   *
-   * **On idempotency, honestly.** `VIP` is naturally exactly-once: its key is the
-   * event, and a flag can only be set. `BOOST` is not, and cannot be made so
-   * here — a second boost is a second purchase of a second window, which is a
-   * thing a host may legitimately want. Plan §6's `Idempotency-Key` header is what
-   * separates "the user asked twice" from "the request arrived twice", and it is
-   * not built yet. Until it is, double-charge protection for boost is the Mini
-   * App's in-flight disable and confirmation dialog (§3.7). This is a real gap,
-   * and boost is the first endpoint where it is visible to a user's wallet.
-   */
-  async boost(hostUserId: string, publicId: string, kind: BoostKind): Promise<EventDetail> {
-    const now = this.clock.now();
-
-    const [boostCoins, boostHours, vipCoins] = await Promise.all([
-      this.settings.getInt('economy.boost_coins'),
-      this.settings.getInt('economy.boost_duration_hours'),
-      this.settings.getInt('economy.vip_coins'),
-    ]);
-
-    const id = await this.prisma.$transaction(
-      async (tx) => {
-        const locked = await lockEventByPublicIdForUpdate(tx, publicId);
-        // Not-yours and not-found answer identically: a stranger must not be able
-        // to ask this endpoint whether an event exists (T3.3).
-        if (!locked || locked.deletedAt !== null) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
-        if (locked.hostUserId !== hostUserId) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
-
-        // Promoting something nobody can join spends coins on nothing. A
-        // different code from "not found", because this one the host can act on.
-        if (locked.status !== 'PUBLISHED') throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
-        if (locked.startsAt <= now) throw new AppError(ErrorCode.EVENT_NOT_BOOSTABLE);
-
-        // Read after the lock rather than widening `LOCKED_COLUMNS`: that
-        // projection is narrow on purpose, and every capacity path pays for a
-        // column added there.
-        const current = await tx.event.findUniqueOrThrow({
-          where: { id: locked.id },
-          select: { boostedUntil: true, isVip: true },
-        });
-
-        const spend =
-          kind === 'VIP'
-            ? { amount: vipCoins, type: 'VIP_SPEND' as const, key: vipSpendKey(locked.id) }
-            : {
-                amount: boostCoins,
-                type: 'BOOST_SPEND' as const,
-                // Derived from the window this purchase produces, so it is
-                // deterministic — see the note above on what it does and does not
-                // protect against.
-                key: boostSpendKey(locked.id, extendedBoost(current.boostedUntil, now, boostHours)),
-              };
-
-        const movement = await this.coins.apply(
-          {
-            userId: hostUserId,
-            amount: -spend.amount,
-            type: spend.type,
-            reasonCode: kind === 'VIP' ? EVENT_VIP_REASON : EVENT_BOOST_REASON,
-            idempotencyKey: spend.key,
-            actorType: 'USER',
-            actorId: hostUserId,
-            refType: 'event',
-            refId: locked.id,
-          },
-          tx,
-        );
-
-        // A replayed key means the placement was already bought and applied.
-        // Charging nothing and changing nothing is the correct pair.
-        if (movement.applied) {
-          await tx.event.update({
-            where: { id: locked.id },
-            data:
-              kind === 'VIP'
-                ? { isVip: true }
-                : { boostedUntil: extendedBoost(current.boostedUntil, now, boostHours) },
-          });
-
-          await this.audit.record(
-            {
-              actorType: 'USER',
-              actorId: hostUserId,
-              action: kind === 'VIP' ? 'event.vip_purchased' : 'event.boosted',
-              targetType: 'event',
-              targetId: locked.id,
-              before: { isVip: current.isVip, boostedUntil: current.boostedUntil?.toISOString() },
-              after: { coinsSpent: spend.amount, balance: movement.balance },
-            },
-            tx,
-          );
-        }
-
-        return locked.id;
-      },
-      { isolationLevel: 'ReadCommitted' },
-    );
-
-    const event = await this.prisma.event.findUniqueOrThrow({
-      where: { id },
-      include: EVENT_INCLUDE,
-    });
-    return toEventDetail(event, this.clock.now());
-  }
-
-  /**
    * Buy one publication in the channel (M22 phase 5).
    *
-   * The third coin sink, and the one that needed a fourth `channel_post_kind`:
-   * `UNIQUE (event_id, kind)` is what makes a purchase exactly-once, so folding
-   * this into `BOOSTED` would have meant a host who boosted could not also buy a
-   * post — and the ledger could no longer say which of the two they bought.
+   * `UNIQUE (event_id, kind)` on `channel_post` is what makes a purchase
+   * exactly-once, which is why a paid publication has a `channel_post_kind` of
+   * its own rather than sharing one with the automatic kinds.
    *
    * Both writes are in one transaction under the event lock. The coins leave and
    * the claim row appears together, or neither does: a charge without a claim is a
@@ -922,7 +754,7 @@ export class EventService {
    *
    * **Nothing is sent here.** The row lands unposted and the five-minute channel
    * sweep is what talks to Telegram (ADR-0005, invariant 11). A failure there does
-   * *not* release this claim — unlike VIP or trending, it is the record that
+   * *not* release this claim — unlike the automatic kinds, it is the record that
    * somebody paid, and the next sweep retries it.
    */
   async publishToChannel(hostUserId: string, publicId: string): Promise<EventDetail> {
@@ -1070,7 +902,7 @@ export class EventService {
 
         // Read after the lock rather than widening `LOCKED_COLUMNS`: the lock
         // helper casts the enum to text so the raw query needs no generated
-        // types, and a state machine wants the enum. Same trade boost makes.
+        // types, and a state machine wants the enum.
         const current = await tx.event.findUniqueOrThrow({
           where: { id: locked.id },
           select: { status: true },
@@ -1610,16 +1442,19 @@ function pickScalarEdits(input: UpdateEventInput): Prisma.EventUpdateInput {
 type EventRow = Prisma.EventGetPayload<{ include: typeof EVENT_INCLUDE }>;
 
 /**
- * `NONE`, `QUEUED` or `PUBLISHED`, from what was bought and what Telegram confirmed.
+ * `NONE`, `QUEUED` or `PUBLISHED`, from the claim rows and what Telegram confirmed.
  *
- * The `bought` test comes first deliberately. A failed send deletes its claim row,
- * so a status read from rows alone would drop to `NONE` between sweeps for an event
- * the host has already paid to promote.
+ * It used to consult `is_vip` / `boosted_until` first, because a failed send
+ * deletes its claim row and a status read from rows alone would flicker to
+ * `NONE` between sweeps. Those two columns are retired with the promotion
+ * feature (v0.7.0), and the claim a *paid publication* takes is never released
+ * on failure — `publishToChannel` says so explicitly — so the rows are now the
+ * whole answer.
  */
 function channelStatusOf(event: EventRow, now: Date): ChannelPublicationStatus {
-  const bought = event.isVip || (event.boostedUntil !== null && event.boostedUntil > now);
-  if (!bought) return 'NONE';
+  void now;
   const posts = event.channelPosts ?? [];
+  if (posts.length === 0) return 'NONE';
   return posts.some((post) => post.postedAt !== null) ? 'PUBLISHED' : 'QUEUED';
 }
 
@@ -1648,9 +1483,7 @@ function toEventDetail(event: EventRow, now: Date): EventDetail {
     status: event.status,
     moderationStatus: event.moderationStatus,
     publishedAt: event.publishedAt,
-    boostedUntil: event.boostedUntil,
     channelStatus: channelStatusOf(event, now),
-    isVip: event.isVip,
     version: event.version,
     createdAt: event.createdAt,
   };

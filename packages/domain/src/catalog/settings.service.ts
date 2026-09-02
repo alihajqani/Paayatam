@@ -28,15 +28,7 @@ export const SETTING_DEFAULTS = {
   'economy.referral_referred_coins': 10,
 
   /**
-   * The two coin sinks in MVP (plan §2.9). Boost buys 24 hours near the top of
-   * discovery; VIP is a one-off placement flag.
-   */
-  'economy.boost_coins': 40,
-  'economy.boost_duration_hours': 24,
-  'economy.vip_coins': 100,
-
-  /**
-   * What the three M22 promotion actions cost (phase 5).
+   * What the paid actions on an activity cost (M22 phase 5).
    *
    * Here rather than as constants for the reason §11 gives about every other
    * number in this table: an operator who finds that five coins is too steep for
@@ -317,7 +309,6 @@ export const SETTING_DEFAULTS = {
   'ranking.weight_time_proximity': 0.35,
   'ranking.weight_popularity': 0.2,
   'ranking.weight_recency': 0.15,
-  'ranking.weight_boost': 0.15,
   'ranking.weight_trust': 0.1,
   'ranking.weight_interest_match': 0.05,
 

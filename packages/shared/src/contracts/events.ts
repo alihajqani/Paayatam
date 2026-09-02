@@ -178,17 +178,12 @@ const namedRef = z.object({
  * built by its own mapper rather than by reusing this.
  */
 /**
- * Where a paid promotion has got to, from the host's side.
+ * Where the channel publication has got to, from the host's side.
  *
  * Three states rather than a boolean, because the channel post is produced by an
  * asynchronous sweep (ADR-0005) and telling a host "published" the instant their
  * coins were taken would be a claim the product cannot support. `QUEUED` is the
  * honest answer between the purchase and Telegram confirming the post.
- *
- * Derived from what the host bought (`isVip` / `boostedUntil`) rather than from the
- * presence of a claim row, because a failed send releases its claim and the row
- * disappears until the next sweep — reading the row alone would flicker to `NONE`
- * for something the host has paid for.
  */
 export const channelPublicationStatus = z.enum(['NONE', 'QUEUED', 'PUBLISHED']);
 export type ChannelPublicationStatus = z.infer<typeof channelPublicationStatus>;
@@ -219,14 +214,7 @@ export const eventView = z.object({
   status: eventStatus,
   moderationStatus: eventModerationStatus,
   publishedAt: z.iso.datetime().nullable(),
-  /**
-   * The host's own view of what they bought (M9). Discovery reduces the same
-   * column to a boolean `isBoosted` for strangers — when somebody else's
-   * promotion lapses is not a stranger's business.
-   */
-  boostedUntil: z.iso.datetime().nullable(),
-  isVip: z.boolean(),
-  /** Whether the promotion this host bought has reached the channel yet. */
+  /** Whether the publication this host bought has reached the channel yet. */
   channelStatus: channelPublicationStatus,
   version: z.number().int(),
   createdAt: z.iso.datetime(),

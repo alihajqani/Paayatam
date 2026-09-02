@@ -43,8 +43,6 @@ let hostId: string;
 interface EventOptions {
   status?: EventStatus;
   moderationStatus?: 'PENDING' | 'APPROVED' | 'FLAGGED' | 'REJECTED';
-  isVip?: boolean;
-  boostedUntil?: Date | null;
   requestCount?: number;
   startsAt?: Date;
   deletedAt?: Date | null;
@@ -71,8 +69,6 @@ async function createEvent(options: EventOptions = {}): Promise<{ id: string; pu
       status,
       moderationStatus: options.moderationStatus ?? 'APPROVED',
       publishedAt: status === 'PUBLISHED' || status === 'HIDDEN' ? NOW : null,
-      isVip: options.isVip ?? false,
-      boostedUntil: options.boostedUntil ?? null,
       requestCount: options.requestCount ?? 0,
       deletedAt: options.deletedAt ?? null,
     },
@@ -101,22 +97,12 @@ afterAll(async () => {
 });
 
 describe('only PUBLISHED and approved events publish', () => {
-  it('claims a VIP event', async () => {
-    await createEvent({ isVip: true });
+  it('claims a trending event as TRENDING', async () => {
+    await createEvent({ requestCount: 10 });
     const claimed = await channel.claimPending();
 
     expect(claimed).toHaveLength(1);
-    expect(claimed[0]?.kind).toBe('VIP');
-  });
-
-  it('claims a boosted event while its window is live', async () => {
-    await createEvent({ boostedUntil: new Date(NOW.getTime() + 3_600_000) });
-    await expect(channel.claimPending()).resolves.toHaveLength(1);
-  });
-
-  it('does not claim one whose boost has lapsed', async () => {
-    await createEvent({ boostedUntil: new Date(NOW.getTime() - 3_600_000) });
-    await expect(channel.claimPending()).resolves.toEqual([]);
+    expect(claimed[0]?.kind).toBe('TRENDING');
   });
 
   it('claims a trending event at the threshold and not below it', async () => {
@@ -128,9 +114,9 @@ describe('only PUBLISHED and approved events publish', () => {
   });
 
   it.each<EventStatus>(['DRAFT', 'PENDING_MODERATION', 'HIDDEN', 'REJECTED', 'CANCELLED_BY_HOST'])(
-    'refuses a %s event however promoted it is',
+    'refuses a %s event however popular it is',
     async (status) => {
-      await createEvent({ status, isVip: true, requestCount: 100 });
+      await createEvent({ status, requestCount: 100 });
       await expect(channel.claimPending()).resolves.toEqual([]);
     },
   );
@@ -141,22 +127,22 @@ describe('only PUBLISHED and approved events publish', () => {
    * automation failing in the most visible place it could.
    */
   it('publishes a FLAGGED event and refuses a REJECTED one', async () => {
-    await createEvent({ isVip: true, moderationStatus: 'FLAGGED', title: 'پرچم‌دار' });
+    await createEvent({ requestCount: 10, moderationStatus: 'FLAGGED', title: 'پرچم‌دار' });
     await expect(channel.claimPending()).resolves.toHaveLength(1);
 
     await resetAndSeed();
-    await createEvent({ isVip: true, moderationStatus: 'REJECTED', title: 'ردشده' });
+    await createEvent({ requestCount: 10, moderationStatus: 'REJECTED', title: 'ردشده' });
     await expect(channel.claimPending()).resolves.toEqual([]);
   });
 
   it('refuses a soft-deleted event', async () => {
-    await createEvent({ isVip: true, deletedAt: NOW });
+    await createEvent({ requestCount: 10, deletedAt: NOW });
     await expect(channel.claimPending()).resolves.toEqual([]);
   });
 
   /** A channel advertising last Tuesday is worse than an empty one. */
   it('refuses an event that has already started', async () => {
-    await createEvent({ isVip: true, startsAt: new Date(NOW.getTime() - 3_600_000) });
+    await createEvent({ requestCount: 10, startsAt: new Date(NOW.getTime() - 3_600_000) });
     await expect(channel.claimPending()).resolves.toEqual([]);
   });
 
@@ -168,7 +154,7 @@ describe('only PUBLISHED and approved events publish', () => {
   /** The kill switch: a public surface the product cannot stop writing to. */
   it('publishes nothing at all when the channel is switched off', async () => {
     await prisma.appSetting.create({ data: { key: 'channel.enabled', value: 0 } });
-    await createEvent({ isVip: true });
+    await createEvent({ requestCount: 10 });
 
     await expect(channel.claimPending()).resolves.toEqual([]);
   });
@@ -185,7 +171,7 @@ describe('only PUBLISHED and approved events publish', () => {
 
 describe('no duplicate post per event per kind', () => {
   it('claims an event once, however many passes run', async () => {
-    await createEvent({ isVip: true });
+    await createEvent({ requestCount: 10 });
 
     const first = await channel.claimPending();
     const second = await channel.claimPending();
@@ -196,25 +182,24 @@ describe('no duplicate post per event per kind', () => {
   });
 
   /**
-   * One event can qualify for more than one reason, and each is its own post: a
-   * host who paid for VIP *and* whose event is trending gets both — what they
-   * bought and what the audience earned are different things.
+   * TRENDING is the only automatic kind since promotion was removed (v0.7.0), so
+   * a popular event produces exactly one claim however popular it is.
    */
-  it('posts once per kind for an event that qualifies twice', async () => {
-    await createEvent({ isVip: true, requestCount: 50 });
+  it('posts once for an event well past the threshold', async () => {
+    await createEvent({ requestCount: 50 });
 
     const claimed = await channel.claimPending();
 
-    expect(claimed.map((post) => post.kind).sort()).toEqual(['TRENDING', 'VIP']);
+    expect(claimed.map((post) => post.kind)).toEqual(['TRENDING']);
     await expect(channel.claimPending()).resolves.toEqual([]);
   });
 
   it('is enforced by the database, not only by the claim path', async () => {
-    const event = await createEvent({ isVip: true });
+    const event = await createEvent({ requestCount: 10 });
     await channel.claimPending();
 
     await expect(
-      prisma.channelPost.create({ data: { eventId: event.id, kind: 'VIP' } }),
+      prisma.channelPost.create({ data: { eventId: event.id, kind: 'TRENDING' } }),
     ).rejects.toThrow(/event_id.*kind|kind.*event_id/s);
   });
 
@@ -224,7 +209,7 @@ describe('no duplicate post per event per kind', () => {
    * channel, with nothing to say why.
    */
   it('lets a released claim be retried', async () => {
-    await createEvent({ isVip: true });
+    await createEvent({ requestCount: 10 });
     const claimed = await channel.claimPending();
     await channel.releaseClaim(claimed[0]?.postId ?? '');
 
@@ -233,7 +218,7 @@ describe('no duplicate post per event per kind', () => {
 
   /** But a claim that *did* become a post is not releasable, so it is not re-posted. */
   it('will not release a claim that was actually posted', async () => {
-    await createEvent({ isVip: true });
+    await createEvent({ requestCount: 10 });
     const claimed = await channel.claimPending();
     const postId = claimed[0]?.postId ?? '';
     await channel.markPosted(postId, 42);
@@ -247,7 +232,7 @@ describe('no duplicate post per event per kind', () => {
 
 describe('a stale post comes down', () => {
   async function posted(options: EventOptions = {}): Promise<{ id: string; postId: string }> {
-    const event = await createEvent({ isVip: true, ...options });
+    const event = await createEvent({ requestCount: 10, ...options });
     const claimed = await channel.claimPending();
     const postId = claimed[0]?.postId ?? '';
     await channel.markPosted(postId, 4242);
@@ -294,8 +279,8 @@ describe('a stale post comes down', () => {
 
   /**
    * The row survives a takedown, which matters twice: it is the record that this
-   * event *was* promoted — a host who paid for VIP and lost the post to moderation
-   * has a question, and "there is no row" is not an answer — and it stops the
+   * event *was* in the channel — a host who lost the post to moderation has a
+   * question, and "there is no row" is not an answer — and it stops the
    * event being re-posted the moment it becomes publishable again.
    */
   it('keeps the record, and does not re-post afterwards', async () => {
@@ -313,10 +298,10 @@ describe('a stale post comes down', () => {
 
   /** A row claiming to be posted with no message id is a post nothing can remove. */
   it('refuses a posted row with no message id at the database level', async () => {
-    const event = await createEvent({ isVip: true });
+    const event = await createEvent({ requestCount: 10 });
 
     await expect(
-      prisma.channelPost.create({ data: { eventId: event.id, kind: 'VIP', postedAt: NOW } }),
+      prisma.channelPost.create({ data: { eventId: event.id, kind: 'TRENDING', postedAt: NOW } }),
     ).rejects.toThrow(/channel_post_posted_has_message_id/);
   });
 });
@@ -343,13 +328,13 @@ function wholePost(rendered: RenderedChannelPost): string {
 
 describe('the post body carries no host identity', () => {
   it('names the event and never the person running it', async () => {
-    await createEvent({ isVip: true });
+    await createEvent({ requestCount: 10 });
     const claimed = await channel.claimPending();
     const post = claimed[0];
     expect(post).toBeDefined();
 
     const rendered = renderChannelPost({
-      kind: post?.kind ?? 'VIP',
+      kind: post?.kind ?? 'TRENDING',
       title: post?.title ?? '',
       categoryName: post?.categoryName ?? '',
       cityName: post?.cityName ?? '',
@@ -446,12 +431,12 @@ describe('the post body carries no host identity', () => {
 
   /** T9 on the widest audience any host-authored text reaches. */
   it('escapes a title that contains markup', async () => {
-    await createEvent({ isVip: true, title: '<a href="http://evil">تخفیف</a>' });
+    await createEvent({ requestCount: 10, title: '<a href="http://evil">تخفیف</a>' });
     const claimed = await channel.claimPending();
     const post = claimed[0];
 
     const body = renderChannelPost({
-      kind: 'VIP',
+      kind: 'TRENDING',
       title: post?.title ?? '',
       categoryName: 'کافه',
       cityName: 'تهران',
@@ -473,11 +458,11 @@ describe('the post body carries no host identity', () => {
   });
 
   it('links by public id, which is the only identifier that leaves the backend', async () => {
-    const event = await createEvent({ isVip: true });
+    const event = await createEvent({ requestCount: 10 });
     const claimed = await channel.claimPending();
 
     const body = renderChannelPost({
-      kind: 'VIP',
+      kind: 'TRENDING',
       title: 'x',
       categoryName: 'y',
       cityName: 'z',

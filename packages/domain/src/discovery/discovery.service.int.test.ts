@@ -577,7 +577,6 @@ describe('the projection (plan §3.6, invariant 7)', () => {
     expect(Object.keys(event as object).sort()).toEqual(
       [
         'acceptedCount',
-        'boostedUntil',
         'capacity',
         'categoryId',
         'categoryNameFa',
@@ -609,7 +608,6 @@ describe('the projection (plan §3.6, invariant 7)', () => {
         // M18: the host's reputation, nullable — never coalesced to the neutral
         // score the way the ranking term is (ADR-0014).
         'hostTrustScore',
-        'isVip',
         'maxAge',
         'minAge',
         'publicId',

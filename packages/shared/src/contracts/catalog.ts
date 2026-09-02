@@ -103,15 +103,8 @@ export type InterestView = z.infer<typeof interestView>;
  * trips are the expensive part.
  */
 export const promotionPricing = z.object({
-  /** A temporary lift, priced per window. */
-  boostCoins: z.number().int().nonnegative(),
-  /** How long one boost purchase lasts. */
-  boostDurationHours: z.number().int().positive(),
-  /** Permanent VIP standing for the event. */
-  vipCoins: z.number().int().nonnegative(),
   /**
-   * The three M22 sinks (phase 5), on the same terms as the two above: the
-   * server's current configuration, asked for rather than assumed, so the
+   * The server's current configuration, asked for rather than assumed, so the
    * price the host is *shown* before confirming and the price they are
    * *charged* cannot disagree.
    *

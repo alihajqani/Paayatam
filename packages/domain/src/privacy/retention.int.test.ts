@@ -414,7 +414,7 @@ describe('expired Idempotency-Key claims', () => {
         userId: hostId,
         key,
         method: 'POST',
-        path: '/api/v1/events/x/boost',
+        path: '/api/v1/events/x/publish-to-channel',
         requestFingerprint: 'a'.repeat(64),
         statusCode: 201,
         responseBody: '{"ok":true}',

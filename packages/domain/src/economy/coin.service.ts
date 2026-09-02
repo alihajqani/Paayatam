@@ -262,7 +262,7 @@ export class CoinService {
    *
    * The difference from `apply` is the whole point and it is a policy decision,
    * not a convenience. A *spend* must fail when the user cannot afford it — that
-   * is what `INSUFFICIENT_COINS` is for, and buying a boost with money you do not
+   * is what `INSUFFICIENT_COINS` is for, and buying a placement with money you do not
    * have is not a thing that should happen. A *penalty* must not, because the
    * alternatives are both worse: refusing it would let somebody escape a
    * cancellation charge by spending down to nothing first, and letting the

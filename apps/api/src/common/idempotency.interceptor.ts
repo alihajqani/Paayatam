@@ -30,13 +30,11 @@ interface RequestWithUser extends FastifyRequest {
  * > Mutating endpoints accept `Idempotency-Key`; replay returns the stored response
  * > with `Idempotency-Replayed: true`.
  *
- * **Why this exists at all**, given that criteria 17–20 already pass: every other
- * duplicate path in the product is defended by a unique index on a natural key. Boost
- * is the exception M9 identified — a second boost is a second purchase of a second
- * window, which a host may legitimately want, so the service cannot tell "asked
- * twice" from "arrived twice". Only the caller knows, and a key is how they say it.
- * Until now the only protection on the one endpoint that spends 40 coins was a
- * disabled button in a frontend that did not exist, over a mobile network.
+ * **Why this exists at all**, given that criteria 17–20 already pass: most
+ * duplicate paths in the product are defended by a unique index on a natural key.
+ * The exceptions are the purchases a user may legitimately want to make twice —
+ * renewing a channel post is one — where the service cannot tell "asked twice"
+ * from "arrived twice". Only the caller knows, and a key is how they say it.
  *
  * Three rules, and they are the whole design:
  *
