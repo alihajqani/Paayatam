@@ -1,6 +1,6 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { formatTehran } from './datetime';
-import { escapeHtml, toPersianDigits } from './escape';
+import { escapeHtml, toPersianAmount } from './escape';
 import { seatsLine } from './seats';
 import { botStartUrl, encodeStartPayload } from './deep-link';
 import { type InlineKeyboard } from './keyboards';
@@ -10,6 +10,14 @@ export interface ChannelPostContent {
   /**
    * Why this event is in the channel. Mirrors `channel_post_kind`, and is spelled
    * out rather than imported so this package stays free of a Prisma dependency.
+   *
+   * **Not rendered** since v0.7.0. It used to head the post — «🔥 پرطرفدار», «📣
+   * معرفی‌شده» — which told the reader something true and irrelevant: why the
+   * channel is showing them this is the channel's business, and the line was
+   * spending the most-read row of the post on it. It stays on the type because
+   * `UNIQUE (event_id, kind)` is what makes a claim exactly-once, and because a
+   * renderer that cannot see which kind it is drawing is a renderer that cannot
+   * be given a kind-specific line later.
    */
   kind: 'VIP' | 'BOOSTED' | 'TRENDING' | 'PAID';
   title: string;
@@ -25,16 +33,6 @@ export interface ChannelPostContent {
   /** The bot's username, for the deep link. */
   botUsername: string;
 }
-
-const KIND_LABEL: Record<ChannelPostContent['kind'], string> = {
-  VIP: '⭐️ ویژه',
-  BOOSTED: '🔝 نردبان',
-  TRENDING: '🔥 پرطرفدار',
-  // Deliberately the same visual weight as the other two purchased kinds: a paid
-  // post is a placement the host bought, and the reader is entitled to know that
-  // rather than to think the channel picked it (M22 phase 5).
-  PAID: '📣 معرفی‌شده',
-};
 
 const COST_LABEL: Record<string, string> = {
   FREE: 'رایگان',
@@ -110,12 +108,33 @@ export interface RenderedChannelPost {
  *
  * ── The disclaimer (report 8) ────────────────────────────────────────────────
  *
- * Above the event's own details rather than under them, because "above every
- * event" is what was asked for and because a liability line below the fold is a
- * line nobody reads. It is the short form: a paragraph at the top of every post
- * is a paragraph readers learn to skip, which is the one thing a disclaimer
+ * The first line of every post, above the event's own details, because "above
+ * every event" is what was asked for and because a liability line below the fold
+ * is a line nobody reads. It is the short form: a paragraph at the top of every
+ * post is a paragraph readers learn to skip, which is the one thing a disclaimer
  * cannot afford. The text is `@payetam/shared`'s, so the channel and the Mini App
  * cannot drift into saying different things.
+ *
+ * ── The voice (v0.7.0) ───────────────────────────────────────────────────────
+ *
+ * The post used to be a card: a kind label, the title in bold on its own line,
+ * then five facts. It read like a listing, which is what it was, and a listing is
+ * not what somebody scrolling a channel stops for.
+ *
+ * It now opens the way the person posting it would: «پایه واسه <b>…</b> میخوام /
+ * کیو داریم اینجا؟ بگه!» — the host asking, in the register the product is named
+ * in, with the activity's name inside the sentence rather than above it. The five
+ * facts follow unchanged, because they are what a reader decides on.
+ *
+ * ── Escaping ─────────────────────────────────────────────────────────────────
+ *
+ * `parse_mode: 'HTML'`, as every message this package renders is, and every
+ * interpolated value goes through `escapeHtml` — the title, the category, the
+ * city and the neighbourhood are all host-authored, and the channel is the widest
+ * audience any of them reaches. The only unescaped markup is this file's own
+ * `<b>`. MarkdownV2 would need a second escaping discipline for a second parse
+ * mode in a codebase that has exactly one, which is how a post ends up rendering
+ * a host's underscore as italics.
  */
 export function renderChannelPost(content: ChannelPostContent): RenderedChannelPost {
   const where =
@@ -126,16 +145,16 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
   const cost =
     content.costType === 'FREE' || content.costAmount === null
       ? (COST_LABEL[content.costType] ?? '—')
-      : `${toPersianDigits(content.costAmount)} تومان (${COST_LABEL[content.costType] ?? ''})`;
+      : `${toPersianAmount(content.costAmount)} تومان (${COST_LABEL[content.costType] ?? ''})`;
 
   const text = [
-    `${KIND_LABEL[content.kind]}`,
-    ``,
     // Escaped like everything else, even though it is our own constant: the day
-    // somebody puts an angle bracket in it, the post should not break.
-    `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
-    ``,
-    `<b>${escapeHtml(content.title)}</b>`,
+    // somebody puts an angle bracket in it, the post should not break. It
+    // carries its own ⚠️ and is plain rather than italic — a whole italic line
+    // at the head of every post is the shape readers learn to skip.
+    escapeHtml(EVENT_DISCLAIMER_SHORT_FA),
+    `پایه واسه <b>${escapeHtml(content.title)}</b> میخوام`,
+    `کیو داریم اینجا؟ بگه!`,
     ``,
     `🗂 ${escapeHtml(content.categoryName)}`,
     `📍 ${where}`,

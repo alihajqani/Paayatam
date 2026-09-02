@@ -31,3 +31,20 @@ const PERSIAN_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '�
 export function toPersianDigits(value: number | string): string {
   return String(value).replaceAll(/\d/g, (digit) => PERSIAN_DIGITS[Number(digit)] ?? digit);
 }
+
+/**
+ * A price, grouped in threes, in Persian digits.
+ *
+ * «۲۵۰۰۰۰ تومان» is six digits somebody has to count. Toman figures in this
+ * product run to seven and eight digits, and an ungrouped one is read wrong more
+ * often than it is read slowly — which on a channel post is a reader deciding
+ * whether they can afford an evening.
+ *
+ * The separator is a plain comma rather than the Arabic thousands separator
+ * (U+066C): Telegram's client fonts render the latter inconsistently, and a
+ * separator that sometimes disappears is worse than one that is merely not
+ * local.
+ */
+export function toPersianAmount(value: number): string {
+  return toPersianDigits(Math.trunc(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','));
+}
