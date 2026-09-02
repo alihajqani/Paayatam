@@ -57,5 +57,9 @@ export function formatPendingReviews(lines: readonly PendingReviewLine[]): strin
 
   if (entries.length === 0) return digest;
 
-  return `${digest}\n\n<i>امتیاز هر نفر را از ردیف هم‌شمارهٔ زیر انتخاب کنید.</i>`;
+  return (
+    `${digest}\n\n` +
+    `<i>ردیف‌های ستاره زیر با شمارهٔ همین فهرست مشخص شده‌اند: ردیف «۱» برای نفر ۱، ` +
+    `ردیف «۲» برای نفر ۲ و همین‌طور تا آخر.</i>`
+  );
 }

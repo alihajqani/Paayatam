@@ -55,5 +55,9 @@ export function formatParticipants(eventTitle: string, lines: readonly Participa
 
   if (entries.length === 0) return digest;
 
-  return `${digest}\n\n<i>کارهای هر نفر در ردیف هم‌شمارهٔ زیر است.</i>`;
+  return (
+    `${digest}\n\n` +
+    `<i>دکمه‌های زیر با شمارهٔ همین فهرست مشخص شده‌اند: دکمهٔ «۱» برای نفر ۱، ` +
+    `دکمهٔ «۲» برای نفر ۲ و همین‌طور تا آخر.</i>`
+  );
 }
