@@ -158,9 +158,10 @@ export class ParticipationService {
     await this.membership.assertAllowed(userId, 'EVENT_JOIN');
     const joiner = await this.loadJoiner(userId);
 
-    const [hostResponseHours, minHoursBefore, joinCost] = await Promise.all([
+    const [hostResponseHours, minHoursBefore, minResponseMinutes, joinCost] = await Promise.all([
       this.settings.getInt('participation.host_response_hours'),
       this.settings.getInt('participation.min_hours_before_event'),
+      this.settings.getInt('participation.min_response_minutes'),
       this.settings.getInt('economy.event_join_coins'),
     ]);
 
@@ -192,7 +193,13 @@ export class ParticipationService {
         const roomToAsk = event.acceptedCount + outstanding < event.capacity;
         const status: ParticipantStatus = roomToAsk ? 'PENDING' : 'WAITLISTED';
         const hostDeadlineAt = roomToAsk
-          ? this.hostDeadline(now, event.startsAt, hostResponseHours, minHoursBefore)
+          ? this.hostDeadline(
+              now,
+              event.startsAt,
+              hostResponseHours,
+              minHoursBefore,
+              minResponseMinutes,
+            )
           : null;
 
         // ON CONFLICT DO NOTHING, expressed through Prisma. `count === 0` means a
@@ -799,9 +806,10 @@ export class ParticipationService {
     // while holding the first — which under enough concurrent cancellations
     // exhausts the pool and deadlocks it. Latent since M7; found by M9's
     // twenty-way concurrency test, which hit the same shape.
-    const [deadlineHours, minHoursBefore] = await Promise.all([
+    const [deadlineHours, minHoursBefore, minResponseMinutes] = await Promise.all([
       this.settings.getInt('waitlist.promotion_deadline_hours', tx),
       this.settings.getInt('waitlist.min_hours_before_event', tx),
+      this.settings.getInt('participation.min_response_minutes', tx),
     ]);
 
     const promoted: PromotedParticipant[] = [];
@@ -827,7 +835,13 @@ export class ParticipationService {
       // seat. Tracked locally because the event row is not being written.
       outstanding += 1;
 
-      const hostDeadlineAt = this.hostDeadline(now, event.startsAt, deadlineHours, minHoursBefore);
+      const hostDeadlineAt = this.hostDeadline(
+        now,
+        event.startsAt,
+        deadlineHours,
+        minHoursBefore,
+        minResponseMinutes,
+      );
 
       await tx.eventParticipant.update({
         where: { id: next.id },
@@ -1169,17 +1183,45 @@ export class ParticipationService {
   }
 
   /**
-   * `min(now + 24h, starts_at - 3h)` (plan §11).
+   * `min(now + 24h, starts_at - 3h)`, but never already past (plan §11, v0.7.0).
    *
-   * The second term is what stops a request being decided so late that nobody can
-   * act on the answer; for an event starting in two hours it is already in the
-   * past, and a deadline in the past is correct — that request expires on the
-   * next sweep rather than holding a seat nobody can fill.
+   * The second term stops a request being decided so late that nobody can act on
+   * the answer. It used to be the whole story, and the comment here said a
+   * deadline in the past was *correct* — the request would expire on the next
+   * sweep rather than hold a slot nobody could fill.
+   *
+   * It is not correct, and it is the second half of the reported «این عملیات در
+   * وضعیت فعلی ممکن نیست». For an activity starting in under three hours,
+   * `starts_at - 3h` is behind `now`, so the request was **born expired**: the
+   * guest was told it had been sent, the host got the notification with its two
+   * buttons, and the sweep retired it somewhere in between. Whichever of them
+   * pressed first got a refusal about a state nobody had chosen.
+   *
+   * So the deadline is floored: never earlier than a few minutes from now, and
+   * never past the start of the activity itself. A short window is short — which
+   * is honest, because the activity *is* soon — but it is a window, and both
+   * parties can act inside it.
+   *
+   * `participation.min_response_minutes` is what that floor is, and it is a
+   * setting for the reason every other number here is: how long is long enough is
+   * a product question, not a constant.
    */
-  private hostDeadline(now: Date, startsAt: Date, hours: number, minHoursBefore: number): Date {
+  private hostDeadline(
+    now: Date,
+    startsAt: Date,
+    hours: number,
+    minHoursBefore: number,
+    minResponseMinutes: number,
+  ): Date {
     const byResponseWindow = now.getTime() + hours * 3_600_000;
     const byEventStart = startsAt.getTime() - minHoursBefore * 3_600_000;
-    return new Date(Math.min(byResponseWindow, byEventStart));
+    const preferred = Math.min(byResponseWindow, byEventStart);
+
+    // The floor, itself bounded by the start: a deadline after the activity has
+    // begun is a decision nobody can act on either.
+    const floor = Math.min(now.getTime() + minResponseMinutes * 60_000, startsAt.getTime());
+
+    return new Date(Math.max(preferred, floor));
   }
 
   private async toDetail(

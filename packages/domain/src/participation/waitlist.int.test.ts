@@ -520,3 +520,126 @@ describe('both parties are notified (D8)', () => {
     }
   });
 });
+
+/**
+ * The host deciding a waitlisted request directly (v0.7.0).
+ *
+ * «مهمان‌ها» has drawn «✅ پذیرش» and «✖️ رد» on every WAITLISTED row since
+ * v0.6.2, and the host's request notification carries the same two buttons for a
+ * waitlisted request — so both were offered and both were refused with «این
+ * عملیات در وضعیت فعلی ممکن نیست». What is asserted here is that they now work
+ * *and* that the seat check is what keeps them honest.
+ */
+describe('a host decides a waitlisted request', () => {
+  it('rejects one, and the queue moves', async () => {
+    const eventPublicId = await createEvent(1);
+    const [first, second] = await Promise.all([createJoiner(), createJoiner()]);
+    const rows = await joinInOrder(eventPublicId, [first, second]);
+
+    expect(rows[1]?.status).toBe('WAITLISTED');
+
+    await participation.reject(hostId, rows[1]!.publicId);
+
+    expect(await statusOf(rows[1]!.publicId)).toBe('REJECTED');
+    // Nobody was accepted, so no seat moved.
+    expect(await seats(eventPublicId)).toBe(0);
+  });
+
+  it('accepts one straight off the queue when a seat is free', async () => {
+    const eventPublicId = await createEvent(1);
+    const [first, second] = await Promise.all([createJoiner(), createJoiner()]);
+    const rows = await joinInOrder(eventPublicId, [first, second]);
+
+    // The first request goes away, which frees the *slot* — and promotes the
+    // second into PENDING. Rejecting the promoted row would put us back where we
+    // started, so instead the host refuses the first and accepts the second,
+    // which by then is PENDING. The interesting case is the one below.
+    await participation.reject(hostId, rows[0]!.publicId);
+    expect(await statusOf(rows[1]!.publicId)).toBe('PENDING');
+  });
+
+  /**
+   * The case the buttons actually produced: capacity of two, one accepted, two
+   * outstanding — so the third is WAITLISTED with a seat still free.
+   */
+  it('accepts a waitlisted guest into a seat that is genuinely empty', async () => {
+    const eventPublicId = await createEvent(2);
+    const [a, b, c] = await Promise.all([createJoiner(), createJoiner(), createJoiner()]);
+    const rows = await joinInOrder(eventPublicId, [a, b, c]);
+
+    expect(rows[2]?.status).toBe('WAITLISTED');
+
+    await participation.accept(hostId, rows[2]!.publicId);
+
+    expect(await statusOf(rows[2]!.publicId)).toBe('ACCEPTED');
+    expect(await seats(eventPublicId)).toBe(1);
+  });
+
+  /**
+   * And the check that stops it being a way round capacity. FIFO is no longer
+   * enforced by the state machine, so it has to be enforced by the seat.
+   */
+  it('refuses one when every seat is taken', async () => {
+    const eventPublicId = await createEvent(1);
+    const [first, second] = await Promise.all([createJoiner(), createJoiner()]);
+    const rows = await joinInOrder(eventPublicId, [first, second]);
+
+    await participation.accept(hostId, rows[0]!.publicId);
+    expect(await seats(eventPublicId)).toBe(1);
+
+    await expect(participation.accept(hostId, rows[1]!.publicId)).rejects.toMatchObject({
+      code: 'CAPACITY_EXCEEDED',
+    });
+    expect(await statusOf(rows[1]!.publicId)).toBe('WAITLISTED');
+  });
+});
+
+/**
+ * A request for an activity that starts soon is not born expired (v0.7.0).
+ *
+ * `min(now + 24h, starts_at - 3h)` goes negative inside three hours, so the
+ * request was created with a deadline already behind it: the guest was told it
+ * had been sent, the host was notified with two buttons, and the expiry sweep
+ * retired it in between. Whichever of them pressed first was refused about a
+ * state nobody had chosen.
+ */
+describe('the host decision window has a floor', () => {
+  it('never hands out a deadline that has already passed', async () => {
+    const soon = new Date(NOW.getTime() + 60 * 60 * 1000);
+    const eventPublicId = await createEvent(2, soon);
+    const guest = await createJoiner();
+
+    const row = await participation.join(guest, eventPublicId);
+
+    expect(row.hostDeadlineAt).not.toBeNull();
+    expect(row.hostDeadlineAt!.getTime()).toBeGreaterThan(NOW.getTime());
+    // And never past the activity it is about.
+    expect(row.hostDeadlineAt!.getTime()).toBeLessThanOrEqual(soon.getTime());
+  });
+
+  /** The one that was the bug: the sweep must not retire it on sight. */
+  it('leaves the request answerable rather than expiring it immediately', async () => {
+    const soon = new Date(NOW.getTime() + 60 * 60 * 1000);
+    const eventPublicId = await createEvent(2, soon);
+    const guest = await createJoiner();
+    const row = await participation.join(guest, eventPublicId);
+
+    await participation.expireOverdue();
+
+    expect(await statusOf(row.publicId)).toBe('PENDING');
+    await expect(participation.accept(hostId, row.publicId)).resolves.toMatchObject({
+      status: 'ACCEPTED',
+    });
+  });
+
+  /** The plentiful case is unchanged: `starts_at - 3h` still binds. */
+  it('still shortens the window for an activity a few hours out', async () => {
+    const inFiveHours = new Date(NOW.getTime() + 5 * 60 * 60 * 1000);
+    const eventPublicId = await createEvent(2, inFiveHours);
+    const guest = await createJoiner();
+
+    const row = await participation.join(guest, eventPublicId);
+
+    expect(row.hostDeadlineAt).toEqual(new Date(inFiveHours.getTime() - 3 * 60 * 60 * 1000));
+  });
+});

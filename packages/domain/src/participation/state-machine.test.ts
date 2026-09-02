@@ -26,25 +26,31 @@ describe('the participation lifecycle', () => {
     ]);
   });
 
-  it('lets a waitlisted request be promoted, cancelled or expired — and nothing else', () => {
+  it('lets a waitlisted request be promoted, decided, cancelled or expired', () => {
     expect([...PARTICIPANT_TRANSITIONS.WAITLISTED].sort()).toEqual([
+      'ACCEPTED',
       'CANCELLED_BY_PARTICIPANT',
       'EXPIRED',
       'PENDING',
+      'REJECTED',
     ]);
   });
 
   /**
-   * The absence worth a test of its own. A host looking at a waitlist would
-   * plausibly expect to pick someone off it, and allowing that would quietly
-   * undo ADR-0011's FIFO promotion: being third in the queue would stop meaning
-   * anything.
+   * The two edges that were missing, and the bug that missing them was.
+   *
+   * «مهمان‌ها» has drawn «✅ پذیرش» and «✖️ رد» on every WAITLISTED row since
+   * v0.6.2, and the host's request notification carries the same two buttons for
+   * a waitlisted request — so the host was offered two decisions the table
+   * refused, and both answered «این عملیات در وضعیت فعلی ممکن نیست».
+   *
+   * The FIFO argument for the absence still stands, and `accept` is where it is
+   * enforced now: it takes a seat, so `assertSeatAvailable` refuses when there is
+   * none free. A host jumps the queue only into a place that was already empty.
    */
-  it('does not let a host accept straight off the waitlist, which would jump the queue', () => {
-    expect(PARTICIPANT_TRANSITIONS.WAITLISTED).not.toContain('ACCEPTED');
-    expect(() => assertParticipantTransition('WAITLISTED', 'ACCEPTED')).toThrowError(
-      expect.objectContaining({ code: 'INVALID_STATE_TRANSITION' }),
-    );
+  it('lets a host decide a waitlisted request, which its buttons already offered', () => {
+    expect(() => assertParticipantTransition('WAITLISTED', 'ACCEPTED')).not.toThrow();
+    expect(() => assertParticipantTransition('WAITLISTED', 'REJECTED')).not.toThrow();
   });
 
   it('ends every settled request — six terminal states, no way back', () => {
@@ -137,13 +143,16 @@ describe('which statuses hold a seat', () => {
   });
 
   /**
-   * PENDING → ACCEPTED is now the **only** edge that takes one.
+   * Two edges take a seat, and both go through `accept`.
    *
    * Which is what makes `ParticipationService.accept`'s capacity assertion a live
-   * guard rather than the defensive one it used to be: before this change no
-   * reachable path could accept a row that held no seat, so it could not fire.
+   * guard rather than the defensive one it used to be: before v0.6.5 no reachable
+   * path could accept a row that held no seat, so it could not fire. v0.7.0 added
+   * the second edge — a host deciding a waitlisted request directly — and it is
+   * the same assertion that keeps it honest, so the queue is jumped only into a
+   * place that was already empty.
    */
-  it('takes a seat on exactly one transition', () => {
+  it('takes a seat only by being accepted', () => {
     const acquiring = (Object.keys(PARTICIPANT_TRANSITIONS) as ParticipantStatus[]).flatMap(
       (from) =>
         PARTICIPANT_TRANSITIONS[from]
@@ -151,7 +160,7 @@ describe('which statuses hold a seat', () => {
           .map((to) => `${from} → ${to}`),
     );
 
-    expect(acquiring).toEqual(['PENDING → ACCEPTED']);
+    expect(acquiring.sort()).toEqual(['PENDING → ACCEPTED', 'WAITLISTED → ACCEPTED']);
   });
 });
 

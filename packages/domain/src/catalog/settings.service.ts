@@ -164,6 +164,21 @@ export const SETTING_DEFAULTS = {
    */
   'participation.host_response_hours': 24,
   'participation.min_hours_before_event': 3,
+  /**
+   * The floor under a host's decision window (v0.7.0).
+   *
+   * `min(now + 24h, starts_at - 3h)` goes **negative** for an activity starting
+   * in under three hours, and the request was then born already expired: the
+   * guest was told it had been sent, the host was notified with two buttons, and
+   * whichever of them pressed first was refused with «این عملیات در وضعیت فعلی
+   * ممکن نیست» about a state nobody had chosen.
+   *
+   * Thirty minutes is short, which is correct — the activity is soon — but it is
+   * a window, and both sides can act inside it. Bounded by the start of the
+   * activity itself, so this can never push a deadline past the thing being
+   * decided about.
+   */
+  'participation.min_response_minutes': 30,
   /** Cancel within this many minutes of being accepted and it costs nothing. */
   'participation.grace_minutes': 15,
 

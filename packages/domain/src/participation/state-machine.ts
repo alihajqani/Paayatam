@@ -11,15 +11,31 @@ import { assertTransition, type TransitionTable } from '../state-machine';
  *     │        │ │ └► EXPIRED (host_deadline_at passed)
  *     │        │ └──► CANCELLED_BY_PARTICIPANT
  *     │        └────► REJECTED
- *     └─► WAITLISTED ─► PENDING   (promotion; sets host_deadline_at)
- *              └─────► CANCELLED_BY_PARTICIPANT | EXPIRED
+ *     └─► WAITLISTED ─┬► PENDING   (promotion; sets host_deadline_at)
+ *                     ├► ACCEPTED | REJECTED   (the host decides directly)
+ *                     └► CANCELLED_BY_PARTICIPANT | EXPIRED
  * ```
  *
- * `WAITLISTED → ACCEPTED` is deliberately absent, though a host looking at a
- * waitlist would plausibly expect to pick someone off it. Allowing it would let
- * a host jump the queue, and ADR-0011 makes promotion strictly FIFO by
- * `(requested_at, id)` precisely so that being waitlisted means something. A host
- * who wants a specific person gets them by the queue reaching them.
+ * ── `WAITLISTED → ACCEPTED | REJECTED` (v0.7.0) ─────────────────────────────
+ *
+ * Both were absent, on the argument that a host picking somebody off the queue
+ * jumps it, and ADR-0011 makes promotion strictly FIFO so that being waitlisted
+ * means something.
+ *
+ * The argument was sound and the product did not implement it. «مهمان‌ها» has
+ * drawn «✅ پذیرش» and «✖️ رد» on *every* PENDING **and WAITLISTED** row since
+ * v0.6.2, and `participation.requested` sends the host the same two buttons for a
+ * waitlisted request. So the host was offered two decisions the state machine
+ * refused, and both answered «این عملیات در وضعیت فعلی ممکن نیست» — the reported
+ * bug, reproducible by creating an activity with one place and letting two people
+ * ask.
+ *
+ * Of the two ways to close that gap — take the buttons away, or let the host
+ * decide — taking them away leaves a host who wants the second person with no
+ * move except rejecting the first and hoping the promotion sweep reaches the one
+ * they meant. Deciding directly is what they were already being offered, and
+ * `accept` still refuses when there is no seat free (`assertSeatAvailable`), so
+ * the queue is jumped only into a place that was actually empty.
  *
  * `CANCELLED_BY_HOST` is reachable only from ACCEPTED: it is what a host
  * cancelling the whole event does to the people who had seats (M10). Someone
@@ -28,7 +44,7 @@ import { assertTransition, type TransitionTable } from '../state-machine';
  */
 export const PARTICIPANT_TRANSITIONS: TransitionTable<ParticipantStatus> = {
   PENDING: ['ACCEPTED', 'REJECTED', 'EXPIRED', 'CANCELLED_BY_PARTICIPANT'],
-  WAITLISTED: ['PENDING', 'CANCELLED_BY_PARTICIPANT', 'EXPIRED'],
+  WAITLISTED: ['PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED_BY_PARTICIPANT', 'EXPIRED'],
   ACCEPTED: ['COMPLETED', 'NO_SHOW', 'CANCELLED_BY_HOST', 'CANCELLED_BY_PARTICIPANT'],
   REJECTED: [],
   EXPIRED: [],
