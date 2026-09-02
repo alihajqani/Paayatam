@@ -392,7 +392,7 @@ describe('the post body carries no host identity', () => {
    *
    * Two buttons since v0.6.3, and both into the **bot**: the single one used to
    * open the Mini App, which v0.4.6 removed every other button to. A reader who
-   * has decided should not have to open a detail screen to act, so «شرکت می‌کنم»
+   * has decided should not have to open a detail screen to act, so «پایتم»
    * is its own row.
    */
   it('carries the two inline buttons that reach the bot', () => {
@@ -418,7 +418,7 @@ describe('the post body carries no host identity', () => {
     expect(rendered.keyboard[1]?.[0]?.url).toBe(
       'https://t.me/payetam_bot?start=join_11111111-1111-4111-8111-111111111111',
     );
-    expect(rendered.keyboard[1]?.[0]?.text).toContain('شرکت می‌کنم');
+    expect(rendered.keyboard[1]?.[0]?.text).toContain('پایتم');
 
     // URL buttons, never callbacks: a channel post has no session behind a tap,
     // and the bot cannot message a reader who has never opened a chat with it —

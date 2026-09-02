@@ -110,7 +110,7 @@ onMounted(load);
     <StateBlock
       :state="state"
       :error-text="error"
-      empty-text="هنوز گفت‌وگویی ندارید. با درخواست پیوستن به یک رویداد، گفت‌وگو آغاز می‌شود."
+      empty-text="هنوز گفت‌وگویی ندارید. با «پایتم» گفتن به یک رویداد، گفت‌وگو آغاز می‌شود."
       @retry="load"
     >
       <template #empty-action>

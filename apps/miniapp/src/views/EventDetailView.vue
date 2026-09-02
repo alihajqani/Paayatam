@@ -98,8 +98,8 @@ const ageRange = computed(() => {
 /** What the primary button says depends entirely on what the server already told us. */
 const buttonText = computed(() => {
   if (mine.value !== null) return 'گفت‌وگو در تلگرام';
-  if (event.value === null) return 'درخواست پیوستن';
-  return event.value.remainingCapacity <= 0 ? 'ثبت در نوبت انتظار' : 'درخواست پیوستن';
+  if (event.value === null) return 'پایتم';
+  return event.value.remainingCapacity <= 0 ? 'ثبت در نوبت انتظار' : 'پایتم';
 });
 
 async function load(): Promise<void> {
@@ -151,7 +151,7 @@ async function join(): Promise<void> {
   } catch (cause) {
     haptic('error');
     joinError.value =
-      cause instanceof ApiError ? cause.messageFa : 'درخواست پیوستن ثبت نشد. دوباره تلاش کنید.';
+      cause instanceof ApiError ? cause.messageFa : 'درخواست شما ثبت نشد. دوباره تلاش کنید.';
   }
 }
 

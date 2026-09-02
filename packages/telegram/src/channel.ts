@@ -90,8 +90,10 @@ export interface RenderedChannelPost {
  *
  * Two buttons now, and the split is the reader's own two questions. «مشاهده در
  * ربات» opens the activity in full — description, cost, age range, the host's
- * Trust Score — for somebody deciding. «شرکت می‌کنم» is for somebody who has
- * already decided, and asks to join without a detail screen in between.
+ * Trust Score — for somebody deciding. «پایتم» is for somebody who has already
+ * decided, and asks to join without a detail screen in between. It says the same
+ * word the in-bot button says (v0.7.0); it used to say «شرکت می‌کنم», which was
+ * a third phrasing of one action.
  *
  * Both are `?start=` links rather than callback buttons, and that is not a
  * stylistic choice: the bot cannot send a message to somebody who has never
@@ -162,7 +164,7 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
       ],
       [
         {
-          text: '✅ شرکت می‌کنم',
+          text: '🤝 پایتم',
           url: botStartUrl(content.botUsername, encodeStartPayload('join', content.eventPublicId)),
         },
       ],

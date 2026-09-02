@@ -56,7 +56,7 @@ export function renderEventInvitation(content: EventInvitationContent): string {
     // leaves the backend (invariant 7).
     `<a href="https://t.me/${escapeHtml(content.botUsername)}?startapp=event_${escapeHtml(
       content.eventPublicId,
-    )}">دیدن جزئیات و درخواست پیوستن</a>`,
+    )}">دیدن جزئیات و پایتم گفتن</a>`,
     '',
     // Said in the message rather than only in a settings screen: somebody who does
     // not want these should not have to go looking for how to stop them.

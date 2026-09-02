@@ -63,7 +63,7 @@ export function formatMyChats(lines: readonly MyChatLine[]): string {
     title: 'گفتگوهای شما',
     empty:
       `گفتگوی بازی ندارید. از دکمهٔ «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» ` +
-      `یک فعالیت انتخاب کنید و درخواست پیوستن بفرستید.`,
+      `یک فعالیت انتخاب کنید و «پایتم» را بزنید.`,
     entries,
   });
 }

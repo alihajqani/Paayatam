@@ -195,6 +195,22 @@ interface BotUser {
 }
 
 /**
+ * «پایتم» — the word the product is named for, on the button that joins.
+ *
+ * It said «➕ پیوستن به این فعالیت», and every other surface said something
+ * slightly different: «✅ شرکت می‌کنم» on a channel post, «درخواست پیوستن» in
+ * the Mini App. Three phrasings for one action, none of them the product's own
+ * word. «پایه‌تَم» is what somebody actually says when they are in — so that is
+ * what the button says, and it says the same thing everywhere.
+ *
+ * Two constants because the two read differently in place: the button is a
+ * label, and `affordBlocked` puts the other at the head of a sentence — «پایتم
+ * گفتن به این فعالیت ۵ سکه هزینه دارد».
+ */
+const JOIN_BUTTON_FA = '🤝 پایتم';
+const JOIN_ACTION_FA = 'پایتم گفتن به این فعالیت';
+
+/**
  * The bot's receiving half (plan §6: `/start`, `callback_query`, `message:text`,
  * `edited_message`, `my_chat_member`).
  *
@@ -1173,7 +1189,7 @@ export class BotService {
    *
    * ── Why the two actions are not one screen ──────────────────────────────────
    *
-   * «مشاهده در ربات» is for somebody deciding and «شرکت می‌کنم» for somebody who
+   * «مشاهده در ربات» is for somebody deciding and «پایتم» for somebody who
    * has decided. Collapsing them into "open the detail, then press join" would
    * put a screen between a reader and the decision they had already made, which
    * is the detour the second button exists to remove.
@@ -1256,7 +1272,7 @@ export class BotService {
       return this.openProfileForm(
         updateId,
         user,
-        'برای پیوستن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
+        'برای پایتم گفتن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
       );
     }
     if (!consented) await this.gateAfterWelcome(updateId, user);
@@ -1888,7 +1904,7 @@ export class BotService {
               updateId,
               user,
               await this.settings.getInt('economy.event_join_coins'),
-              'پیوستن به این فعالیت',
+              JOIN_ACTION_FA,
             )
           ) {
             await this.answer(callbackQueryId, '');
@@ -1916,7 +1932,7 @@ export class BotService {
          * answers 404 identically for "not published" and "does not exist", so
          * this is not an existence oracle either (T3.3).
          *
-         * The «پیوستن» button is repeated here rather than assumed: somebody who
+         * The «پایتم» button is repeated here rather than assumed: somebody who
          * opened the detail has the decision in front of them, and sending them
          * back to the digest to act on it would be the detour this release has
          * spent the day removing.
@@ -2110,7 +2126,7 @@ export class BotService {
         await this.openProfileForm(
           updateId,
           user,
-          'برای پیوستن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
+          'برای پایتم گفتن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
         );
       }
     }
@@ -2525,7 +2541,7 @@ export class BotService {
    * ── It is a read, so there is no gate ───────────────────────────────────────
    *
    * `discoverWith` has none either. The consent gate is about writes, and the
-   * «پیوستن» button on the screen this draws is where the write happens and
+   * «پایتم» button on the screen this draws is where the write happens and
    * where `mayWrite` already runs.
    *
    * ── What the back button has to carry ───────────────────────────────────────
@@ -2637,7 +2653,7 @@ export class BotService {
           : [
               [
                 {
-                  text: '➕ پیوستن به این فعالیت',
+                  text: JOIN_BUTTON_FA,
                   callbackData: encodeEventCallback('join', eventPublicId),
                 },
               ],
@@ -4721,7 +4737,7 @@ export class BotService {
    * The same, for a refusal that happened under a button.
    *
    * A toast cannot carry a keyboard, so the channel gate is drawn as a message
-   * underneath it — otherwise a user who taps «پیوستن» on a gated event sees a
+   * underneath it — otherwise a user who taps «پایتم» on a gated event sees a
    * three-second toast naming a channel and no link to it.
    */
   private async refuseToast(
@@ -4820,7 +4836,7 @@ export class BotService {
     );
 
     return live.length === 0
-      ? `گفتگوی بازی ندارید. با دکمهٔ «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» یک فعالیت پیدا کنید و درخواست پیوستن بفرستید.`
+      ? `گفتگوی بازی ندارید. با دکمهٔ «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» یک فعالیت پیدا کنید و «پایتم» را بزنید.`
       : `چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. فهرست گفتگوها زیر دکمهٔ «${menuPathFor('chats') ?? 'گفتگو و نظرها'}» است.`;
   }
 }

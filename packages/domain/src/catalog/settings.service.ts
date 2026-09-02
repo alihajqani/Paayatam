@@ -68,7 +68,7 @@ export const SETTING_DEFAULTS = {
    * What asking to join an activity costs (v0.6.3).
    *
    * **Zero, and the zero is the point.** Joining has been free on every surface
-   * since M6, and the channel post's «شرکت می‌کنم» button reaches the same
+   * since M6, and the channel post's «پایتم» button reaches the same
    * `ParticipationService.join` the in-bot button does — so a non-zero default
    * would start charging for every join everywhere, on a live product, as a side
    * effect of adding a button to a channel post.
