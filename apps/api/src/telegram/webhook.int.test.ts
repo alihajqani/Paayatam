@@ -2797,6 +2797,54 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     expect(participant.status).toBe('PENDING');
   });
 
+  /**
+   * A full activity is listed, and its button says what pressing it does.
+   *
+   * `/discover` filtered on `hasCapacity: true` until v0.7.0, so an activity with
+   * no seats left vanished from the bot entirely — and with it the only route to
+   * a waiting list the product has had since M6. The list, the detail screen and
+   * the button all have to agree, so all three are asserted here.
+   */
+  it('lists a full activity, and offers the waiting list on it', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+
+    // Full: `accepted_count` is what «جای خالی» is computed from.
+    await prisma.event.update({
+      where: { publicId: eventPublicId },
+      data: { acceptedCount: 5 },
+    });
+
+    await type(GUEST_TELEGRAM_ID, '/discover');
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const body = String((digest.payload as Record<string, unknown>)['text']);
+    expect(body).toContain('دورهمی بازی رومیزی');
+    expect(body).toContain('ظرفیت تکمیل');
+
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+    await type(GUEST_TELEGRAM_ID, `/event_${code}`);
+    const detail = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const join = keyboardOf(detail.payload)
+      .flat()
+      .find((button) => button.callbackData === `ev:join:${eventPublicId}`);
+    expect(join?.text).toContain('نوبت انتظار');
+
+    await tap(GUEST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { userId: guestId },
+      select: { status: true },
+    });
+    expect(participant.status).toBe('WAITLISTED');
+  });
+
   /** A code that names nothing is refused the way an unknown activity is. */
   it('refuses a code that matches no published activity', async () => {
     await seedGuest(GUEST_TELEGRAM_ID);

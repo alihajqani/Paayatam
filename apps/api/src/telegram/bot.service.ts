@@ -61,7 +61,13 @@ import {
   RateLimitService,
   jobId,
 } from '@payetam/platform';
-import { AppError, ERROR_MESSAGES_FA, ErrorCode, resolveVersion } from '@payetam/shared';
+import {
+  AppError,
+  ERROR_MESSAGES_FA,
+  ErrorCode,
+  isUnlimitedCapacity,
+  resolveVersion,
+} from '@payetam/shared';
 import {
   TEMPLATES,
   describeFilters,
@@ -211,6 +217,16 @@ interface BotUser {
  * گفتن به این فعالیت ۵ سکه هزینه دارد».
  */
 const JOIN_BUTTON_FA = '🤝 پایتم';
+
+/**
+ * The same button on an activity with no seats left.
+ *
+ * `join` admits past capacity as WAITLISTED and always has; what was missing was
+ * anywhere to press it from and any warning that pressing it buys a place in a
+ * queue rather than a seat. Both are fixed at once — the list shows full
+ * activities, and the button on one says what it is.
+ */
+const WAITLIST_BUTTON_FA = '⏳ ثبت در نوبت انتظار';
 const JOIN_ACTION_FA = 'پایتم گفتن به این فعالیت';
 
 /**
@@ -2640,7 +2656,20 @@ export class BotService {
           : [
               [
                 {
-                  text: JOIN_BUTTON_FA,
+                  /**
+                   * The button says which of the two things it does.
+                   *
+                   * A full activity is listed since v0.7.0, and `join` admits
+                   * past capacity as WAITLISTED — so «پایتم» on something with
+                   * no seats left is a promise the tap does not keep. The label
+                   * names the waiting list instead, and the body above it
+                   * already says «ظرفیت تکمیل».
+                   */
+                  text: isUnlimitedCapacity(event.capacity)
+                    ? JOIN_BUTTON_FA
+                    : event.acceptedCount >= event.capacity
+                      ? WAITLIST_BUTTON_FA
+                      : JOIN_BUTTON_FA,
                   callbackData: encodeEventCallback('join', eventPublicId),
                 },
               ],
@@ -3440,9 +3469,23 @@ export class BotService {
      * set would be a second query per tap for a number nobody is shown. The extra
      * row is dropped before anything is rendered.
      */
+    /**
+     * **No `hasCapacity` filter** (v0.7.0).
+     *
+     * It was `hasCapacity: true`, hard-coded, so a full activity vanished from
+     * the bot's discovery entirely — and with it the only route to the waiting
+     * list. The product has had a waitlist since M6: `join` admits past capacity
+     * as WAITLISTED, `fillFreedSeats` promotes in FIFO order when a seat comes
+     * back, and both parties are notified. None of that was reachable, because
+     * the one screen that lists activities refused to show the activities it
+     * applies to.
+     *
+     * A full activity is now listed, marked «ظرفیت تکمیل», and its button says
+     * what pressing it does. Which is the honest state of things: a popular
+     * activity is exactly the one somebody wants to be next in line for.
+     */
     const page = await this.discovery.search(user.id, {
       cityId: profile.city.id,
-      hasCapacity: true,
       limit: DISCOVER_LIMIT + 1,
       offset: filters.page * DISCOVER_LIMIT,
       ...(range !== null ? { dateFrom: range.from, dateTo: range.to } : {}),
