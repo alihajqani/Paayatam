@@ -194,6 +194,85 @@ describe('claiming', () => {
     expect(await prisma.referral.count({ where: { referredUserId: referred } })).toBe(1);
   });
 
+  /** The same code twice is the same refusal: one claim per account, ever. */
+  it('refuses the very same code a second time', async () => {
+    const code = await codeOf(referrer);
+    await referrals.claim(referred, code);
+
+    await expect(referrals.claim(referred, code)).rejects.toMatchObject({
+      code: 'ALREADY_REFERRED',
+    });
+    expect(await prisma.referral.count({ where: { referredUserId: referred } })).toBe(1);
+  });
+
+  /**
+   * A referral rewards bringing somebody **new** (v0.7.0).
+   *
+   * Without a window it equally rewards an account that has been here for months
+   * typing a friend's code — which costs the friend nothing, pays them thirty
+   * coins, and is an arrangement between two existing users rather than a
+   * recruitment.
+   *
+   * Measured from `user.created_at`, the one timestamp a claimer cannot
+   * influence.
+   */
+  describe('the claim window', () => {
+    it('refuses an account older than the window', async () => {
+      const code = await codeOf(referrer);
+      await prisma.user.update({
+        where: { id: referred },
+        data: { createdAt: new Date(NOW.getTime() - 8 * 24 * 3_600_000) },
+      });
+
+      await expect(referrals.claim(referred, code)).rejects.toMatchObject({
+        code: 'REFERRAL_WINDOW_CLOSED',
+      });
+      expect(await prisma.referral.count()).toBe(0);
+    });
+
+    it('accepts one inside it', async () => {
+      const code = await codeOf(referrer);
+      await prisma.user.update({
+        where: { id: referred },
+        data: { createdAt: new Date(NOW.getTime() - 6 * 24 * 3_600_000) },
+      });
+
+      await expect(referrals.claim(referred, code)).resolves.toMatchObject({
+        status: 'PENDING',
+      });
+    });
+
+    /** Zero is the rollback: no window, exactly as before. */
+    it('is switched off by setting the window to zero', async () => {
+      await prisma.appSetting.create({ data: { key: 'referral.claim_window_hours', value: 0 } });
+      const code = await codeOf(referrer);
+      await prisma.user.update({
+        where: { id: referred },
+        data: { createdAt: new Date(NOW.getTime() - 400 * 24 * 3_600_000) },
+      });
+
+      await expect(referrals.claim(referred, code)).resolves.toMatchObject({
+        status: 'PENDING',
+      });
+    });
+
+    /**
+     * Refused **before** the code is looked up, so an old account sweeping for
+     * valid codes learns nothing about which ones exist — and so somebody who is
+     * simply too late is told that rather than that their friend's code is bad.
+     */
+    it('refuses on the window before it judges the code', async () => {
+      await prisma.user.update({
+        where: { id: referred },
+        data: { createdAt: new Date(NOW.getTime() - 8 * 24 * 3_600_000) },
+      });
+
+      await expect(referrals.claim(referred, 'ZZZZZZZZ')).rejects.toMatchObject({
+        code: 'REFERRAL_WINDOW_CLOSED',
+      });
+    });
+  });
+
   /**
    * The UNIQUE index deciding rather than a read this code did a moment earlier.
    * A read-then-write would have a window between the two; this has none.

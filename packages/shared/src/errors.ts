@@ -73,6 +73,7 @@ export const ErrorCode = {
   INVALID_REFERRAL_CODE: 'INVALID_REFERRAL_CODE',
   SELF_REFERRAL: 'SELF_REFERRAL',
   ALREADY_REFERRED: 'ALREADY_REFERRED',
+  REFERRAL_WINDOW_CLOSED: 'REFERRAL_WINDOW_CLOSED',
   EVENT_NOT_BOOSTABLE: 'EVENT_NOT_BOOSTABLE',
   /**
    * The event cannot receive paid invitations right now (M22 phase 11).
@@ -257,7 +258,10 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   INSUFFICIENT_COINS: 'سکهٔ کافی ندارید.',
   INVALID_REFERRAL_CODE: 'این کد دعوت معتبر نیست.',
   SELF_REFERRAL: 'نمی‌توانید کد دعوت خودتان را استفاده کنید.',
-  ALREADY_REFERRED: 'شما قبلاً با کد دعوت دیگری ثبت شده‌اید.',
+  ALREADY_REFERRED:
+    'شما پیش‌تر کد معرف ثبت کرده‌اید. هر حساب فقط یک بار و فقط یک کد می‌پذیرد.',
+  REFERRAL_WINDOW_CLOSED:
+    'کد دعوت فقط در روزهای نخست پس از ساختن حساب پذیرفته می‌شود و این مهلت برای حساب شما گذشته است.',
   EVENT_NOT_BOOSTABLE: 'این فعالیت قابل نردبان کردن نیست.',
   EVENT_NOT_INVITABLE:
     'برای این فعالیت نمی‌توان دعوت‌نامه فرستاد. فعالیت باید منتشر شده و هنوز شروع نشده باشد.',
@@ -345,6 +349,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   EVENT_NOT_FOUND: 404,
   DUPLICATE_REQUEST: 409,
   ALREADY_REFERRED: 409,
+  REFERRAL_WINDOW_CLOSED: 409,
   GIFT_CODE_ALREADY_REDEEMED: 409,
   GIFT_CODE_EXHAUSTED: 409,
   GIFT_CODE_DUPLICATE: 409,

@@ -143,10 +143,51 @@ export class ReferralService {
    * for somebody who joins first and finds the invite link later — the reward
    * settles immediately rather than waiting for an attendance that already
    * happened.
+   *
+   * ── One code, once, per account ─────────────────────────────────────────────
+   *
+   * Four guards, and only the last of them is a policy rather than a structure:
+   *
+   *  * **One referrer for life** is `UNIQUE (referred_user_id)`. The insert below
+   *    goes ahead and lets the index decide, because a read-then-write has a
+   *    window and this has none. A second code — the same one or a different one
+   *    — is `ALREADY_REFERRED`.
+   *  * **Never yourself** is `CHECK (referrer <> referred)` as well as the check
+   *    here, so removing the service check in a later refactor cannot open it.
+   *  * **Paid once** is the two idempotency keys on the payout, derived from the
+   *    referral row, so a redelivered qualification pays nothing twice.
+   *  * **Only a new account** is `referral.claim_window_hours`, below.
    */
   async claim(userId: string, rawCode: string): Promise<ReferralClaim> {
     const now = this.clock.now();
     const code = normalizeCode(rawCode);
+
+    /**
+     * The window, checked before anything is looked up (v0.7.0).
+     *
+     * A referral rewards bringing somebody **new**. Without a window it equally
+     * rewards an account that has been here for months typing a friend's code,
+     * which costs the friend nothing and pays them thirty coins — an arrangement
+     * between two existing users rather than a recruitment.
+     *
+     * First, so an established account learns why it was refused rather than
+     * being told the code is invalid, and so a sweep of guessed codes from an old
+     * account never reaches the lookup at all.
+     *
+     * `referral.claim_window_hours` at 0 disables it, which is the rollback.
+     */
+    const windowHours = await this.settings.getInt('referral.claim_window_hours');
+    if (windowHours > 0) {
+      const claimer = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { createdAt: true },
+      });
+      if (!claimer) throw new AppError(ErrorCode.NOT_FOUND);
+      if (claimer.createdAt.getTime() + windowHours * 3_600_000 < now.getTime()) {
+        this.claimed('window_closed');
+        throw new AppError(ErrorCode.REFERRAL_WINDOW_CLOSED);
+      }
+    }
 
     const referrer = await this.prisma.user.findUnique({
       where: { referralCode: code },

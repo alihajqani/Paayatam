@@ -156,6 +156,23 @@ export const SETTING_DEFAULTS = {
    */
   'referral.velocity_window_hours': 24,
   'referral.velocity_threshold': 10,
+  /**
+   * How long after signing up a referral code may still be entered (v0.7.0).
+   *
+   * A referral code is an *invitation*, and what it is supposed to reward is
+   * bringing somebody new. Without a window it equally rewards an account that
+   * has been here for months typing a friend's code — which costs the friend
+   * nothing, pays them thirty coins, and is an arrangement between two existing
+   * users rather than a recruitment.
+   *
+   * Seven days is long enough that somebody who joined, looked around and only
+   * then found the link they were sent can still use it; short enough that an
+   * established account cannot.
+   *
+   * **Zero means no window**, which is the rollback. Measured from
+   * `user.created_at`, the one timestamp a claimer cannot influence.
+   */
+  'referral.claim_window_hours': 168,
   /** The legal minimum age for the platform. Enforced at profile write (plan §4.1). */
   'profile.min_age_years': 18,
   /** Events a host may create in one Tehran day (plan §11, T6.1). */
