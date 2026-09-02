@@ -77,7 +77,16 @@ const LOCALE_FA: Record<string, string> = {
 };
 
 export function formatSettings(state: SettingsState): string {
-  const onOff = (on: boolean): string => (on ? 'روشن' : 'خاموش');
+  /**
+   * The state, with an emoji that **is** the state.
+   *
+   * It used to read «روشن» / «خاموش» in the body and carry 🔕 on the button
+   * beside it whenever the setting was *on* — the emoji described the action the
+   * button performed, so the board's two halves showed opposite symbols for the
+   * same row and the icon a reader glances at was reliably the wrong one. Here
+   * and on the buttons the emoji now answers one question only: is this on?
+   */
+  const onOff = (on: boolean): string => (on ? '🔔 روشن' : '🔕 خاموش');
 
   return (
     `<b>تنظیمات</b>\n\n` +
@@ -103,10 +112,17 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
     field: SettingLetter,
   ): { text: string; callbackData: string }[] => [
     {
-      // The button says what tapping it *does*, not what the state is — the
-      // state is in the body above. «خاموش کردن» beside a switch that is on is
-      // unambiguous in a way «روشن ✅» is not.
-      text: `${on ? '🔕' : '🔔'} ${label}: ${on ? 'خاموش کردن' : 'روشن کردن'}`,
+      /**
+       * The emoji is the **state**; the words are the **action**.
+       *
+       * They were the other way round: 🔕 was drawn on a switch that was on,
+       * because the icon was describing what the tap would do. Read at a glance
+       * — which is how anybody reads a board of five rows — that says the
+       * setting is off, and it disagreed with the line above it saying «روشن».
+       * The words still say what tapping does, because «خاموش کردن» beside a
+       * live switch is unambiguous in a way «روشن ✅» is not.
+       */
+      text: `${on ? '🔔' : '🔕'} ${label} — ${on ? 'خاموش کردن' : 'روشن کردن'}`,
       callbackData: encodeSettingCallback(field, !on),
     },
   ];
