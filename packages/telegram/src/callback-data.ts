@@ -577,6 +577,39 @@ export function parseMyEventsCallback(data: string): number | null {
 }
 
 /**
+ * Paging the wallet ledger: `wl:<page>:x`.
+ *
+ * The same shape as «فعالیت‌های من», and a separate prefix for the same reason
+ * `ev:` is separate from `chat:`: a parser that accepted both would be one
+ * mistake away from redrawing the wrong screen from the right number.
+ *
+ * Base-36 in one character, so the ceiling is page 36. A wallet with more than
+ * 180 movements on it wants a statement rather than a keyboard, and the digest
+ * says as much when it runs out.
+ */
+const WALLET_PREFIX = 'wl';
+
+/** The same ceiling `MAX_MY_EVENTS_PAGE` sets, for the same base-36 reason. */
+export const MAX_WALLET_PAGE = 35;
+
+export function encodeWalletCallback(page: number): string {
+  const clamped = Math.min(Math.max(Math.trunc(page), 0), MAX_WALLET_PAGE);
+  return `${WALLET_PREFIX}:${clamped.toString(36)}:x`;
+}
+
+export function parseWalletCallback(data: string): number | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, page] = parts;
+  if (prefix !== WALLET_PREFIX || page === undefined) return null;
+  if (!/^[0-9a-z]$/.test(page)) return null;
+
+  const value = Number.parseInt(page, 36);
+  return value > MAX_WALLET_PAGE ? null : value;
+}
+
+/**
  * The settings protocol: `st:<field><value>:x`.
  *
  * ── Why a board and not a wizard ────────────────────────────────────────────

@@ -141,15 +141,24 @@ export class CoinService {
    * The statement, newest first.
    *
    * ADR-0007's answer to "where did my coins go?" — the reason a balance is a
-   * cache and these rows are the truth. Capped rather than paginated for now: a
-   * user with more than two hundred movements is a user M12's admin tooling
-   * should be looking at, and keyset pagination here would be a cursor nobody has
-   * yet asked for.
+   * cache and these rows are the truth.
+   *
+   * **Offset, not a keyset cursor** (v0.7.0, for `/wallet`'s five-to-a-page
+   * ledger). A cursor is the right shape for an unbounded feed read by strangers;
+   * this is one person's own statement, ordered by a monotonic clock, read a
+   * handful of rows at a time, and the offset a page button carries is a small
+   * integer with a ceiling on it. The row that could shift underneath an offset —
+   * a movement landing between two page taps — moves the reader's own ledger by
+   * one, which is exactly what they would expect to have happened.
+   *
+   * The `take` is still capped: a caller asking for a thousand rows gets two
+   * hundred, because a message cannot render more than a page of them anyway.
    */
-  async historyOf(userId: string, limit = 50): Promise<CoinEntry[]> {
+  async historyOf(userId: string, limit = 50, offset = 0): Promise<CoinEntry[]> {
     const rows = await this.prisma.coinLedger.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      skip: Math.max(Math.trunc(offset), 0),
       take: Math.min(Math.max(limit, 1), 200),
       select: {
         amount: true,

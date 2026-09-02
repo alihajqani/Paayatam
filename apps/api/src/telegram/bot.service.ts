@@ -112,6 +112,7 @@ import {
   formatStanding,
   formatTrust,
   formatWallet,
+  walletPageRow,
   menuCommandFor,
   formatTehran,
   formatMyChats,
@@ -120,6 +121,7 @@ import {
   formatOwnedEvent,
   myEventsPageRow,
   parseMyEventsCallback,
+  parseWalletCallback,
   parseMyEventCommand,
   formatMyRequests,
   parseChatCallback,
@@ -530,38 +532,11 @@ export class BotService {
        * account for is a balance nobody can appeal» is about coins as much as
        * the Trust Score.
        *
-       * Twenty rather than the service's default fifty: a digest is one Telegram
-       * message, and `buildDigest` would drop the tail of fifty anyway with a
-       * line about what did not fit.
+       * Five rows to a page since v0.7.0, with «قبلی»/«بعدی» under them — see
+       * `WALLET_HISTORY_LIMIT` and `drawWallet`.
        */
-      case 'wallet': {
-        const [balance, history] = await Promise.all([
-          this.coins.balanceOf(user.id),
-          this.coins.historyOf(user.id, WALLET_HISTORY_LIMIT),
-        ]);
-        /**
-         * «کد هدیه دارم», under the balance it would change.
-         *
-         * This is where somebody is when they remember they were given a code —
-         * looking at the number it is meant to move — and until v0.6.4 the only
-         * way to spend one was to know that `/gift` took an argument. The button
-         * opens the form; the code is typed into it and never into a keyboard.
-         *
-         * Offered only when the wizards are on, like every other button that
-         * opens a form: one whose handler answers «این بخش موقتاً در دسترس
-         * نیست» is worse than no button.
-         */
-        return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
-          text: formatWallet(balance, history),
-          ...(this.env.ENABLE_CONVERSATION_WIZARD
-            ? {
-                keyboard: JSON.stringify([
-                  [{ text: '🎁 کد هدیه دارم', callbackData: encodeCodeCallback('gift') }],
-                ]),
-              }
-            : {}),
-        });
-      }
+      case 'wallet':
+        return this.drawWallet(updateId, user, 0);
 
       /**
        * `/myreviews` — what other people wrote about you.
@@ -1679,6 +1654,17 @@ export class BotService {
     if (myEventsPage !== null) {
       await this.answer(callbackQueryId, '');
       return this.drawMyEvents(update.updateId, user, myEventsPage, messageId);
+    }
+
+    /**
+     * A page of the wallet ledger, redrawn over the wallet it was tapped on.
+     *
+     * A read, like the two pagings above it, so no `mayWrite` and no gate.
+     */
+    const walletPage = parseWalletCallback(data);
+    if (walletPage !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.drawWallet(update.updateId, user, walletPage, messageId);
     }
 
     /**
@@ -3269,6 +3255,64 @@ export class BotService {
       await this.answer(callbackQueryId, 'فعلاً فقط فارسی در دسترس است.');
       return;
     }
+  }
+
+  /**
+   * `/wallet` — the balance, and one page of the ledger behind it.
+   *
+   * `/balance` answers "how many" and has since M13; it does not answer "why is
+   * it that number", which is what somebody asks the moment it moves. ADR-0007's
+   * «a balance nobody can account for is a balance nobody can appeal» is about
+   * coins exactly as it is about the Trust Score.
+   *
+   * ── One extra row decides «بعدی» ────────────────────────────────────────────
+   *
+   * The same trick `/discover` uses: whether a sixth movement exists is the only
+   * fact the control needs, and a `COUNT(*)` over somebody's whole ledger would
+   * be a second query per tap for a number nobody is shown.
+   *
+   * ── A tap redraws; the command sends ────────────────────────────────────────
+   *
+   * A page button edits the message it is on, so paging through a ledger leaves
+   * one screen rather than a column of near-identical ones — which is the thing
+   * twenty rows in a single message was already doing.
+   *
+   * «کد هدیه دارم» stays under every page: this is where somebody is when they
+   * remember they were given a code, looking at the number it would move. It is
+   * offered only when the wizards are on, like every other button that opens a
+   * form.
+   */
+  private async drawWallet(
+    updateId: number,
+    user: BotUser,
+    page: number,
+    /** The wallet being redrawn, when a page button was tapped rather than typed. */
+    editMessageId?: number,
+  ): Promise<void> {
+    const [balance, rows] = await Promise.all([
+      this.coins.balanceOf(user.id),
+      this.coins.historyOf(user.id, WALLET_HISTORY_LIMIT + 1, page * WALLET_HISTORY_LIMIT),
+    ]);
+
+    const hasNext = rows.length > WALLET_HISTORY_LIMIT;
+    const shown = rows.slice(0, WALLET_HISTORY_LIMIT);
+    const text = formatWallet(balance, shown, page);
+
+    const keyboard = [
+      ...walletPageRow(page, hasNext),
+      ...(this.env.ENABLE_CONVERSATION_WIZARD
+        ? [[{ text: '🎁 کد هدیه دارم', callbackData: encodeCodeCallback('gift') }]]
+        : []),
+    ];
+
+    if (editMessageId !== undefined) {
+      return this.repaint(updateId, user, editMessageId, text, keyboard);
+    }
+
+    return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
+      text,
+      ...(keyboard.length > 0 ? { keyboard: JSON.stringify(keyboard) } : {}),
+    });
   }
 
   /**
@@ -4921,14 +4965,15 @@ function suspendedNotice(supportContact: string | undefined): string {
 }
 
 /**
- * How much of the ledger `/wallet` shows.
+ * How much of the ledger one page of `/wallet` shows.
  *
- * Twenty rather than `historyOf`'s default fifty: a digest is one Telegram
- * message, and `buildDigest` would drop the tail of fifty anyway with a line
- * saying what did not fit. Asking for what fits is more honest than asking for
- * more and truncating it.
+ * **Five, not twenty** (v0.7.0). Twenty was a wall of near-identical rows that
+ * pushed the balance — the thing somebody opened `/wallet` to see — off the top
+ * of the screen, and it was a fixed slice with nothing to say there was more
+ * behind it: an account with fifty movements had thirty the bot could not reach
+ * at all. Five fits under the balance, and «قبلی»/«بعدی» reach the rest.
  */
-const WALLET_HISTORY_LIMIT = 20;
+const WALLET_HISTORY_LIMIT = 5;
 
 /** The same reasoning as `WALLET_HISTORY_LIMIT`: what fits in one message. */
 const TRUST_HISTORY_LIMIT = 20;

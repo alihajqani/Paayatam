@@ -34,7 +34,7 @@ export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export { formatEventDetail } from './event-detail';
 export { insufficientCoinsNotice } from './notices';
 export type { EventDetailLine } from './event-detail';
-export { formatWallet, ledgerLabelFa } from './wallet';
+export { formatWallet, ledgerLabelFa, walletPageRow } from './wallet';
 export { formatTrust, trustLabelFa } from './trust';
 export { REPORT_REASON_CHOICES, reportPrompt, reportReasonLabel } from './report';
 export { notificationCategory, preferenceKeyFor } from './notification-category';
@@ -55,6 +55,7 @@ export { CODE_CALLBACK_KINDS, encodeCodeCallback, parseCodeCallback } from './ca
 export { encodeChannelRecheckCallback, isChannelRecheckCallback } from './callback-data';
 export { MAX_DISCOVER_PAGE } from './callback-data';
 export { MAX_MY_EVENTS_PAGE, encodeMyEventsCallback, parseMyEventsCallback } from './callback-data';
+export { MAX_WALLET_PAGE, encodeWalletCallback, parseWalletCallback } from './callback-data';
 export { BACK_TARGETS, encodeBackCallback, parseBackCallback } from './callback-data';
 export type { BackCallback, BackTarget, DiscoverView } from './callback-data';
 export {

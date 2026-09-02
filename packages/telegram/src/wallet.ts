@@ -1,5 +1,7 @@
+import { encodeWalletCallback } from './callback-data';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
+import type { InlineButton } from './keyboards';
 import { formatJalali } from './wizard/jalali';
 
 /**
@@ -20,6 +22,19 @@ import { formatJalali } from './wizard/jalali';
  * A row is `+۱۵` or `−۱۵` and a Persian reader scans the column, so the sign is
  * rendered explicitly rather than left to a minus that `toPersianDigits` would
  * carry through unchanged. `−` is U+2212, not a hyphen: it aligns with digits.
+ *
+ * ── Five to a page, and a page control (v0.7.0) ─────────────────────────────
+ *
+ * It was twenty in one message, which is a wall of near-identical rows that
+ * pushes the balance — the thing somebody opened `/wallet` to see — off the top
+ * of the screen. And twenty was never the whole ledger either: it was a fixed
+ * slice with nothing to say there was more behind it, so an account with fifty
+ * movements had thirty that were unreachable from the bot at all.
+ *
+ * Five fits above the fold with the balance still visible, and «قبلی»/«بعدی»
+ * reach the rest. The page is a **callback on the same message**, like the
+ * discovery list and «فعالیت‌های من» — a second message per page would rebuild
+ * exactly the wall this is removing.
  */
 export interface WalletLine {
   amount: number;
@@ -59,7 +74,12 @@ export function ledgerLabelFa(type: string): string {
   return LEDGER_TYPE_FA[type] ?? type;
 }
 
-export function formatWallet(balance: number, lines: readonly WalletLine[]): string {
+export function formatWallet(
+  balance: number,
+  lines: readonly WalletLine[],
+  /** Zero-based, so the heading can say «صفحهٔ ۲» without arithmetic elsewhere. */
+  page = 0,
+): string {
   const entries = lines.map((line) => {
     // U+2212 rather than a hyphen: it is the width of a digit, so a column of
     // amounts lines up instead of ragging by one pixel per negative row.
@@ -76,11 +96,39 @@ export function formatWallet(balance: number, lines: readonly WalletLine[]): str
 
   const heading = `<b>کیف پول شما</b>\n\n💰 موجودی: ${toPersianDigits(String(balance))} سکه`;
 
+  /**
+   * «تراکنش‌های اخیر» only on the first page.
+   *
+   * On page three the rows are not recent, and a heading that says they are is
+   * a heading that lies about what the reader is looking at.
+   */
   const history = buildDigest({
-    title: 'تراکنش‌های اخیر',
-    empty: 'هنوز تراکنشی ندارید.',
+    title: page === 0 ? 'تراکنش‌های اخیر' : `تراکنش‌ها — صفحهٔ ${toPersianDigits(String(page + 1))}`,
+    empty: page === 0 ? 'هنوز تراکنشی ندارید.' : 'تراکنش دیگری نیست.',
     entries,
   });
 
   return `${heading}\n\n${history}`;
+}
+
+/**
+ * «قبلی» / «بعدی» under the ledger, or nothing when one page is all there is.
+ *
+ * The middle button re-draws the page it is already on. That is deliberate and
+ * `myEventsPageRow` does the same: it labels where the reader is, and a control
+ * that only ever moves gives them no way to refresh a screen they have left open
+ * while their balance changed underneath it.
+ */
+export function walletPageRow(page: number, hasNext: boolean): InlineButton[][] {
+  if (page === 0 && !hasNext) return [];
+
+  const row: InlineButton[] = [];
+  if (page > 0) row.push({ text: '‹ قبلی', callbackData: encodeWalletCallback(page - 1) });
+  row.push({
+    text: `صفحهٔ ${toPersianDigits(String(page + 1))}`,
+    callbackData: encodeWalletCallback(page),
+  });
+  if (hasNext) row.push({ text: 'بعدی ›', callbackData: encodeWalletCallback(page + 1) });
+
+  return [row];
 }
