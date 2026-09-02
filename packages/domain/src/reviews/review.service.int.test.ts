@@ -248,7 +248,12 @@ describe('the window opens when attendance is settled', () => {
       where: { participant: { publicId: participantPublicId } },
     });
     expect(pair.status).toBe('PENDING');
-    expect(pair.opensAt).toEqual(new Date(ENDS_AT.getTime() + 24 * 3_600_000));
+    // `review.window_opens_hours` is 0 from v0.7.0: the window opens the moment
+    // attendance is settled, and `participation.settlement_delay_hours` is the
+    // only wait left. The two used to stack into a two-day gap during which
+    // `/reviews` said «نظر منتظری ندارید» — the same sentence it says when there
+    // is genuinely nothing, so the feature read as broken.
+    expect(pair.opensAt).toEqual(ENDS_AT);
     expect(pair.deadlineAt).toEqual(new Date(ENDS_AT.getTime() + 7 * 24 * 3_600_000));
   });
 
@@ -454,7 +459,13 @@ describe('D7a — the deadline with one side written', () => {
     });
   });
 
+  /**
+   * The window still has a *start*, and the guard still holds — it is configured
+   * to zero rather than removed. Set it back to a day and a review written
+   * straight after the evening is refused, exactly as it was.
+   */
   it('refuses a review submitted before the window opens', async () => {
+    await prisma.appSetting.create({ data: { key: 'review.window_opens_hours', value: 24 } });
     const { participantPublicId } = await reviewableParticipation();
     clock.set(new Date(ENDS_AT.getTime() + 60_000));
 
@@ -633,6 +644,7 @@ describe('the pending list', () => {
   });
 
   it('shows nothing before the window opens or after it closes', async () => {
+    await prisma.appSetting.create({ data: { key: 'review.window_opens_hours', value: 24 } });
     const { guestId } = await reviewableParticipation();
 
     clock.set(new Date(ENDS_AT.getTime() + 60_000));
@@ -640,6 +652,25 @@ describe('the pending list', () => {
 
     clock.set(AFTER_DEADLINE);
     await expect(reviews.listPending(guestId)).resolves.toEqual([]);
+  });
+
+  /**
+   * `includeUnopened` relaxes the *start* of the window and only that (v0.7.0).
+   *
+   * `/reviews` said «نظر منتظری ندارید» when the window had not opened, when the
+   * sweep had not run, and when there was genuinely nothing — three states, one
+   * sentence, and a host who had just held an activity read the first as the
+   * third. The bot asks for the unopened ones so it can say *when* instead.
+   */
+  it('lists an unopened window on request, but never an expired one', async () => {
+    await prisma.appSetting.create({ data: { key: 'review.window_opens_hours', value: 24 } });
+    const { guestId } = await reviewableParticipation();
+
+    clock.set(new Date(ENDS_AT.getTime() + 60_000));
+    await expect(reviews.listPending(guestId, true)).resolves.toHaveLength(1);
+
+    clock.set(AFTER_DEADLINE);
+    await expect(reviews.listPending(guestId, true)).resolves.toEqual([]);
   });
 
   it('names the counterparty, because by now the two of them have met', async () => {

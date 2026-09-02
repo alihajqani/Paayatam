@@ -906,21 +906,38 @@ export class BotService {
        * an answer to "what do I owe?".
        */
       case 'reviews': {
-        const pending = await this.reviews.listPending(user.id);
+        /**
+         * Including the windows that have **not opened yet** (v0.7.0).
+         *
+         * A host whose activity had finished, and whose guest had turned up,
+         * opened this and read «نظر منتظری ندارید» — which is also what it says
+         * when there is genuinely nothing, so the feature read as broken. The two
+         * states are now told apart: an unopened pair is listed with the date it
+         * becomes writable, under the ones that already are.
+         */
+        const now = new Date();
+        const pending = await this.reviews.listPending(user.id, true);
         const text = formatPendingReviews(
           pending.map((row) => ({
             revieweeDisplayName: row.revieweeDisplayName,
             eventTitle: row.eventTitle,
             deadlineAt: row.deadlineAt,
+            opensAt: row.opensAt > now ? row.opensAt : null,
           })),
         );
         /**
-         * Five ratings per pending review, one row each, in the digest's order.
+         * Five ratings per **open** review, one row each, in the digest's order.
          *
          * `/reviews` used to be a list of things you owed and could not pay: the
          * form was in the Mini App and v0.4.6 removed the last button to it.
+         *
+         * The order matches the digest's — writable first — because the rows
+         * carry numbers and nothing else, so row `n` has to be entry `n`. A
+         * button on a window that has not opened would be one `submit` refuses.
          */
-        const rateable = pending.filter((row) => isPublicId(row.participantPublicId));
+        const rateable = pending.filter(
+          (row) => row.opensAt <= now && isPublicId(row.participantPublicId),
+        );
         const rows = rateable.map((row) =>
           REVIEW_RATINGS.map((rating) => ({
             text: `${toPersianDigits(String(rating))}⭐`,

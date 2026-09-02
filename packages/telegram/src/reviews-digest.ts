@@ -7,6 +7,16 @@ export interface PendingReviewLine {
   revieweeDisplayName: string;
   eventTitle: string;
   deadlineAt: Date;
+  /**
+   * When this one becomes writable, if it is not yet (v0.7.0).
+   *
+   * Null for a window that is open. Present for one that is not, and the whole
+   * reason the field exists: «نظر منتظری ندارید» was the answer to three
+   * different states — the window has not opened, the settlement sweep has not
+   * run, and there is genuinely nothing — and a host who had just held an
+   * activity read the first as the third.
+   */
+  opensAt: Date | null;
 }
 
 /**
@@ -42,20 +52,51 @@ export interface PendingReviewLine {
  * mis-tap worth risking.
  */
 export function formatPendingReviews(lines: readonly PendingReviewLine[]): string {
-  const entries = lines.map(
-    (line, index) =>
+  /**
+   * The writable ones first, and the waiting ones after them.
+   *
+   * The star rows below the message are numbered against this order and only the
+   * writable entries get one, so a not-yet-open entry must never sit *between*
+   * two that have buttons — the numbering would stop matching and somebody would
+   * rate the wrong stranger. Keeping them at the tail means row `n` is entry `n`
+   * for every row drawn.
+   */
+  const open = lines.filter((line) => line.opensAt === null);
+  const waiting = lines.filter((line) => line.opensAt !== null);
+
+  const entries = [...open, ...waiting].map((line, index) => {
+    const when =
+      line.opensAt === null
+        ? `  ⏳ تا ${formatJalali(line.deadlineAt)}`
+        : `  🔒 از ${formatJalali(line.opensAt)} می‌توانید بنویسید`;
+
+    return (
       `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.revieweeDisplayName)}</b>\n` +
       `  🎟 ${escapeHtml(line.eventTitle)}\n` +
-      `  ⏳ تا ${formatJalali(line.deadlineAt)}`,
-  );
+      `${when}`
+    );
+  });
 
   const digest = buildDigest({
     title: 'نظرهایی که هنوز ننوشته‌اید',
-    empty: 'نظر منتظری ندارید. پس از هر فعالیت، فرصت نوشتن نظر باز می‌شود.',
+    /**
+     * Why there is nothing, rather than only that there is nothing.
+     *
+     * The window opens once the activity is over *and* the host has had time to
+     * report a no-show, so «هنوز چیزی نیست» in the hours after an evening is the
+     * correct state and reads exactly like a broken feature. The sentence names
+     * the condition instead.
+     */
+    empty:
+      'نظر منتظری ندارید. پس از پایان هر فعالیتی که در آن شرکت کرده‌اید و ' +
+      'گذشتن چند ساعت، فرصت نوشتن نظر باز می‌شود و همین‌جا نشان داده می‌شود.',
     entries,
   });
 
   if (entries.length === 0) return digest;
+  if (open.length === 0) {
+    return `${digest}\n\n<i>هنوز هیچ‌کدام باز نشده‌اند؛ کمی بعد دوباره سر بزنید.</i>`;
+  }
 
   return (
     `${digest}\n\n` +

@@ -188,14 +188,27 @@ export class ReviewService {
    * is not yet answerable, and one past its deadline no longer is. Naming the
    * counterparty is safe here because the two of them have already met — this is
    * the surface where anonymity has ended, by design (ADR-0009).
+   *
+   * ── `opensAt` in the future, on request (v0.7.0) ────────────────────────────
+   *
+   * `includeUnopened` relaxes the first half of that window, and only that half:
+   * a pair past its deadline stays excluded, because it is genuinely over.
+   *
+   * It exists because "nothing" was the wrong answer to a real question. Somebody
+   * who hosted an activity, held it, and had a guest turn up opened `/reviews`
+   * and read «نظر منتظری ندارید» — which is what the screen says when the window
+   * has not opened, when the sweep has not run, and when there is genuinely
+   * nothing, and those are three different states. The bot passes true and says
+   * *when* instead; `GET /me/reviews/pending` does not, because it answers "what
+   * can I submit now".
    */
-  async listPending(userId: string): Promise<PendingReview[]> {
+  async listPending(userId: string, includeUnopened = false): Promise<PendingReview[]> {
     const now = this.clock.now();
 
     const pairs = await this.prisma.reviewPair.findMany({
       where: {
         status: { in: ['PENDING', 'PARTIAL'] },
-        opensAt: { lte: now },
+        ...(includeUnopened ? {} : { opensAt: { lte: now } }),
         deadlineAt: { gt: now },
         participant: { OR: [{ userId }, { event: { hostUserId: userId } }] },
       },

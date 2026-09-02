@@ -280,11 +280,27 @@ export const SETTING_DEFAULTS = {
   /**
    * The blind-review window (ADR-0011, D7). Measured from the event's **end**.
    *
-   * It opens a day later rather than immediately because a review written in the
-   * car park is a review of the last five minutes. Seven days to write one, and
-   * one hour to change your mind about what you wrote.
+   * ── Why the delay is now zero (v0.7.0) ──────────────────────────────────────
+   *
+   * It was 24 hours, on the argument that a review written in the car park is a
+   * review of the last five minutes. That is true of the *review* and it was
+   * false about the *product*: the window opens only once `settleAttendance` has
+   * run, and that itself waits `participation.settlement_delay_hours` after the
+   * end — so the two delays stacked, and a host whose activity finished on Friday
+   * evening could not write a word about it until Sunday morning. What they saw
+   * in the meantime was `/reviews` saying «نظر منتظری ندارید», which is the same
+   * sentence it says when there is genuinely nothing, so the feature read as
+   * broken.
+   *
+   * Zero means "as soon as attendance is settled", and the settlement delay —
+   * two hours — is the only wait left. It is the one that earns its keep: it is
+   * what gives a host time to report a no-show before the product decides
+   * everybody turned up.
+   *
+   * Seven days to write one, and one hour to change your mind about what you
+   * wrote.
    */
-  'review.window_opens_hours': 24,
+  'review.window_opens_hours': 0,
   'review.window_deadline_days': 7,
   'review.edit_window_minutes': 60,
   /**
@@ -346,10 +362,15 @@ export const SETTING_DEFAULTS = {
    *
    * A window rather than "immediately at the end": the host has to be able to
    * report a no-show, and nobody does that from the pavement outside the café.
-   * It matches the review window opening at T+24h (§11), so the two things a host
-   * is asked to do about a finished event become available together.
+   *
+   * **Two hours since v0.7.0**, down from twenty-four. It used to match
+   * `review.window_opens_hours`, and the two then stacked into a two-day wait
+   * before anybody could review anything — the report that «بخش نوشتن نظر هیچ
+   * چیزی نشان نمی‌داد». The review window is zero now, so this is the only delay
+   * left: an evening ends, the host has the rest of it to say somebody did not
+   * turn up, and by the next morning both sides can write.
    */
-  'participation.settlement_delay_hours': 24,
+  'participation.settlement_delay_hours': 2,
 
   // Ranking weights (plan §11). Fractions, not integers — read with `getNumber`.
   // Trust is capped at 0.10 deliberately: §12 resolves "Trust Score in ranking"
