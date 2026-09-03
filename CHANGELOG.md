@@ -14,6 +14,119 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.7.0] — 2026-09-03
+
+The third QA round, and the largest release since M22. Two features are removed
+outright, one is rebuilt from scratch, and six of the fixes are bugs whose
+mechanism worked exactly as written and produced the wrong thing in front of a
+user. Three of them were only findable by reading production rows.
+
+### Added
+
+- **«دایرکت» — a message to the other party, about one activity.** Built from
+  scratch rather than on the anonymous chat, because the chat is a conversation
+  that belongs to a participation, uses aliases, and *masks contact details* —
+  and this exists so two people can exchange a phone number to arrange a lift.
+  «✉️ دایرکت» under the activity, a one-field form with «انصراف», a notification
+  to the host naming who and what but **not the words**, «👁 مشاهدهٔ پیام» that
+  marks it read and tells the sender so, and «✍️ پاسخ» that runs the same form
+  back the other way. Bodies are AES-256-GCM under the existing chat key.
+  Addressing is derived, never taken from the caller: a thread goes to the host,
+  a reply to the parent's sender, and only the parent's recipient may write one.
+- **A guest can stand down from an activity they were accepted to.** «لغو» was
+  offered on pending and waitlisted requests only. A guest who could not come and
+  had no way to tell the *product* kept a seat nobody could fill and was settled
+  as having attended. Two steps, quoting what it costs from the same function
+  that charges it.
+- **The moderation queue is reviewable.** A case opened in the panel now carries
+  the activity's title, description and status, its owner, and every complaint
+  with the words the reporter wrote — never who wrote them, and the screen says
+  so. Claim, release and escalate close two gaps `docs/admin-panel.md` had
+  recorded since M12: `assigned_admin_id` and `ESCALATED` existed and nothing
+  wrote either.
+- **A host is told when a case goes their way.** `CONTENT_RESTORED` is the
+  counterpart `CONTENT_HIDDEN` never had, and a moderator hiding an activity by
+  hand now notifies like the automatic hide already did. The paid channel
+  placement comes back with the activity — it could not before, because the claim
+  row survives a takedown and the unique index then refused every future claim.
+- **Both sides are told when a referral pays out.** The condition — the referred
+  user attended something — is the whole reason referrals are not a farm, and
+  nothing ever announced that it had been met.
+- **The wallet ledger pages.** Five rows with «قبلی»/«بعدی» on the same message,
+  where it was twenty in one wall with thirty more unreachable behind it.
+- **Capacity of one, and «بدون محدودیت».** Seven buttons — ۱ ۲ ۳ ۴ ۵ ۱۰ ۱۵ — an
+  unlimited option, and a prompt that says a number may be typed. Unlimited is a
+  sentinel rather than a nullable column, because `accepted_count <= capacity` is
+  a CHECK and four renderers subtract from it.
+
+### Changed
+
+- **The channel post asks instead of listing.** «پایه واسه <b>…</b> میخوام / کیو
+  داریم اینجا؟ بگه!», with the disclaimer first and the five facts under it. The
+  kind label is gone from the body; prices are grouped in threes.
+- **The button that joins says «🤝 پایتم»** on every surface. One action had three
+  phrasings, none of them the product's own word.
+- **Joining costs five coins**, and **cancelling more than a day out is no longer
+  free** (`cancellation.coins_gt_24h`, 5, with no trust cost). Both are
+  `app_setting` rows and both roll back to zero without a deploy. D9a went live
+  with them: a host who cancels now refunds every accepted guest's join fee.
+- **A referral code is for a new account.** `referral.claim_window_hours` (168)
+  is measured from `user.created_at`; the three structural guarantees — one
+  referrer for life, never yourself, paid once — are unchanged.
+- **The review window opens when the activity is over.**
+  `review.window_opens_hours` 24 → 0 and `participation.settlement_delay_hours`
+  24 → 2. The two used to stack into a two-day wait.
+- **The settings board's emoji is the state, not the tap.** Every switch drew 🔕
+  while it was *on*, contradicting the line above it.
+- **A toast with something to say stays on screen.** The Bot API has no duration
+  parameter; `show_alert` is the only lever, applied to anything long enough to
+  be an explanation rather than an acknowledgement.
+
+### Removed
+
+- **Event promotion — the boost window and the VIP flag.** The endpoint, the
+  bot's confirmation, the Mini App call, the two prices, the ranking term and the
+  two channel-post kinds. `event.boosted_until`, `event.is_vip` and the
+  `BOOST_SPEND` / `VIP_SPEND` ledger types stay: rows written before today still
+  have to read as what they were.
+- **The keyboard under the text box.** `/menu` and the `☰` opener are the menu
+  now. Every message carries `remove_keyboard`, because deleting the code that
+  drew it would have left it on every client that had one; the label resolver
+  stays, so a stale tap is understood rather than relayed into somebody's chat.
+- **The «تبلیغات» switch on the settings board.** The preference behind it —
+  `user_settings.notify_campaigns` and the delivery check — is untouched.
+
+### Fixed
+
+- **«این عملیات در وضعیت فعلی ممکن نیست» when accepting a guest.** Two causes.
+  A waitlisted request had no `ACCEPTED` or `REJECTED` edge while «مهمان‌ها» drew
+  both buttons on it; and `min(now + 24h, starts_at - 3h)` goes *behind* `now` for
+  an activity starting within three hours, so the request was born expired.
+  `participation.min_response_minutes` (30) floors it.
+- **A full activity was invisible, so its waiting list was unreachable.**
+  `/discover` filtered on `hasCapacity: true`, hard-coded, hiding the activities
+  the waitlist applies to. The button on a full one now says «⏳ ثبت در نوبت
+  انتظار».
+- **The report threshold subtracted agreement.** It counted only `OPEN` reports,
+  so an activity with four distinct reporters — two of whose complaints a
+  moderator had already *actioned* — never reached three. Found in the production
+  rows. It now counts everything except `DISMISSED`, which is the one status that
+  means somebody looked and said there was nothing in it.
+- **`/reviews` said «نظر منتظری ندارید» in three different situations**, and a
+  host who had just held an activity read "not open yet" as "nothing". Unopened
+  windows are listed with the date they become writable.
+- **The footer under a numbered list** says which button belongs to which row.
+
+### Migrations
+
+- `0041_capacity_up_to_unlimited` — widens `event_capacity_range` from `1..50` to
+  `1..1000`. Widening a CHECK rejects nothing already stored.
+- `0042_direct_messages` — the `direct_message` table.
+- `0043_direct_message_wizard` — `conversation_kind` gains `DIRECT_MESSAGE`. Its
+  own file because `ALTER TYPE … ADD VALUE` cannot run inside a transaction.
+
+All three are additive and none moves existing data.
+
 ## [v0.6.7] — 2026-09-01
 
 The second QA round against the live bot. Two of the findings were bugs whose
