@@ -281,10 +281,20 @@ leaving «در انتظار» on a referral that will never pay.
 
 Each of these is a gap in the **API**, and the panel does not mock one up.
 
+Two entries left this table in **v0.7.0** and are recorded here rather than
+deleted, because "why is there no assign button" is a question somebody asked
+once and will ask again:
+
+| Was missing | Now |
+|---|---|
+| **Claim / assign a report or case** | `POST /admin/v1/moderation/cases/:id/triage` with `CLAIM` writes `assigned_admin_id` and moves the case to `IN_REVIEW`; `RELEASE` hands it back. Two moderators no longer collide on the decision |
+| **Escalate a case** | The same endpoint with `ESCALATE`. The assignment is **kept** — an escalated case is still somebody's until a decision closes it |
+| **Read the case before deciding it** | `GET /admin/v1/moderation/cases/:id` returns the activity, its owner and every complaint with the reporter's own words. Never who wrote them, and the screen says so |
+
+What is still missing:
+
 | Missing | Why |
 |---|---|
-| ~~**Claim / assign a report or case**~~ | Closed in v0.7.0. `POST /admin/v1/moderation/cases/:id/triage` with `CLAIM` writes `assigned_admin_id` and moves the case to `IN_REVIEW`; `RELEASE` hands it back |
-| ~~**Escalate a case**~~ | Closed in v0.7.0. The same endpoint with `ESCALATE` sets the status and keeps the assignment — an escalated case is still somebody's until a decision closes it |
 | **Break-glass chat unseal** | The API has it (`POST /chats/:id/unseal`) and it is deliberately **not** on a screen yet. It needs an open case, a written reason and a 15-minute box, and every message read is audited individually (T14) — a workflow that deserves designing rather than a button |
 | **Role changes / four-eyes approval** | `POST /roles/requests` and its approval exist. Same reasoning: a capability that lets one account become every role wants a considered screen |
 | **Blacklist and policy management** | §6 lists them; no API was built for them in M12 and none is invented here. **Catalog management shipped in M21** — see §7.1 |
