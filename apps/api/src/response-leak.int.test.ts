@@ -60,6 +60,8 @@ let eventPublicId: string;
 let viewerEventPublicId: string;
 let hostParticipantPublicId: string;
 let viewerParticipantPublicId: string;
+/** The open case the break-glass grant needs, and the case detail reads. */
+let moderationCaseId: string;
 let chatPublicId: string;
 let reviewedParticipantPublicId: string;
 let hostPublicId: string;
@@ -242,6 +244,15 @@ beforeAll(async () => {
     },
     select: { id: true, publicId: true, onboardingState: true },
   });
+
+  /**
+   * Coins for the viewer, who joins and cancels during the scan.
+   *
+   * Asking to join costs five from v0.7.0 (`economy.event_join_coins`). A refusal
+   * is a response like any other and would still be scanned — but it would not be
+   * the *join* response, and the endpoint list exists to read the real ones.
+   */
+  await prisma.coinAccount.create({ data: { userId: user.id, balance: 1_000 } });
 
   const title = 'دورهمی بازی رومیزی';
   const description = 'یک شب دوستانه برای بازی و گفتگو.';
@@ -668,13 +679,35 @@ beforeAll(async () => {
     where: { publicId: chatPublicId },
     select: { id: true },
   });
-  await prisma.moderationCase.create({
+  const openCase = await prisma.moderationCase.create({
     data: {
       subjectType: 'MESSAGE',
       subjectId: chatRow.id,
       trigger: 'REPORT_THRESHOLD',
       status: 'OPEN',
       reportCount: 3,
+    },
+    select: { id: true },
+  });
+  moderationCaseId = openCase.id;
+
+  /**
+   * A complaint attached to it, so the case detail has something to return.
+   *
+   * `GET /admin/v1/moderation/cases/:id` is new in v0.7.0 and carries the words
+   * a reporter wrote — the only admin read whose body is one *user's* free text
+   * about another. Scanning it against an empty case would scan the envelope and
+   * miss the field that matters. The reporter is the leaky account, so a
+   * response that named them at all would be caught here.
+   */
+  await prisma.report.create({
+    data: {
+      targetType: 'MESSAGE',
+      targetId: chatRow.id,
+      reporterUserId: host.id,
+      reason: 'HARASSMENT',
+      description: 'این گفتگو آزاردهنده شد.',
+      moderationCaseId: openCase.id,
     },
   });
   const liveGrant = await app
@@ -1103,11 +1136,12 @@ beforeAll(async () => {
     { method: 'GET', url: '/admin/v1/moderation/cases', admin: true },
     // The case detail (v0.7.0). It carries the reporters' own words, so it is the
     // one admin read where a leak would be a *user's* text about another user —
-    // and it must still name no reporter.
-    { method: 'GET', url: '/admin/v1/moderation/cases/no-such-case', admin: true },
+    // and it must still name no reporter. Pointed at the **real** case seeded
+    // above: a 404 would be an envelope, and the point is to read the projection.
+    { method: 'GET', url: `/admin/v1/moderation/cases/${moderationCaseId}`, admin: true },
     {
       method: 'POST',
-      url: '/admin/v1/moderation/cases/no-such-case/triage',
+      url: `/admin/v1/moderation/cases/${moderationCaseId}/triage`,
       admin: true,
       body: { action: 'CLAIM' },
     },

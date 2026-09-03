@@ -321,6 +321,19 @@ beforeAll(async () => {
   secondEventPublicId = await createEvent('پیاده‌روی صبحگاهی');
 
   /**
+   * Coins for B, who joins twice.
+   *
+   * Asking to join costs five from v0.7.0 (`economy.event_join_coins`). This
+   * walk is about what each surface *renders*, so an affordability refusal would
+   * fail it for a reason it is not testing.
+   */
+  await prisma.coinAccount.upsert({
+    where: { userId: guestAccount.userId },
+    create: { userId: guestAccount.userId, balance: 1_000 },
+    update: { balance: 1_000 },
+  });
+
+  /**
    * ── 3. B asks to join the first event, and only the first ─────────────────
    *
    * The second join is deliberately deferred until after the conversation. A

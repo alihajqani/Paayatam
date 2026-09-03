@@ -229,6 +229,16 @@ async function seedGuest(telegramUserId: number, displayName = 'میهمان'): 
     },
     select: { id: true },
   });
+  /**
+   * With coins, because asking to join costs five from v0.7.0
+   * (`economy.event_join_coins`) and a guest who cannot pay is refused with a
+   * toast — which reads, in a suite about the bot's *screens*, as every join
+   * assertion failing for a reason that is not what the test is about.
+   *
+   * A balance rather than a ledger entry: the seed writes rows directly here, and
+   * the coin CHECK is `balance >= 0`, which this satisfies.
+   */
+  await prisma.coinAccount.create({ data: { userId: guest.id, balance: 1_000 } });
   return guest.id;
 }
 
@@ -537,7 +547,8 @@ describe('commands', () => {
 
   it('reports the balance the ledger actually holds', async () => {
     const guestId = await seedGuest(GUEST_TELEGRAM_ID);
-    await prisma.coinAccount.create({ data: { userId: guestId, balance: 42 } });
+    // The seed endows a joiner; this test is about the *number*, so it sets one.
+    await prisma.coinAccount.update({ where: { userId: guestId }, data: { balance: 42 } });
 
     await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/balance') }));
 

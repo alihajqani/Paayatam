@@ -132,7 +132,12 @@ beforeEach(async () => {
 
   hostA = await createUser(prisma, 'PROFILE_COMPLETE');
   hostB = await createUser(prisma, 'PROFILE_COMPLETE');
-  guest = await createUser(prisma, 'PROFILE_COMPLETE');
+  /**
+   * Coins, because asking to join costs five from v0.7.0
+   * (`economy.event_join_coins`) and this guest joins both activities. Nothing
+   * here asserts a balance; the endowment only has to be out of the way.
+   */
+  guest = await createUser(prisma, 'PROFILE_COMPLETE', { coins: 100 });
 
   await nameAndComplete(hostA, 'میزبان الف');
   await nameAndComplete(hostB, 'میزبان ب');
@@ -204,7 +209,7 @@ describe('one host, two of their own events, one guest', () => {
   it('numbers the guest independently in each event', async () => {
     const first = await createEvent(hostA, 'شب بازی رومیزی');
     const second = await createEvent(hostA, 'پیاده‌روی صبحگاهی');
-    const other = await createUser(prisma, 'PROFILE_COMPLETE');
+    const other = await createUser(prisma, 'PROFILE_COMPLETE', { coins: 100 });
     await nameAndComplete(other, 'کاربر دیگر');
 
     // Somebody else asks first on the second event, so the two indices would
