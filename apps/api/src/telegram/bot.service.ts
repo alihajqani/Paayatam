@@ -3459,6 +3459,14 @@ export class BotService {
          * The reply button is offered only to the **recipient**: a sender opening
          * their own message would otherwise be shown a control that answers their
          * own message, which the service refuses.
+         *
+         * ── Why the template is `BOT_DIRECT_MESSAGE` (v0.8.0) ──────────────────
+         *
+         * It was `BOT_NOTICE`, which **discards the keyboard in its payload** and
+         * returns the menu opener instead. The row below was built, serialised and
+         * thrown away by the renderer, so the answer button never appeared for
+         * anybody — in either direction. The flow behind it was complete; the
+         * control that reached it was not.
          */
         case 'view': {
           const message = await this.directs.view(user.id, callback.id);
@@ -3475,7 +3483,7 @@ export class BotService {
               ]
             : [];
 
-          return this.reply(updateId, user.id, TEMPLATES.BOT_NOTICE, {
+          return this.reply(updateId, user.id, TEMPLATES.BOT_DIRECT_MESSAGE, {
             text: formatDirectMessage({
               senderDisplayName: message.senderDisplayName,
               eventTitle: message.eventTitle,

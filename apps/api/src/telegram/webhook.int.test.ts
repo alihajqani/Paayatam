@@ -3247,7 +3247,7 @@ describe('POST /telegram/:secret — direct messages', () => {
     const direct = keyboardOf(detail)
       .flat()
       .find((button) => button.callbackData === `dm:write:${eventPublicId}`);
-    expect(direct?.text).toContain('دایرکت');
+    expect(direct?.text).toContain('پیام مستقیم به میزبان');
 
     // 2–3. Pressing it asks for the message, with «انصراف» under the prompt, and
     // says out loud that sharing contact details is the sender's own risk.
@@ -3279,21 +3279,29 @@ describe('POST /telegram/:secret — direct messages', () => {
 
     // 7. Pressing it shows the message and tells the guest it was seen.
     await tap(HOST_TELEGRAM_ID, view?.callbackData ?? '');
-    const opened = await latest(TEMPLATES.BOT_NOTICE);
+    const opened = await latest(TEMPLATES.BOT_DIRECT_MESSAGE);
     expect(String(opened['text'])).toContain('ماشین دارید؟');
     expect(String(opened['text'])).toContain('احتیاط');
     await expect(
       prisma.notification.count({ where: { templateKey: TEMPLATES.DIRECT_MESSAGE_SEEN } }),
     ).resolves.toBe(1);
 
-    // 8–9. And a reply button, which runs the same compose flow the other way.
-    const reply = keyboardOf(opened)
+    /**
+     * 8–9. And a reply button — which is the half that was missing.
+     *
+     * Asserted on the **rendered** message rather than on the payload, because
+     * the payload was never the problem: the row was built and serialised
+     * correctly and `BOT_NOTICE` threw it away. Rendering is the only place the
+     * two disagree, so it is the only place the regression is visible.
+     */
+    const openedRender = render(TEMPLATES.BOT_DIRECT_MESSAGE, opened);
+    const reply = (openedRender?.keyboard ?? [])
       .flat()
-      .find((button) => button.callbackData.startsWith('dm:reply:'));
+      .find((button) => button.callbackData?.startsWith('dm:reply:') === true);
     expect(reply?.text).toContain('پاسخ');
 
     await tap(HOST_TELEGRAM_ID, reply?.callbackData ?? '');
-    await type(HOST_TELEGRAM_ID, 'بله، هماهنگ می‌کنیم.');
+    await type(HOST_TELEGRAM_ID, 'بله، هماهنگ می‌کنیم. آیدی من @host است.');
 
     const answer = await prisma.directMessage.findFirstOrThrow({
       orderBy: { createdAt: 'desc' },
@@ -3301,6 +3309,40 @@ describe('POST /telegram/:secret — direct messages', () => {
     });
     expect(answer.parentId).not.toBeNull();
     expect(answer.recipient.telegramAccount?.telegramUserId).toBe(BigInt(GUEST_TELEGRAM_ID));
+
+    /**
+     * 10. And the guest can answer *that*, which is what makes it a conversation
+     * rather than one round trip.
+     *
+     * The same three steps in the other direction — notification, «مشاهده»,
+     * «پاسخ» — because a thread that can only be started by the guest and closed
+     * by the host is a form, not a way to arrange a lift.
+     */
+    const back = render(
+      TEMPLATES.DIRECT_MESSAGE_RECEIVED,
+      await latest(TEMPLATES.DIRECT_MESSAGE_RECEIVED),
+    );
+    expect(back?.text).toContain('پاسخ تازه');
+    const viewBack = (back?.keyboard ?? [])
+      .flat()
+      .find((button) => button.callbackData?.startsWith('dm:view:') === true);
+
+    await tap(GUEST_TELEGRAM_ID, viewBack?.callbackData ?? '');
+    const openedBack = render(
+      TEMPLATES.BOT_DIRECT_MESSAGE,
+      await latest(TEMPLATES.BOT_DIRECT_MESSAGE),
+    );
+    // Contact details are not masked here: exchanging them is the point, and the
+    // warning under every message is what carries the risk instead.
+    expect(openedBack?.text).toContain('@host');
+    const replyBack = (openedBack?.keyboard ?? [])
+      .flat()
+      .find((button) => button.callbackData?.startsWith('dm:reply:') === true);
+    expect(replyBack?.text).toContain('پاسخ');
+
+    await tap(GUEST_TELEGRAM_ID, replyBack?.callbackData ?? '');
+    await type(GUEST_TELEGRAM_ID, 'عالی، ممنون.');
+    await expect(prisma.directMessage.count()).resolves.toBe(3);
   });
 
   /**

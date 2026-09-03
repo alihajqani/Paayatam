@@ -201,6 +201,26 @@ export const TEMPLATES = {
    * `BOT_EVENT_CREATED`, not a variant of it — see the renderer.
    */
   BOT_EVENT_HELD: 'bot.event_held',
+  /**
+   * One direct message, opened — and the button that answers it (v0.8.0).
+   *
+   * ── Why this is not `BOT_NOTICE` ────────────────────────────────────────────
+   *
+   * It was, and that is the bug this template exists to close. `BOT_NOTICE`
+   * ignores any keyboard in its payload and always returns `menuOpenerKeyboard()`
+   * — deliberately, because it is the template every refusal and one-line answer
+   * uses and the menu is the useful thing to spend a keyboard on there. So the
+   * «✍️ پاسخ به این پیام» row the bot built when a recipient pressed «مشاهده» was
+   * assembled, serialised into the payload, and then dropped by the renderer. The
+   * reply path worked end to end and had no button anywhere that reached it.
+   *
+   * A passthrough like `BOT_WIZARD`: the body is built by `formatDirectMessage`
+   * and the keyboard by the caller, which is the only place the message's public
+   * id is. The body is **not** in a notification payload by accident — this
+   * template is rendered for a message the reader has already opened, which is
+   * exactly the moment the receipt to its sender is sent.
+   */
+  BOT_DIRECT_MESSAGE: 'bot.direct_message',
 } as const;
 
 export type TemplateKey = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -1144,6 +1164,21 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      */
     case TEMPLATES.BOT_NOTICE:
       return { text: str(payload, 'text'), keyboard: menuOpenerKeyboard() };
+
+    /**
+     * A direct message and the button that answers it.
+     *
+     * Falls back to the menu opener when there is no keyboard — a message with
+     * no way forward is the shape `BOT_NOTICE` has, and a sender reading their
+     * own message back is exactly that case.
+     */
+    case TEMPLATES.BOT_DIRECT_MESSAGE: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        keyboard: keyboard ?? menuOpenerKeyboard(),
+      };
+    }
 
     default:
       return null;

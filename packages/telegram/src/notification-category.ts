@@ -94,6 +94,10 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.BOT_TRUST]: 'essential',
   [TEMPLATES.BOT_REPORT_REASONS]: 'essential',
   [TEMPLATES.BOT_RECEIVED_REVIEWS]: 'essential',
+  // The message itself, drawn because the reader pressed «مشاهده». An answer
+  // to a tap, so nothing may silence it — the notification that announced the
+  // message is the one a preference governs, and it is `chat`.
+  [TEMPLATES.BOT_DIRECT_MESSAGE]: 'essential',
   /**
    * A moderator asked for their queue and must get it (ADR-0018).
    *
