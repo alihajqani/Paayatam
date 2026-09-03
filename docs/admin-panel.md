@@ -283,8 +283,8 @@ Each of these is a gap in the **API**, and the panel does not mock one up.
 
 | Missing | Why |
 |---|---|
-| **Claim / assign a report or case** | `moderation_case.assigned_admin_id` exists and nothing writes it. Two moderators working one queue collide on the decision (`INVALID_STATE_TRANSITION`), which is honest but not friendly |
-| **Escalate a case** | `decideCase` takes `APPROVED` or `REJECTED`; `ESCALATED` is a status the automation sets |
+| ~~**Claim / assign a report or case**~~ | Closed in v0.7.0. `POST /admin/v1/moderation/cases/:id/triage` with `CLAIM` writes `assigned_admin_id` and moves the case to `IN_REVIEW`; `RELEASE` hands it back |
+| ~~**Escalate a case**~~ | Closed in v0.7.0. The same endpoint with `ESCALATE` sets the status and keeps the assignment — an escalated case is still somebody's until a decision closes it |
 | **Break-glass chat unseal** | The API has it (`POST /chats/:id/unseal`) and it is deliberately **not** on a screen yet. It needs an open case, a written reason and a 15-minute box, and every message read is audited individually (T14) — a workflow that deserves designing rather than a button |
 | **Role changes / four-eyes approval** | `POST /roles/requests` and its approval exist. Same reasoning: a capability that lets one account become every role wants a considered screen |
 | **Blacklist and policy management** | §6 lists them; no API was built for them in M12 and none is invented here. **Catalog management shipped in M21** — see §7.1 |

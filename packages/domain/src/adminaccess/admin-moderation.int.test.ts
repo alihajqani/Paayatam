@@ -367,6 +367,131 @@ describe('closing one report', () => {
   });
 });
 
+/**
+ * The case, as the panel now reads it (v0.7.0).
+ *
+ * The queue rendered a subject type, a trigger and a count beside two buttons
+ * that decide the case — so a moderator was asked to judge content they could not
+ * see, on complaints they could not read, about an account they could not
+ * identify.
+ */
+describe('reviewing one case', () => {
+  it('carries the activity, its owner and every complaint — and no reporter', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی');
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId },
+      select: { id: true },
+    });
+    const reporter = await createUser(prisma, 'PROFILE_COMPLETE');
+    const opened = await prisma.moderationCase.create({
+      data: {
+        subjectType: 'EVENT',
+        subjectId: event.id,
+        trigger: 'REPORT_THRESHOLD',
+        status: 'OPEN',
+        reportCount: 1,
+      },
+      select: { id: true },
+    });
+    await prisma.report.create({
+      data: {
+        targetType: 'EVENT',
+        targetId: event.id,
+        reporterUserId: reporter,
+        reason: 'SPAM',
+        description: 'دارد یک خدمت پولی می‌فروشد.',
+        moderationCaseId: opened.id,
+      },
+    });
+
+    const detail = await operations.caseForReview(SUPER, opened.id);
+
+    expect(detail.eventTitle).toBe('شب بازی رومیزی');
+    expect(detail.eventPublicId).toBe(publicId);
+    expect(detail.eventStatus).toBe('PUBLISHED');
+    expect(detail.ownerUserPublicId).toEqual(expect.any(String));
+    expect(detail.reports).toHaveLength(1);
+    expect(detail.reports[0]?.description).toBe('دارد یک خدمت پولی می‌فروشد.');
+    // The one thing this screen must never carry, however convenient it would be.
+    expect(JSON.stringify(detail)).not.toContain(reporter);
+  });
+
+  /**
+   * `assigned_admin_id` and `ESCALATED` have existed since M12 and nothing ever
+   * wrote either — `docs/admin-panel.md` recorded both as known gaps. Two people
+   * working one queue had no way to say «این با من است».
+   */
+  it('claims, escalates and releases a case, recording each in the trail', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی');
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId },
+      select: { id: true },
+    });
+    const opened = await prisma.moderationCase.create({
+      data: {
+        subjectType: 'EVENT',
+        subjectId: event.id,
+        trigger: 'REPORT_THRESHOLD',
+        status: 'OPEN',
+        reportCount: 3,
+      },
+      select: { id: true },
+    });
+
+    await operations.triageCase(SUPER, opened.id, 'CLAIM');
+    let row = await prisma.moderationCase.findUniqueOrThrow({ where: { id: opened.id } });
+    expect(row.status).toBe('IN_REVIEW');
+    expect(row.assignedAdminId).toBe('moderation-super');
+
+    await operations.triageCase(SUPER, opened.id, 'ESCALATE', 'Needs a second opinion.');
+    row = await prisma.moderationCase.findUniqueOrThrow({ where: { id: opened.id } });
+    expect(row.status).toBe('ESCALATED');
+    // Still somebody's: an escalation is a request for help, not a hand-back.
+    expect(row.assignedAdminId).toBe('moderation-super');
+
+    await operations.triageCase(SUPER, opened.id, 'RELEASE');
+    row = await prisma.moderationCase.findUniqueOrThrow({ where: { id: opened.id } });
+    expect(row.status).toBe('OPEN');
+    expect(row.assignedAdminId).toBeNull();
+
+    // Invariant 12 has no exemption for a status change that happens to be small.
+    await expect(
+      prisma.auditLog.count({ where: { action: 'moderation.case_triaged' } }),
+    ).resolves.toBe(3);
+  });
+
+  /** A decided case is finished. Re-opening one is not what a triage button is for. */
+  it('refuses to triage a case that has been decided', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی');
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId },
+      select: { id: true },
+    });
+    // A terminal status carries its decider and its note — the CHECK
+    // `moderation_case_terminal_requires_decider` refuses one without them, which
+    // is §7's "terminal states require `decided_by` + `decision_note`" in the
+    // database rather than only in the service.
+    const closed = await prisma.moderationCase.create({
+      data: {
+        subjectType: 'EVENT',
+        subjectId: event.id,
+        trigger: 'MANUAL',
+        status: 'APPROVED',
+        reportCount: 0,
+        decision: 'APPROVED',
+        decisionNote: 'Nothing in it.',
+        decidedBy: 'moderation-super',
+        decidedAt: NOW,
+      },
+      select: { id: true },
+    });
+
+    await expect(operations.triageCase(SUPER, closed.id, 'CLAIM')).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION',
+    });
+  });
+});
+
 describe('changing a policy number', () => {
   it('lists every key from the code catalogue, with its default beside it', async () => {
     const listed = await operations.listSettings(SUPER);

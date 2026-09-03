@@ -53,10 +53,35 @@ export interface CaseDetail extends CaseSummary {
   eventTitle: string | null;
   eventDescription: string | null;
   eventStatus: string | null;
+  /** The event's own public id, so the panel can link to it. Null otherwise. */
+  eventPublicId: string | null;
+  /** The subject's owner, by public id — the account a ban would be about. */
+  ownerUserPublicId: string | null;
+  ownerDisplayName: string | null;
   /** `{ reason, count }`, never the reporters' descriptions. */
   reportReasons: { reason: string; count: number }[];
+  /**
+   * What the reporters actually wrote (v0.7.0).
+   *
+   * A count by reason answers "how many objected"; it does not answer "to what",
+   * which is the only question a moderator is actually holding. «SPAM ×3» is the
+   * same row whether three people saw an advert or three people saw something
+   * that frightened them, and the panel offered no way to tell those apart — so
+   * the queue was a list of decisions nobody had the information to make.
+   *
+   * **Never the reporter.** Each entry carries the reason, the description and
+   * when it was filed, and nothing that identifies who wrote it: an admin who
+   * bans a host must not be able to hand them a list of names, and a reporting
+   * system whose use has a personal cost stops being used.
+   */
+  reports: { publicId: string; reason: string; description: string | null; createdAt: Date }[];
   /** How many blacklist terms matched, never which text they matched. */
   matchedTermCount: number;
+  /** Who is working it, when somebody has claimed it. */
+  assignedAdminId: string | null;
+  decidedBy: string | null;
+  decisionNote: string | null;
+  decidedAt: Date | null;
 }
 
 /** The exactly-once key for an admin's hand-written balance change. */
@@ -194,6 +219,10 @@ export class AdminOperationsService {
         reportCount: true,
         createdAt: true,
         matchedTerms: true,
+        assignedAdminId: true,
+        decidedBy: true,
+        decisionNote: true,
+        decidedAt: true,
       },
     });
     if (!row) throw new AppError(ErrorCode.NOT_FOUND);
@@ -202,7 +231,29 @@ export class AdminOperationsService {
       row.subjectType === 'EVENT'
         ? await this.prisma.event.findUnique({
             where: { id: row.subjectId },
-            select: { title: true, description: true, status: true },
+            select: {
+              title: true,
+              description: true,
+              status: true,
+              publicId: true,
+              host: { select: { publicId: true, profile: { select: { displayName: true } } } },
+            },
+          })
+        : null;
+
+    /**
+     * Who a decision would be *about*, when the subject is an account.
+     *
+     * The panel needs it to offer the one action a USER case is usually opened
+     * for, and it must be a **public** id: an internal one has never left the
+     * backend (invariant 7) and `POST /admin/v1/users/:publicId/status` takes the
+     * public one anyway.
+     */
+    const subjectUser =
+      row.subjectType === 'USER'
+        ? await this.prisma.user.findUnique({
+            where: { id: row.subjectId },
+            select: { publicId: true, profile: { select: { displayName: true } } },
           })
         : null;
 
@@ -211,6 +262,22 @@ export class AdminOperationsService {
           by: ['reason'],
           where: { moderationCaseId: caseId },
           _count: { reason: true },
+        })
+      : [];
+
+    /**
+     * The complaints themselves, **without their authors**.
+     *
+     * Same permission as the breakdown, and the same shaping rather than gating:
+     * a moderator who may judge content but not work the report queue sees an
+     * empty list rather than a refusal for the whole case.
+     */
+    const reports = mayReadReports
+      ? await this.prisma.report.findMany({
+          where: { moderationCaseId: caseId },
+          orderBy: { createdAt: 'asc' },
+          take: 50,
+          select: { publicId: true, reason: true, description: true, createdAt: true },
         })
       : [];
 
@@ -225,12 +292,86 @@ export class AdminOperationsService {
       eventTitle: event?.title ?? null,
       eventDescription: event?.description ?? null,
       eventStatus: event?.status ?? null,
+      eventPublicId: event?.publicId ?? null,
+      ownerUserPublicId: event?.host.publicId ?? subjectUser?.publicId ?? null,
+      ownerDisplayName:
+        event?.host.profile?.displayName ?? subjectUser?.profile?.displayName ?? null,
       reportReasons: grouped
         .map((entry) => ({ reason: entry.reason, count: entry._count.reason }))
         .sort((a, b) => b.count - a.count),
+      reports,
       // A count, never the terms and never the text they matched.
       matchedTermCount: Array.isArray(row.matchedTerms) ? row.matchedTerms.length : 0,
+      assignedAdminId: row.assignedAdminId,
+      decidedBy: row.decidedBy,
+      decisionNote: row.decisionNote,
+      decidedAt: row.decidedAt,
     };
+  }
+
+  /**
+   * Take a case, or hand it on (v0.7.0).
+   *
+   * ── Two gaps this closes, and they are the same gap ─────────────────────────
+   *
+   * `moderation_case.assigned_admin_id` and the `ESCALATED` status have both
+   * existed since M12 and **nothing ever wrote either of them**. `docs/admin-panel.md`
+   * recorded both as known gaps, and the consequence was a queue two people work
+   * by reading each other's minds: no way to say "I am on this one", and no way
+   * to say "this needs somebody senior" short of deciding it yourself.
+   *
+   * `CLAIM` sets `IN_REVIEW` and puts the caller's id on it. `RELEASE` clears
+   * both, for the case somebody opened and could not finish. `ESCALATE` sets
+   * `ESCALATED` and keeps the assignment, because an escalated case is still
+   * somebody's until a decision closes it.
+   *
+   * All three are still `EVENT_MODERATE` — this is triage on a queue that
+   * permission already governs, not a fourth kind of decision — and all three
+   * write `audit_log`, because invariant 12 has no exemption for a status change
+   * that happens to be small.
+   */
+  async triageCase(
+    session: AdminSession,
+    caseId: string,
+    action: 'CLAIM' | 'RELEASE' | 'ESCALATE',
+    note?: string,
+  ): Promise<void> {
+    this.access.assertPermission(session, PERMISSIONS.EVENT_MODERATE);
+
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.moderationCase.findUnique({
+        where: { id: caseId },
+        select: { status: true, assignedAdminId: true },
+      });
+      if (!existing) throw new AppError(ErrorCode.NOT_FOUND);
+      // A decided case is finished. Re-opening one is a decision of its own and
+      // is not what a triage button is for.
+      if (!['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(existing.status)) {
+        throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
+      }
+
+      const next =
+        action === 'CLAIM'
+          ? { status: 'IN_REVIEW' as const, assignedAdminId: session.adminUserId }
+          : action === 'RELEASE'
+            ? { status: 'OPEN' as const, assignedAdminId: null }
+            : { status: 'ESCALATED' as const, assignedAdminId: session.adminUserId };
+
+      await tx.moderationCase.update({ where: { id: caseId }, data: next });
+
+      await this.audit.record(
+        {
+          actorType: 'ADMIN',
+          actorId: session.adminUserId,
+          action: 'moderation.case_triaged',
+          targetType: 'moderation_case',
+          targetId: caseId,
+          before: { status: existing.status, assignedAdminId: existing.assignedAdminId },
+          after: { ...next, ...(note !== undefined ? { note: note.trim() } : {}) },
+        },
+        tx,
+      );
+    });
   }
 
   /**

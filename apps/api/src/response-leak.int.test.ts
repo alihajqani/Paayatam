@@ -1101,6 +1101,16 @@ beforeAll(async () => {
     },
     { method: 'GET', url: '/admin/v1/me', admin: true },
     { method: 'GET', url: '/admin/v1/moderation/cases', admin: true },
+    // The case detail (v0.7.0). It carries the reporters' own words, so it is the
+    // one admin read where a leak would be a *user's* text about another user —
+    // and it must still name no reporter.
+    { method: 'GET', url: '/admin/v1/moderation/cases/no-such-case', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/moderation/cases/no-such-case/triage',
+      admin: true,
+      body: { action: 'CLAIM' },
+    },
     { method: 'GET', url: '/admin/v1/audit', admin: true },
     // Activity tags (M21).
     { method: 'GET', url: '/admin/v1/activity-tags', admin: true },

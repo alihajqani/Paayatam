@@ -69,6 +69,7 @@ import {
   bulkCreateGiftCodesRequest,
   createGiftCodeRequest,
   decideCaseRequest,
+  triageCaseRequest,
   decideReportRequest,
   giftCodeListQuery,
   moderateEventRequest,
@@ -168,6 +169,8 @@ import {
   type CreateGiftCodeRequest,
   type CreateGiftCodeResponse,
   type DecideCaseRequest,
+  type ModerationCaseDetail,
+  type TriageCaseRequest,
   type DecideReportRequest,
   type GiftCodeAnalyticsResponse,
   type GiftCodeListQuery,
@@ -368,6 +371,67 @@ export class AdminController {
         createdAt: row.createdAt.toISOString(),
       })),
     };
+  }
+
+  /**
+   * One case, with everything a decision is actually made from (v0.7.0).
+   *
+   * The queue rendered a subject type, a trigger and a count beside two buttons
+   * that decide it — so a moderator was asked to judge content they could not
+   * see, on complaints they could not read, about an account they could not
+   * identify. `caseForReview` has assembled all of it since v0.6.3 for the bot's
+   * moderation screen; the panel simply had no endpoint to it.
+   */
+  @Get('moderation/cases/:id')
+  async caseDetail(
+    @Param('id') id: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<ModerationCaseDetail> {
+    const row = await this.operations.caseForReview(admin, id);
+    return {
+      id: row.id,
+      subjectType: row.subjectType,
+      subjectId: row.subjectId,
+      status: row.status,
+      trigger: row.trigger,
+      reportCount: row.reportCount,
+      createdAt: row.createdAt.toISOString(),
+      eventTitle: row.eventTitle,
+      eventDescription: row.eventDescription,
+      eventStatus: row.eventStatus,
+      eventPublicId: row.eventPublicId,
+      ownerUserPublicId: row.ownerUserPublicId,
+      ownerDisplayName: row.ownerDisplayName,
+      reportReasons: row.reportReasons as ModerationCaseDetail['reportReasons'],
+      reports: row.reports.map((report) => ({
+        publicId: report.publicId,
+        reason: report.reason as ModerationCaseDetail['reports'][number]['reason'],
+        description: report.description,
+        createdAt: report.createdAt.toISOString(),
+      })),
+      matchedTermCount: row.matchedTermCount,
+      assignedAdminId: row.assignedAdminId,
+      decidedBy: row.decidedBy,
+      decisionNote: row.decisionNote,
+      decidedAt: row.decidedAt?.toISOString() ?? null,
+    };
+  }
+
+  /**
+   * Take a case, hand it back, or send it up (v0.7.0).
+   *
+   * `assigned_admin_id` and `ESCALATED` have existed since M12 with nothing
+   * writing either. Two people working one queue had no way to say "I am on this
+   * one" and no way to say "this needs somebody senior" short of deciding it.
+   */
+  @Post('moderation/cases/:id/triage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async triage(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(triageCaseRequest)) body: TriageCaseRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<void> {
+    await this.operations.triageCase(admin, id, body.action, body.note);
   }
 
   @Post('moderation/cases/:id/decide')

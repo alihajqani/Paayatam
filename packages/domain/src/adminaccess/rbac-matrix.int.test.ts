@@ -147,6 +147,18 @@ const OPERATIONS: Operation[] = [
     run: (session) => operations.listCases(session),
   },
   {
+    name: 'GET /admin/v1/moderation/cases/:id',
+    permission: PERMISSIONS.EVENT_MODERATE,
+    run: (session) => operations.caseForReview(session, 'no-such-case'),
+  },
+  {
+    // Triage is the same permission as deciding: it is housekeeping on a queue
+    // `event.moderate` already governs, not a fourth kind of decision.
+    name: 'POST /admin/v1/moderation/cases/:id/triage',
+    permission: PERMISSIONS.EVENT_MODERATE,
+    run: (session) => operations.triageCase(session, 'no-such-case', 'CLAIM'),
+  },
+  {
     name: 'POST /admin/v1/moderation/cases/:id/decide',
     permission: PERMISSIONS.EVENT_MODERATE,
     run: (session) =>
@@ -578,7 +590,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(65);
+    expect(OPERATIONS).toHaveLength(67);
   });
 
   for (const role of ROLES) {

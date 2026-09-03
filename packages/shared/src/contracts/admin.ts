@@ -132,6 +132,64 @@ export const decideCaseRequest = z.object({
 });
 export type DecideCaseRequest = z.infer<typeof decideCaseRequest>;
 
+/**
+ * One case, with everything a decision is actually made from (v0.7.0).
+ *
+ * The queue used to render a subject *type*, a trigger and a count — «دربارهٔ
+ * فعالیت · رسیدن به آستانهٔ گزارش · ۳ گزارش» — beside two buttons that decide it.
+ * A moderator was being asked to judge content they could not see, on complaints
+ * they could not read, about an account they could not identify. What the panel
+ * offered was a decision, not a review.
+ *
+ * **What is deliberately still absent: who reported.** Each complaint carries its
+ * reason, its words and its date, and nothing that identifies its author. An
+ * admin who bans a host must not be able to hand them a list of names, and a
+ * reporting system whose use carries a personal cost stops being used exactly
+ * when it matters.
+ */
+export const moderationCaseDetail = moderationCaseView.extend({
+  eventTitle: z.string().nullable(),
+  eventDescription: z.string().nullable(),
+  eventStatus: z.string().nullable(),
+  /** So the panel can link to the activity rather than print an internal id. */
+  eventPublicId: z.uuid().nullable(),
+  /** The account a ban would be about — an event's host, or the subject itself. */
+  ownerUserPublicId: z.uuid().nullable(),
+  ownerDisplayName: z.string().nullable(),
+  reportReasons: z.array(z.object({ reason: reportReason, count: z.number().int() })),
+  reports: z.array(
+    z.object({
+      publicId: z.uuid(),
+      reason: reportReason,
+      description: z.string().nullable(),
+      createdAt: z.iso.datetime(),
+    }),
+  ),
+  /** How many blacklist terms matched. Never which, and never the text. */
+  matchedTermCount: z.number().int().nonnegative(),
+  assignedAdminId: z.string().nullable(),
+  decidedBy: z.string().nullable(),
+  decisionNote: z.string().nullable(),
+  decidedAt: z.iso.datetime().nullable(),
+});
+export type ModerationCaseDetail = z.infer<typeof moderationCaseDetail>;
+
+/**
+ * Triage: take a case, hand it back, or send it up (v0.7.0).
+ *
+ * `moderation_case.assigned_admin_id` and the `ESCALATED` status have existed
+ * since M12 and nothing ever wrote either — both were recorded in
+ * `docs/admin-panel.md` as known gaps. The consequence was a queue two people
+ * work by reading each other's minds: no way to say "I am on this one", and no
+ * way to say "this needs somebody senior" short of deciding it yourself.
+ */
+export const triageCaseRequest = z.object({
+  action: z.enum(['CLAIM', 'RELEASE', 'ESCALATE']),
+  /** Why it is going up. Required for an escalation, meaningless for the others. */
+  note: z.string().trim().min(3).max(1000).optional(),
+});
+export type TriageCaseRequest = z.infer<typeof triageCaseRequest>;
+
 // ── Economy adjustments ──────────────────────────────────────────────────────
 
 /**

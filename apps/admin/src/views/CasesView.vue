@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import type {
+  ModerationCaseDetail,
   ModerationCaseStatus,
   ModerationCaseView,
   ModerationQueueResponse,
 } from '@payetam/shared';
+import { RouterLink } from 'vue-router';
 import { messageOf, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
@@ -28,6 +30,27 @@ import { useSessionStore } from '@/stores/session';
  * The list is `take: 100` server-side and oldest-first, and has no pager for that
  * reason: a backlog past a hundred open cases is an incident rather than a page-2
  * problem, and the dashboard is where that shows up.
+ *
+ * ── What this screen was, and what was wrong with it (v0.7.0) ────────────────
+ *
+ * A row said «دربارهٔ فعالیت · رسیدن به آستانهٔ گزارش · ۳ گزارش» and printed an
+ * internal id, beside two buttons that decide the case. So a moderator was being
+ * asked to judge content they could not see, on complaints they could not read,
+ * about an account they could not identify — with no way to say "I am working
+ * this one" and no way to send it to somebody senior short of deciding it.
+ *
+ * «باز کردن» now fetches the case: the activity's own title, description and
+ * current status, who owns it, every complaint with its reason and the words the
+ * reporter wrote, and how many blacklist terms fired. The actions under it are
+ * the four a queue actually needs — claim, escalate, and the two decisions —
+ * plus links to the two screens where acting on the *subject* lives, because
+ * hiding an activity and banning an account are different permissions and belong
+ * behind their own confirmations.
+ *
+ * **Who reported is not here and never will be.** The complaints arrive without
+ * their authors: an admin who bans a host must not be able to hand them a list of
+ * names, and a reporting system whose use has a personal cost stops being used at
+ * the moment it matters.
  */
 const session = useSessionStore();
 
@@ -62,13 +85,87 @@ async function load(): Promise<void> {
 
 watch(status, () => void load());
 
+// ── Acting on one ───────────────────────────────────────────────────────────
+
+const acting = ref(false);
+const actionError = ref<string | null>(null);
+
+// ── One case, opened ────────────────────────────────────────────────────────
+
+const opened = ref<ModerationCaseDetail | null>(null);
+const openingId = ref<string | null>(null);
+const openError = ref<string | null>(null);
+
+async function open(entry: ModerationCaseView): Promise<void> {
+  if (opened.value?.id === entry.id) {
+    opened.value = null;
+    return;
+  }
+  openingId.value = entry.id;
+  openError.value = null;
+  try {
+    opened.value = await request<ModerationCaseDetail>(`/moderation/cases/${entry.id}`);
+  } catch (cause) {
+    openError.value = messageOf(cause, 'پرونده بارگذاری نشد.');
+  } finally {
+    openingId.value = null;
+  }
+}
+
+/**
+ * Claim, hand back, or send up.
+ *
+ * `assigned_admin_id` and `ESCALATED` have existed since M12 with nothing writing
+ * either, so two people working one queue had no way to say «این با من است».
+ */
+async function triage(id: string, action: 'CLAIM' | 'RELEASE' | 'ESCALATE'): Promise<void> {
+  acting.value = true;
+  actionError.value = null;
+  try {
+    await request<void>(`/moderation/cases/${id}/triage`, { method: 'POST', body: { action } });
+    notice.value =
+      action === 'CLAIM'
+        ? 'پرونده به شما سپرده شد.'
+        : action === 'RELEASE'
+          ? 'پرونده آزاد شد.'
+          : 'پرونده ارجاع داده شد.';
+    await load();
+    if (opened.value?.id === id) opened.value = await request(`/moderation/cases/${id}`);
+  } catch (cause) {
+    actionError.value = messageOf(cause, 'تغییر وضعیت انجام نشد.');
+  } finally {
+    acting.value = false;
+  }
+}
+
+const REASONS: Record<string, string> = {
+  SPAM: 'تبلیغ یا هرزنامه',
+  HARASSMENT: 'آزار و توهین',
+  INAPPROPRIATE: 'محتوای نامناسب',
+  SCAM: 'کلاهبرداری',
+  SAFETY: 'نگرانی برای ایمنی',
+  IMPERSONATION: 'جعل هویت',
+  OTHER: 'سایر',
+};
+
+const EVENT_STATUS: Record<string, string> = {
+  DRAFT: 'پیش‌نویس',
+  PENDING_MODERATION: 'در انتظار بررسی',
+  PUBLISHED: 'منتشرشده',
+  HIDDEN: 'پنهان‌شده',
+  REJECTED: 'تأیید نشده',
+  CANCELLED_BY_HOST: 'لغو شده',
+  ONGOING: 'در حال برگزاری',
+  COMPLETED: 'برگزار شده',
+  EXPIRED: 'منقضی',
+  DELETED: 'حذف‌شده',
+};
+
 const pending = ref<{
   entry: ModerationCaseView;
   decision: 'APPROVED' | 'REJECTED';
 } | null>(null);
 const falsePositive = ref(false);
-const acting = ref(false);
-const actionError = ref<string | null>(null);
 
 async function decide(note: string): Promise<void> {
   if (pending.value === null) return;
@@ -91,6 +188,7 @@ async function decide(note: string): Promise<void> {
     notice.value = 'پرونده بسته شد. گزارش‌های مرتبط هم بسته شدند.';
     pending.value = null;
     falsePositive.value = false;
+    opened.value = null;
     await load();
   } catch (cause) {
     actionError.value = messageOf(cause, 'ثبت تصمیم انجام نشد.');
@@ -170,33 +268,140 @@ onMounted(load);
                   · <bdi>{{ toPersianDigits(entry.reportCount) }}</bdi> گزارش
                 </template>
               </p>
-              <p class="mt-1 text-xs text-ink-faint">
-                شناسهٔ مورد: <bdi class="font-mono">{{ entry.subjectId }}</bdi>
+            </div>
+
+            <div class="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                class="min-h-9 rounded-lg border border-line px-3 text-sm"
+                :disabled="openingId === entry.id"
+                @click="open(entry)"
+              >
+                {{ opened?.id === entry.id ? 'بستن' : 'باز کردن' }}
+              </button>
+              <template v-if="['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(entry.status)">
+                <button
+                  type="button"
+                  class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
+                  :disabled="!session.canMutate || acting"
+                  @click="triage(entry.id, entry.status === 'OPEN' ? 'CLAIM' : 'RELEASE')"
+                >
+                  {{ entry.status === 'OPEN' ? 'بررسی می‌کنم' : 'آزاد کردن' }}
+                </button>
+                <button
+                  v-if="entry.status !== 'ESCALATED'"
+                  type="button"
+                  class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
+                  :disabled="!session.canMutate || acting"
+                  @click="triage(entry.id, 'ESCALATE')"
+                >
+                  ارجاع به سرپرست
+                </button>
+                <button
+                  type="button"
+                  class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
+                  :disabled="!session.canMutate"
+                  @click="pending = { entry, decision: 'APPROVED' }"
+                >
+                  ایرادی ندارد
+                </button>
+                <button
+                  type="button"
+                  class="min-h-9 rounded-lg border border-danger px-3 text-sm text-danger disabled:opacity-40"
+                  :disabled="!session.canMutate"
+                  @click="pending = { entry, decision: 'REJECTED' }"
+                >
+                  تأیید نمی‌شود
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!--
+            The case itself, which is what a decision is actually made from.
+            Everything here is the moderator's to read *except* who reported —
+            the complaints arrive without their authors, and they must.
+          -->
+          <div
+            v-if="opened?.id === entry.id"
+            class="mt-4 flex flex-col gap-3 rounded-lg bg-surface-sunken p-4 text-sm"
+          >
+            <div v-if="opened.eventTitle !== null" class="flex flex-col gap-1">
+              <p class="font-medium">{{ opened.eventTitle }}</p>
+              <p class="whitespace-pre-line text-ink-soft">{{ opened.eventDescription }}</p>
+              <p class="text-xs text-ink-faint">
+                وضعیت فعلی فعالیت:
+                {{ EVENT_STATUS[opened.eventStatus ?? ''] ?? opened.eventStatus }}
               </p>
             </div>
 
-            <div
-              v-if="['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(entry.status)"
-              class="flex shrink-0 gap-2"
-            >
-              <button
-                type="button"
-                class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
-                :disabled="!session.canMutate"
-                @click="pending = { entry, decision: 'APPROVED' }"
+            <p v-if="opened.ownerDisplayName !== null" class="text-ink-soft">
+              صاحب مورد: {{ opened.ownerDisplayName }}
+            </p>
+
+            <p v-if="opened.matchedTermCount > 0" class="text-ink-soft">
+              تشخیص خودکار: <bdi>{{ toPersianDigits(opened.matchedTermCount) }}</bdi> واژهٔ
+              فهرست‌شده
+            </p>
+
+            <div v-if="opened.reports.length > 0" class="flex flex-col gap-2">
+              <p class="font-medium">گزارش‌ها</p>
+              <ul class="flex flex-col gap-2">
+                <li
+                  v-for="report in opened.reports"
+                  :key="report.publicId"
+                  class="rounded-lg border border-line bg-surface p-3"
+                >
+                  <p class="text-xs text-ink-faint">
+                    {{ REASONS[report.reason] ?? report.reason }} ·
+                    {{ formatRelative(report.createdAt) }}
+                  </p>
+                  <p v-if="report.description" class="mt-1 whitespace-pre-line">
+                    {{ report.description }}
+                  </p>
+                  <p v-else class="mt-1 text-ink-faint">بدون توضیح</p>
+                </li>
+              </ul>
+              <!--
+                Stated rather than merely absent: an operator who cannot see a
+                name should know it was withheld on purpose, not assume the data
+                failed to load.
+              -->
+              <p class="text-xs text-ink-faint">
+                نام گزارش‌دهندگان عمداً نشان داده نمی‌شود.
+              </p>
+            </div>
+
+            <p v-if="opened.decisionNote" class="text-ink-soft">
+              یادداشت تصمیم: {{ opened.decisionNote }}
+            </p>
+
+            <!--
+              Acting on the *subject* is a different permission and a different
+              confirmation, so it lives on its own screen rather than behind a
+              button here.
+            -->
+            <div class="flex flex-wrap gap-3 text-sm">
+              <RouterLink
+                v-if="opened.eventPublicId !== null"
+                :to="{ name: 'events', query: { q: opened.eventTitle ?? '' } }"
+                class="underline"
               >
-                ایرادی ندارد
-              </button>
-              <button
-                type="button"
-                class="min-h-9 rounded-lg border border-danger px-3 text-sm text-danger disabled:opacity-40"
-                :disabled="!session.canMutate"
-                @click="pending = { entry, decision: 'REJECTED' }"
+                رفتن به فعالیت
+              </RouterLink>
+              <RouterLink
+                v-if="opened.ownerUserPublicId !== null"
+                :to="{ name: 'user-detail', params: { publicId: opened.ownerUserPublicId } }"
+                class="underline"
               >
-                تأیید نمی‌شود
-              </button>
+                رفتن به حساب کاربر
+              </RouterLink>
             </div>
           </div>
+
+          <p v-if="openError && openingId === null" class="mt-2 text-sm text-danger">
+            {{ openError }}
+          </p>
         </li>
       </ul>
     </StateBlock>
