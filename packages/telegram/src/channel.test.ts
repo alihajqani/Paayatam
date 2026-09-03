@@ -72,9 +72,7 @@ describe('the channel post', () => {
 
     /** Six ungrouped digits are counted rather than read. */
     it('groups a price in threes', () => {
-      expect(post({ costType: 'FIXED', costAmount: 250_000 })).toContain(
-        '💸 ۲۵۰,۰۰۰ تومان (ثابت)',
-      );
+      expect(post({ costType: 'FIXED', costAmount: 250_000 })).toContain('💸 ۲۵۰,۰۰۰ تومان (ثابت)');
     });
 
     it('names a split without inventing a figure for it', () => {

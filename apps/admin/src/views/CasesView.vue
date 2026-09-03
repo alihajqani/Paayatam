@@ -367,9 +367,7 @@ onMounted(load);
                 name should know it was withheld on purpose, not assume the data
                 failed to load.
               -->
-              <p class="text-xs text-ink-faint">
-                نام گزارش‌دهندگان عمداً نشان داده نمی‌شود.
-              </p>
+              <p class="text-xs text-ink-faint">نام گزارش‌دهندگان عمداً نشان داده نمی‌شود.</p>
             </div>
 
             <p v-if="opened.decisionNote" class="text-ink-soft">

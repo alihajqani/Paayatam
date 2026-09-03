@@ -103,7 +103,8 @@ export function formatWallet(
    * a heading that lies about what the reader is looking at.
    */
   const history = buildDigest({
-    title: page === 0 ? 'تراکنش‌های اخیر' : `تراکنش‌ها — صفحهٔ ${toPersianDigits(String(page + 1))}`,
+    title:
+      page === 0 ? 'تراکنش‌های اخیر' : `تراکنش‌ها — صفحهٔ ${toPersianDigits(String(page + 1))}`,
     empty: page === 0 ? 'هنوز تراکنشی ندارید.' : 'تراکنش دیگری نیست.',
     entries,
   });

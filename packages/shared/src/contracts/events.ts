@@ -29,7 +29,6 @@ export function isUnlimitedCapacity(capacity: number): boolean {
   return capacity >= UNLIMITED_CAPACITY;
 }
 
-
 /**
  * Event authoring contracts (M4).
  *

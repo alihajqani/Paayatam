@@ -763,7 +763,9 @@ export class BotService {
          */
         const cancellable = mine.filter(
           (row) =>
-            (row.status === 'PENDING' || row.status === 'WAITLISTED' || row.status === 'ACCEPTED') &&
+            (row.status === 'PENDING' ||
+              row.status === 'WAITLISTED' ||
+              row.status === 'ACCEPTED') &&
             isPublicId(row.publicId),
         );
         const buttons = cancellable.map((row) => ({

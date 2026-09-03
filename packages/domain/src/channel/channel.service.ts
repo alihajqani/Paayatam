@@ -236,10 +236,7 @@ export class ChannelService {
    * Returns whether it claimed anything, so a caller can record that rather than
    * guess at it.
    */
-  async reinstatePaidPublication(
-    tx: Prisma.TransactionClient,
-    eventId: string,
-  ): Promise<boolean> {
+  async reinstatePaidPublication(tx: Prisma.TransactionClient, eventId: string): Promise<boolean> {
     const previous = await tx.channelPost.findFirst({
       where: { eventId, kind: 'PAID', postedAt: { not: null } },
       orderBy: { republishSeq: 'desc' },

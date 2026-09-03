@@ -258,8 +258,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   INSUFFICIENT_COINS: 'سکهٔ کافی ندارید.',
   INVALID_REFERRAL_CODE: 'این کد دعوت معتبر نیست.',
   SELF_REFERRAL: 'نمی‌توانید کد دعوت خودتان را استفاده کنید.',
-  ALREADY_REFERRED:
-    'شما پیش‌تر کد معرف ثبت کرده‌اید. هر حساب فقط یک بار و فقط یک کد می‌پذیرد.',
+  ALREADY_REFERRED: 'شما پیش‌تر کد معرف ثبت کرده‌اید. هر حساب فقط یک بار و فقط یک کد می‌پذیرد.',
   REFERRAL_WINDOW_CLOSED:
     'کد دعوت فقط در روزهای نخست پس از ساختن حساب پذیرفته می‌شود و این مهلت برای حساب شما گذشته است.',
   EVENT_NOT_BOOSTABLE: 'این فعالیت قابل نردبان کردن نیست.',

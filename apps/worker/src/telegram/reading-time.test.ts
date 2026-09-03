@@ -16,9 +16,7 @@ import { needsReadingTime } from './telegram.client';
 describe('needsReadingTime', () => {
   it('holds a refusal, which is the message somebody has to read', () => {
     expect(
-      needsReadingTime(
-        'پایتم گفتن به این فعالیت ۵ سکه هزینه دارد و موجودی شما ۲ سکه است.',
-      ),
+      needsReadingTime('پایتم گفتن به این فعالیت ۵ سکه هزینه دارد و موجودی شما ۲ سکه است.'),
     ).toBe(true);
   });
 

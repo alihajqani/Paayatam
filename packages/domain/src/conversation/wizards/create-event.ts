@@ -406,8 +406,7 @@ const steps: WizardStep<CreateEventForm>[] = [
     key: 'cap',
     ui: 'choice',
     prompt: () =>
-      'چند نفر جا دارید؟ (بدون احتساب خودتان)\n' +
-      'یکی را بزنید، یا عدد دلخواهتان را بنویسید.',
+      'چند نفر جا دارید؟ (بدون احتساب خودتان)\n' + 'یکی را بزنید، یا عدد دلخواهتان را بنویسید.',
     load: () =>
       Promise.resolve([
         ...CAPACITIES.map((n) => ({ value: String(n), label: toPersianDigits(String(n)) })),

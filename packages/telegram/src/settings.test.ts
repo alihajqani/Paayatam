@@ -73,9 +73,7 @@ describe('the settings board', () => {
   /** And the body agrees with the button, which is what was actually broken. */
   it('states the same thing in the body as on the button', () => {
     expect(formatSettings(base)).toContain('💬 پیام‌های گفتگو: 🔔 روشن');
-    expect(formatSettings({ ...base, notifyChat: false })).toContain(
-      '💬 پیام‌های گفتگو: 🔕 خاموش',
-    );
+    expect(formatSettings({ ...base, notifyChat: false })).toContain('💬 پیام‌های گفتگو: 🔕 خاموش');
   });
 
   it('carries privacy as the reader sees it, not as the column stores it', () => {

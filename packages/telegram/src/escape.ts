@@ -46,5 +46,9 @@ export function toPersianDigits(value: number | string): string {
  * local.
  */
 export function toPersianAmount(value: number): string {
-  return toPersianDigits(Math.trunc(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','));
+  return toPersianDigits(
+    Math.trunc(value)
+      .toString()
+      .replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+  );
 }
