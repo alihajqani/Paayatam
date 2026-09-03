@@ -242,6 +242,52 @@ describe('the threshold (plan §11: three distinct reporters)', () => {
   });
 
   /**
+   * The production incident, as its rows actually were (v0.7.0).
+   *
+   * Four reports, four distinct reporters, **two already `ACTIONED`** — and the
+   * activity stayed visible, because the threshold counted only the reports
+   * nobody had touched. The filter was subtracting *agreement*: `ACTIONED` means
+   * a moderator looked and decided the complaint was right, and it was the one
+   * status that pushed the threshold further away.
+   */
+  it('counts a complaint a moderator agreed with, not only an untouched one', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 2);
+    await prisma.report.updateMany({ data: { status: 'ACTIONED' } });
+    // Back to visible, as a moderator restoring it would leave it.
+    await prisma.event.update({ where: { publicId: eventPublicId }, data: { status: 'PUBLISHED' } });
+
+    await reportedBy(eventPublicId, 1);
+    await expect(statusOf(eventPublicId)).resolves.toBe('PUBLISHED');
+
+    await reportedBy(eventPublicId, 1);
+
+    // Two actioned plus two fresh is four people who objected, and three is the
+    // threshold.
+    await expect(statusOf(eventPublicId)).resolves.toBe('HIDDEN');
+  });
+
+  /**
+   * And the opposite case, which is why `DISMISSED` is the one status excluded.
+   *
+   * Deciding a case `APPROVED` marks its reports dismissed. A restored activity
+   * therefore starts from zero and needs three *fresh* objections — which is what
+   * "a moderator cleared it" has to mean, or three refuted complaints would hide
+   * it again the moment a fourth arrived.
+   */
+  it('starts from zero again once a moderator has cleared the complaints', async () => {
+    const eventPublicId = await publishEvent();
+    await reportedBy(eventPublicId, 3);
+    await expect(statusOf(eventPublicId)).resolves.toBe('HIDDEN');
+
+    await prisma.report.updateMany({ data: { status: 'DISMISSED' } });
+    await prisma.event.update({ where: { publicId: eventPublicId }, data: { status: 'PUBLISHED' } });
+
+    await reportedBy(eventPublicId, 2);
+    await expect(statusOf(eventPublicId)).resolves.toBe('PUBLISHED');
+  });
+
+  /**
    * One determined person is not three people.
    *
    * The threshold counts rows, and rows mean *reporters* only because of

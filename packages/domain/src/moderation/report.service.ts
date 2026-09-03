@@ -36,6 +36,10 @@ export interface FiledReport {
  * determined person clicking three times, and nobody can hide a rival's event
  * alone.
  *
+ * **And every complaint counts until somebody refutes it.** The threshold counts
+ * every report that is not `DISMISSED` — see `file` for the production incident
+ * that changed this from `OPEN` alone.
+ *
  * **The owner is told, and never told by whom.** A notification that named the
  * reporter would make reporting an act with a personal cost, which is how a
  * reporting system stops being used precisely when it is needed. The outbox
@@ -89,10 +93,40 @@ export class ReportService {
           throw error;
         }
 
-        // Counted **after** the insert and inside this transaction, so two
-        // simultaneous third reports cannot both see two.
+        /**
+         * Counted **after** the insert and inside this transaction, so two
+         * simultaneous third reports cannot both see two.
+         *
+         * ── Why this is not `status: 'OPEN'` (v0.7.0) ─────────────────────────
+         *
+         * It was, and that is the bug an operator reported as *"an activity was
+         * reported by four different accounts and nothing happened"*. The
+         * production rows say exactly what went wrong: four reports, four
+         * distinct reporters, **two of them already `ACTIONED`**. A moderator had
+         * worked two of the complaints; the count of the ones nobody had touched
+         * was therefore 1, then 2, and never reached three.
+         *
+         * So the filter was subtracting agreement. `ACTIONED` means a moderator
+         * looked and decided the complaint was right — the strongest possible
+         * evidence that the subject is a problem — and it was the one status that
+         * pushed the threshold further away.
+         *
+         * `DISMISSED` is the only status that should not count, and it is the
+         * exact opposite case: somebody looked and said there was nothing in it.
+         * Counting that towards an auto-hide would let three refuted complaints
+         * hide an activity a moderator has already cleared.
+         *
+         * The consequence at the other end is right too. Deciding a case
+         * `APPROVED` marks its reports `DISMISSED`, so a restored activity starts
+         * from zero and needs three *fresh* objections to be hidden again —
+         * which is what "a moderator cleared it" should mean.
+         */
         const distinctReporters = await tx.report.count({
-          where: { targetType: input.targetType, targetId: target.id, status: 'OPEN' },
+          where: {
+            targetType: input.targetType,
+            targetId: target.id,
+            status: { not: 'DISMISSED' },
+          },
         });
 
         const triggered = distinctReporters >= threshold;
