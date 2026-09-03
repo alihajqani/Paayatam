@@ -450,13 +450,18 @@ describe('both parties are notified (D8)', () => {
     expect(payload['hostDeadlineAt']).toBe('2026-08-15T21:00:00.000Z');
 
     /**
-     * Both templates built from this row say «…» about the event and one of them
-     * deep-links the conversation. Neither key was ever written, so both promotion
-     * notifications reached real users reading `«»` with a link to `chats/`.
+     * Both templates built from this row say «…» about the event, and the key was
+     * once missing entirely — so both promotion notifications reached real users
+     * reading `«»`.
+     *
+     * The conversation id that used to ride alongside it is gone with the
+     * conversation (v0.8.0), and its absence is asserted: a payload still
+     * carrying the key would be a template one deploy away from deep-linking a
+     * screen that does not exist, which is the bug this pair of assertions was
+     * written for in the first place.
      */
     expect(payload['eventTitle']).toEqual(expect.stringContaining('دورهمی'));
-    expect(payload['chatPublicId']).toEqual(expect.any(String));
-    expect(payload['chatPublicId']).not.toBe('');
+    expect(payload).not.toHaveProperty('chatPublicId');
   });
 
   /**

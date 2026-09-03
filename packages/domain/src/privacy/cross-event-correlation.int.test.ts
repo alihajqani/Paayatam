@@ -190,35 +190,40 @@ describe('one host, two of their own events, one guest', () => {
   });
 
   /**
-   * Aliases are **per event**, not per person, and this is what stops the alias
-   * itself from becoming the correlation key ADR-0009 layer 3 was worried about.
+   * The platform assigns no pseudonym at all (v0.8.0).
    *
-   * Both of this guest's conversations are «میهمان ۱» — the first request to each
-   * event — which carries no information about who they are. The correlation the
-   * host gets comes from the name beside it, deliberately (ADR-0014), and not
-   * from a pseudonym the platform assigned and maintained across contexts.
+   * ADR-0009 layer 3 worried that an alias could *become* the correlation key it
+   * was meant to avoid, and the answer was to number people per event rather than
+   * per person: both of this guest's conversations were «میهمان ۱», the first
+   * request to each event, which said nothing about who they were.
+   *
+   * Removing the anonymous conversation removed the aliases with it, which
+   * settles that worry rather than answering it — there is no platform-assigned
+   * name to be correlated across contexts, because there is no platform-assigned
+   * name. Joining now writes exactly one row, on the participation, and this is
+   * what would notice a pseudonym coming back.
    */
-  it('numbers the guest independently in each event', async () => {
+  it('assigns the guest no pseudonym in either event', async () => {
     const first = await createEvent(hostA, 'شب بازی رومیزی');
     const second = await createEvent(hostA, 'پیاده‌روی صبحگاهی');
     const other = await createUser(prisma, 'PROFILE_COMPLETE', { coins: 100 });
     await nameAndComplete(other, 'کاربر دیگر');
 
-    // Somebody else asks first on the second event, so the two indices would
-    // differ if they were global.
     await participation.join(guest, first);
     await participation.join(other, second);
     await participation.join(guest, second);
 
-    const aliases = await prisma.chatParticipant.findMany({
-      where: { userId: guest, role: 'GUEST' },
-      select: { alias: true, aliasIndex: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    await expect(prisma.chatParticipant.count()).resolves.toBe(0);
+    await expect(prisma.anonymousChat.count()).resolves.toBe(0);
 
-    expect(aliases.map((row) => row.aliasIndex)).toEqual([1, 2]);
-    // Which is exactly the point: an alias index is a position in one event's
-    // queue, so it says nothing about the person holding it.
+    // What the guest does have in each event is one participation, and the only
+    // thing that names them is the display name their profile carries.
+    const rows = await prisma.eventParticipant.findMany({
+      where: { userId: guest },
+      select: { publicId: true },
+    });
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.publicId)).size).toBe(2);
   });
 });
 

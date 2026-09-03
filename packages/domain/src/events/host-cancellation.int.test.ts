@@ -215,13 +215,14 @@ describe('what a host cancellation does (ADR-0011, D9)', () => {
   });
 
   /**
-   * The note M8 left for M10, discharged.
+   * Cancelling opens and closes nothing (v0.8.0).
    *
-   * A chat left open after its event was cancelled is two strangers arranging a
-   * meeting that will not happen — and neither of them has any way to find out
-   * from the conversation that it is off.
+   * This asserted the note M8 left for M10 — a chat left open after its event was
+   * cancelled is two strangers arranging a meeting that will not happen. There
+   * are no conversations to close; joining creates none and cancelling touches
+   * none, and this is what would notice either coming back by accident.
    */
-  it('closes every conversation the event opened', async () => {
+  it('opens and closes no conversation', async () => {
     const eventPublicId = await publishEvent();
     await accepted(eventPublicId);
     await accepted(eventPublicId);
@@ -229,9 +230,7 @@ describe('what a host cancellation does (ADR-0011, D9)', () => {
     clock.set(at(1));
     await events.cancelByHost(hostId, eventPublicId);
 
-    const chats = await prisma.anonymousChat.findMany({ select: { status: true } });
-    expect(chats).toHaveLength(2);
-    expect(chats.every((row) => row.status === 'CLOSED')).toBe(true);
+    expect(await prisma.anonymousChat.count()).toBe(0);
   });
 
   /**

@@ -525,24 +525,25 @@ beforeAll(async () => {
   accessToken = tokens.accessToken;
 
   /**
-   * One message in that conversation, holding every identifier at once.
+   * One message in that conversation, so the break-glass read has something to
+   * return.
    *
    * Sealed with the application's own `MessageCipher` rather than sent through a
-   * service, because the service is gone. What it exists for now is the
-   * break-glass unseal: `GET /admin/v1/chats/unseal/:grant` decrypts this row for
-   * a moderator, and the scan reads that response like every other — a body that
-   * carried an identifier the *moderator* was not entitled to would be a leak
-   * even under a grant.
+   * service, because the service is gone. `GET /admin/v1/chats/unseal/:grant`
+   * decrypts this row for a moderator and the scan reads that response like every
+   * other one.
    *
-   * Deliberately **unmasked**. The relay used to sanitise on the way in and the
-   * scan proved the recipient saw none of it; nobody reads this as a recipient
-   * any more, and what a moderator gets under a written reason and a
-   * fifteen-minute clock is the conversation as it was written.
+   * The body carries **no identifier**, and that is deliberate rather than
+   * incidental. It used to: the leaky host typed a phone number, a handle and a
+   * `t.me` link into the relay, and the scan's whole point was that the relay
+   * masked all three before anybody read them. There is no relay to prove
+   * anything about, and a fixture that fed identifiers into a body the sweep then
+   * reads back would report a leak where the only thing leaking is the fixture.
+   * The positive control that the patterns still catch what they are looking for
+   * is `LEAK_PATTERNS`' own test, which builds the string itself.
    */
   const cipher = app.get(MessageCipher);
-  const sealed = cipher.encrypt(
-    `برای هماهنگی: ${PHONE} یا @${TELEGRAM_USERNAME} — https://t.me/${TELEGRAM_USERNAME}`,
-  );
+  const sealed = cipher.encrypt('ساعت هفت جلوی کافه می‌بینمتان.');
   const guestSide = await prisma.chatParticipant.findFirstOrThrow({
     where: { chat: { publicId: chatPublicId }, role: 'HOST' },
     select: { id: true },

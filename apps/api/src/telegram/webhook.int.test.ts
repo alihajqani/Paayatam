@@ -159,7 +159,11 @@ beforeEach(async () => {
 });
 
 /** A host with a profile, an event, and the Telegram identity the bot will speak to. */
-async function seedHostAndEvent(): Promise<{ hostId: string; eventPublicId: string }> {
+async function seedHostAndEvent(): Promise<{
+  hostId: string;
+  hostPublicId: string;
+  eventPublicId: string;
+}> {
   const host = await prisma.user.create({
     data: {
       onboardingState: 'PROFILE_COMPLETE',
@@ -172,7 +176,7 @@ async function seedHostAndEvent(): Promise<{ hostId: string; eventPublicId: stri
       },
       profile: { create: { displayName: 'میزبان', cityId: fixture.tehranId, birthYear: 1993 } },
     },
-    select: { id: true },
+    select: { id: true, publicId: true },
   });
   await prisma.coinAccount.create({ data: { userId: host.id, balance: 1_000 } });
 
@@ -199,7 +203,7 @@ async function seedHostAndEvent(): Promise<{ hostId: string; eventPublicId: stri
     select: { publicId: true },
   });
 
-  return { hostId: host.id, eventPublicId: event.publicId };
+  return { hostId: host.id, hostPublicId: host.publicId, eventPublicId: event.publicId };
 }
 
 /**
@@ -1511,14 +1515,20 @@ describe('POST /telegram/:secret — reporting', () => {
     expect(report.description).toBeNull();
   });
 
-  /** Still nobody is notified — the form changed nothing about that. */
-  it('notifies nobody about a reported conversation', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
+  /**
+   * Still nobody is notified — the form changed nothing about that.
+   *
+   * The subject was a conversation until v0.8.0, and the reporting entry point
+   * for one went with it. The property is unchanged and now runs against the
+   * host: the person being reported learns nothing, which is the one message this
+   * area must never send.
+   */
+  it('notifies nobody about a reported host', async () => {
+    const { eventPublicId, hostPublicId } = await seedHostAndEvent();
     const guestId = await seedGuest(GUEST_TELEGRAM_ID);
     await participation.join(guestId, eventPublicId);
-    const chat = await prisma.anonymousChat.findFirstOrThrow({ select: { publicId: true } });
 
-    await tap(GUEST_TELEGRAM_ID, `rp:askc:${chat.publicId}`);
+    await tap(GUEST_TELEGRAM_ID, `rp:asku:${hostPublicId}`);
     await tap(GUEST_TELEGRAM_ID, 'wz:why:HARASSMENT');
     await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
     const before = await prisma.notification.count({
@@ -1527,8 +1537,7 @@ describe('POST /telegram/:secret — reporting', () => {
     await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
 
     const report = await prisma.report.findFirstOrThrow({ select: { targetType: true } });
-    expect(report.targetType).toBe('MESSAGE');
-    // The host learns nothing. This is the one message this area must never send.
+    expect(report.targetType).toBe('USER');
     expect(
       await prisma.notification.count({
         where: { user: { telegramAccount: { telegramUserId: BigInt(HOST_TELEGRAM_ID) } } },
@@ -3307,20 +3316,24 @@ describe('POST /telegram/:secret — the consent gate', () => {
   });
 
   /**
-   * The hole this closes, stated as a test. Relaying a message is a write, and
-   * `POST /chats/:id/messages` has carried `@RequiresCurrentPolicies()` since
-   * M22 — the bot's relay never did.
+   * The hole this closes, stated as a test.
+   *
+   * Writing to a host is a write, and the gate applies to it. It used to be the
+   * relay that had to be stopped here; since v0.8.0 it is «پیام مستقیم به
+   * میزبان», and the tap that opens the form is where the gate fires — before a
+   * form exists to type into, which is the earlier and better place for it.
    */
-  it('refuses to relay a chat message from somebody who owes an acceptance', async () => {
+  it('refuses a direct message from somebody who owes an acceptance', async () => {
     const { eventPublicId } = await seedHostAndEvent();
     const guestId = await seedGuest(GUEST_TELEGRAM_ID);
     await participation.join(guestId, eventPublicId);
-    // Published *after* the join, so the user is mid-conversation and now owes.
+    // Published *after* the join, so the user is mid-flow and now owes.
     await requirePolicies();
 
+    await tap(GUEST_TELEGRAM_ID, `dm:write:${eventPublicId}`);
     await type(GUEST_TELEGRAM_ID, 'سلام');
 
-    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
+    expect(await prisma.directMessage.count()).toBe(0);
     expect(
       await prisma.conversationState.findUniqueOrThrow({ where: { userId: guestId } }),
     ).toMatchObject({ kind: 'ACCEPT_POLICIES' });
