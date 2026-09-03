@@ -90,6 +90,27 @@ describe('two-recipient events', () => {
     expect(planned.every((plan) => plan.templateKey === TEMPLATES.REVIEW_REVEALED)).toBe(true);
   });
 
+  /**
+   * The referral payout (v0.7.0). Two people, two different sentences, one row —
+   * so two keys, or the shared one would deliver only to the first.
+   */
+  it('referral.qualified tells the referrer and the person who used the code', () => {
+    const planned = planNotifications(
+      row('referral.qualified', {
+        referrerUserPublicId: HOST,
+        referredUserPublicId: GUEST,
+        referrerCoins: 30,
+        referredCoins: 10,
+      }),
+    );
+
+    expect(planned).toHaveLength(2);
+    expect(planned.map((plan) => plan.templateKey).sort()).toEqual(
+      [TEMPLATES.REFERRAL_QUALIFIED_REFERRER, TEMPLATES.REFERRAL_QUALIFIED_REFERRED].sort(),
+    );
+    expect(new Set(planned.map((plan) => plan.dedupeKey)).size).toBe(2);
+  });
+
   it('participation.requested tells the host and the guest', () => {
     const planned = planNotifications(
       row('participation.requested', {
@@ -99,6 +120,46 @@ describe('two-recipient events', () => {
     );
 
     expect(planned).toHaveLength(2);
+  });
+});
+
+/**
+ * The three one-recipient events v0.7.0 added.
+ *
+ * A direct message and its receipt go opposite ways — the message to the
+ * recipient, the «دیده شد» back to the sender — and getting that pair the wrong
+ * way round would tell somebody their own message had arrived.
+ */
+describe('the v0.7.0 events', () => {
+  it('direct.message_sent tells the recipient', () => {
+    const planned = planNotifications(
+      row('direct.message_sent', { recipientUserPublicId: HOST, senderDisplayName: 'میهمان' }),
+    );
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.templateKey).toBe(TEMPLATES.DIRECT_MESSAGE_RECEIVED);
+    expect(planned[0]?.userPublicId).toBe(HOST);
+  });
+
+  it('direct.message_seen tells the sender, the other way round', () => {
+    const planned = planNotifications(
+      row('direct.message_seen', { senderUserPublicId: GUEST, eventTitle: 'کوهنوردی' }),
+    );
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.templateKey).toBe(TEMPLATES.DIRECT_MESSAGE_SEEN);
+    expect(planned[0]?.userPublicId).toBe(GUEST);
+  });
+
+  /** The counterpart `moderation.content_hidden` never had. */
+  it('moderation.content_restored tells the owner, and names no reporter', () => {
+    const planned = planNotifications(
+      row('moderation.content_restored', { ownerUserPublicId: HOST, subjectType: 'EVENT' }),
+    );
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.templateKey).toBe(TEMPLATES.CONTENT_RESTORED);
+    expect(planned[0]?.userPublicId).toBe(HOST);
   });
 });
 
