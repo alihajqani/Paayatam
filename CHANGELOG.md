@@ -14,6 +14,108 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.8.0] — 2026-09-03
+
+One feature removed and one bug fixed, and they are the same story: the product
+had two ways for two people to write to each other, and the older one was in the
+way of the newer one working.
+
+### Fixed
+
+- **The reply button under a direct message was never drawn.** Pressing «مشاهدهٔ
+  پیام» built a «✍️ پاسخ به این پیام» row, serialised it into the payload, and
+  handed it to `BOT_NOTICE` — which discards any keyboard it is given and returns
+  the menu opener instead. That is deliberate there: it is the template every
+  refusal and one-line answer uses, and the menu is the useful thing to spend a
+  keyboard on. The consequence was an answer button that existed in the code, was
+  correct, and reached nobody in either direction. `BOT_DIRECT_MESSAGE` is the
+  passthrough the screen needed, shaped like `BOT_WIZARD`.
+
+### Changed
+
+- **«✉️ دایرکت» → «✉️ پیام مستقیم به میزبان».** The old label named the medium
+  and not the addressee. On a screen that also offers «پایتم» and two report
+  buttons, the question a reader has is who they are about to write to — and it
+  matters more here than anywhere else on that screen, because this is the one
+  control that sends a stranger a message.
+- **A thread runs in both directions.** The permission was always there —
+  `reply` is addressed to the parent's sender and only its recipient may write
+  one — so what changed is that the control now arrives. Guest writes, host reads
+  and answers, guest reads the answer and answers that, for as long as they need
+  to.
+- **Direct messages are never deleted on a timer, and it is now written down.**
+  The purge never touched them, which was correct and stated nowhere. The chat's
+  ninety-day clock followed from its anonymity; a thread people use to arrange a
+  meeting must not take the address with it. `retention.int.test.ts` seeds a
+  message older than every window in §8 and asserts it survives.
+- **«پیام‌های گفتگو» → «پیام‌های مستقیم» in settings.** The preference column is
+  unchanged; what it governs is now the only messaging there is.
+- **The relay's rate limit moved to the feature that replaced it.** `CHAT_SEND`
+  becomes `DIRECT_MESSAGE_SEND`, thirty a minute, spent when a message is sent
+  rather than when the form opens. A removal that had taken the limit away would
+  have left the one thing in the product that writes to a stranger unmetered.
+
+### Removed
+
+- **The anonymous conversation, entirely.** `ChatService` owned a conversation
+  that belonged to a participation: it opened when somebody asked to join, used
+  aliases instead of names, masked contact details until both sides consented,
+  and carried a status machine, a per-chat sequence, a retention clock and a
+  relay that guessed which conversation a typed message belonged to. All of it
+  existed to let two strangers talk without either giving anything away — and it
+  made the thing people actually wanted impossible: you had to join before you
+  could ask a question, and once you had agreed to meet, the masking stood
+  between you and the phone number you were trying to swap.
+
+  Gone with it: `/chats` and its digest; the menu group that held it; the relay,
+  the reply-routing and the edit propagation; `chat.message`,
+  `chat.message_edited` and `chat.message_deleted`; `chat:close`, `chat:share`
+  and `chat:shareyes`; five `/api/v1/chats` endpoints and `POST
+  /chats/:id/report`; the Mini App's conversation screen, store and privacy copy;
+  the optional note that used to ride along with a join; and the conversation
+  hooks in `ParticipationService` and `EventService`, so joining, accepting,
+  rejecting, cancelling and expiring stop writing rows.
+
+  `chat:accept` and `chat:reject` **keep the prefix**. They never carried a chat
+  id — they carry a participant one — and renaming would turn every host-decision
+  button already sitting in somebody's Telegram history into «این دکمه دیگر کار
+  نمی‌کند» on a request that expires in twenty-four hours.
+
+- **Three error codes** — `CHAT_CLOSED`, `CHAT_NOT_OPEN` and
+  `CHAT_MESSAGE_EMPTY` — described states only a conversation could be in.
+  `CHAT_MEDIA_UNSUPPORTED` survives on its own merit: the bot still refuses a
+  photo sent to a form that does not want one.
+
+### Migrations
+
+- `00000000000044_retire_conversations` — **closes** every remaining
+  conversation; it drops nothing. `retention_expires_at` is set when a chat
+  closes and the nightly purge keys on it, so a chat left open by a build that
+  can no longer close one would never expire and the ninety-day promise would
+  quietly become "forever" for whoever had a live conversation on deploy day.
+  Every non-closed chat is closed now with the standard clock from ADR-0009 §8,
+  and every message without an expiry gets one. Nothing is deleted today;
+  everything is deleted on the schedule it was promised, and a moderator keeps a
+  break-glass window in the meantime.
+
+### Notes
+
+- **The tables stay.** `anonymous_chat` and its four dependents still hold real
+  conversations between real people, a report filed while the feature existed
+  still points at one, and a moderator can still be granted a break-glass unseal
+  under an open case. Dropping them would destroy the evidence for complaints
+  that are open now. The admin dashboard's tile is relabelled «گفت‌وگوهای
+  بایگانی‌شده», says what it is, and hides itself when the count reaches zero.
+- **B4's privacy gate is rebuilt, not dropped.** Five messages through the real
+  webhook, the same sweep for four identifiers over every API response and stored
+  payload, plus two assertions the old gate could not make: a number its owner
+  typed reaches its recipient **unmasked**, and it is ciphertext at rest. The one
+  exclusion from the sweep is the reader's own copy of a message — masking that
+  would be asserting the opposite of what this feature is for.
+- `MessageCipher` moves to its own `CryptoModule` and `sanitizeInbound` to
+  `privacy/`. Both were provided beside `ChatService`; three things still hold
+  the key and `AdminInsightService` still masks a bio.
+
 ## [v0.7.0] — 2026-09-03
 
 The third QA round, and the largest release since M22. Two features are removed
