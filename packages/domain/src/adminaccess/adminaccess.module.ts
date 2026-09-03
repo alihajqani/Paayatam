@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
 import { ChannelModule } from '../channel/channel.module';
-import { ChatModule } from '../chat/chat.module';
+import { CryptoModule } from '../crypto/crypto.module';
 import { EconomyModule } from '../economy/economy.module';
 import { IdentityModule } from '../identity/identity.module';
 import { MessagingModule } from '../messaging/messaging.module';
@@ -42,7 +42,7 @@ import { ReferralAdminService } from './referral-admin.service';
     // For `ChannelConfigService`: the panel is where the event channel and its
     // membership requirement are configured (M22 phase 6).
     ChannelModule,
-    ChatModule,
+    CryptoModule,
     EconomyModule,
     IdentityModule,
     MessagingModule,

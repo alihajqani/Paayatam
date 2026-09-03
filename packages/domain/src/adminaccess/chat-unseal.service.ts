@@ -4,7 +4,7 @@ import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
-import { MessageCipher } from '../chat/message-cipher';
+import { MessageCipher } from '../crypto/message-cipher';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
 import { PERMISSIONS } from './permissions';
 

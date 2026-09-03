@@ -3,7 +3,6 @@ import { computed, onMounted } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import AppVersion from '@/components/AppVersion.vue';
 import { formatCoins, toPersianDigits } from '@/format/fa';
-import { useChatsStore } from '@/stores/chats';
 import { useReviewsStore } from '@/stores/reviews';
 import { useSessionStore } from '@/stores/session';
 
@@ -16,7 +15,6 @@ import { useSessionStore } from '@/stores/session';
  */
 const route = useRoute();
 const session = useSessionStore();
-const chats = useChatsStore();
 const reviews = useReviewsStore();
 
 const profile = computed(() => session.me?.profile ?? null);
@@ -24,9 +22,8 @@ const balance = computed(() => session.me?.coins.balance ?? 0);
 const justRewarded = computed(() => route.query['welcome'] === '1');
 
 onMounted(() => {
-  // Only to put counts on two rows. A failure here must not take the home screen
-  // down with it, so both are deliberately swallowed.
-  void chats.load().catch(() => undefined);
+  // Only to put a count on one row. A failure here must not take the home screen
+  // down with it, so it is deliberately swallowed.
   void reviews.loadPending().catch(() => undefined);
 });
 </script>
@@ -102,20 +99,6 @@ onMounted(() => {
       >
         <span class="font-medium">رویدادهای من</span>
         <span class="text-tg-hint">›</span>
-      </RouterLink>
-
-      <RouterLink
-        to="/chats"
-        class="flex min-h-11 items-center justify-between rounded-xl bg-tg-secondary-bg px-4 py-3"
-      >
-        <span class="font-medium">گفت‌وگوها</span>
-        <span
-          v-if="chats.unreadTotal > 0"
-          class="rounded-full bg-tg-button px-2 py-0.5 text-xs text-tg-button-text"
-        >
-          {{ toPersianDigits(chats.unreadTotal) }}
-        </span>
-        <span v-else class="text-tg-hint">›</span>
       </RouterLink>
 
       <RouterLink

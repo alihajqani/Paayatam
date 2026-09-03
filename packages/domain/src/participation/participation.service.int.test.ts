@@ -6,7 +6,6 @@ import {
   createTestPrisma,
   createUser,
   resetDatabase,
-  TEST_CHAT_ENCRYPTION_KEY,
   seedCatalog,
   type CatalogFixture,
 } from '../../../../test/integration/db';
@@ -19,8 +18,6 @@ import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
-import { ChatService } from '../chat/chat.service';
-import { MessageCipher } from '../chat/message-cipher';
 import { normalize } from '../moderation/persian-normalizer';
 import { OutboxService } from '../outbox/outbox.service';
 import { ParticipationService } from './participation.service';
@@ -47,10 +44,6 @@ const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 const settings = new SettingsService(service);
 const audit = new AuditService(service, clock);
 const outbox = new OutboxService(service, clock);
-const cipher = new MessageCipher({
-  CHAT_ENCRYPTION_KEY: TEST_CHAT_ENCRYPTION_KEY,
-} as unknown as Env);
-const chat = new ChatService(service, clock, cipher, audit, outbox);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
@@ -73,7 +66,6 @@ const participation = new ParticipationService(
   settings,
   audit,
   outbox,
-  chat,
   penalties,
   membership,
   coins,
@@ -840,7 +832,16 @@ describe('the notification a real acceptance produces', () => {
     expect(text).toContain('دورهمی');
   });
 
-  it('deep-links the conversation the acceptance opened, not `chats/`', async () => {
+  /**
+   * The acceptance payload carries no conversation id any more (v0.8.0).
+   *
+   * It used to, and the assertion here was that it was a real one rather than an
+   * empty string — the template deep-linked `chats/<id>` and an empty id sent the
+   * host to a screen that did not exist. There is no conversation and no such
+   * screen; a payload still carrying the key would be a template one deploy away
+   * from pointing at nothing again.
+   */
+  it('carries no conversation id', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
     const request = await participation.join(joiner, eventPublicId);
@@ -849,11 +850,8 @@ describe('the notification a real acceptance produces', () => {
     const row = await prisma.outboxEvent.findFirstOrThrow({
       where: { eventType: 'participation.accepted' },
     });
-    const payload = row.payload as Record<string, unknown>;
 
-    expect(payload['chatPublicId']).toEqual(expect.any(String));
-    expect(payload['chatPublicId']).not.toBe('');
-    expect(payload['chatPublicId']).toBe(request.chatPublicId);
+    expect(row.payload as Record<string, unknown>).not.toHaveProperty('chatPublicId');
   });
 
   it('names the event in a rejection too', async () => {

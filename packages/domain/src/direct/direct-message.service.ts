@@ -4,7 +4,7 @@ import type { Prisma } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
-import { MessageCipher } from '../chat/message-cipher';
+import { MessageCipher } from '../crypto/message-cipher';
 import { OutboxService } from '../outbox/outbox.service';
 
 /** The longest a single direct message may be. */
@@ -25,34 +25,41 @@ export interface DirectMessageDetail {
 }
 
 /**
- * Direct messages about an activity (v0.7.0).
+ * Direct messages about an activity — the product's only messaging (v0.7.0).
  *
- * ── Why this is not the anonymous chat ──────────────────────────────────────
+ * ── What this replaced, and why the replacement is smaller ──────────────────
  *
- * `ChatService` owns a *conversation* that belongs to a participation. It opens
- * when somebody asks to join, uses aliases instead of names, masks contact
- * details until both sides consent, carries a status machine, a per-chat
- * sequence, a retention clock, and a relay that routes a typed reply back into
- * the right conversation by remembering which message the sender pressed reply
- * on. Every one of those exists to protect two strangers who have not met and
- * have not agreed to.
+ * Until v0.8.0 there was a second, older thing: an anonymous conversation that
+ * belonged to a *participation*. It opened when somebody asked to join, used
+ * aliases instead of names, masked contact details until both sides consented,
+ * and carried a status machine, a per-chat sequence, a retention clock and a
+ * relay that routed a typed reply back into the right conversation by
+ * remembering which message the sender had pressed reply on.
  *
- * This is the other thing somebody wants: **a message to the host about their
- * activity, before deciding anything**. The writer may never join. There is no
- * participation to hang a chat from, nothing to keep anonymous beyond what they
- * choose to write, and no conversation to open or close.
+ * All of that existed to let two strangers talk without either of them giving
+ * anything away — and it made the one thing people actually wanted impossible.
+ * You had to **join first** to ask a question, and once you had arranged to meet,
+ * the masking stood between you and the phone number you were trying to swap.
  *
- * The decisive difference is the one the product asked for: **contact details
- * are not masked here**. Exchanging a phone number or a Telegram handle so two
- * people can arrange a lift is the point, and the notification says so — with the
- * warning that it is the reader's own risk. Sharing a table with the place where
- * masking *is* the guarantee is how that warning eventually stops being true.
+ * This is the shape that was wanted: **a message to the host about their
+ * activity, from somebody who may never join**, and **contact details are not
+ * masked**. Exchanging a number or a handle so two people can arrange a lift is
+ * the point of the feature, and every delivered message repeats that doing so is
+ * the reader's own risk (`formatDirectMessage`). The warning is the safeguard
+ * here, because masking cannot be.
  *
- * ── What is shared ─────────────────────────────────────────────────────────
+ * ── What it keeps from the old design ──────────────────────────────────────
  *
  * `MessageCipher`, so a database dump is not a transcript (ADR-0009), and the
  * outbox, so a message and the notification about it commit together or not at
  * all (ADR-0005).
+ *
+ * ── What it deliberately does not have ─────────────────────────────────────
+ *
+ * A retention clock. The chat's ninety days followed from its anonymity; a thread
+ * people use to arrange a meeting must not delete the address halfway through it.
+ * `RetentionService` names this absence explicitly so nobody restores it by
+ * adding one more table to the purge.
  *
  * ── Who may write to whom ──────────────────────────────────────────────────
  *

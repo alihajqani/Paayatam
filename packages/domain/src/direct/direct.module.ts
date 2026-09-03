@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ChatModule } from '../chat/chat.module';
+import { CryptoModule } from '../crypto/crypto.module';
 import { DirectMessageService } from './direct-message.service';
 
 /**
@@ -13,7 +13,7 @@ import { DirectMessageService } from './direct-message.service';
  * `AuditModule` and `OutboxModule` are `@Global`, so they need no import.
  */
 @Module({
-  imports: [ChatModule],
+  imports: [CryptoModule],
   providers: [DirectMessageService],
   exports: [DirectMessageService],
 })

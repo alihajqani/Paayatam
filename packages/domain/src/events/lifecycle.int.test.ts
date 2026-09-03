@@ -7,15 +7,12 @@ import {
   createUser,
   resetDatabase,
   seedCatalog,
-  TEST_CHAT_ENCRYPTION_KEY,
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
 import { SettingsService } from '../catalog/settings.service';
-import { ChatService } from '../chat/chat.service';
-import { MessageCipher } from '../chat/message-cipher';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { ReferralService } from '../economy/referral.service';
@@ -46,10 +43,6 @@ const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 const settings = new SettingsService(service);
 const audit = new AuditService(service, clock);
 const outbox = new OutboxService(service, clock);
-const cipher = new MessageCipher({
-  CHAT_ENCRYPTION_KEY: TEST_CHAT_ENCRYPTION_KEY,
-} as unknown as Env);
-const chat = new ChatService(service, clock, cipher, audit, outbox);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
@@ -105,7 +98,6 @@ const participation = new ParticipationService(
   settings,
   audit,
   outbox,
-  chat,
   penalties,
   membership,
   coins,

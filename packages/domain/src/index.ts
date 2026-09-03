@@ -156,17 +156,16 @@ export type {
 } from './participation/participation.service';
 export { ParticipationModule } from './participation/participation.module';
 
-export {
-  CHAT_TRANSITIONS,
-  LIVE_CHAT_STATUSES,
-  assertChatTransition,
-  isLiveChat,
-} from './chat/state-machine';
-export { HOST_ALIAS, HOST_ALIAS_INDEX, guestAlias, toPersianDigits } from './chat/alias';
-export { REDACTION_PLACEHOLDER, sanitizeInbound } from './chat/sanitizer';
-export type { Redaction, RedactionKind, SanitizeOptions, SanitizedMessage } from './chat/sanitizer';
-export type { InboundTextMessage, MessageEntity } from './chat/inbound-message';
-export { CURRENT_KEY_VERSION, MessageCipher } from './chat/message-cipher';
+export { REDACTION_PLACEHOLDER, sanitizeInbound } from './privacy/sanitizer';
+export type {
+  Redaction,
+  RedactionKind,
+  SanitizeOptions,
+  SanitizedMessage,
+} from './privacy/sanitizer';
+export type { InboundTextMessage, MessageEntity } from './privacy/inbound-message';
+export { CURRENT_KEY_VERSION, MessageCipher } from './crypto/message-cipher';
+export { CryptoModule } from './crypto/crypto.module';
 
 // ── Conversation wizards (ADR-0017) ─────────────────────────────────────────
 export { ConversationModule } from './conversation/conversation.module';
@@ -218,17 +217,7 @@ export type { FileReportForm } from './conversation/wizards/file-report';
 export { CODE_KINDS, isCodeKind, redeemCodeWizard } from './conversation/wizards/redeem-code';
 export type { CodeKind, RedeemCodeForm } from './conversation/wizards/redeem-code';
 export type { WriteReviewForm } from './conversation/wizards/write-review';
-export type { EncryptedBody } from './chat/message-cipher';
-export {
-  CHAT_ANONYMOUS_INTRO,
-  CHAT_CLOSED_NOTICE,
-  CHAT_MESSAGE_DELETED,
-  CHAT_OPENED,
-  chatContactShared,
-} from './chat/messages';
-export { ChatService, RETENTION_DAYS_AFTER_CLOSE, masksContactDetails } from './chat/chat.service';
-export type { ChatMessageDetail, ChatPage, ChatSummary, CreatedChat } from './chat/chat.service';
-export { ChatModule } from './chat/chat.module';
+export type { EncryptedBody } from './crypto/message-cipher';
 
 export { encodeCursor, decodeCursor } from './discovery/cursor';
 export type { DiscoveryCursor, DiscoverySort } from './discovery/cursor';

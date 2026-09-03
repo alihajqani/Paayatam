@@ -6,7 +6,7 @@ import type { PrismaClient } from '@payetam/db';
 import { ENV } from '@payetam/platform';
 import {
   AdminAccessService,
-  ChatService,
+  MessageCipher,
   ChatUnsealService,
   CoinService,
   ROLE_KEYS,
@@ -525,22 +525,38 @@ beforeAll(async () => {
   accessToken = tokens.accessToken;
 
   /**
-   * The leaky host tries to hand over every identifier at once.
+   * One message in that conversation, holding every identifier at once.
    *
-   * Sent through the application's own `ChatService`, so the message goes through
-   * the real sanitizer and the real cipher rather than being seeded past them.
-   * What the scan then asserts about `GET /chats/:id/messages` is the property
-   * M8 exists for: the recipient reads the conversation and none of it arrives.
+   * Sealed with the application's own `MessageCipher` rather than sent through a
+   * service, because the service is gone. What it exists for now is the
+   * break-glass unseal: `GET /admin/v1/chats/unseal/:grant` decrypts this row for
+   * a moderator, and the scan reads that response like every other — a body that
+   * carried an identifier the *moderator* was not entitled to would be a leak
+   * even under a grant.
    *
-   * A message body is content the recipient is *entitled* to see, so this only
-   * works because the masking is what removes the identifiers. Seeding an
-   * unmasked body and calling the read a leak would be testing the wrong thing —
-   * the same mistake M5 had to correct when the scan authenticated as the user
-   * whose own data it was reading.
+   * Deliberately **unmasked**. The relay used to sanitise on the way in and the
+   * scan proved the recipient saw none of it; nobody reads this as a recipient
+   * any more, and what a moderator gets under a written reason and a
+   * fifteen-minute clock is the conversation as it was written.
    */
-  const chats = app.get(ChatService);
-  await chats.send(host.id, chatPublicId, {
-    text: `برای هماهنگی: ${PHONE} یا @${TELEGRAM_USERNAME} — https://t.me/${TELEGRAM_USERNAME}`,
+  const cipher = app.get(MessageCipher);
+  const sealed = cipher.encrypt(
+    `برای هماهنگی: ${PHONE} یا @${TELEGRAM_USERNAME} — https://t.me/${TELEGRAM_USERNAME}`,
+  );
+  const guestSide = await prisma.chatParticipant.findFirstOrThrow({
+    where: { chat: { publicId: chatPublicId }, role: 'HOST' },
+    select: { id: true },
+  });
+  await prisma.chatMessage.create({
+    data: {
+      chat: { connect: { publicId: chatPublicId } },
+      sender: { connect: { id: guestSide.id } },
+      seq: 1,
+      kind: 'TEXT',
+      bodyCiphertext: new Uint8Array(sealed.ciphertext),
+      bodyNonce: new Uint8Array(sealed.nonce),
+      keyVersion: sealed.keyVersion,
+    },
   });
 
   /**
@@ -891,19 +907,9 @@ beforeAll(async () => {
     // a live participation, and the next line ends this one.
     { method: 'GET', url: `/api/v1/participants/${viewerParticipantPublicId}/cancel-preview` },
     { method: 'POST', url: `/api/v1/participants/${viewerParticipantPublicId}/cancel`, body: {} },
-    // M8. `close` is deliberately last: it ends the conversation, and the passes
-    // that follow then read a closed chat and get the refusals — which are
-    // responses too, and an error body that named the person it refused would be
-    // just as much of a leak as a success body that did.
-    { method: 'GET', url: '/api/v1/chats' },
-    { method: 'GET', url: `/api/v1/chats/${chatPublicId}/messages` },
-    {
-      method: 'POST',
-      url: `/api/v1/chats/${chatPublicId}/messages`,
-      body: { text: 'ساعت هفت جلوی کافه' },
-    },
-    { method: 'POST', url: `/api/v1/chats/${chatPublicId}/share-contact` },
-    { method: 'POST', url: `/api/v1/chats/${chatPublicId}/close`, body: {} },
+    // M8's five conversation endpoints stood here and are gone with the feature
+    // (v0.8.0). The one surface that still reads a `chat_message` is the
+    // break-glass unseal below, which is scanned as an admin.
     /**
      * The six the coverage check above found uncovered — every one of them a
      * *write*, and every one of them there since M2 or M4.
@@ -1009,7 +1015,6 @@ beforeAll(async () => {
     },
     { method: 'POST', url: `/api/v1/users/${hostPublicId}/report`, body: { reason: 'HARASSMENT' } },
     { method: 'POST', url: `/api/v1/reviews/${reviewPublicId}/report`, body: { reason: 'OTHER' } },
-    { method: 'POST', url: `/api/v1/chats/${chatPublicId}/report`, body: { reason: 'SAFETY' } },
     /**
      * M18's gift codes, both sides.
      *
@@ -1822,62 +1827,44 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
   });
 
   /**
-   * The chat's own version of the projection assertion above, stated as an exact
-   * key set for the reason M5 gave: `not.toHaveProperty(…)` keeps passing when a
-   * new column arrives, and the next leak is always a field nobody thought about.
+   * The unsealed conversation — the last projection that reads a `chat_message`.
+   *
+   * The user-facing version of this assertion is gone with the endpoints it
+   * described. What is left is the moderator's: a break-glass grant decrypts a
+   * conversation, and an exact key set is what makes a new field on it a decision
+   * somebody had to make rather than a leak nobody noticed.
+   *
+   * **The body is expected to be readable here.** That is the whole point of a
+   * grant, and it is why the pattern scan above treats this response the way it
+   * treats a user reading their own data — what must not appear is an identifier
+   * the moderator was never granted, not the message they were.
    */
-  it('describes a chat by alias and name, and gives the reader no other handle on anyone', async () => {
+  it('describes an unsealed message by alias and body, and nothing else', async () => {
+    // The grant is looked up rather than closed over: it is minted in the setup
+    // and read once by the sweep, and a grant stays readable until it expires.
+    const grant = await prisma.chatUnsealGrant.findFirstOrThrow({
+      orderBy: { grantedAt: 'desc' },
+      select: { id: true },
+    });
     const body = await fetchBody({
       method: 'GET',
-      url: `/api/v1/chats/${chatPublicId}/messages`,
+      url: `/admin/v1/chats/unseal/${grant.id}`,
+      admin: true,
     });
-    const parsed = JSON.parse(body) as {
-      chat: Record<string, unknown>;
-      messages: Record<string, unknown>[];
-    };
-
-    expect(Object.keys(parsed.chat).sort()).toEqual([
-      'alias',
-      'contactShared',
-      'counterpartAlias',
-      'counterpartContactShared',
-      /**
-       * M18, ADR-0014. The counterpart's **profile display name**, which titles the
-       * conversation beside `eventTitle` and falls back to their alias when there is
-       * no profile.
-       *
-       * Added here deliberately rather than by relaxing this assertion, because this
-       * is the check that would otherwise have caught it: an exact key set is what
-       * makes a new field on this projection a decision somebody had to make, and
-       * this one is recorded in an ADR. What it is **not** is a Telegram identifier —
-       * the pattern scan above still runs over this same body, and nothing here can
-       * reach `telegram_account`.
-       */
-      'counterpartName',
-      'createdAt',
-      'eventPublicId',
-      'eventTitle',
-      'lastMessageAt',
-      'publicId',
-      'role',
-      'status',
-      'unreadCount',
-    ]);
+    const parsed = JSON.parse(body) as { messages: Record<string, unknown>[] };
 
     const [first] = parsed.messages;
     expect(first).toBeDefined();
     expect(Object.keys(first ?? {}).sort()).toEqual([
-      'createdAt',
+      'body',
       'deletedAt',
       'editedAt',
       'kind',
-      'mine',
-      'redactionKinds',
       'senderAlias',
+      'sentAt',
       'seq',
-      'text',
     ]);
-    // The counterpart is «میزبان» and nothing else — no id, no name, no handle.
+    // An alias, never a name and never an id: the grant is to read what was said.
     expect(first?.senderAlias).toBe('میزبان');
   });
 

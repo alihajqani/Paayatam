@@ -10,8 +10,6 @@ export { formatMyRequests } from './requests';
 export type { MyRequestLine } from './requests';
 export { formatMyEvents, formatOwnedEvent, myEventsPageRow } from './events-digest';
 export type { MyEventLine, OwnedEventLine } from './events-digest';
-export { formatMyChats } from './chats-digest';
-export type { MyChatLine } from './chats-digest';
 export { ENTRY_SEPARATOR, formatDiscovered } from './discover-digest';
 export type { DiscoverLine } from './discover-digest';
 export { formatPendingReviews } from './reviews-digest';
@@ -187,5 +185,5 @@ export {
 export type { DiscoverFilters, DiscoverWhen, DiscoverCost } from './callback-data';
 export type { ReviewCallback, ReviewRating } from './callback-data';
 
-export { chatKeyboard, hostDecisionKeyboard, openAppButton } from './keyboards';
+export { hostDecisionKeyboard, openAppButton } from './keyboards';
 export type { InlineButton, InlineKeyboard } from './keyboards';

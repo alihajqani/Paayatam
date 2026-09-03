@@ -88,7 +88,7 @@ describe('buckets are isolated', () => {
 
     for (let i = 0; i < 4; i += 1) await limiter.consume('EVENT_CREATE', who, POLICY);
 
-    expect((await limiter.consume('CHAT_SEND', who, POLICY)).allowed).toBe(true);
+    expect((await limiter.consume('DIRECT_MESSAGE_SEND', who, POLICY)).allowed).toBe(true);
   });
 
   it('does not share an allowance between subjects', async () => {
@@ -228,7 +228,7 @@ describe('the configured policies', () => {
   it('matches T12', () => {
     expect(RATE_LIMITS.EVENT_CREATE).toEqual({ limit: 5, windowSeconds: 86_400 });
     expect(RATE_LIMITS.PARTICIPATION_JOIN).toEqual({ limit: 20, windowSeconds: 86_400 });
-    expect(RATE_LIMITS.CHAT_SEND).toEqual({ limit: 30, windowSeconds: 60 });
+    expect(RATE_LIMITS.DIRECT_MESSAGE_SEND).toEqual({ limit: 30, windowSeconds: 60 });
     expect(RATE_LIMITS.REPORT_FILE).toEqual({ limit: 10, windowSeconds: 86_400 });
   });
 

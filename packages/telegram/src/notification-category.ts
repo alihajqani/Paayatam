@@ -44,19 +44,14 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.REVIEW_WINDOW_OPEN]: 'events',
   [TEMPLATES.REVIEW_REVEALED]: 'events',
 
-  // ── Conversations ─────────────────────────────────────────────────────────
-  [TEMPLATES.CHAT_MESSAGE]: 'chat',
-  // A direct message and its read receipt. `chat`, not `events`: it is somebody
-  // writing to you, which is what that preference is about — and somebody who has
-  // turned conversation messages off has said they do not want to be written to.
+  // ── Somebody writing to you ───────────────────────────────────────────────
+  //
+  // The whole of this category since v0.8.0. It was named for the anonymous
+  // conversation and outlived it: `notify_chat` is a column with a meaning, and
+  // what it means now is «پیام‌های مستقیم» — somebody has written to you about an
+  // activity, and somebody has read what you wrote.
   [TEMPLATES.DIRECT_MESSAGE_RECEIVED]: 'chat',
   [TEMPLATES.DIRECT_MESSAGE_SEEN]: 'chat',
-  [TEMPLATES.CHAT_MESSAGE_EDITED]: 'chat',
-  [TEMPLATES.CHAT_MESSAGE_DELETED]: 'chat',
-  // The confirmation before contact details are shared is a *decision screen*,
-  // not news: it appears because the user tapped «اشتراک اطلاعات تماس», and
-  // suppressing it would strand them mid-disclosure.
-  [TEMPLATES.CHAT_SHARE_CONFIRM]: 'essential',
 
   // ── Things somebody is entitled to know ───────────────────────────────────
   [TEMPLATES.NO_SHOW_RECORDED]: 'essential',
@@ -81,7 +76,6 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.BOT_BALANCE]: 'essential',
   [TEMPLATES.BOT_REQUESTS]: 'essential',
   [TEMPLATES.BOT_MY_EVENTS]: 'essential',
-  [TEMPLATES.BOT_CHATS]: 'essential',
   [TEMPLATES.BOT_PROFILE]: 'essential',
   [TEMPLATES.BOT_DISCOVER]: 'essential',
   [TEMPLATES.BOT_REVIEWS]: 'essential',

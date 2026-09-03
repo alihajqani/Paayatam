@@ -125,7 +125,6 @@ function buildProcessors(): Processors {
     {} as never, // NotificationService
     {} as never, // UserSettingsService
     telegram as never,
-    {} as never, // ChatService
     {} as never, // ParticipationService
     {} as never, // EventLifecycleService
     {} as never, // ReviewService

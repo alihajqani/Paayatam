@@ -10,7 +10,7 @@ import type {
 } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
-import { sanitizeInbound } from '../chat/sanitizer';
+import { sanitizeInbound } from '../privacy/sanitizer';
 import { normalize } from '../moderation/persian-normalizer';
 import { GIFT_CODE_FAILURE_ACTION } from '../economy/gift-code.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';

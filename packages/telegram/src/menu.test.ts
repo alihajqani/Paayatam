@@ -95,13 +95,13 @@ describe('menuPathFor', () => {
   });
 
   /**
-   * The one that used to be wrong. «فهرست گفتگوها زیر دکمهٔ «💬 گفتگوها» است»
-   * named a button nobody could see — the label survives in `MENU_COMMANDS`
-   * because a stale client's tap has to resolve, and that is exactly why the
-   * resolver is the wrong thing for a sentence to be built from.
+   * The distinction this function exists for: `MENU_COMMANDS` is a **resolver**
+   * and is deliberately wider than the layout — it keeps every label the bot has
+   * ever drawn so a stale client's tap still means something — which makes it the
+   * wrong thing for a *sentence* to be built from. This names where to tap.
    */
   it('names the category for a command that lives inside one', () => {
-    for (const command of ['chats', 'settings', 'myevents', 'requests', 'bug', 'trust']) {
+    for (const command of ['reviews', 'settings', 'myevents', 'requests', 'bug', 'trust']) {
       const path = menuPathFor(command) as string;
       expect(path, command).not.toBeNull();
       expect(inlineMenuLabels.has(path), `${command} → ${path}`).toBe(true);

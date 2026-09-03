@@ -5,6 +5,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import type { PrismaClient } from '@payetam/db';
 import { ENV } from '@payetam/platform';
 import { normalize } from '@payetam/domain';
+import { TEMPLATES } from '@payetam/telegram';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
   createTestPrisma,
@@ -95,7 +96,6 @@ let strangerAccount: Account;
 let eventPublicId: string;
 let secondEventPublicId: string;
 let participantPublicId: string;
-let chatPublicId: string;
 
 /**
  * Everything either account ever received, concatenated.
@@ -169,6 +169,28 @@ async function webhook(body: Record<string, unknown>): Promise<void> {
   // §3.1: the handler always answers 200, whatever happened inside.
   expect(response.statusCode).toBe(200);
   responses.push(`WEBHOOK → ${response.body}`);
+}
+
+/** An inline-keyboard tap, as Telegram sends one. */
+async function tap(from: bigint, data: string): Promise<void> {
+  updateSequence += 1;
+  await webhook({
+    callback_query: {
+      id: `cb-${String(updateSequence)}`,
+      from: { id: Number(from), first_name: 'Privacy', language_code: 'fa' },
+      message: { message_id: 1, chat: { id: Number(from), type: 'private' } },
+      data,
+    },
+  });
+}
+
+/** The newest direct message, which is the one the last step created. */
+async function newestDirectMessage(): Promise<string> {
+  const row = await prisma.directMessage.findFirstOrThrow({
+    orderBy: { createdAt: 'desc' },
+    select: { publicId: true },
+  });
+  return row.publicId;
 }
 
 function telegramMessage(
@@ -344,23 +366,29 @@ beforeAll(async () => {
    */
   const joined = await call(guestAccount, 'POST', `/api/v1/events/${eventPublicId}/join`);
   participantPublicId = (joined.json as { publicId: string }).publicId;
-  chatPublicId = (joined.json as { chatPublicId: string }).chatPublicId;
 
-  // ── 4. Five messages, across both surfaces ────────────────────────────────
-  await call(guestAccount, 'POST', `/api/v1/chats/${chatPublicId}/messages`, {
-    text: 'سلام، هنوز جا هست؟',
-  });
-  await call(hostAccount, 'POST', `/api/v1/chats/${chatPublicId}/messages`, {
-    text: 'بله، خوش آمدید.',
-  });
-  await call(guestAccount, 'GET', `/api/v1/chats/${chatPublicId}/messages`);
+  /**
+   * ── 4. Five direct messages, through the real webhook ─────────────────────
+   *
+   * All five go through the bot, because since v0.8.0 the bot is the only place
+   * two people can write to each other — the Mini App's conversation endpoints
+   * are gone. Each round is the real sequence: a button opens the form, the body
+   * is typed, the recipient opens the message, and the reply button opens the
+   * form again in the other direction.
+   *
+   * One of them carries the `text_mention` entity T2.2 exists for. The relay
+   * that used to strip entities is gone; what has to hold now is narrower and
+   * still worth asserting — **no entity is stored anywhere**, because nothing
+   * reads them and a raw numeric user id must not be kept by accident.
+   */
+  await tap(B_TELEGRAM_ID, `dm:write:${eventPublicId}`);
+  await webhook(telegramMessage({ id: B_TELEGRAM_ID, username: B_USERNAME }, 'سلام، هنوز جا هست؟'));
+  const first = await newestDirectMessage();
 
-  // …and through the bot, with the entity shape T2.2 exists for.
+  await tap(A_TELEGRAM_ID, `dm:view:${first}`);
+  await tap(A_TELEGRAM_ID, `dm:reply:${first}`);
   await webhook(
-    telegramMessage({ id: B_TELEGRAM_ID, username: B_USERNAME }, 'ساعت چند شروع می‌شود؟'),
-  );
-  await webhook(
-    telegramMessage({ id: A_TELEGRAM_ID, username: A_USERNAME }, 'هفت عصر، جلوی کافه.', {
+    telegramMessage({ id: A_TELEGRAM_ID, username: A_USERNAME }, 'بله، خوش آمدید.', {
       entities: [
         {
           type: 'text_mention',
@@ -371,35 +399,52 @@ beforeAll(async () => {
       ],
     }),
   );
+  const second = await newestDirectMessage();
+
+  await tap(B_TELEGRAM_ID, `dm:view:${second}`);
+  await tap(B_TELEGRAM_ID, `dm:reply:${second}`);
   await webhook(
-    telegramMessage({ id: B_TELEGRAM_ID, username: B_USERNAME }, `شمارهٔ من ${B_PHONE} است`),
+    telegramMessage({ id: B_TELEGRAM_ID, username: B_USERNAME }, 'ساعت چند شروع می‌شود؟'),
   );
+  const third = await newestDirectMessage();
+
+  await tap(A_TELEGRAM_ID, `dm:view:${third}`);
+  await tap(A_TELEGRAM_ID, `dm:reply:${third}`);
+  await webhook(
+    telegramMessage({ id: A_TELEGRAM_ID, username: A_USERNAME }, 'هفت عصر، جلوی کافه.'),
+  );
+  const fourth = await newestDirectMessage();
 
   // ── 5. A accepts ──────────────────────────────────────────────────────────
   await call(hostAccount, 'GET', `/api/v1/events/${eventPublicId}/participants`);
   await call(hostAccount, 'POST', `/api/v1/participants/${participantPublicId}/accept`);
 
   /**
-   * Everything above happened while neither side had consented to anything, so
-   * it is what the *anonymous stage* is judged on. The sweep for a phone number
-   * runs against this prefix alone — after the next line the guest has chosen to
-   * disclose theirs, and finding it afterwards is the feature working.
+   * Everything up to here is what the sweep for a **phone number** is judged on.
+   *
+   * The next message is the guest deciding to hand theirs over, which is the
+   * whole point of «پیام مستقیم به میزبان» and the thing the anonymous chat could
+   * not do. Finding a number after this line is the feature working; finding one
+   * before it would mean the product disclosed something nobody chose to.
    */
   anonymousStageEnd = responses.length;
 
-  // ── 6. B shares contact, deliberately ─────────────────────────────────────
-  await call(guestAccount, 'POST', `/api/v1/chats/${chatPublicId}/share-contact`);
-  await call(guestAccount, 'POST', `/api/v1/chats/${chatPublicId}/messages`, {
-    text: `حالا می‌توانم بفرستم: ${B_PHONE}`,
-  });
+  // ── 6. B gives out their number, deliberately ─────────────────────────────
+  await tap(B_TELEGRAM_ID, `dm:view:${fourth}`);
+  await tap(B_TELEGRAM_ID, `dm:reply:${fourth}`);
+  await webhook(
+    telegramMessage(
+      { id: B_TELEGRAM_ID, username: B_USERNAME },
+      `حالا می‌توانم بفرستم: ${B_PHONE}`,
+    ),
+  );
+  const fifth = await newestDirectMessage();
+  await tap(A_TELEGRAM_ID, `dm:view:${fifth}`);
 
   // ── 7. And now the second event, for the correlation half ─────────────────
   await call(guestAccount, 'POST', `/api/v1/events/${secondEventPublicId}/join`);
 
   // ── 8. Both sides read everything they can ────────────────────────────────
-  await call(guestAccount, 'GET', '/api/v1/chats');
-  await call(hostAccount, 'GET', '/api/v1/chats');
-  await call(hostAccount, 'GET', `/api/v1/chats/${chatPublicId}/messages`);
   await call(guestAccount, 'GET', '/api/v1/me/participations');
   await call(hostAccount, 'GET', '/api/v1/me/events');
   await call(guestAccount, 'GET', `/api/v1/events/${eventPublicId}`);
@@ -466,22 +511,36 @@ const IDENTIFIERS: Array<{ name: string; pattern: RegExp }> = [
  */
 const PHONE_PATTERN = /(?:\+98|0)9\d{9}/;
 
-/** Everything the worker would hand to Telegram, plus what it was derived from. */
+/**
+ * Everything the worker would hand to Telegram, plus what it was derived from.
+ *
+ * ── The one exclusion, and why it is not a hole (v0.8.0) ────────────────────
+ *
+ * `BOT_DIRECT_MESSAGE` rows are left out. That template is the *reader's own
+ * copy* of a message somebody wrote to them, rendered at the moment they pressed
+ * «مشاهده» — so its payload holds, by design, whatever the sender chose to type,
+ * including a handle or a number. Sweeping it would be asserting that the
+ * product masks contact details in direct messages, which is the opposite of
+ * what this feature is for.
+ *
+ * The exclusion is narrow and the property it protects is intact: the
+ * notification that *announces* a message is swept like everything else, and it
+ * carries a display name and an activity title and no body at all. So the
+ * product still discloses nothing; a user can.
+ */
 async function rawPayloads(): Promise<Record<string, string>> {
-  const [notifications, outbox, messages, audit, chats] = await Promise.all([
-    prisma.notification.findMany(),
+  const [notifications, outbox, audit, directs] = await Promise.all([
+    prisma.notification.findMany({ where: { templateKey: { not: TEMPLATES.BOT_DIRECT_MESSAGE } } }),
     prisma.outboxEvent.findMany(),
-    prisma.chatMessage.findMany(),
     prisma.auditLog.findMany(),
-    prisma.anonymousChat.findMany({ include: { chatParticipants: true } }),
+    prisma.directMessage.findMany(),
   ]);
 
   return {
     'notification.payload (what the worker sends to Telegram)': render(notifications),
     'outbox_event.payload': render(outbox),
-    'chat_message (ciphertext and metadata at rest)': render(messages),
     audit_log: render(audit),
-    'anonymous_chat + chat_participant': render(chats),
+    'direct_message (ciphertext and metadata at rest)': render(directs),
   };
 }
 
@@ -502,14 +561,11 @@ function render(rows: unknown): string {
   );
 }
 
-describe('B4 — two accounts, one conversation, zero identity leakage', () => {
+describe('B4 — two accounts, one thread, zero identity leakage', () => {
   it('exchanged at least five messages', async () => {
     // Criterion 4 says ≥5, and a gate that ran on four would be a gate that
     // passed without exercising the thing it is named after.
-    const stored = await prisma.chatMessage.count({
-      where: { chat: { publicId: chatPublicId }, kind: 'TEXT' },
-    });
-    expect(stored).toBeGreaterThanOrEqual(5);
+    expect(await prisma.directMessage.count()).toBeGreaterThanOrEqual(5);
   });
 
   it.each(IDENTIFIERS)('never puts $name in any API response', ({ pattern }) => {
@@ -518,11 +574,15 @@ describe('B4 — two accounts, one conversation, zero identity leakage', () => {
   });
 
   /**
-   * T2.3 and criterion 6 together: before consent, a phone number reaches
-   * nobody — including one the sender typed into the conversation themselves,
-   * which is the case the masking exists for.
+   * Criterion 6: a phone number reaches nobody until its owner types it.
+   *
+   * The old gate proved this with **masking** — a number typed into an anonymous
+   * chat was stripped before delivery. There is no masking here and there is not
+   * meant to be. What holds instead is simpler and, for this walk, exactly as
+   * strong: the number is in one account's own bio, and nothing the product
+   * discloses about that account carries it.
    */
-  it('never puts a phone number in a response before either side consented', () => {
+  it('never puts a phone number in a response before its owner sent it', () => {
     const offenders = responses
       .slice(0, anonymousStageEnd)
       // A caller reading their own profile is not a disclosure to anybody.
@@ -532,14 +592,35 @@ describe('B4 — two accounts, one conversation, zero identity leakage', () => {
   });
 
   /**
-   * The other half, and the reason the split above exists: after the guest
-   * consents, their own number does reach the host. That is the feature, and a
-   * gate that treated it as a leak would be arguing with ADR-0009 rather than
-   * enforcing it.
+   * The other half, and the reason the split above exists: the guest types their
+   * number and it reaches the host **unmasked**. That is the feature, and a gate
+   * that treated it as a leak would be arguing with the product rather than
+   * enforcing ADR-0009.
+   *
+   * Asserted on the message the host actually opened, because that is the only
+   * place it appears — it is not in any API response, and the notification that
+   * announced it carries no body.
    */
-  it('does deliver the number once its owner has said so', () => {
-    const afterConsent = responses.slice(anonymousStageEnd).join('\n');
-    expect(PHONE_PATTERN.test(afterConsent)).toBe(true);
+  it('does deliver the number once its owner has typed it', async () => {
+    const opened = await prisma.notification.findMany({
+      where: { templateKey: TEMPLATES.BOT_DIRECT_MESSAGE },
+      select: { payload: true },
+    });
+
+    expect(PHONE_PATTERN.test(render(opened))).toBe(true);
+  });
+
+  /**
+   * And it is not stored in the clear.
+   *
+   * The body is AES-GCM at rest (ADR-0009), so a database dump is not a
+   * transcript even for a feature whose whole point is unmasked contact details.
+   */
+  it('keeps every direct message encrypted at rest', async () => {
+    const rows = await prisma.directMessage.findMany();
+
+    expect(rows.length).toBeGreaterThanOrEqual(5);
+    expect(render(rows)).not.toContain(B_PHONE);
   });
 
   /**
@@ -559,38 +640,20 @@ describe('B4 — two accounts, one conversation, zero identity leakage', () => {
   });
 
   /**
-   * T2.3 — the user typed their own number *before* the chat opened, and the
-   * masking has to have fired rather than merely not being asserted. The stored
-   * body is ciphertext, so this checks the redaction record instead: a message
-   * that was masked says so.
-   */
-  it('masked the contact details typed during the anonymous stage', async () => {
-    const rows = await prisma.chatMessage.findMany({
-      where: { chat: { publicId: chatPublicId } },
-      select: { redactions: true },
-    });
-    const kinds = rows.flatMap((row) =>
-      Array.isArray(row.redactions)
-        ? row.redactions.map((entry) =>
-            typeof entry === 'object' && entry !== null
-              ? (entry as { kind?: unknown }).kind
-              : undefined,
-          )
-        : [],
-    );
-    expect(kinds).toContain('PHONE');
-  });
-
-  /**
-   * T2.2 — the `text_mention` entity carried a raw numeric user id, and the
-   * relay must have stripped every entity rather than passing them through.
+   * T2.2 — one update carried a `text_mention` entity holding a raw numeric user
+   * id, and **nothing keeps it**.
+   *
+   * The relay used to strip entities on the way into a conversation. There is no
+   * relay; the wizard takes `message.text` and nothing else, which is a stronger
+   * guarantee of the same thing — an entity cannot be dropped incorrectly if it
+   * is never read. Asserted anyway, because "never read" is a property of the
+   * current code and this is what would notice it changing.
    */
   it('kept no message entity from the update that carried one', async () => {
     const payloads = await rawPayloads();
-    expect(payloads['notification.payload (what the worker sends to Telegram)']).not.toContain(
-      'text_mention',
-    );
-    expect(payloads['outbox_event.payload']).not.toContain('text_mention');
+    for (const blob of Object.values(payloads)) {
+      expect(blob).not.toContain('text_mention');
+    }
   });
 });
 
@@ -614,11 +677,8 @@ describe('B4 — what each side can and cannot reach', () => {
   });
 
   it('refuses the stranger every private surface, as not-found rather than forbidden', async () => {
-    // T3.3: a 403 confirms the thing exists, and confirming the existence of a
-    // private conversation to somebody outside it is itself a disclosure.
-    const chat = await call(strangerAccount, 'GET', `/api/v1/chats/${chatPublicId}/messages`);
-    expect(chat.status).toBe(404);
-
+    // T3.3: a 403 confirms the thing exists, and confirming the existence of
+    // something private to somebody outside it is itself a disclosure.
     const queue = await call(
       strangerAccount,
       'GET',
@@ -706,15 +766,23 @@ describe('B4 — what each side can and cannot reach', () => {
     expect(redeem.body).not.toContain(strangerAccount.publicId);
   });
 
-  it('leaves the contact masking on until the sharer says otherwise', async () => {
-    // The guest shared; the host did not. So the host's own messages are still
-    // masked, which is the asymmetry `share-contact` actually creates.
-    const chat = await prisma.anonymousChat.findFirstOrThrow({
-      where: { publicId: chatPublicId },
-      include: { chatParticipants: { select: { role: true, contactSharedAt: true } } },
+  /**
+   * Nobody wrote to anybody by accident (v0.8.0).
+   *
+   * The walk above created exactly one thread, and every message in it names the
+   * activity it is about and the two accounts it is between. This is what
+   * replaced the old asymmetry test about contact-sharing: there is no masking to
+   * be asymmetric, and what matters instead is that a message reaches exactly two
+   * people and no conversation was opened as a side effect of joining.
+   */
+  it('created one thread and no conversation', async () => {
+    const rows = await prisma.directMessage.findMany({
+      select: { senderUserId: true, recipientUserId: true, eventId: true },
     });
-    const byRole = new Map(chat.chatParticipants.map((p) => [p.role, p.contactSharedAt]));
-    expect(byRole.get('GUEST')).not.toBeNull();
-    expect(byRole.get('HOST')).toBeNull();
+    const people = new Set(rows.flatMap((row) => [row.senderUserId, row.recipientUserId]));
+
+    expect(people).toEqual(new Set([hostAccount.userId, guestAccount.userId]));
+    expect(new Set(rows.map((row) => row.eventId)).size).toBe(1);
+    expect(await prisma.anonymousChat.count()).toBe(0);
   });
 });

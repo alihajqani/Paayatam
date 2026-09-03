@@ -155,13 +155,26 @@ describe('moderation store', () => {
     ['EVENT', 'x', '/events/x/report'],
     ['USER', 'x', '/users/x/report'],
     ['REVIEW', 'x', '/reviews/x/report'],
-    ['MESSAGE', 'x', '/chats/x/report'],
   ] as const)('routes a %s report to %s', async (target, publicId, path) => {
     const store = useModerationStore();
 
     await store.report(target, publicId, { reason: 'SPAM' });
 
     expect(request).toHaveBeenCalledWith(path, { method: 'POST', body: { reason: 'SPAM' } });
+  });
+
+  /**
+   * `MESSAGE` has no endpoint any more: v0.8.0 removed the anonymous
+   * conversation and `POST /chats/:id/report` with it. The enum value survives —
+   * it is a Postgres enum with rows behind it — so the refusal has to be here
+   * rather than in the type, and it must be a refusal rather than a request to a
+   * route that does not exist.
+   */
+  it('refuses a target this build cannot report', async () => {
+    const store = useModerationStore();
+
+    await expect(store.report('MESSAGE', 'x', { reason: 'SPAM' })).rejects.toThrow(/MESSAGE/);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('sends no idempotency key — one report per (target, reporter) is a unique index', async () => {

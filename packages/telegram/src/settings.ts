@@ -91,7 +91,7 @@ export function formatSettings(state: SettingsState): string {
   return (
     `<b>تنظیمات</b>\n\n` +
     `<b>اعلان‌ها</b>\n` +
-    `💬 پیام‌های گفتگو: ${onOff(state.notifyChat)}\n` +
+    `✉️ پیام‌های مستقیم: ${onOff(state.notifyChat)}\n` +
     `🎟 فعالیت‌ها و درخواست‌ها: ${onOff(state.notifyEvents)}\n\n` +
     `<b>حریم خصوصی</b>\n` +
     (state.hasProfile
@@ -128,7 +128,7 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
   ];
 
   const rows = [
-    row('پیام‌های گفتگو', state.notifyChat, 'c'),
+    row('پیام‌های مستقیم', state.notifyChat, 'c'),
     row('فعالیت‌ها', state.notifyEvents, 'e'),
   ];
 

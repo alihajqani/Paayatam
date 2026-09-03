@@ -40,7 +40,6 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     {} as never, // NotificationService
     {} as never, // UserSettingsService
     {} as never, // TelegramClient
-    {} as never, // ChatService
     {} as never, // ParticipationService
     {} as never, // EventLifecycleService
     {} as never, // ReviewService

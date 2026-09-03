@@ -3,7 +3,6 @@ import type { Env } from '@payetam/config';
 import {
   CatalogService,
   ChannelMembershipService,
-  ChatService,
   ConsentService,
   CoinService,
   ConversationService,
@@ -126,7 +125,6 @@ import {
   capacityLabel,
   menuCommandFor,
   formatTehran,
-  formatMyChats,
   formatPendingReviews,
   formatMyEvents,
   formatOwnedEvent,
@@ -270,9 +268,9 @@ const DIRECT_REPLY_BUTTON_FA = '✍️ پاسخ به این پیام';
  * Three properties shape everything below.
  *
  * **It calls the same services the Mini App does.** Nothing here decides who may
- * accept a request, whether a chat is live, or whether a phone number is masked —
- * `ParticipationService` and `ChatService` do, and a rule enforced in one surface
- * protects one surface. That is what makes plan §3.3's "the bot and the Mini App
+ * accept a request, or who may answer a direct message — `ParticipationService`
+ * and `DirectMessageService` do, and a rule enforced in one surface protects one
+ * surface. That is what makes plan §3.3's "the bot and the Mini App
  * behave identically" true by construction rather than by two implementations being
  * kept in step.
  *
@@ -294,7 +292,6 @@ export class BotService {
 
   constructor(
     private readonly users: UserService,
-    private readonly chats: ChatService,
     private readonly coins: CoinService,
     private readonly events: EventService,
     private readonly discovery: DiscoveryService,
@@ -330,7 +327,7 @@ export class BotService {
      */
     private readonly adminTelegram: AdminTelegramService,
     private readonly admins: AdminOperationsService,
-    /** «دایرکت» (v0.7.0) — see `DirectMessageService` for why it is not the chat. */
+    /** «پیام مستقیم به میزبان» (v0.7.0) — the only messaging the product has. */
     private readonly directs: DirectMessageService,
   ) {}
 
@@ -417,18 +414,31 @@ export class BotService {
 
         switch (intent.kind) {
           case 'TEXT':
-            return this.onText(update.updateId, user, intent.message, intent.replyToMessageId);
+            return this.onText(update.updateId, user, intent.message);
 
+          /**
+           * An edit no longer means anything to the bot (v0.8.0).
+           *
+           * It used to re-deliver the corrected text into the conversation the
+           * original had been relayed into — D10, and the reason `edited_message`
+           * is parsed at all. With no relay there is nothing downstream of an
+           * edit, and Telegram sends one for **every** edit in the bot's DM,
+           * including edits to messages that were never going anywhere. Silence
+           * is the honest answer; a notice would have the bot arguing with people
+           * about their own typing.
+           */
           case 'EDITED_TEXT':
-            return this.onEdit(update.updateId, user, intent.message);
+            return;
 
           /**
            * A photo — accepted by exactly one form, refused everywhere else.
            *
-           * Criterion 11 is about the **chat relay**: an image forwarded between
-           * two strangers is a payload the product cannot moderate, encrypt or
-           * account for, and refusing it is right. It was never an argument
-           * about the bug-report form, where the screenshot *is* the report.
+           * Criterion 11 is about **messages between strangers**: an image
+           * forwarded from one to another is a payload the product cannot
+           * moderate, encrypt or account for, and refusing it is right — which
+           * is why «پیام مستقیم به میزبان» takes text and nothing else. It was
+           * never an argument about the bug-report form, where the screenshot
+           * *is* the report.
            *
            * So the photo is offered to the conversation first. A BUG_REPORT
            * wizard takes it; every other wizard's `accept` refuses it and says
@@ -772,8 +782,8 @@ export class BotService {
          *
          * It used to be PENDING and WAITLISTED only, on the argument that
          * standing somebody up after they have counted on you is a conversation
-         * and `/chats` is where it happens. The conversation is right and it is
-         * not a cancellation: a guest who tells their host they cannot come and
+         * to have with the host. The conversation is right and it is not a
+         * cancellation: a guest who tells their host they cannot come and
          * then has no way to say so to the *product* stays ACCEPTED, holds a seat
          * nobody can fill, and is settled as having attended.
          *
@@ -807,32 +817,6 @@ export class BotService {
 
       case 'myevents':
         return this.drawMyEvents(updateId, user, 0);
-
-      /**
-       * `/chats` — the other half of the advice `ambiguityAdvice` already gives.
-       *
-       * The relay tells somebody with two live chats to press *reply* on the
-       * message from the person they mean. That assumed they could see which
-       * conversations were open and find a message from each — and the only way
-       * to find out was to open the Mini App, which is the trip the bot exists
-       * to save.
-       *
-       * `listForUser` is the same read `ChatsView` performs, sorted by the same
-       * recency, so the two surfaces answer this question identically rather
-       * than similarly.
-       */
-      case 'chats': {
-        const mine = await this.chats.listForUser(user.id);
-        const text = formatMyChats(
-          mine.map((chat) => ({
-            counterpartName: chat.counterpartName,
-            eventTitle: chat.eventTitle,
-            status: chat.status,
-            unreadCount: chat.unreadCount,
-          })),
-        );
-        return this.reply(updateId, user.id, TEMPLATES.BOT_CHATS, { text });
-      }
 
       /**
        * `/profile` — and the only place a user can see their own Trust Score.
@@ -1343,36 +1327,32 @@ export class BotService {
   }
 
   /**
-   * Plain text in the bot's DM, relayed into a conversation.
+   * Plain text in the bot's DM.
    *
-   * **Which conversation is the whole difficulty.** A user holds one Telegram chat
-   * with the bot and may hold several anonymous chats behind it, and a typed message
-   * names none of them. Two answers, in order:
+   * ── What this used to be, and why it is short now (v0.8.0) ──────────────────
    *
-   *  1. **A reply** quotes a message we sent, and `notification.telegram_message_id`
-   *     records what Telegram called it. That is exact, and the lookup is scoped to
-   *     the sender's own rows — so a forged `reply_to_message` cannot address a
-   *     stranger's conversation.
-   *  2. **Exactly one live chat** needs no ceremony, and is the common case.
+   * It was the relay. A user held one Telegram chat with the bot and several
+   * anonymous conversations behind it, so a typed message named none of them and
+   * this had to guess — a quoted reply resolved through
+   * `notification.telegram_message_id`, one live chat needed no ceremony, and two
+   * live chats with no reply was an ambiguity the bot had to refuse rather than
+   * risk delivering a private message to the wrong stranger.
    *
-   * With two live chats and no reply the answer is genuinely unknown, and the only
-   * safe action is to say so. Delivering a private message to the wrong stranger is
-   * the single worst thing this relay could do.
+   * All of it went with the conversation product. What is left is the ordering
+   * that was always the important part: **a menu label is a command, and a form
+   * in progress claims what is typed into it.** Both are still checked here and
+   * still checked first, because a wizard that swallowed a menu tap would be a
+   * trap and an answer handed to the wrong place is how a description ends up
+   * somewhere it was not meant to go.
    */
-  private async onText(
-    updateId: number,
-    user: BotUser,
-    message: BotInboundText,
-    replyToMessageId: number | null,
-  ): Promise<void> {
+  private async onText(updateId: number, user: BotUser, message: BotInboundText): Promise<void> {
     /**
      * A tap on the persistent menu is a command, not a message.
      *
      * A reply-keyboard button sends its **label** as ordinary text, so «🎟
      * فعالیت‌های من» arrives here indistinguishable from something somebody
-     * typed. Without this it would be handed to the wizard as an answer, or —
-     * worse — relayed into an anonymous chat, and a stranger would receive a
-     * menu label.
+     * typed. Without this it would be handed to the wizard as an answer — a
+     * user's own escape hatch swallowed by the form they are trying to leave.
      *
      * Checked before the wizard for that reason: the menu is how somebody
      * *leaves* a form they no longer want, and a wizard that swallowed its own
@@ -1384,10 +1364,8 @@ export class BotService {
     /**
      * A tap on one of the keyboard's **category** buttons.
      *
-     * Same reasoning and the same position as the line above: a label the bot
-     * cannot resolve is relayed into an anonymous chat, so both lookups happen
-     * before the wizard and long before the relay. What differs is the answer —
-     * a category is a menu to draw rather than a command to run.
+     * Same reasoning and the same position as the line above; what differs is
+     * the answer — a category is a menu to draw rather than a command to run.
      *
      * Sent rather than edited: the user's own message is what arrived, so there
      * is no bot message on screen to redraw. The group's inline keyboard then
@@ -1401,12 +1379,10 @@ export class BotService {
     /**
      * A form in progress claims the message first (ADR-0017).
      *
-     * This is the one ordering that matters in the whole wiring. Text typed while
-     * a wizard is open is an *answer*, and relaying it into an anonymous chat
-     * instead would send somebody's event description to a stranger — the single
-     * worst thing this relay can do, and exactly what `onText`'s own comment
-     * warns about. `handle` returns null when there is no wizard, which is how
-     * the two cases are told apart rather than guessed between.
+     * Text typed while a wizard is open is an *answer* to the question on
+     * screen, and anything else this method might do with it is wrong. `handle`
+     * returns null when there is no wizard, which is how the two cases are told
+     * apart rather than guessed between.
      */
     if (this.env.ENABLE_CONVERSATION_WIZARD) {
       const wizard = await this.conversations.handle(user.id, updateId, {
@@ -1418,55 +1394,37 @@ export class BotService {
          * The answer is in the form now, so it comes out of the chat.
          *
          * Only once the wizard has **claimed** it: a message that was not an
-         * answer is a chat relay or a menu tap, and deleting one of those would
-         * take away something the user meant to keep. `handle` returning
-         * non-null is exactly the line between the two.
+         * answer is something the user meant to keep, and deleting it would take
+         * it away. `handle` returning non-null is exactly the line between the
+         * two.
          */
         await this.tidy(user, message.telegramMessageId);
         return this.drawWizard(updateId, user, wizard);
       }
     }
 
-    // Relaying a message is a write, and the policy gate applies to it exactly as
-    // it applies to `POST /chats/:id/messages`. This bypassed the gate from M13
-    // until ADR-0017; see `mayWrite`.
-    if (!(await this.mayWrite(updateId, user))) return;
-
-    // The same bucket the Mini App's send spends from, keyed on the same subject: a
-    // limit enforced on one of two surfaces is not a limit (T12).
-    const verdict = await this.limiter.consume('CHAT_SEND', user.publicId, RATE_LIMITS.CHAT_SEND);
-    if (!verdict.allowed) {
-      await this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.RATE_LIMITED]);
-      return;
-    }
-
-    const quoted =
-      replyToMessageId === null
-        ? null
-        : await this.notifications.chatOfDeliveredMessage(user.id, replyToMessageId);
-    const chatPublicId = quoted ?? (await this.chats.singleLiveChatFor(user.id));
-
-    if (chatPublicId === null) {
-      await this.notice(updateId, user, await this.ambiguityAdvice(user.id));
-      return;
-    }
-
-    try {
-      await this.chats.send(user.id, chatPublicId, message);
-    } catch (error) {
-      if (!(error instanceof AppError)) throw error;
-      await this.refuse(updateId, user, error);
-    }
+    /**
+     * Nothing else claims typed text, and nothing relays it any more (v0.8.0).
+     *
+     * The relay used to be here: a plain message was routed into whichever
+     * anonymous conversation the sender had open, and a *reply* named which one.
+     * That whole apparatus is gone with the conversation product, and what is
+     * left is a person who has typed something the bot has no question open for.
+     *
+     * The answer names the two things they might have meant. Writing to a host is
+     * now a **button on the activity** rather than something typed into the bot,
+     * and that is exactly the change somebody typing into an empty chat has not
+     * noticed yet.
+     */
+    return this.notice(
+      updateId,
+      user,
+      `پیام شما را دریافت کردم، ولی همین‌طوری جایی فرستاده نمی‌شود.\n\n` +
+        `برای نوشتن به میزبان، صفحهٔ همان فعالیت را باز کنید و «پیام مستقیم به میزبان» را بزنید. ` +
+        `برای بقیهٔ کارها «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» یا /menu.`,
+    );
   }
 
-  /**
-   * The sender edited something they had already sent (D10).
-   *
-   * `NOT_FOUND` is silence rather than a notice. Telegram sends an `edited_message`
-   * for every edit in the bot's DM, including edits to messages that were never
-   * relayed anywhere, and answering «پیدا نشد» to those would have the bot arguing
-   * with people about their own typing.
-   */
   /**
    * A photo, handed to the form that wants one.
    *
@@ -1476,7 +1434,7 @@ export class BotService {
    * already a row in `conversation_state`, and asking that row is what keeps the
    * bot from growing a second, parallel notion of what somebody is in the middle
    * of. `handle` returns null when no wizard is open, which is the same test
-   * `onText` uses to tell a form answer from a chat message.
+   * `onText` uses to tell a form answer from anything else.
    *
    * A wizard that is open but does not take photos refuses through its own
    * `accept`, and the refusal names the thing that step *did* want — which is
@@ -1508,20 +1466,14 @@ export class BotService {
     return this.drawWizard(updateId, user, outcome);
   }
 
-  private async onEdit(updateId: number, user: BotUser, message: BotInboundText): Promise<void> {
-    if (message.telegramMessageId === undefined) return;
-
-    try {
-      await this.chats.editBySourceMessage(user.id, message.telegramMessageId, message);
-    } catch (error) {
-      if (!(error instanceof AppError)) throw error;
-      if (error.code === ErrorCode.NOT_FOUND) return;
-      await this.refuse(updateId, user, error);
-    }
-  }
-
   /**
-   * An inline-keyboard tap: `chat:accept|reject|close:<id>`.
+   * An inline-keyboard tap: `chat:accept|reject:<id>`.
+   *
+   * The prefix outlived what it was named for. v0.8.0 removed the anonymous
+   * conversation and its three actions with it; these two never carried a chat id
+   * at all — they carry a **participant** one — and they keep the prefix because
+   * every host-decision button already sitting in somebody's Telegram history
+   * encodes it.
    *
    * The toast is the *only* reply, and it is enqueued rather than sent. Accepting
    * and rejecting already notify the other party through the outbox, so a second
@@ -1863,10 +1815,10 @@ export class BotService {
       return;
     }
 
-    // Accepting, rejecting, closing and sharing are all writes, and all of them
-    // bypassed the policy gate before ADR-0017. The toast says where the user has
-    // been sent, because a button that silently opens a different screen is worse
-    // than one that explains itself.
+    // Accepting and rejecting are writes, and both bypassed the policy gate
+    // before ADR-0017. The toast says where the user has been sent, because a
+    // button that silently opens a different screen is worse than one that
+    // explains itself.
     if (!(await this.mayWrite(update.updateId, user))) {
       await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
       return;
@@ -1883,49 +1835,6 @@ export class BotService {
           await this.participation.reject(user.id, callback.id);
           await this.answer(callbackQueryId, 'رد شد');
           return;
-
-        case 'close':
-          await this.chats.close(user.id, callback.id);
-          await this.answer(callbackQueryId, 'گفتگو بسته شد 🔒');
-          return;
-
-        /**
-         * «اشتراک اطلاعات تماس» — the *question*, not the act (report 6).
-         *
-         * Nothing is disclosed here. It sends a message spelling out exactly what
-         * agreeing does, with the button that does it, and that two-step shape is
-         * deliberate: consent to disclose is the one decision in this product
-         * that has to be unambiguous (ADR-0009), and a single tap on a button
-         * attached to a message that arrived unbidden is not.
-         *
-         * What this replaces is a trip to a different application — read the
-         * message in the bot, open the Mini App, find the conversation, confirm
-         * — for a decision that was always going to be a confirmation either way.
-         */
-        case 'share':
-          await this.reply(update.updateId, user.id, TEMPLATES.CHAT_SHARE_CONFIRM, {
-            chatPublicId: callback.id,
-          });
-          await this.answer(callbackQueryId, 'پیش از تأیید، توضیح را بخوانید.');
-          return;
-
-        /**
-         * The act itself.
-         *
-         * `ChatService.shareContact` is the authority and is idempotent, so a
-         * double tap is one decision. It refuses a chat that is not OPEN, which
-         * is why the button is only rendered on an accepted conversation — this
-         * is the second line of defence rather than the first.
-         *
-         * **It reveals nothing by itself**, and the confirmation says so: the
-         * platform holds no phone number and will not surrender a Telegram
-         * handle. What changes is that the sharer's own messages stop being
-         * masked, so they can send their details themselves.
-         */
-        case 'shareyes':
-          await this.chats.shareContact(user.id, callback.id);
-          await this.answer(callbackQueryId, 'ثبت شد 🤝 حالا می‌توانید اطلاعات تماس بفرستید.');
-          return;
       }
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -1941,8 +1850,7 @@ export class BotService {
    *
    * `/discover` has listed events since M13 and offered no way to act on one.
    * The bot could *host* an activity end to end — create it, see the requests,
-   * accept or reject, chat — and a guest could see activities and not ask to
-   * join one. The step between those was `POST /events/:id/join`, reachable only
+   * accept or reject — and a guest could see activities and not ask to join one. The step between those was `POST /events/:id/join`, reachable only
    * from `EventDetailView`, and v0.4.6 removed the last button that opened it.
    *
    * ── The toast says which of the two happened ────────────────────────────────
@@ -2252,9 +2160,9 @@ export class BotService {
    * threshold, and even that is rendered as a warmer thank-you rather than as a
    * number.
    *
-   * **Nobody is notified.** Telling one side of an anonymous chat that the other
-   * reported them is the single message this area must never send, and the only
-   * thing that leaves here is a toast to the person who tapped.
+   * **Nobody is notified.** Telling somebody that the person they were talking
+   * to reported them is the single message this area must never send, and the
+   * only thing that leaves here is a toast to the person who tapped.
    *
    * A refusal is a toast for the same reason a join refusal is — except
    * `CANNOT_REPORT_OWN_CONTENT`, which is a mis-tap worth explaining rather than
@@ -2785,8 +2693,8 @@ export class BotService {
                * Its own row, under the join button and above the report ones,
                * because it is the *other* thing somebody wants from this screen:
                * a question about the activity, from a reader who has not decided.
-               * The anonymous chat cannot answer that — it belongs to a
-               * participation, so asking would have meant joining first.
+               * The conversation this replaced could not answer that — it hung
+               * off a participation, so asking meant joining first.
                *
                * Not offered on the host's own activity: the branch above draws a
                * different keyboard entirely, and the service refuses it anyway.
@@ -3341,9 +3249,8 @@ export class BotService {
        * The same bucket `PATCH /me/profile` and `PUT /me/settings` spend from,
        * keyed on the same subject.
        *
-       * «A limit enforced on one of two surfaces is not a limit» is this file's
-       * own rule about the chat relay (T12), and it applies here for a concrete
-       * reason: this is the one settings row that writes through
+       * «A limit enforced on one of two surfaces is not a limit» (T12) applies
+       * here for a concrete reason: this is the one settings row that writes through
        * `ProfileService.update`, which means one `audit_log` row per tap. The
        * three notification switches are an upsert of one boolean and write no
        * audit at all, which is why they are not metered.
@@ -3536,6 +3443,27 @@ export class BotService {
 
     if (targetPublicId === null || form.body === undefined || !isDirectMessageMode(form.mode)) {
       return this.notice(updateId, user, 'پیام فرستاده نشد. دوباره تلاش کنید.');
+    }
+
+    /**
+     * Metered, because this is the one thing in the product that sends text to a
+     * stranger (v0.8.0).
+     *
+     * The bucket is the relay's, renamed. The relay spent it on every typed
+     * message and is gone; a removal that took the limit with it would have left
+     * the feature that replaced it unmetered, which is how somebody makes another
+     * person's Telegram unusable.
+     *
+     * Spent here rather than when the form opens: opening a form sends nobody
+     * anything, and refusing at the point of *sending* is what the limit is about.
+     */
+    const verdict = await this.limiter.consume(
+      'DIRECT_MESSAGE_SEND',
+      user.publicId,
+      RATE_LIMITS.DIRECT_MESSAGE_SEND,
+    );
+    if (!verdict.allowed) {
+      return this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.RATE_LIMITED]);
     }
 
     try {
@@ -3934,9 +3862,9 @@ export class BotService {
    * The policy gate has always lived in `AuthGuard`, applied per route with
    * `@RequiresCurrentPolicies()`. **The bot never passes through `AuthGuard`** —
    * `BotService` calls domain services directly — so every write the bot could
-   * already do bypassed it: relaying a chat message, accepting or rejecting a
-   * request, sharing contact details. ADR-0017 widened that to creating events
-   * and editing profiles, which is what made it worth finding.
+   * already do bypassed it: accepting or rejecting a request, writing to a host.
+   * ADR-0017 widened that to creating events and editing profiles, which is what
+   * made it worth finding.
    *
    * `BotService`'s own doc comment says a rule enforced on one surface protects
    * one surface. This is that rule, on this surface.
@@ -5193,23 +5121,6 @@ export class BotService {
       // selected would be a query per keystroke in a wizard.
       status: user.status,
     };
-  }
-
-  /**
-   * What to say when a plain message could belong to any of several conversations.
-   *
-   * Two situations, two answers, and telling them apart matters: somebody with no
-   * live chat has nothing to reply *to*, so advising them to press "reply" would be
-   * instructions they cannot follow.
-   */
-  private async ambiguityAdvice(userId: string): Promise<string> {
-    const live = (await this.chats.listForUser(userId)).filter(
-      (chat) => chat.status === 'ANONYMOUS' || chat.status === 'OPEN',
-    );
-
-    return live.length === 0
-      ? `گفتگوی بازی ندارید. با دکمهٔ «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» یک فعالیت پیدا کنید و «پایتم» را بزنید.`
-      : `چند گفتگوی باز دارید. روی پیام همان نفر «Reply» بزنید تا بدانم پاسخ برای کدام گفتگو است. فهرست گفتگوها زیر دکمهٔ «${menuPathFor('chats') ?? 'گفتگو و نظرها'}» است.`;
   }
 }
 

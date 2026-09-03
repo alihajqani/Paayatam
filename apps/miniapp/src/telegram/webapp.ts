@@ -236,7 +236,6 @@ export const DEEP_LINKS: Record<string, string> = {
   home: '/home',
   wallet: '/wallet',
   discover: '/discover',
-  chats: '/chats',
   reviews: '/reviews',
   'reviews/pending': '/reviews',
   'my-requests': '/my-requests',

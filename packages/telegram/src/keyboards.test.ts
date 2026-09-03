@@ -1,34 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { parseChatCallback } from './callback-data';
-import { chatKeyboard, hostDecisionKeyboard, openAppButton } from './keyboards';
+import { hostDecisionKeyboard, openAppButton } from './keyboards';
 
 const CHAT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const BOT = 'payetam_bot';
 
 /**
- * The keyboards, and one property that is easy to lose: **contact sharing is only
- * offered on an accepted conversation** (report 6).
+ * The host's two decisions, and the only keyboard left under the `chat:` prefix.
  *
- * `ChatService.shareContact` is OPEN-only — before acceptance there is no meeting
- * to arrange, and an anonymous stage that can be switched off on request is not an
- * anonymous stage (ADR-0009). So a share button under an anonymous chat is a
- * control the product already knows will answer «گفتگو باز نیست», and the payload
- * flag that gates it defaults to false: a message queued by an older deploy
- * carries no `chatOpen`, and the safe reading of "we do not know" is to leave the
- * button off.
+ * The namespace outlived the product it was named for: v0.8.0 removed the
+ * anonymous conversation, and `chat:close`, `chat:share` and `chat:shareyes`
+ * went with it. `accept` and `reject` stay, because they never carried a chat id
+ * — they carry a **participant** one, and they are how a host answers a request
+ * from the notification rather than from a screen.
+ *
+ * The prefix is deliberately not renamed. Every host decision button already
+ * sitting in somebody's Telegram history encodes `chat:accept:<id>`, and a
+ * rename would turn each of them into «این دکمه دیگر کار نمی‌کند» on a request
+ * that expires in twenty-four hours.
  */
-describe('the chat keyboard', () => {
-  it('offers closing and reporting on every live conversation', () => {
-    const rows = chatKeyboard(CHAT_ID);
+describe('the host decision keyboard', () => {
+  it('puts both decisions one tap away, and only those', () => {
+    const rows = hostDecisionKeyboard(CHAT_ID);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toHaveLength(2);
-    expect(parseChatCallback(rows[0]?.[0]?.callbackData ?? '')).toEqual({
-      action: 'close',
-      id: CHAT_ID,
-    });
-    // Reporting has to be where the harm is happening. It was Mini-App-only.
-    expect(rows[0]?.[1]?.callbackData).toBe(`rp:askc:${CHAT_ID}`);
+    expect(parseChatCallback(rows[0]?.[0]?.callbackData ?? '')?.action).toBe('accept');
+    expect(parseChatCallback(rows[0]?.[1]?.callbackData ?? '')?.action).toBe('reject');
   });
 
   /**
@@ -37,56 +34,9 @@ describe('the chat keyboard', () => {
    * persistent menu off them, since `reply_markup` holds one thing.
    */
   it('carries no link out of Telegram', () => {
-    for (const button of [
-      ...chatKeyboard(CHAT_ID, true),
-      ...hostDecisionKeyboard(CHAT_ID),
-    ].flat()) {
+    for (const button of hostDecisionKeyboard(CHAT_ID).flat()) {
       expect(button.url).toBeUndefined();
     }
-  });
-
-  it('offers contact sharing once the conversation is open', () => {
-    const rows = chatKeyboard(CHAT_ID, true);
-
-    expect(rows).toHaveLength(2);
-    expect(parseChatCallback(rows[1]?.[0]?.callbackData ?? '')).toEqual({
-      action: 'share',
-      id: CHAT_ID,
-    });
-  });
-
-  /**
-   * `share` asks; `shareyes` does. The button on the *message* must be the asking
-   * one — a keyboard that jumped straight to the act would make an unbidden
-   * message one tap away from a disclosure that cannot be undone.
-   */
-  it('offers the question, never the act', () => {
-    const rows = chatKeyboard(CHAT_ID, true);
-
-    expect(parseChatCallback(rows[1]?.[0]?.callbackData ?? '')?.action).not.toBe('shareyes');
-  });
-
-  it('leaves it off when the payload does not say the chat is open', () => {
-    // An older deploy's payload has no `chatOpen`, which reaches this as `false`.
-    expect(chatKeyboard(CHAT_ID, false)).toHaveLength(1);
-    expect(chatKeyboard(CHAT_ID)).toHaveLength(1);
-  });
-
-  /** Its own row: it sits beside a destructive button and cannot be undone. */
-  it('keeps sharing on a row of its own', () => {
-    const rows = chatKeyboard(CHAT_ID, true);
-
-    expect(rows[1]).toHaveLength(1);
-  });
-});
-
-describe('the host decision keyboard', () => {
-  it('puts both decisions one tap away, and only those', () => {
-    const rows = hostDecisionKeyboard(CHAT_ID);
-
-    expect(rows).toHaveLength(1);
-    expect(parseChatCallback(rows[0]?.[0]?.callbackData ?? '')?.action).toBe('accept');
-    expect(parseChatCallback(rows[0]?.[1]?.callbackData ?? '')?.action).toBe('reject');
   });
 });
 

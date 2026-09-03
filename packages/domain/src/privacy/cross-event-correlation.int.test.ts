@@ -6,7 +6,6 @@ import {
   createTestPrisma,
   createUser,
   resetDatabase,
-  TEST_CHAT_ENCRYPTION_KEY,
   seedCatalog,
   type CatalogFixture,
 } from '../../../../test/integration/db';
@@ -14,8 +13,6 @@ import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
 import { SettingsService } from '../catalog/settings.service';
-import { ChatService } from '../chat/chat.service';
-import { MessageCipher } from '../chat/message-cipher';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
@@ -53,10 +50,6 @@ const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 const settings = new SettingsService(service);
 const audit = new AuditService(service, clock);
 const outbox = new OutboxService(service, clock);
-const cipher = new MessageCipher({
-  CHAT_ENCRYPTION_KEY: TEST_CHAT_ENCRYPTION_KEY,
-} as unknown as Env);
-const chat = new ChatService(service, clock, cipher, audit, outbox);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
@@ -79,7 +72,6 @@ const participation = new ParticipationService(
   settings,
   audit,
   outbox,
-  chat,
   penalties,
   membership,
   coins,
@@ -286,25 +278,20 @@ describe('a second host, and a guest who asked to join both', () => {
 
 describe('what the guest can see of the host', () => {
   /**
-   * Symmetry check. The guest learns the host's name from the event page, which
-   * is public to any authenticated viewer and always has been — a host is
-   * publishing an invitation, and an invitation with no name behind it is not
-   * one anybody sensible accepts.
+   * Symmetry check, through what a join actually hands back (v0.8.0).
    *
-   * What the guest does **not** get is a route from that name back to the host's
-   * other guests: the participant list is host-only, and the chat carries the
-   * counterpart's name without their public id.
+   * It used to read the conversation summary the join created, and assert that
+   * the summary named a person and an event and carried no identifier for
+   * either. The conversation is gone; the property is not, and it now lives on
+   * the join response — the guest learns the host's name from the **event page**,
+   * which is public to any authenticated viewer and always has been, and gets no
+   * route from that name back to the host's other guests.
    */
-  it('gives the guest a conversation title and no identifier behind it', async () => {
+  it('gives the guest a request with no identifier behind it', async () => {
     const event = await createEvent(hostA, 'شب بازی رومیزی');
-    await participation.join(guest, event);
+    const joined = await participation.join(guest, event);
 
-    const [summary] = await chat.listForUser(guest);
-    expect(summary?.counterpartName).toBe('میزبان الف');
-    expect(summary?.eventTitle).toBe('شب بازی رومیزی');
-    // The chat names a person and an event, and hands over no identifier for
-    // either the person or their other conversations.
-    expect(Object.keys(summary ?? {})).not.toContain('counterpartPublicId');
-    expect(JSON.stringify(summary)).not.toContain(guestPublicId);
+    expect(Object.keys(joined)).not.toContain('counterpartPublicId');
+    expect(JSON.stringify(joined)).not.toContain(guestPublicId);
   });
 });

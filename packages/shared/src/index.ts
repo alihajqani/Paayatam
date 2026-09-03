@@ -4,7 +4,6 @@ export type { ErrorBody } from './errors';
 export { UNLIMITED_CAPACITY, isUnlimitedCapacity } from './contracts/events';
 
 export {
-  CHAT_STATUS_FA,
   EVENT_DISCLAIMER_FA,
   EVENT_DISCLAIMER_SHORT_FA,
   EVENT_STATUS_FA,
@@ -163,33 +162,6 @@ export type {
   RedeemGiftCodeRequest,
   RedeemGiftCodeResponse,
 } from './contracts/economy';
-
-export {
-  chatStatus,
-  chatRole,
-  chatMessageKind,
-  redactionKind,
-  sendChatMessageRequest,
-  closeChatRequest,
-  chatMessagesQuery,
-  chatMessageView,
-  chatSummaryView,
-  myChatsResponse,
-  chatMessagesResponse,
-} from './contracts/chat';
-export type {
-  ChatStatus,
-  ChatRole,
-  ChatMessageKind,
-  RedactionKind,
-  SendChatMessageRequest,
-  CloseChatRequest,
-  ChatMessagesQuery,
-  ChatMessageView,
-  ChatSummaryView,
-  MyChatsResponse,
-  ChatMessagesResponse,
-} from './contracts/chat';
 
 export {
   timeOfDay,

@@ -150,18 +150,6 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     }
 
     /**
-     * The relayed message — the one notification where a mistake breaks the
-     * product's central promise.
-     *
-     * The payload carries an alias and a chat id and never a name, because M8's
-     * outbox row was written that way on purpose. What is *not* here is the
-     * message body: the row points at the encrypted message, and the sender reads
-     * and decrypts it rather than the payload carrying plaintext (M8's deviation).
-     */
-    case 'chat.message':
-      return recipient(row, 'recipientUserPublicId', TEMPLATES.CHAT_MESSAGE);
-
-    /**
      * A direct message about an activity, and the receipt for it (v0.7.0).
      *
      * One recipient each, and **no body in either payload** — the row points at
@@ -174,21 +162,6 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
 
     case 'direct.message_seen':
       return recipient(row, 'senderUserPublicId', TEMPLATES.DIRECT_MESSAGE_SEEN);
-
-    /**
-     * D10, the halves M13 emitted and never routed.
-     *
-     * `ChatService` has written `chat.message_edited` and `chat.message_deleted`
-     * since M8 and nothing here matched them, so the outbox row was drained,
-     * produced no notification, and the recipient was never told — an edit that
-     * reached the database and stopped there. A retracted sentence the other party
-     * is still acting on is the one case where silence is actively harmful.
-     */
-    case 'chat.message_edited':
-      return recipient(row, 'recipientUserPublicId', TEMPLATES.CHAT_MESSAGE_EDITED);
-
-    case 'chat.message_deleted':
-      return recipient(row, 'recipientUserPublicId', TEMPLATES.CHAT_MESSAGE_DELETED);
 
     /** D7: both sides at the same instant, so neither gets a head start. */
     case 'review.revealed': {

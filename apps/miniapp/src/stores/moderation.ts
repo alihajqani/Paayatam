@@ -3,12 +3,19 @@ import { ref } from 'vue';
 import type { FileReportRequest, FileReportResponse, ReportTargetType } from '@payetam/shared';
 import { request } from '@/api/client';
 
-/** Which endpoint a target type reports to. One report per (target, reporter). */
-const PATH_FOR: Record<ReportTargetType, (publicId: string) => string> = {
+/**
+ * Which endpoint a target type reports to. One report per (target, reporter).
+ *
+ * `MESSAGE` is absent, and the map is a `Partial` because of it: v0.8.0 removed
+ * the anonymous conversation and `POST /chats/:id/report` with it, so there is no
+ * longer anything a user can report under that type. The enum value stays — it is
+ * a Postgres enum with rows behind it, and a moderator still reads cases about
+ * conversations that were reported while they existed.
+ */
+const PATH_FOR: Partial<Record<ReportTargetType, (publicId: string) => string>> = {
   EVENT: (publicId) => `/events/${publicId}/report`,
   USER: (publicId) => `/users/${publicId}/report`,
   REVIEW: (publicId) => `/reviews/${publicId}/report`,
-  MESSAGE: (publicId) => `/chats/${publicId}/report`,
 };
 
 /**
@@ -30,9 +37,14 @@ export const useModerationStore = defineStore('moderation', () => {
     publicId: string,
     body: FileReportRequest,
   ): Promise<FileReportResponse> {
+    const path = PATH_FOR[target];
+    // A target this build cannot report. Refused here rather than sent to a route
+    // that does not exist, so the caller gets a reason instead of a 404.
+    if (path === undefined) throw new Error(`no report endpoint for ${target}`);
+
     submitting.value = true;
     try {
-      return await request<FileReportResponse>(PATH_FOR[target](publicId), {
+      return await request<FileReportResponse>(path(publicId), {
         method: 'POST',
         body,
       });

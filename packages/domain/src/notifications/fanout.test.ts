@@ -256,47 +256,26 @@ describe('events that notify nobody', () => {
 });
 
 /**
- * D10's two halves, which this table matched until the bot's inbound half was built.
+ * The conversation events, which now plan nothing (v0.8.0).
  *
- * `ChatService` has emitted `chat.message_edited` and `chat.message_deleted` since
- * M8 and nothing here recognised them, so the outbox row was drained, produced no
- * notification, and the recipient was never told — an edit that reached the database
- * and stopped there. The previous version of this file asserted that as intended
- * behaviour, which is how the gap survived four milestones.
+ * `chat.message`, `chat.message_edited` and `chat.message_deleted` were the
+ * relay's three outbox events and each planned a notification. The relay is gone,
+ * so nothing emits them — but rows written by the previous build can still be in
+ * `outbox_event` when this one starts draining, and an unrecognised event type
+ * must return an empty list rather than throw. A throw here stalls the relay
+ * behind the row for every other notification in the queue.
  */
-describe('an edit or a deletion (D10)', () => {
-  it('tells the recipient the message changed', () => {
-    const planned = planNotifications(
-      row('chat.message_edited', { recipientUserPublicId: GUEST, chatPublicId: 'chat-1', seq: 3 }),
-    );
-
-    expect(planned).toHaveLength(1);
-    expect(planned[0]?.userPublicId).toBe(GUEST);
-    expect(planned[0]?.templateKey).toBe(TEMPLATES.CHAT_MESSAGE_EDITED);
-  });
-
-  it('tells the recipient the message is gone', () => {
-    const planned = planNotifications(
-      row('chat.message_deleted', {
-        recipientUserPublicId: GUEST,
-        chatPublicId: 'chat-1',
-        seq: 3,
-        replacementText: 'پیام حذف شد',
-      }),
-    );
-
-    expect(planned).toHaveLength(1);
-    expect(planned[0]?.templateKey).toBe(TEMPLATES.CHAT_MESSAGE_DELETED);
-  });
-
-  /** Only the recipient. The sender knows: they are the one who pressed edit. */
-  it('tells nobody else', () => {
-    const planned = planNotifications(
-      row('chat.message_edited', { senderAlias: 'میهمان ۱', chatPublicId: 'chat-1' }),
-    );
-
-    expect(planned).toEqual([]);
-  });
+describe('the retired conversation events', () => {
+  it.each(['chat.message', 'chat.message_edited', 'chat.message_deleted'])(
+    '%s plans nothing',
+    (eventType) => {
+      expect(
+        planNotifications(
+          row(eventType, { recipientUserPublicId: GUEST, chatPublicId: 'chat-1', seq: 3 }),
+        ),
+      ).toEqual([]);
+    },
+  );
 });
 
 /**

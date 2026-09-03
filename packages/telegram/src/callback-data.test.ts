@@ -16,7 +16,7 @@ describe('the callback protocol', () => {
     expect(parseChatCallback(encodeChatCallback(action, ID))).toEqual({ action, id: ID });
   });
 
-  /** The plan writes it as `chat:accept|reject|close:<id>`, and it is a wire format. */
+  /** The plan writes it as `chat:accept|reject:<id>`, and it is a wire format. */
   it('encodes exactly the documented form', () => {
     expect(encodeChatCallback('accept', ID)).toBe(`chat:accept:${ID}`);
   });
@@ -33,6 +33,20 @@ describe('the callback protocol', () => {
     )[0];
 
     expect(Buffer.byteLength(longest ?? '', 'utf8')).toBeLessThanOrEqual(64);
+  });
+
+  /**
+   * A retired action fails the parse rather than being quietly accepted.
+   *
+   * `chat:close:<id>` is still sitting under old relayed messages in people's
+   * Telegram history. It now answers «این دکمه دیگر کار نمی‌کند», which is what
+   * it is — and the alternative, keeping the action parseable so the button
+   * "works", would route a tap into a service that no longer exists.
+   */
+  it('no longer parses the conversation actions', () => {
+    expect(parseChatCallback(`chat:close:${ID}`)).toBeNull();
+    expect(parseChatCallback(`chat:share:${ID}`)).toBeNull();
+    expect(parseChatCallback(`chat:shareyes:${ID}`)).toBeNull();
   });
 
   it('refuses to encode something Telegram would reject', () => {

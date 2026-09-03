@@ -26,6 +26,11 @@ const data = ref<AdminDashboardResponse | null>(null);
 const error = ref<string | null>(null);
 const loading = ref(false);
 
+/** How many conversation rows are left, so the retired tile can hide itself. */
+const chatTotal = computed(() =>
+  Object.values(data.value?.chats.byStatus ?? {}).reduce((sum, count) => sum + count, 0),
+);
+
 const state = computed(() => {
   if (error.value !== null) return 'error' as const;
   if (data.value === null) return 'loading' as const;
@@ -212,8 +217,21 @@ onMounted(load);
           </ul>
         </article>
 
-        <article class="rounded-xl border border-line bg-surface p-4">
-          <h2 class="text-sm font-semibold">گفت‌وگوها</h2>
+        <!--
+          Retired in v0.8.0, and kept as a *decaying* tile rather than deleted.
+
+          The feature is gone; the rows are not. They are closed, on a ninety-day
+          retention clock, and a moderator can still be granted a break-glass read
+          of one while they last. A dashboard that stopped showing them would make
+          the one thing worth knowing — how many are left — invisible, so the tile
+          says what it is and will empty itself.
+        -->
+        <article v-if="chatTotal > 0" class="rounded-xl border border-line bg-surface p-4">
+          <h2 class="text-sm font-semibold">گفت‌وگوهای بایگانی‌شده</h2>
+          <p class="mt-1 text-xs text-muted">
+            این بخش در نسخهٔ ۰.۸ حذف شد. ردیف‌های باقی‌مانده تا پایان دورهٔ نگهداری (۹۰ روز) پاک
+            می‌شوند.
+          </p>
           <ul class="mt-3 flex flex-col gap-2">
             <li
               v-for="[status, count] in ordered(data.chats.byStatus, CHAT_STATUSES)"

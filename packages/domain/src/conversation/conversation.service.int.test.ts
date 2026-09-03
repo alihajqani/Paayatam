@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient, PrismaService } from '@payetam/db';
 import { FakeClock } from '@payetam/platform';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
-import { MessageCipher } from '../chat/message-cipher';
+import { MessageCipher } from '../crypto/message-cipher';
 import { ConversationService, DRAFT_TTL_DAYS, asCreateEventForm } from './conversation.service';
 
 /**

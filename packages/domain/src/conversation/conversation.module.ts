@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ChatModule } from '../chat/chat.module';
+import { CryptoModule } from '../crypto/crypto.module';
 import { ConversationService } from './conversation.service';
 // AuditModule and OutboxModule are @Global, so they need no import here.
 
@@ -19,7 +19,7 @@ import { ConversationService } from './conversation.service';
  * M22, now pinned by `apps/{api,worker}/src/app.module.test.ts`.
  */
 @Module({
-  imports: [ChatModule],
+  imports: [CryptoModule],
   providers: [ConversationService],
   exports: [ConversationService],
 })

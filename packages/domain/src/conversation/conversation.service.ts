@@ -3,7 +3,7 @@ import type { ConversationKind } from '@payetam/db';
 import { PrismaService } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { isWizardControl } from '@payetam/telegram';
-import { MessageCipher } from '../chat/message-cipher';
+import { MessageCipher } from '../crypto/message-cipher';
 import {
   apply,
   firstStep,

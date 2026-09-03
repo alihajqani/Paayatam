@@ -25,7 +25,6 @@ export function toParticipationView(participation: ParticipationDetail): Partici
     cancelledAt: participation.cancelledAt?.toISOString() ?? null,
     cancellationBucket: participation.cancellationBucket,
     waitlistRank: participation.waitlistRank,
-    chatPublicId: participation.chatPublicId,
   };
 }
 

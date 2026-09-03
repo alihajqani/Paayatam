@@ -5,7 +5,6 @@ import {
   AuditModule,
   CatalogModule,
   ChannelModule,
-  ChatModule,
   ConversationModule,
   DirectModule,
   DiscoveryModule,
@@ -40,7 +39,6 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 import { RelayNudgeInterceptor } from './common/relay-nudge.interceptor';
 import { AppExceptionFilter } from './common/app-exception.filter';
 import { CatalogController } from './catalog/catalog.controller';
-import { ChatController } from './chat/chat.controller';
 import { EconomyController } from './economy/economy.controller';
 import { DiscoveryController } from './discovery/discovery.controller';
 import { EventsController } from './events/events.controller';
@@ -86,11 +84,10 @@ import { VersionController } from './version/version.controller';
     MessagingModule,
     DiscoveryModule,
     ParticipationModule,
-    ChatModule,
     ConversationModule,
-    // «دایرکت» (v0.7.0). Its own module rather than a service inside `ChatModule`,
-    // because the two things it is deliberately unlike — masking and the
-    // participation a conversation hangs from — are that module's whole subject.
+    // «پیام مستقیم به میزبان» (v0.7.0) — since v0.8.0 the only messaging in the
+    // product, the anonymous conversation it was deliberately unlike having been
+    // removed.
     DirectModule,
     /**
      * For `ChannelConfigService` and `ChannelMembershipService` (M22 phase 6).
@@ -126,7 +123,6 @@ import { VersionController } from './version/version.controller';
     EventsController,
     DiscoveryController,
     ParticipationController,
-    ChatController,
     EconomyController,
     ReviewsController,
     ReportsController,

@@ -3,7 +3,6 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
 import {
-  ChatService,
   CoinService,
   ParticipationService,
   OutboxRelayService,
@@ -62,7 +61,6 @@ const prisma: PrismaClient = createTestPrisma();
 let app: NestFastifyApplication;
 let participation: ParticipationService;
 let relay: OutboxRelayService;
-let chats: ChatService;
 let coins: CoinService;
 let trust: TrustService;
 let fixture: CatalogFixture;
@@ -146,7 +144,6 @@ beforeAll(async () => {
 
   participation = app.get(ParticipationService);
   relay = app.get(OutboxRelayService);
-  chats = app.get(ChatService);
   coins = app.get(CoinService);
   trust = app.get(TrustService);
 }, 120_000);
@@ -654,65 +651,31 @@ describe('commands', () => {
     expect(String((row.payload as Record<string, unknown>)['text'])).toContain(event.title);
   });
 
-  it('answers /chats with nothing open yet', async () => {
+  /**
+   * `/chats` is gone (v0.8.0), and an unknown command must say so.
+   *
+   * It was three tests here — the empty digest, the counterpart-and-event
+   * pairing, and the Persian rendering of `ANONYMOUS`. The command is retired
+   * with the conversation product, and what matters now is the *shape of its
+   * absence*: somebody who has the old command in their history and types it
+   * again gets the bot's ordinary "I do not know that one" rather than silence.
+   */
+  it('no longer answers /chats', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    const before = await prisma.notification.count();
+
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/chats') }));
 
-    const row = await prisma.notification.findFirstOrThrow({
-      where: { templateKey: TEMPLATES.BOT_CHATS },
-      select: { payload: true },
+    const rows = await prisma.notification.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 1,
+      select: { templateKey: true, payload: true },
     });
-
-    expect((row.payload as Record<string, unknown>)['text']).toContain('گفتگوی بازی ندارید');
-  });
-
-  /**
-   * The command's reason for existing: `ambiguityAdvice` tells somebody with two
-   * live chats to reply to the right message, which assumed they could see which
-   * conversations those were without opening the Mini App.
-   */
-  it('names the counterpart and the event for each open conversation', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
-    await participation.join(guestId, eventPublicId);
-
-    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/chats') }));
-
-    const row = await prisma.notification.findFirstOrThrow({
-      where: { templateKey: TEMPLATES.BOT_CHATS },
-      select: { payload: true },
-    });
-
-    const event = await prisma.event.findUniqueOrThrow({
-      where: { publicId: eventPublicId },
-      select: { title: true },
-    });
-
-    const text = String((row.payload as Record<string, unknown>)['text']);
-    expect(text).toContain(event.title);
-    // The host's display name, which ADR-0014 already discloses on both surfaces.
-    expect(text).toContain('میزبان');
-  });
-
-  /**
-   * A live conversation is `ANONYMOUS` until contact is shared, and that is the
-   * status most rows carry. It must read as Persian, not as the enum.
-   */
-  it('renders an anonymous conversation in Persian, not as ANONYMOUS', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
-    await participation.join(guestId, eventPublicId);
-
-    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/chats') }));
-
-    const row = await prisma.notification.findFirstOrThrow({
-      where: { templateKey: TEMPLATES.BOT_CHATS },
-      select: { payload: true },
-    });
-
-    const text = String((row.payload as Record<string, unknown>)['text']);
-    expect(text).toContain('ناشناس');
-    expect(text).not.toContain('ANONYMOUS');
+    expect(await prisma.notification.count()).toBeGreaterThan(before);
+    expect(rows[0]?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
+    expect(String((rows[0]?.payload as Record<string, unknown>)['text'])).toContain(
+      'این فرمان را نمی‌شناسم',
+    );
   });
 
   /**
@@ -819,263 +782,74 @@ describe('commands', () => {
 });
 
 /**
- * The relay: a message typed into the bot's DM, delivered into a conversation.
+ * Plain text in the bot's DM, now that nothing relays it (v0.8.0).
  *
- * This is M8's release gate reduced to what an automated test can reach. The gate
- * itself — two real Telegram accounts, raw payload inspection — is still a manual
- * step, and what is asserted here is everything on this side of the Telegram API.
+ * This was M8's release gate: a message typed into the bot went into whichever
+ * anonymous conversation the sender had open, a reply named which one, and two
+ * open conversations with no reply was an ambiguity the bot had to refuse. The
+ * conversation product is gone and so is all of that.
+ *
+ * What is left is the property the relay's removal must not break: **typed text
+ * still goes nowhere by accident**. A form in progress claims it, a menu label is
+ * a command, and anything else gets a sentence saying where to write to a host
+ * instead of being delivered to somebody.
  */
 describe('message:text', () => {
-  async function withOneChat(): Promise<{ guestTelegramId: number; chatPublicId: string }> {
+  it('answers a stray message instead of sending it anywhere', async () => {
     const { eventPublicId } = await seedHostAndEvent();
-    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
-    const joined = await participation.join(guestId, eventPublicId);
-
-    expect(joined.chatPublicId).toBeDefined();
-    return { guestTelegramId: GUEST_TELEGRAM_ID, chatPublicId: joined.chatPublicId ?? '' };
-  }
-
-  it('relays into the sender’s only live conversation', async () => {
-    const { guestTelegramId, chatPublicId } = await withOneChat();
-
-    await post(
-      update({ message: textMessage(sender(guestTelegramId), 'سلام، ساعت هفت خوب است؟') }),
-    );
-
-    const stored = await prisma.chatMessage.findMany({
-      where: { chat: { publicId: chatPublicId }, kind: 'TEXT' },
-      select: { seq: true, sourceTelegramMessageId: true },
-    });
-    expect(stored).toHaveLength(1);
-    expect(stored[0]?.sourceTelegramMessageId).toBe(BigInt(telegramMessageSequence));
-
-    // Readable through the service, which decrypts — so this asserts the round trip
-    // and not merely that a row appeared.
-    const page = await chats.readMessages(await internalIdOf(guestTelegramId), chatPublicId, {});
-    expect(page.messages.map((message) => message.text)).toContain('سلام، ساعت هفت خوب است؟');
-  });
-
-  /**
-   * The relayed message is announced through the outbox, in the same transaction.
-   *
-   * Without the outbox row the recipient is never told, and the message sits in the
-   * database being technically correct.
-   */
-  it('emits the outbox event that tells the other side', async () => {
-    const { guestTelegramId } = await withOneChat();
-
-    await post(update({ message: textMessage(sender(guestTelegramId), 'ساعت هفت') }));
-
-    const events = await prisma.outboxEvent.findMany({
-      where: { eventType: 'chat.message' },
-      select: { payload: true },
-    });
-    expect(events).toHaveLength(1);
-    // M8's rule: ids and an alias, never the body. The worker decrypts at delivery.
-    expect(JSON.stringify(events[0]?.payload)).not.toContain('ساعت هفت');
-  });
-
-  /**
-   * **Nothing identity-shaped reaches the row or the announcement.**
-   *
-   * The sender's Telegram id and username are both present in the database and both
-   * available to the handler — `parseUpdate` hands the id to identity creation — so
-   * this is a real assertion rather than one about data that does not exist.
-   */
-  it('stores and announces nothing that identifies the sender', async () => {
-    const { guestTelegramId, chatPublicId } = await withOneChat();
-
-    await post(
-      update({
-        message: textMessage(sender(guestTelegramId, 'leaky_guest_handle'), 'من علی هستم', {
-          entities: [{ type: 'text_mention', offset: 3, length: 3, user: { id: 999_888_777 } }],
-        }),
-      }),
-    );
-
-    const rows = await prisma.chatMessage.findMany({
-      where: { chat: { publicId: chatPublicId } },
-      select: { bodyCiphertext: true, redactions: true, telegramMessageIds: true },
-    });
-    const outbox = await prisma.outboxEvent.findMany({ select: { payload: true } });
-
-    const serialised = [
-      JSON.stringify(rows.map((row) => ({ ...row, bodyCiphertext: undefined }))),
-      JSON.stringify(outbox),
-      Buffer.concat(rows.map((row) => Buffer.from(row.bodyCiphertext))).toString('utf8'),
-    ].join('\n');
-
-    expect(serialised).not.toContain(String(guestTelegramId));
-    expect(serialised).not.toContain('leaky_guest_handle');
-    expect(serialised).not.toContain('999888777');
-  });
-
-  /**
-   * Two live chats and no reply: the answer is genuinely unknown.
-   *
-   * Guessing would deliver a private message to the wrong stranger, which is the
-   * worst outcome available to this code path — so it refuses and says how to
-   * disambiguate.
-   */
-  it('refuses rather than guessing between two conversations', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-    const second = await seedHostAndEvent2();
     const guestId = await seedGuest(GUEST_TELEGRAM_ID);
     await participation.join(guestId, eventPublicId);
-    await participation.join(guestId, second);
 
-    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), 'سلام') }));
+    await post(
+      update({ message: textMessage(sender(GUEST_TELEGRAM_ID), 'سلام، ساعت هفت خوب است؟') }),
+    );
 
-    expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
-    const replies = await replyTo(GUEST_TELEGRAM_ID);
-    expect(replies.at(-1)?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
-    expect(replies.at(-1)?.text).toContain('Reply');
-  });
-
-  /**
-   * A reply names the conversation exactly, by quoting a message we sent.
-   *
-   * The lookup is on `notification.telegram_message_id`, scoped to the sender — which
-   * is also the authorisation: an id from somebody else's conversation finds nothing.
-   */
-  it('routes a reply to the conversation it quotes', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-    const second = await seedHostAndEvent2();
-    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
-    const first = await participation.join(guestId, eventPublicId);
-    await participation.join(guestId, second);
-
-    // Stand in for the worker: a delivered notification about the *first* chat,
-    // recorded with the Telegram message id the reply will quote.
-    const delivered = await prisma.notification.create({
-      data: {
-        userId: guestId,
-        templateKey: TEMPLATES.CHAT_MESSAGE,
-        dedupeKey: 'test:delivered:1',
-        payload: { chatPublicId: first.chatPublicId, seq: 1, senderAlias: 'میزبان' },
-        status: 'SENT',
-        sentAt: new Date(),
-        telegramMessageId: 4242,
-      },
-      select: { telegramMessageId: true },
+    const row = await prisma.notification.findFirstOrThrow({
+      orderBy: { createdAt: 'desc' },
+      select: { templateKey: true, payload: true },
     });
-
-    await post(
-      update({
-        message: textMessage(sender(GUEST_TELEGRAM_ID), 'باشه', {
-          reply_to_message: { message_id: delivered.telegramMessageId },
-        }),
-      }),
+    expect(row.templateKey).toBe(TEMPLATES.BOT_NOTICE);
+    // It says where writing to a host actually happens, because that is the
+    // change somebody typing into an empty chat has not noticed yet.
+    expect(String((row.payload as Record<string, unknown>)['text'])).toContain(
+      'پیام مستقیم به میزبان',
     );
-
-    const relayed = await prisma.chatMessage.findMany({
-      where: { kind: 'TEXT' },
-      select: { chat: { select: { publicId: true } } },
-    });
-    expect(relayed).toHaveLength(1);
-    expect(relayed[0]?.chat.publicId).toBe(first.chatPublicId);
-  });
-
-  it('tells somebody with no conversation what to do instead', async () => {
-    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
-    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), 'سلام') }));
-
-    const replies = await replyTo(HOST_TELEGRAM_ID);
-    expect(replies.at(-1)?.text).toContain('گفتگوی بازی ندارید');
+    // And nothing was delivered to anybody.
+    await expect(prisma.directMessage.count()).resolves.toBe(0);
   });
 
   /**
-   * Criterion 11 through the bot: *"media in chat gets a Persian refusal and stores
-   * nothing"*.
-   */
-  it('refuses media in Persian and stores nothing', async () => {
-    const { guestTelegramId, chatPublicId } = await withOneChat();
-    telegramMessageSequence += 1;
-
-    await post(
-      update({
-        message: {
-          message_id: telegramMessageSequence,
-          from: sender(guestTelegramId),
-          chat: { id: guestTelegramId, type: 'private' },
-          photo: [{ file_id: 'x', file_unique_id: 'y', width: 100, height: 100 }],
-        },
-      }),
-    );
-
-    expect(
-      await prisma.chatMessage.count({ where: { chat: { publicId: chatPublicId }, kind: 'TEXT' } }),
-    ).toBe(0);
-    const replies = await replyTo(guestTelegramId);
-    expect(replies.at(-1)?.text).toContain('فقط ارسال متن');
-  });
-
-  /** A redelivered message update must not relay a second copy. */
-  it('relays once when Telegram redelivers the same message', async () => {
-    const { guestTelegramId, chatPublicId } = await withOneChat();
-    const once = update({ message: textMessage(sender(guestTelegramId), 'ساعت هفت') });
-
-    await post(once);
-    await post(once);
-
-    expect(
-      await prisma.chatMessage.count({ where: { chat: { publicId: chatPublicId }, kind: 'TEXT' } }),
-    ).toBe(1);
-  });
-});
-
-/** D10, the inbound half: the sender edits, and the stored copy follows. */
-describe('edited_message', () => {
-  it('propagates the edit to the stored message and announces it', async () => {
-    const { eventPublicId } = await seedHostAndEvent();
-    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
-    const joined = await participation.join(guestId, eventPublicId);
-
-    const original = textMessage(sender(GUEST_TELEGRAM_ID), 'ساعت هفت');
-    await post(update({ message: original }));
-    await post(
-      update({
-        edited_message: { ...original, text: 'ساعت هشت' },
-      }),
-    );
-
-    const page = await chats.readMessages(guestId, joined.chatPublicId ?? '', {});
-    const relayed = page.messages.filter((message) => message.kind === 'TEXT');
-    expect(relayed).toHaveLength(1);
-    expect(relayed[0]?.text).toBe('ساعت هشت');
-    expect(relayed[0]?.editedAt).not.toBeNull();
-
-    // The recipient is told, which is the half M13 emitted and never routed.
-    expect(await prisma.outboxEvent.count({ where: { eventType: 'chat.message_edited' } })).toBe(1);
-  });
-
-  /**
-   * An edit to a message that was never relayed is silence, not an argument.
+   * An edit means nothing now, and must mean nothing *quietly*.
    *
-   * Telegram sends `edited_message` for every edit in the bot's DM — including one
-   * to a `/start` somebody fixed a typo in.
+   * Telegram sends `edited_message` for every edit in the bot's DM, including one
+   * to a `/start` somebody fixed a typo in. The relay used to re-deliver the
+   * corrected text; there is nothing downstream of an edit any more, and a notice
+   * would have the bot arguing with people about their own typing.
    */
-  it('ignores an edit to a message it never relayed', async () => {
+  it('says nothing at all about an edited message', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
     const before = await prisma.notification.count();
 
-    await post(update({ edited_message: textMessage(sender(HOST_TELEGRAM_ID), 'something else') }));
+    const original = textMessage(sender(HOST_TELEGRAM_ID), 'ساعت هفت');
+    await post(update({ message: original }));
+    const after = await prisma.notification.count();
 
-    expect(await prisma.notification.count()).toBe(before);
+    await post(update({ edited_message: { ...original, text: 'ساعت هشت' } }));
+
+    expect(await prisma.notification.count()).toBe(after);
+    expect(after).toBeGreaterThan(before);
   });
 });
 
+/** The host's two buttons — all that is left of the `chat:` namespace. */
 /** The host's two buttons, and the third that ends a conversation. */
 describe('callback_query', () => {
-  async function pendingRequest(): Promise<{ participantPublicId: string; chatPublicId: string }> {
+  async function pendingRequest(): Promise<{ participantPublicId: string }> {
     const { eventPublicId } = await seedHostAndEvent();
     const guestId = await seedGuest(GUEST_TELEGRAM_ID);
     const joined = await participation.join(guestId, eventPublicId);
 
-    return {
-      participantPublicId: joined.publicId,
-      chatPublicId: joined.chatPublicId ?? '',
-    };
+    return { participantPublicId: joined.publicId };
   }
 
   it('accepts a request when the host taps accept', async () => {
@@ -1122,141 +896,43 @@ describe('callback_query', () => {
     ).toBe('REJECTED');
   });
 
-  it('closes a conversation when either party taps close', async () => {
-    const { chatPublicId } = await pendingRequest();
-
-    await post(
-      update({
-        callback_query: {
-          id: 'q-close',
-          from: sender(GUEST_TELEGRAM_ID),
-          data: `chat:close:${chatPublicId}`,
-        },
-      }),
-    );
-
-    expect(
-      (
-        await prisma.anonymousChat.findUniqueOrThrow({
-          where: { publicId: chatPublicId },
-          select: { status: true },
-        })
-      ).status,
-    ).toBe('CLOSED');
-  });
-
   /**
-   * Sharing contact details from inside the bot (report 6).
+   * The three retired actions are dead buttons, and say so (v0.8.0).
    *
-   * Two taps, and the first one **must not disclose anything**. That is the
-   * property this pair of tests exists for: consent to disclose is the one
-   * decision in this product that has to be unambiguous (ADR-0009), and the whole
-   * reason `share` and `shareyes` are separate actions is that a message arriving
-   * unbidden must not be one tap away from an irreversible disclosure.
-   *
-   * What it replaces is a trip to a different application for a confirmation that
-   * was always going to be a confirmation.
+   * `chat:close`, `chat:share` and `chat:shareyes` are still sitting under
+   * relayed messages in people's Telegram history. They no longer parse, which
+   * is deliberate: keeping them parseable so the button "works" would route a tap
+   * into a service that does not exist. What the person gets is «این دکمه دیگر
+   * کار نمی‌کند», which is exactly what it is.
    */
-  describe('sharing contact details', () => {
-    async function openChat(): Promise<{ chatPublicId: string; guestUserId: string }> {
-      const { eventPublicId, hostId } = await seedHostAndEvent();
-      const guestUserId = await seedGuest(GUEST_TELEGRAM_ID);
-      const joined = await participation.join(guestUserId, eventPublicId);
-      // Only an accepted conversation may exchange contact details.
-      await participation.accept(hostId, joined.publicId);
-
-      return { chatPublicId: joined.chatPublicId ?? '', guestUserId };
-    }
-
-    it('discloses nothing when the first button is tapped', async () => {
-      const { chatPublicId, guestUserId } = await openChat();
+  it.each(['close', 'share', 'shareyes'])(
+    'answers a retired chat:%s button as a dead one',
+    async (action) => {
+      const { participantPublicId } = await pendingRequest();
+      const before = await prisma.notification.count();
 
       await post(
         update({
           callback_query: {
-            id: 'q-share',
+            id: `q-${action}`,
             from: sender(GUEST_TELEGRAM_ID),
-            data: `chat:share:${chatPublicId}`,
+            data: `chat:${action}:11111111-2222-3333-4444-555555555555`,
           },
         }),
       );
 
-      const shared = await prisma.chatParticipant.count({
-        where: { userId: guestUserId, contactSharedAt: { not: null } },
-      });
-      expect(shared).toBe(0);
-    });
-
-    it('records the decision when the confirmation is tapped', async () => {
-      const { chatPublicId, guestUserId } = await openChat();
-
-      await post(
-        update({
-          callback_query: {
-            id: 'q-shareyes',
-            from: sender(GUEST_TELEGRAM_ID),
-            data: `chat:shareyes:${chatPublicId}`,
-          },
-        }),
-      );
-
-      const shared = await prisma.chatParticipant.count({
-        where: { userId: guestUserId, contactSharedAt: { not: null } },
-      });
-      expect(shared).toBe(1);
-    });
-
-    /**
-     * The bot reaches the same service the Mini App does, so it inherits the same
-     * idempotency: pressing the button twice is one decision, not two.
-     */
-    it('treats a second confirmation as the same decision', async () => {
-      const { chatPublicId, guestUserId } = await openChat();
-
-      for (const id of ['q-yes-1', 'q-yes-2']) {
-        await post(
-          update({
-            callback_query: {
-              id,
-              from: sender(GUEST_TELEGRAM_ID),
-              data: `chat:shareyes:${chatPublicId}`,
-            },
-          }),
-        );
-      }
-
-      const consents = await prisma.chatParticipant.findMany({
-        where: { userId: guestUserId },
-        select: { contactSharedAt: true },
-      });
-      expect(consents.filter((row) => row.contactSharedAt !== null)).toHaveLength(1);
-    });
-
-    /**
-     * `callback_data` is client input. A tap naming somebody else's conversation
-     * must be refused by the service, not by the button.
-     */
-    it('refuses a confirmation from somebody who is not in the conversation', async () => {
-      const { chatPublicId } = await openChat();
-      const stranger = 900_222_000;
-      await seedGuest(stranger);
-
-      await post(
-        update({
-          callback_query: {
-            id: 'q-stranger',
-            from: sender(stranger),
-            data: `chat:shareyes:${chatPublicId}`,
-          },
-        }),
-      );
-
-      const shared = await prisma.chatParticipant.count({
-        where: { contactSharedAt: { not: null } },
-      });
-      expect(shared).toBe(0);
-    });
-  });
+      // The request is untouched, and nothing was written on either side.
+      expect(
+        (
+          await prisma.eventParticipant.findUniqueOrThrow({
+            where: { publicId: participantPublicId },
+            select: { status: true },
+          })
+        ).status,
+      ).toBe('PENDING');
+      expect(await prisma.notification.count()).toBe(before);
+    },
+  );
 
   /**
    * **The button carries no authority.**
@@ -1397,51 +1073,6 @@ describe('an update this product has no opinion about', () => {
     expect(await prisma.notification.count()).toBe(0);
   });
 });
-
-/** A second event with a different host, for the two-conversations cases. */
-async function seedHostAndEvent2(): Promise<string> {
-  const host = await prisma.user.create({
-    data: {
-      onboardingState: 'PROFILE_COMPLETE',
-      telegramAccount: { create: { telegramUserId: 800_444_555n } },
-      profile: { create: { displayName: 'میزبان دوم', cityId: fixture.tehranId, birthYear: 1990 } },
-    },
-    select: { id: true },
-  });
-
-  const title = 'پیاده‌روی صبحگاهی';
-  const description = 'یک مسیر کوتاه و دوستانه در پارک.';
-  const startsAt = new Date(Date.now() + 9 * 24 * 60 * 60 * 1000);
-  const event = await prisma.event.create({
-    data: {
-      hostUserId: host.id,
-      title,
-      description,
-      titleNormalized: normalize(title),
-      descriptionNormalized: normalize(description),
-      categoryId: fixture.categoryId,
-      cityId: fixture.tehranId,
-      startsAt,
-      endsAt: new Date(startsAt.getTime() + 2 * 60 * 60 * 1000),
-      capacity: 5,
-      costType: 'FREE',
-      status: 'PUBLISHED',
-      moderationStatus: 'APPROVED',
-      publishedAt: new Date(),
-    },
-    select: { publicId: true },
-  });
-
-  return event.publicId;
-}
-
-async function internalIdOf(telegramUserId: number): Promise<string> {
-  const account = await prisma.telegramAccount.findUniqueOrThrow({
-    where: { telegramUserId: BigInt(telegramUserId) },
-    select: { userId: true },
-  });
-  return account.userId;
-}
 
 /**
  * `/create_event`, from the first question to a row in `event` (ADR-0017).

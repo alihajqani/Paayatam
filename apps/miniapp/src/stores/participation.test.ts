@@ -23,7 +23,6 @@ function participation(overrides: Partial<ParticipationView> = {}): Participatio
     cancelledAt: null,
     cancellationBucket: null,
     waitlistRank: null,
-    chatPublicId: 'c-1',
     ...overrides,
   };
 }
@@ -50,7 +49,7 @@ describe('participation store', () => {
     request.mockResolvedValue(participation({ status: 'WAITLISTED', waitlistRank: 3 }));
     const store = useParticipationStore();
 
-    const { participation: result } = await store.join('e-1');
+    const result = await store.join('e-1');
 
     expect(result.status).toBe('WAITLISTED');
     expect(result.waitlistRank).toBe(3);
@@ -58,72 +57,22 @@ describe('participation store', () => {
   });
 
   /**
-   * The greeting sent with the request (report 6).
+   * The greeting that used to go with the request is gone (v0.8.0).
    *
-   * Two requests for one user action: the join endpoint takes no body by design,
-   * so the note goes through the relay that already sanitizes, masks and
-   * encrypts every other message in the conversation.
+   * It was a second call into `POST /chats/:id/messages`, against the anonymous
+   * conversation the join had just created, because the join endpoint takes no
+   * body by design. Both the conversation and that endpoint are removed, and
+   * writing to a host is «پیام مستقیم به میزبان» in the bot — which does not need
+   * a request first, and works for somebody who has not decided to join at all.
    */
-  describe('the optional first message', () => {
-    it('sends it to the chat the join just created', async () => {
-      request
-        .mockResolvedValueOnce(participation({ chatPublicId: 'c-1' }))
-        .mockResolvedValueOnce({});
-      const store = useParticipationStore();
+  it('makes exactly one request, whatever it is handed', async () => {
+    request.mockResolvedValue(participation());
+    const store = useParticipationStore();
 
-      const result = await store.join('e-1', '  سلام، دو نفریم  ');
+    await store.join('e-1');
 
-      expect(result.noteSent).toBe(true);
-      expect(request).toHaveBeenLastCalledWith('/chats/c-1/messages', {
-        method: 'POST',
-        // Trimmed: the server would refuse a blank one, and leading whitespace
-        // in somebody's first impression is not worth a round trip to find out.
-        body: { text: 'سلام، دو نفریم' },
-      });
-    });
-
-    it.each<[string | undefined, string]>([
-      ['', 'empty'],
-      ['   ', 'whitespace only'],
-      [undefined, 'absent'],
-    ])('sends nothing when the note is %s (%s)', async (note) => {
-      request.mockResolvedValue(participation({ chatPublicId: 'c-1' }));
-      const store = useParticipationStore();
-
-      const result = await store.join('e-1', note);
-
-      expect(result.noteSent).toBe(false);
-      expect(request).toHaveBeenCalledTimes(1);
-    });
-
-    /**
-     * The seat is scarce and the greeting is not. Rolling the join back because a
-     * message failed would hand the place to somebody else over a network blip;
-     * the guest can retype the sentence in the bot.
-     */
-    it('keeps the join when the message fails, and says the note did not arrive', async () => {
-      request
-        .mockResolvedValueOnce(participation({ chatPublicId: 'c-1' }))
-        .mockRejectedValueOnce(new Error('rate limited'));
-      const store = useParticipationStore();
-
-      const result = await store.join('e-1', 'سلام');
-
-      expect(result.participation.publicId).toBeDefined();
-      expect(result.noteSent).toBe(false);
-      expect(store.liveFor('e-1')).not.toBeNull();
-      expect(store.joining).toBe(false);
-    });
-
-    it('sends nothing when the server opened no chat', async () => {
-      request.mockResolvedValue(participation({ chatPublicId: null }));
-      const store = useParticipationStore();
-
-      const result = await store.join('e-1', 'سلام');
-
-      expect(result.noteSent).toBe(false);
-      expect(request).toHaveBeenCalledTimes(1);
-    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith('/events/e-1/join', { method: 'POST' });
   });
 
   it('clears the joining flag even when the join is refused', async () => {

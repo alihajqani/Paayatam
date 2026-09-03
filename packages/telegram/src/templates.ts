@@ -1,9 +1,8 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { encodeChatCallback, encodeDirectCallback, isPublicId } from './callback-data';
+import { encodeDirectCallback, isPublicId } from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
-  chatKeyboard,
   hostDecisionKeyboard,
   menuGroupKeyboard,
   menuGroupText,
@@ -44,11 +43,6 @@ export const TEMPLATES = {
   WAITLIST_PROMOTED_GUEST: 'waitlist.promoted.guest',
   WAITLIST_PROMOTED_HOST: 'waitlist.promoted.host',
   EVENT_CANCELLED: 'event.cancelled',
-  CHAT_MESSAGE: 'chat.message',
-  CHAT_MESSAGE_EDITED: 'chat.message_edited',
-  CHAT_MESSAGE_DELETED: 'chat.message_deleted',
-  /** The «آیا مطمئنید؟» step before contact details are disclosed (report 6). */
-  CHAT_SHARE_CONFIRM: 'chat.share_confirm',
   REVIEW_REVEALED: 'review.revealed',
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
@@ -131,8 +125,6 @@ export const TEMPLATES = {
   BOT_REQUESTS: 'bot.requests',
   /** `/myevents` — what the sender is hosting, and how full each one is. */
   BOT_MY_EVENTS: 'bot.my_events',
-  /** `/chats` — which conversations are open, and who is waiting for a reply. */
-  BOT_CHATS: 'bot.chats',
   /** `/profile` — who the product thinks you are, including your Trust Score. */
   BOT_PROFILE: 'bot.profile',
   /** `/discover` — what is on in the sender's city, without opening anything. */
@@ -287,22 +279,15 @@ function num(payload: Payload, key: string): string {
 }
 
 /**
- * «who — which event», for the header of a relayed message (ADR-0014).
+ * A boolean from a payload, defaulting to false.
  *
- * The name when the payload carries one and the alias when it does not, so an
- * anonymised profile degrades to «میهمان ۱ — سفر شمال» rather than to an empty
- * bold tag. The em dash is the glossary's separator for this pairing.
- *
- * A payload from an older deploy carries neither `senderName` nor `eventTitle`;
- * this renders whichever halves are present rather than emitting a stray dash,
- * because the relay must keep working across a rollout in both directions.
+ * False for an absent key on purpose: a payload written by an older deploy is
+ * missing the field entirely, and every flag read here reads better as "we were
+ * not told" than as an assertion. `isReply` is the live one — a payload without
+ * it renders «پیام تازه», which is the safer half to be wrong about.
  */
-function chatHeading(payload: Payload): string {
-  const who = str(payload, 'senderName') || str(payload, 'senderAlias');
-  const what = str(payload, 'eventTitle');
-  if (who === '') return what;
-  if (what === '') return who;
-  return `${who} — ${what}`;
+function bool(payload: Payload, key: string): boolean {
+  return payload[key] === true;
 }
 
 /**
@@ -343,9 +328,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const deepLink = HOST_DECISION_SCREEN;
       return {
         text:
-          `<b>درخواست تازه</b>\n\n` +
-          `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.\n` +
-          `می‌توانید پیش از تصمیم‌گیری با او گفتگو کنید.`,
+          `<b>درخواست تازه</b>\n\n` + `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`,
         deepLink,
         ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };
@@ -354,25 +337,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.PARTICIPATION_REQUESTED_GUEST:
       return opened(
         `درخواست شما برای «${str(payload, 'eventTitle')}» ثبت شد.\n` +
-          `تا زمان تصمیم میزبان می‌توانید در گفتگو سؤال بپرسید.`,
-        `chats/${str(payload, 'chatPublicId')}`,
+          `اگر سؤالی دارید، از صفحهٔ همان فعالیت «پیام مستقیم به میزبان» را بزنید.`,
+        `my-requests`,
       );
 
     /**
      * The one notification where the disclaimer belongs (report 8).
      *
-     * Not on every message about an event — a liability line under a chat relay
-     * is noise, and noise is how a disclaimer stops being read. This is the
-     * moment a real-world meeting with a stranger becomes real, which is the
-     * moment «احتیاط کنید» is actually advice rather than boilerplate.
+     * Not on every message about an event — a liability line under every
+     * notification is noise, and noise is how a disclaimer stops being read. This
+     * is the moment a real-world meeting with a stranger becomes real, which is
+     * the moment «احتیاط کنید» is actually advice rather than boilerplate.
      */
     case TEMPLATES.PARTICIPATION_ACCEPTED:
       return opened(
         `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
-          `از این پس می‌توانید اطلاعات تماس را در گفتگو رد و بدل کنید.\n\n` +
+          `برای هماهنگی، از صفحهٔ فعالیت «پیام مستقیم به میزبان» را بزنید.\n\n` +
           `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
-        `chats/${str(payload, 'chatPublicId')}`,
+        `my-requests`,
       );
 
     case TEMPLATES.PARTICIPATION_REJECTED:
@@ -406,7 +389,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         `<b>یک جا باز شد</b>\n\n` +
           `درخواست شما برای «${str(payload, 'eventTitle')}» از لیست انتظار خارج شد و ` +
           `اکنون در انتظار تصمیم میزبان است.`,
-        `chats/${str(payload, 'chatPublicId')}`,
+        `my-requests`,
       );
 
     /** D8: and so does the host, in the same domain event — decision buttons included. */
@@ -429,89 +412,6 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `«${str(payload, 'eventTitle')}» توسط میزبان لغو شده است. ` +
           `اگر بابت شرکت در آن سکه‌ای پرداخت کرده بودید، به حساب شما بازگشته است.`,
       };
-
-    /**
-     * The relayed chat message.
-     *
-     * **Who wrote it and what it is about**, since M18 (ADR-0014). The bot's DM
-     * carries every conversation a person is in, so a message headed «میهمان ۱:»
-     * and nothing else was unreadable the moment somebody had two events running:
-     * two different people were «میهمان ۱» and neither header said which event
-     * either of them was asking about.
-     *
-     * `senderAlias` is still the fallback — `chatHeading` uses the name when the
-     * payload has one and the alias when it does not, so an anonymised or
-     * never-completed profile degrades to «میهمان ۱ — سفر شمال» rather than to a
-     * blank. Nothing here is or can become a Telegram identifier; that is what
-     * ADR-0009's invariant 7 protects and it is untouched.
-     */
-    case TEMPLATES.CHAT_MESSAGE:
-      return relayed(`<b>${chatHeading(payload)}:</b>\n${str(payload, 'text')}`, payload);
-
-    /**
-     * The sender edited what they had said (D10).
-     *
-     * A **new message** rather than an edit of the delivered copy, and the marker
-     * says so: nothing populates `chat_message.telegram_message_ids`, so the
-     * product cannot find the recipient's copy to edit it. Delivering the corrected
-     * text late is honest; delivering nothing — which is what happened before this
-     * template existed — leaves the recipient acting on a sentence the sender has
-     * retracted.
-     */
-    case TEMPLATES.CHAT_MESSAGE_EDITED:
-      return relayed(
-        `<b>${chatHeading(payload)}</b> <i>(ویرایش شد)</i>:\n${str(payload, 'text')}`,
-        payload,
-      );
-
-    /**
-     * The confirmation before contact details are shared (report 6).
-     *
-     * Two things have to be true of this message and both are load-bearing.
-     *
-     * It must **not overstate what happens**: agreeing discloses nothing by
-     * itself. The platform holds no phone number and will not surrender a
-     * Telegram handle — what changes is that the user's own messages stop being
-     * masked, so they can send their details themselves if they choose to. A
-     * message that said "your contact details will be shared" would be describing
-     * a thing the product does not do, and the user would act on it.
-     *
-     * And it must carry the button, because the whole point of this step is that
-     * the *decision* happens here rather than in another application. The
-     * conditional is the same one every other keyboard here has: a malformed
-     * payload degrades to a plain message rather than a button that confirms
-     * nothing.
-     */
-    case TEMPLATES.CHAT_SHARE_CONFIRM: {
-      const chat = id(payload, 'chatPublicId');
-      return {
-        text:
-          `<b>اشتراک اطلاعات تماس</b>\n\n` +
-          `با تأیید، از این پس شمارهٔ تماس یا نام کاربری‌تان در پیام‌های <i>خودتان</i> پنهان ` +
-          `نمی‌شود و می‌توانید آن را بفرستید.\n\n` +
-          `پایه‌تَم هیچ اطلاعاتی از شما را به طرف مقابل نمی‌دهد؛ تصمیم و متن پیام با خود شماست. ` +
-          `این کار برگشت‌پذیر نیست.`,
-        ...(chat !== null
-          ? {
-              keyboard: [
-                [
-                  {
-                    text: '✅ بله، تأیید می‌کنم',
-                    callbackData: encodeChatCallback('shareyes', chat),
-                  },
-                ],
-              ],
-            }
-          : {}),
-      };
-    }
-
-    /** The sender deleted it. The replacement sentence comes from the domain (D10). */
-    case TEMPLATES.CHAT_MESSAGE_DELETED:
-      return relayed(
-        `<b>${chatHeading(payload)}</b>\n<i>${str(payload, 'replacementText')}</i>`,
-        payload,
-      );
 
     case TEMPLATES.REVIEW_WINDOW_OPEN:
       return opened(
@@ -636,16 +536,19 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     /**
      * The answer to `/start` — the first sentence anybody reads about the product.
      *
-     * It says what the anonymity actually is, because that is the promise people
-     * are being asked to rely on and «امن» on its own means nothing.
+     * The promise it makes is now the one the product actually keeps. It used to
+     * end «گفتگو با نام مستعار انجام می‌شود», which described the anonymous chat
+     * — and v0.8.0 removed that. What is true of the product today is that
+     * nothing about somebody is published until they send it themselves, which is
+     * a narrower promise and one no feature can quietly break.
      */
     case TEMPLATES.BOT_WELCOME:
       return openedWithMenu(
         `<b>به پایه‌تم خوش آمدید</b> 👋\n\n` +
           `اینجا برای فعالیت‌های گروهی کوچک — کافه و بازی، پیاده‌روی و کوهنوردی — ` +
           `همراه پیدا می‌کنید.\n\n` +
-          `تا زمانی که خودتان نخواهید، نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ ` +
-          `گفتگو با نام مستعار انجام می‌شود.`,
+          `نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ هر چیزی که می‌خواهید طرف ` +
+          `مقابل بداند، خودتان در پیام می‌نویسید.`,
         `home`,
       );
 
@@ -696,19 +599,18 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      *
      * Until this existed every command except `/start` answered «این فرمان را
      * نمی‌شناسم», which told somebody what the bot could *not* do and nothing at
-     * all about what it could. The three behaviours listed are the ones that are
-     * invisible: that a reply routes to the right conversation, that the buttons
-     * carry the decision, and that plain text works when only one chat is open.
+     * all about what it could. What is listed is what is invisible: that a host
+     * decides from the notification itself, and that writing to a host is a
+     * button on the activity rather than something to be typed.
      */
     case TEMPLATES.BOT_HELP:
       return opened(
         `<b>راهنما</b>\n\n` +
           `${helpCommandLines()}\n` +
           `<b>/start</b> — بازگشت به ابتدا\n\n` +
-          `<b>گفتگوها</b>\n` +
-          `برای پاسخ دادن، روی پیام همان گفتگو <i>reply</i> بزنید؛ ` +
-          `اگر فقط یک گفتگوی باز دارید، نوشتن پیام کافی است. ` +
-          `فهرست گفتگوهای باز زیر دکمهٔ «${menuPathFor('chats') ?? 'گفتگو و نظرها'}» است.\n\n` +
+          `<b>پیام به میزبان</b>\n` +
+          `از صفحهٔ هر فعالیت، دکمهٔ «پیام مستقیم به میزبان» را بزنید. ` +
+          `پاسخ‌ها با دکمهٔ «مشاهدهٔ پیام» و «پاسخ به این پیام» در همین‌جا رد و بدل می‌شود.\n\n` +
           `<b>درخواست‌ها</b>\n` +
           `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
           `لازم نیست چیزی را باز کنید.\n\n` +
@@ -788,18 +690,6 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
     }
-
-    /**
-     * `/chats` — the conversation digest, built by `formatMyChats`.
-     *
-     * `chats` is on the Mini App's `DEEP_LINKS` allowlist, and stays named here
-     * even though nothing renders it as a button any more: `deep-links.test.ts`
-     * checks every template's target against that allowlist, and a template
-     * pointing at a route that does not exist is the failure that pairing exists
-     * to catch — see `deepLinkTarget()`.
-     */
-    case TEMPLATES.BOT_CHATS:
-      return opened(prerendered(payload), `chats`);
 
     /**
      * `/profile` — and the only place in the product that shows you your own
@@ -1266,37 +1156,4 @@ function opened(text: string, deepLink: string): RenderedMessage {
  */
 function openedWithMenu(text: string, deepLink: string): RenderedMessage {
   return { text, deepLink, keyboard: menuOpenerKeyboard() };
-}
-
-/**
- * A message from inside a conversation.
- *
- * Carries the close-and-share keyboard when the payload names a chat, which every
- * relay payload does — the conditional is there so a malformed one degrades to a
- * plain message rather than a button that closes nothing.
- *
- * There is no "reply" button, and there never needed to be one: the message is
- * in Telegram and the reply is typed into Telegram. It used to open the Mini App
- * to do that, which was a detour spending the row's first tap target.
- */
-function relayed(text: string, payload: Payload): RenderedMessage {
-  const chat = id(payload, 'chatPublicId');
-  return {
-    text,
-    deepLink: `chats/${chat ?? ''}`,
-    ...(chat !== null ? { keyboard: chatKeyboard(chat, bool(payload, 'chatOpen')) } : {}),
-  };
-}
-
-/**
- * A boolean from a payload, defaulting to false.
- *
- * False for an absent key on purpose: a payload written by an older deploy has no
- * `chatOpen`, and the safe reading of "we do not know whether this conversation
- * is open" is to leave the contact-sharing button off. A button that is missing
- * is a feature nobody noticed; a button that discloses somebody's details from a
- * conversation that was never accepted is a privacy incident.
- */
-function bool(payload: Payload, key: string): boolean {
-  return payload[key] === true;
 }

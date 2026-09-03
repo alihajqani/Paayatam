@@ -7,7 +7,6 @@ import {
   createUser,
   resetDatabase,
   seedCatalog,
-  TEST_CHAT_ENCRYPTION_KEY,
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
@@ -16,8 +15,6 @@ import { ChannelMembershipService } from '../channel/membership.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { ChannelService } from '../channel/channel.service';
 import { SettingsService } from '../catalog/settings.service';
-import { ChatService } from '../chat/chat.service';
-import { MessageCipher } from '../chat/message-cipher';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
@@ -57,10 +54,6 @@ const moderation = new ModerationService(service, blacklist);
 const channel = new ChannelService(service, clock, settings);
 const audit = new AuditService(service, clock);
 const outbox = new OutboxService(service, clock);
-const cipher = new MessageCipher({
-  CHAT_ENCRYPTION_KEY: TEST_CHAT_ENCRYPTION_KEY,
-} as unknown as Env);
-const chat = new ChatService(service, clock, cipher, audit, outbox);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const penalties = new PenaltyService(service, settings, coins, trust);
@@ -109,7 +102,6 @@ const events = new EventService(
   membership,
   coins,
   penalties,
-  chat,
   outbox,
   audit,
 );
@@ -120,7 +112,6 @@ const participation = new ParticipationService(
   settings,
   audit,
   outbox,
-  chat,
   penalties,
   membership,
   coins,

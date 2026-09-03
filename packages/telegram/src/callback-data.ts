@@ -13,30 +13,32 @@
  * which the service layer refuses on its own (T3.2). Authorisation is not in the
  * button.
  *
- * The single namespace is the plan's. `accept` and `reject` carry a **participant**
- * public id; `close`, `share` and `shareyes` carry a **chat** public id — the host
- * decides from inside the conversation, which is why they all live under `chat:`.
+ * ── The namespace outlived the thing it was named for (v0.8.0) ─────────────
  *
- * ── Why sharing contact details is two actions ──────────────────────────────
+ * It held five actions. `close`, `share` and `shareyes` carried an **anonymous
+ * chat** public id and went with the conversation product itself. What is left is
+ * `accept` and `reject`, which never carried a chat id at all — they carry a
+ * **participant** one, and they are how a host answers a join request from the
+ * notification instead of from a screen.
  *
- * `share` **asks**; `shareyes` **does**. Consent to disclose is the one decision
- * in this product that must be deliberate — ADR-0009 — and a single tap on a
- * button in a message that arrived unbidden is not deliberate enough for it. The
- * Mini App answers this with a confirmation screen; the bot answers it with a
- * second button and a sentence saying exactly what will happen, which is the same
- * guarantee without sending the user to a different application to get it
- * (report 6).
+ * **The prefix is deliberately not renamed.** Every host-decision button already
+ * sitting in somebody's Telegram history encodes `chat:accept:<id>`; renaming it
+ * would turn each of those into «این دکمه دیگر کار نمی‌کند» on a request that
+ * expires in twenty-four hours (D9). A misleading three-letter prefix costs a
+ * paragraph of explanation; a renamed one costs answered requests.
  *
- * `chat:shareyes:<uuid>` is 52 bytes, comfortably inside the 64 the encoder
- * enforces.
+ * A retired action is not re-added to this list to keep old buttons alive, and
+ * that is the right trade in the other direction: `chat:close:<id>` from an old
+ * chat message now fails the parse and answers «این دکمه دیگر کار نمی‌کند»,
+ * which is exactly what it is.
  */
 
-export const CHAT_CALLBACK_ACTIONS = ['accept', 'reject', 'close', 'share', 'shareyes'] as const;
+export const CHAT_CALLBACK_ACTIONS = ['accept', 'reject'] as const;
 export type ChatCallbackAction = (typeof CHAT_CALLBACK_ACTIONS)[number];
 
 export interface ChatCallback {
   action: ChatCallbackAction;
-  /** A participant public id for accept/reject; a chat public id for the rest. */
+  /** A participant public id — never a conversation's; there are none. */
   id: string;
 }
 
@@ -142,8 +144,8 @@ export const EVENT_CALLBACK_ACTIONS = [
    * The host's paid actions, each in two steps — the ask and the act.
    *
    * `post` asks and `postyes` does; `invite` asks and `inviteyes` does; `drop`
-   * asks and `dropyes` does. The same shape `chat:share`/`chat:shareyes` uses,
-   * and for the same reason: these spend coins or end an activity other people
+   * asks and `dropyes` does. The same two-step shape, and for the same reason:
+   * these spend coins or end an activity other people
    * are counting on, and a single tap on a button in a digest somebody opened to
    * read is not a deliberate decision.
    *

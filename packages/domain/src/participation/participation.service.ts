@@ -7,7 +7,6 @@ import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
 import { ChannelMembershipService } from '../channel/membership.service';
-import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import {
@@ -50,14 +49,6 @@ export interface ParticipationDetail {
   cancellationBucket: CancellationBucket | null;
   /** 1-based position in the queue, present only while WAITLISTED. */
   waitlistRank: number | null;
-  /**
-   * The anonymous chat this request opened (plan §3.4).
-   *
-   * Present from the moment the request is made, not from acceptance — talking
-   * to a stranger before either of you has committed to anything is the product
-   * (plan §2.5). Null only for participations created before M8 existed.
-   */
-  chatPublicId: string | null;
 }
 
 /**
@@ -131,7 +122,6 @@ export class ParticipationService {
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
-    private readonly chat: ChatService,
     private readonly penalties: PenaltyService,
     /** The channel-membership gate (M22 phase 6), in the service that owns the act. */
     private readonly membership: ChannelMembershipService,
@@ -228,24 +218,6 @@ export class ParticipationService {
 
         const participant = await this.readParticipant(tx, event.id, userId);
 
-        // Step 5 of §3.4's join flow, which M6 could not write for want of the
-        // tables. The chat exists from the request, not from the acceptance — the
-        // whole point is that these two talk *before* identity is exchanged.
-        //
-        // Created under the event lock this transaction already holds, which is
-        // what makes the alias numbering safe: every joiner of this event
-        // serialises here, so no two of them can both become «میهمان ۳».
-        const chat = await this.chat.createForParticipant(
-          tx,
-          {
-            eventId: event.id,
-            participantId: participant.id,
-            hostUserId: event.hostUserId,
-            guestUserId: userId,
-          },
-          now,
-        );
-
         await this.audit.record(
           {
             actorType: 'USER',
@@ -273,7 +245,6 @@ export class ParticipationService {
               eventTitle: event.title,
               hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
               participantUserPublicId: await this.publicIdOf(tx, userId),
-              chatPublicId: chat.publicId,
               status,
             },
           },
@@ -324,11 +295,7 @@ export class ParticipationService {
           );
         }
 
-        return this.toDetail(
-          { ...participant, chat: { publicId: chat.publicId } },
-          event.publicId,
-          tx,
-        );
+        return this.toDetail(participant, event.publicId, tx);
       },
       { isolationLevel: 'ReadCommitted' },
     );
@@ -364,7 +331,6 @@ export class ParticipationService {
 
       const updated = await tx.eventParticipant.update({
         where: { id: participant.id },
-        include: PARTICIPANT_CHAT,
         data: {
           status: 'ACCEPTED',
           decidedAt: now,
@@ -376,11 +342,6 @@ export class ParticipationService {
           version: { increment: 1 },
         },
       });
-
-      // ANONYMOUS → OPEN, in the transaction that accepted (plan §7). A chat
-      // cannot be open for a request that failed to be accepted, nor stay
-      // anonymous for one that succeeded.
-      await this.chat.openForParticipant(tx, participant.id, hostUserId, now);
 
       await this.audit.record(
         {
@@ -405,9 +366,6 @@ export class ParticipationService {
             eventPublicId: event.publicId,
             eventTitle: event.title,
             participantUserPublicId: await this.publicIdOf(tx, participant.userId),
-            // The template deep-links straight into the conversation this
-            // acceptance opened; without it the button pointed at `chats/`.
-            chatPublicId: updated.chat?.publicId ?? '',
           },
         },
         tx,
@@ -428,18 +386,8 @@ export class ParticipationService {
 
       const updated = await tx.eventParticipant.update({
         where: { id: participant.id },
-        include: PARTICIPANT_CHAT,
         data: { status: 'REJECTED', decidedAt: now, version: { increment: 1 } },
       });
-
-      // The request is over, so the conversation is. Two strangers left messaging
-      // each other about an event one of them was refused from is not a feature.
-      await this.chat.closeForParticipant(
-        tx,
-        participant.id,
-        { reason: 'request_rejected', actorUserId: hostUserId, action: 'REJECT' },
-        now,
-      );
 
       // The seat is free again, so the queue moves — in the same transaction and
       // under the same lock, so a rejection and a cancellation racing each other
@@ -568,7 +516,6 @@ export class ParticipationService {
 
         const updated = await tx.eventParticipant.update({
           where: { id: participant.id },
-          include: PARTICIPANT_CHAT,
           data: {
             status: 'CANCELLED_BY_PARTICIPANT',
             cancelledAt: now,
@@ -578,15 +525,6 @@ export class ParticipationService {
             version: { increment: 1 },
           },
         });
-
-        await this.chat.closeForParticipant(
-          tx,
-          participant.id,
-          // The participant's own words about themselves stay on the row; the
-          // chat records only that a cancellation closed it (ADR-0009).
-          { reason: 'request_cancelled', actorUserId: userId, action: 'CLOSE' },
-          now,
-        );
 
         await this.audit.record(
           {
@@ -615,9 +553,8 @@ export class ParticipationService {
          * Missing until now, and the gap was worst in exactly the case the host
          * is most likely to act on: a guest who withdraws *before* a decision
          * leaves a request sitting in «درخواست‌ها» that the host still believes
-         * they owe an answer to. They open the chat, find it closed, and get no
-         * statement of why. A withdrawal after acceptance mattered too — the
-         * seat came free and nothing said so.
+         * they owe an answer to. A withdrawal after acceptance mattered too —
+         * the seat came free and nothing said so.
          *
          * `statusBefore` is carried because the two cases read differently to a
          * host: an undecided request has simply gone, while an accepted one
@@ -752,10 +689,7 @@ export class ParticipationService {
     const rows = await this.prisma.eventParticipant.findMany({
       where: { userId },
       orderBy: { requestedAt: 'desc' },
-      include: {
-        ...PARTICIPANT_CHAT,
-        event: { select: { publicId: true, title: true, startsAt: true } },
-      },
+      include: { event: { select: { publicId: true, title: true, startsAt: true } } },
     });
 
     return Promise.all(
@@ -826,7 +760,6 @@ export class ParticipationService {
         where: { eventId: event.id, status: 'WAITLISTED' },
         orderBy: [{ requestedAt: 'asc' }, { id: 'asc' }],
         // The promoted guest's notification links into their conversation.
-        include: PARTICIPANT_CHAT,
       });
       if (!next) break;
 
@@ -889,7 +822,6 @@ export class ParticipationService {
             eventTitle: event.title,
             hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
             promotedUserPublicId: await this.publicIdOf(tx, next.userId),
-            chatPublicId: next.chat?.publicId ?? '',
             hostDeadlineAt: hostDeadlineAt.toISOString(),
           },
         },
@@ -1053,14 +985,6 @@ export class ParticipationService {
           data: { status: 'EXPIRED', version: { increment: 1 } },
         });
 
-        // No actor: nobody decided this, a deadline did.
-        await this.chat.closeForParticipant(
-          tx,
-          participant.id,
-          { reason: 'request_expired', action: 'CLOSE' },
-          now,
-        );
-
         await this.audit.record(
           {
             actorType: 'SYSTEM',
@@ -1166,7 +1090,6 @@ export class ParticipationService {
   ): Promise<ParticipantRow> {
     return tx.eventParticipant.findUniqueOrThrow({
       where: { eventId_userId: { eventId, userId } },
-      include: PARTICIPANT_CHAT,
     });
   }
 
@@ -1176,7 +1099,6 @@ export class ParticipationService {
   ): Promise<ParticipantRow> {
     const participant = await tx.eventParticipant.findUnique({
       where: { publicId },
-      include: PARTICIPANT_CHAT,
     });
     if (!participant) throw new AppError(ErrorCode.NOT_FOUND);
     return participant;
@@ -1241,7 +1163,6 @@ export class ParticipationService {
       cancellationBucket: participant.cancellationBucket,
       waitlistRank:
         participant.status === 'WAITLISTED' ? await this.waitlistRank(tx, participant) : null,
-      chatPublicId: participant.chat?.publicId ?? null,
     };
   }
 
@@ -1312,13 +1233,6 @@ interface PromotedParticipant {
   hostDeadlineAt: Date;
 }
 
-/**
- * Every read that becomes a `ParticipationDetail` carries the chat, because §3.4
- * has the join response return `chatPublicId` and a participant with no way to
- * reach their conversation is a conversation nobody has.
- */
-const PARTICIPANT_CHAT = { chat: { select: { publicId: true } } } as const;
-
 type ParticipantRow = {
   id: string;
   publicId: string;
@@ -1331,5 +1245,4 @@ type ParticipantRow = {
   acceptedAt: Date | null;
   cancelledAt: Date | null;
   cancellationBucket: CancellationBucket | null;
-  chat?: { publicId: string } | null;
 };

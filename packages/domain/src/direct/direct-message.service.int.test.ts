@@ -11,7 +11,7 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
-import { MessageCipher } from '../chat/message-cipher';
+import { MessageCipher } from '../crypto/message-cipher';
 import { normalize } from '../moderation/persian-normalizer';
 import { OutboxService } from '../outbox/outbox.service';
 import { DirectMessageService } from './direct-message.service';

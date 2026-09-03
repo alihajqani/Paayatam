@@ -62,11 +62,16 @@ export const ErrorCode = {
   TRUST_TOO_LOW: 'TRUST_TOO_LOW',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
 
-  // Chat (ADR-0009)
-  CHAT_CLOSED: 'CHAT_CLOSED',
-  CHAT_NOT_OPEN: 'CHAT_NOT_OPEN',
+  /**
+   * Messages (ADR-0009).
+   *
+   * Three of these went with the anonymous conversation in v0.8.0 —
+   * `CHAT_CLOSED`, `CHAT_NOT_OPEN` and `CHAT_MESSAGE_EMPTY` all described states
+   * only a conversation could be in, and nothing can reach them any more. This
+   * one survives on its own merit: the bot still refuses a photo sent to a form
+   * that does not want one, and to a host.
+   */
   CHAT_MEDIA_UNSUPPORTED: 'CHAT_MEDIA_UNSUPPORTED',
-  CHAT_MESSAGE_EMPTY: 'CHAT_MESSAGE_EMPTY',
 
   // Economy (ADR-0007)
   INSUFFICIENT_COINS: 'INSUFFICIENT_COINS',
@@ -248,12 +253,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   TRUST_TOO_LOW: 'امتیاز اعتماد شما برای شرکت در این فعالیت کافی نیست.',
   INVALID_STATE_TRANSITION: 'این عملیات در وضعیت فعلی امکان‌پذیر نیست.',
 
-  CHAT_CLOSED: 'این گفتگو بسته شده است.',
-  CHAT_NOT_OPEN: 'اشتراک‌گذاری اطلاعات تماس فقط پس از پذیرش امکان‌پذیر است.',
   CHAT_MEDIA_UNSUPPORTED: 'در این نسخه فقط ارسال متن امکان‌پذیر است.',
-  CHAT_MESSAGE_EMPTY:
-    'پیام شما فقط شامل اطلاعات تماس بود و ارسال نشد. تا پیش از پذیرش درخواست، امکان ' +
-    'رد و بدل کردن اطلاعات تماس وجود ندارد.',
 
   INSUFFICIENT_COINS: 'سکهٔ کافی ندارید.',
   INVALID_REFERRAL_CODE: 'این کد دعوت معتبر نیست.',

@@ -173,8 +173,16 @@ export const RATE_LIMITS = {
   EVENT_CREATE: { limit: 5, windowSeconds: 86_400 },
   /** Asking to join: 20 a day. */
   PARTICIPATION_JOIN: { limit: 20, windowSeconds: 86_400 },
-  /** Chat messages: 30 a minute — M8 deferred this here explicitly. */
-  CHAT_SEND: { limit: 30, windowSeconds: 60 },
+  /**
+   * Direct messages: 30 a minute.
+   *
+   * Was `CHAT_SEND`, the relay's bucket, and it is the same number for the same
+   * reason: this is the one thing in the product that sends text to a stranger,
+   * and unmetered it is a way to make somebody's Telegram unusable. The relay is
+   * gone (v0.8.0); leaving its limit behind while the feature that replaced it
+   * ran unmetered would have been a regression introduced by a removal.
+   */
+  DIRECT_MESSAGE_SEND: { limit: 30, windowSeconds: 60 },
   /** Reports: 10 a day. */
   REPORT_FILE: { limit: 10, windowSeconds: 86_400 },
   /**

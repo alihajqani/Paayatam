@@ -44,7 +44,7 @@ describe('the settings board', () => {
   });
 
   it('sends the value a tap would set, not the value it shows', () => {
-    const chat = buttons(base).find((button) => button.text.includes('پیام‌های گفتگو'));
+    const chat = buttons(base).find((button) => button.text.includes('پیام‌های مستقیم'));
     expect(parseSettingCallback(chat?.callbackData ?? '')).toEqual({ field: 'c', value: false });
 
     const events = buttons(base).find((button) => button.text.includes('فعالیت‌ها'));
@@ -59,12 +59,12 @@ describe('the settings board', () => {
    * says "off", while the line above it said «روشن».
    */
   it('draws the state emoji, not the action emoji', () => {
-    const on = buttons(base).find((button) => button.text.includes('پیام‌های گفتگو'));
+    const on = buttons(base).find((button) => button.text.includes('پیام‌های مستقیم'));
     expect(on?.text.startsWith('🔔')).toBe(true);
     expect(on?.text).toContain('خاموش کردن');
 
     const off = buttons({ ...base, notifyChat: false }).find((button) =>
-      button.text.includes('پیام‌های گفتگو'),
+      button.text.includes('پیام‌های مستقیم'),
     );
     expect(off?.text.startsWith('🔕')).toBe(true);
     expect(off?.text).toContain('روشن کردن');
@@ -72,8 +72,10 @@ describe('the settings board', () => {
 
   /** And the body agrees with the button, which is what was actually broken. */
   it('states the same thing in the body as on the button', () => {
-    expect(formatSettings(base)).toContain('💬 پیام‌های گفتگو: 🔔 روشن');
-    expect(formatSettings({ ...base, notifyChat: false })).toContain('💬 پیام‌های گفتگو: 🔕 خاموش');
+    expect(formatSettings(base)).toContain('✉️ پیام‌های مستقیم: 🔔 روشن');
+    expect(formatSettings({ ...base, notifyChat: false })).toContain(
+      '✉️ پیام‌های مستقیم: 🔕 خاموش',
+    );
   });
 
   it('carries privacy as the reader sees it, not as the column stores it', () => {

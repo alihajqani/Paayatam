@@ -45,7 +45,6 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'gift', description: 'استفاده از کد هدیه' },
   { command: 'requests', description: 'درخواست‌هایی که داده‌اید' },
   { command: 'myevents', description: 'رویدادهایی که ساخته‌اید' },
-  { command: 'chats', description: 'گفتگوهای باز شما' },
   { command: 'reviews', description: 'نظرهایی که هنوز ننوشته‌اید' },
   { command: 'myreviews', description: 'نظرهایی که درباره شما نوشته‌اند' },
   { command: 'profile', description: 'نمایه و امتیاز اعتماد شما' },
@@ -122,9 +121,9 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
   },
   {
     key: 'ms',
-    label: '💬 گفتگو و نظرها',
-    hint: 'گفتگوهای باز و نظرهایی که مانده است',
-    commands: ['chats', 'reviews', 'myreviews'],
+    label: '⭐️ نظرها',
+    hint: 'نظرهایی که مانده است و نظرهایی که درباره شما نوشته‌اند',
+    commands: ['reviews', 'myreviews'],
   },
   {
     key: 'ec',

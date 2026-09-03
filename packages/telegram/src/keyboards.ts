@@ -3,7 +3,6 @@ import {
   encodeMenuCommand,
   encodeMenuGroup,
   encodeMenuRoot,
-  encodeReportAsk,
 } from './callback-data';
 import { COMMAND_GROUPS, describeCommand, type CommandGroup } from './commands';
 import { escapeHtml } from './escape';
@@ -83,73 +82,6 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
 }
 
 /**
- * The keyboard under a relayed chat message.
- *
- * Closing lives here because here is where somebody wants it: the reply arrives in
- * Telegram, and a conversation that has run its course is ended in the same place
- * it happened rather than by finding a screen.
- */
-export function chatKeyboard(
-  chatPublicId: string,
-  /**
-   * Whether the conversation has been accepted, and contact details may
-   * therefore be exchanged (report 6).
-   *
-   * Drawn from the payload rather than assumed, because `shareContact` is
-   * OPEN-only: offering the button in an anonymous chat would be a control the
-   * product already knows will answer «گفتگو باز نیست».
-   */
-  chatOpen = false,
-): InlineKeyboard {
-  const rows: InlineButton[][] = [
-    /**
-     * Closing, alone on the first row.
-     *
-     * It used to share the row with «پاسخ در برنامه». Replying does not need a
-     * button at all — the message is in Telegram and the reply is typed into
-     * Telegram — so the button spent a tap target on a detour, which is why it
-     * went with the rest of them.
-     */
-    /**
-     * Closing, and reporting, on the first row.
-     *
-     * Reporting a conversation is the one safety control that has to be where
-     * the harm is happening. It was reachable only from the Mini App, and from
-     * v0.4.6 — when the last button to it went — somebody being harassed in an
-     * anonymous chat had no way to say so from inside Telegram.
-     *
-     * Beside closing rather than below it, because they are the same kind of
-     * decision: this conversation should stop. Closing ends it; reporting also
-     * tells somebody. Neither notifies the other party — that is the single
-     * message this area must never send.
-     */
-    [
-      { text: '🔒 بستن گفتگو', callbackData: encodeChatCallback('close', chatPublicId) },
-      { text: '🚩 گزارش', callbackData: encodeReportAsk('c', chatPublicId) },
-    ],
-  ];
-
-  /**
-   * Sharing contact details without leaving Telegram (report 6).
-   *
-   * The old route was: read the message in the bot, open the Mini App, find the
-   * conversation in a list, tap through a confirmation. This is the same
-   * confirmed decision — `share` asks and `shareyes` does — with the two taps in
-   * the place the conversation is actually happening.
-   *
-   * Its own row: it sits beside a destructive button, and a mis-tap here
-   * discloses something that cannot be undone.
-   */
-  if (chatOpen) {
-    rows.push([
-      { text: '🤝 اشتراک اطلاعات تماس', callbackData: encodeChatCallback('share', chatPublicId) },
-    ]);
-  }
-
-  return rows;
-}
-
-/**
  * The labels a bottom keyboard used to draw, and what each stands for.
  *
  * ── The keyboard is gone; this is not ───────────────────────────────────────
@@ -178,7 +110,6 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['🔎 دیدن فعالیت‌ها', 'discover'],
   ['🎟 فعالیت‌های من', 'myevents'],
   ['📨 درخواست‌های من', 'requests'],
-  ['💬 گفتگوها', 'chats'],
   ['👤 نمایه من', 'profile'],
   ['⚙️ تنظیمات', 'settings'],
   ['🐞 گزارش مشکل', 'bug'],

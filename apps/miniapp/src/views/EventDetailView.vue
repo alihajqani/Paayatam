@@ -24,8 +24,10 @@ import { useSessionStore } from '@/stores/session';
  * than predicting it from `remainingCapacity` — the prediction is wrong exactly when
  * it matters, which is two people tapping join on the last seat (ADR-0006).
  *
- * **A chat exists from the request, not from the acceptance** (plan §3.4). So the
- * moment a request is in, there is somewhere to talk, and that somewhere is the bot.
+ * **Talking to the host is the bot's** (v0.8.0). The anonymous conversation this
+ * screen used to open — and the optional note that seeded it — went with the
+ * conversation product; «پیام مستقیم به میزبان» is a button on the activity in
+ * the bot, and it needs no request first.
  */
 const route = useRoute();
 const router = useRouter();
@@ -56,9 +58,7 @@ const reporting = ref(false);
  * it was before. The placeholder suggests what is useful rather than demanding
  * it.
  */
-const note = ref('');
 /** Whether the greeting actually got through. It is best-effort; see the store. */
-const noteSent = ref(false);
 
 /** The bot's @username, so «گفت‌وگو در تلگرام» lands somewhere. */
 const botUsername = computed(() => session.catalog?.botUsername ?? '');
@@ -127,7 +127,7 @@ async function act(): Promise<void> {
 }
 
 /**
- * Into the conversation, in one tap (report 6).
+ * Into the bot, in one tap (report 6).
  *
  * `openTelegramLink` where the client has it, `close()` otherwise. The old code
  * only closed, which returns the user to *whatever chat they opened the app
@@ -142,10 +142,7 @@ function openConversation(): void {
 async function join(): Promise<void> {
   joinError.value = null;
   try {
-    const result = await participation.join(publicId.value, note.value);
-    justJoined.value = result.participation;
-    noteSent.value = result.noteSent;
-    note.value = '';
+    justJoined.value = await participation.join(publicId.value);
     haptic('success');
     // The seat count moved for everyone, so the copy on screen is now stale.
     await events.loadEvent(publicId.value).catch(() => undefined);
@@ -263,49 +260,26 @@ onMounted(load);
             مهلت پاسخ میزبان: {{ formatRelative(mine.hostDeadlineAt) }}
           </p>
 
-          <p v-if="noteSent" class="text-tg-accent">پیام شما برای میزبان فرستاده شد.</p>
-
           <p class="text-tg-hint">
-            گفت‌وگوی ناشناس شما با میزبان در تلگرام باز است — بدون آنکه هویت هیچ‌کدام مشخص باشد.
+            برای پرسیدن چیزی از میزبان، در ربات همین فعالیت را باز کنید و «پیام مستقیم به میزبان» را
+            بزنید.
           </p>
 
           <!--
             The one action that follows, as a button rather than an instruction
-            (report 6). "Go back to the conversation with the bot" is a sentence
-            asking the user to do navigation the app can do for them — and for
-            somebody who opened the Mini App from a channel post, it was asking
-            them to go somewhere they had never been.
+            (report 6). "Go back to the bot" is a sentence asking the user to do
+            navigation the app can do for them — and for somebody who opened the
+            Mini App from a channel post, it was asking them to go somewhere they
+            had never been.
           -->
           <button
             type="button"
             class="min-h-11 rounded-xl bg-tg-button px-4 text-sm text-tg-button-text"
             @click="openConversation"
           >
-            رفتن به گفت‌وگو در تلگرام
+            رفتن به ربات
           </button>
         </section>
-
-        <!--
-          One optional line to the host, sent with the request (report 6).
-
-          Hidden once the request is in: this is part of *asking*, and leaving an
-          empty box on the screen afterwards would suggest a second message can be
-          sent from here — it cannot, the conversation is in the bot.
-        -->
-        <label v-if="!isHost && !mine" class="flex flex-col gap-1">
-          <span class="text-sm text-tg-subtitle">پیامی برای میزبان (اختیاری)</span>
-          <textarea
-            v-model="note"
-            rows="2"
-            maxlength="500"
-            placeholder="مثلاً: سلام، دو نفریم و از قبل هم بازی رومیزی کار کرده‌ایم."
-            class="rounded-xl bg-tg-secondary-bg p-3 text-tg-text"
-          ></textarea>
-          <span class="text-xs text-tg-hint">
-            همراه با درخواست شما فرستاده می‌شود. شمارهٔ تماس و نام کاربری شما در پیام‌ها پنهان
-            می‌ماند.
-          </span>
-        </label>
 
         <p v-if="joinError" class="text-tg-destructive">{{ joinError }}</p>
 

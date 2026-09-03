@@ -2,7 +2,6 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
   ChannelService,
-  ChatService,
   CoinService,
   ConversationService,
   EventLifecycleService,
@@ -71,8 +70,6 @@ export class Processors implements OnModuleInit {
     private readonly notifications: NotificationService,
     private readonly userSettings: UserSettingsService,
     private readonly telegram: TelegramClient,
-    /** For one thing only: decrypting a relayed message at delivery time. */
-    private readonly chats: ChatService,
     private readonly participation: ParticipationService,
     private readonly lifecycle: EventLifecycleService,
     private readonly reviews: ReviewService,
@@ -271,12 +268,17 @@ export class Processors implements OnModuleInit {
       }
     }
 
-    const payload = await this.withMessageBody(
-      notification.templateKey,
-      asRecord(notification.payload),
-    );
-
-    const message = render(notification.templateKey, payload);
+    /**
+     * The payload is the whole message (v0.8.0).
+     *
+     * It used to be decrypted first: `withMessageBody` fetched the relayed chat
+     * sentence and merged it in at the last possible moment, because M8 wrote the
+     * outbox with ids and an alias and never the text. There is no relay left, and
+     * the direct-message notification is deliberately built the same way — it
+     * names who wrote and about what, and the body is fetched only when the
+     * recipient presses «مشاهده», which is what makes the read receipt honest.
+     */
+    const message = render(notification.templateKey, asRecord(notification.payload));
     if (!message) {
       // A template this build does not know — a notification queued by a newer
       // deploy. Failing loudly would stall the queue behind it through a rollout,
@@ -340,41 +342,6 @@ export class Processors implements OnModuleInit {
         // Thrown, so BullMQ applies the backoff and eventually dead-letters it.
         throw new Error(outcome.reason);
     }
-  }
-
-  /**
-   * Put the message body into a chat notification, at the last possible moment.
-   *
-   * **This is the other half of M8's decision that the outbox carries no text.**
-   * `outbox_event.payload` and `notification.payload` are plain jsonb, so a
-   * relayed sentence stored in either would undo the encrypted column beside it;
-   * M8 therefore wrote the payload with ids and an alias only, and left a note
-   * saying "M13's relay decrypts the row the payload points at". That decryption
-   * did not exist, so every relayed chat message was delivered with an **empty
-   * body** — a notification that said «میهمان ۱:» and nothing else.
-   *
-   * The plaintext lives in this local variable for the length of one send. It is
-   * not written back to the notification row, which is the point: a retry decrypts
-   * again rather than finding the text waiting in a column.
-   */
-  private async withMessageBody(
-    templateKey: string,
-    payload: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    if (templateKey !== TEMPLATES.CHAT_MESSAGE && templateKey !== TEMPLATES.CHAT_MESSAGE_EDITED) {
-      return payload;
-    }
-
-    const chatPublicId = payload['chatPublicId'];
-    const seq = payload['seq'];
-    if (typeof chatPublicId !== 'string' || typeof seq !== 'number') return payload;
-
-    const text = await this.chats.plaintextForDelivery(chatPublicId, seq);
-    // Null means the message is gone — purged (M15) between queueing and sending.
-    // The template renders an empty body, which is the honest outcome: there is
-    // nothing left to relay, and refusing would retry against a row that will
-    // never come back.
-    return text === null ? payload : { ...payload, text };
   }
 
   /**

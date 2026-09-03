@@ -14,7 +14,6 @@ import { AppError, ErrorCode, type ChannelPublicationStatus } from '@payetam/sha
 import { AuditService } from '../audit/audit.service';
 import { CatalogService, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
-import { ChatService } from '../chat/chat.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService, bucketForLateness, type PenaltyPrice } from '../economy/penalty.service';
 import { ChannelService } from '../channel/channel.service';
@@ -271,7 +270,6 @@ export class EventService {
     private readonly membership: ChannelMembershipService,
     private readonly coins: CoinService,
     private readonly penalties: PenaltyService,
-    private readonly chat: ChatService,
     private readonly outbox: OutboxService,
     private readonly audit: AuditService,
   ) {}
@@ -952,17 +950,6 @@ export class EventService {
               version: { increment: 1 },
             },
           });
-
-          // M8's note to M10, discharged: a chat left open after its event was
-          // cancelled is two strangers arranging a meeting that will not happen.
-          // Inside this transaction and under the event lock it already holds, so
-          // the lock ordering stays event → chat (ADR-0006 rule 2).
-          await this.chat.closeForParticipant(
-            tx,
-            participant.id,
-            { reason: 'event_cancelled', actorUserId: hostUserId, action: 'CLOSE' },
-            now,
-          );
 
           notified.push({
             participantPublicId: participant.publicId,

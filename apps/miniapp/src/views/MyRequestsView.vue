@@ -10,7 +10,7 @@ import { ApiError } from '@/api/client';
 import StateBlock from '@/components/StateBlock.vue';
 import { formatEventDate, formatRelative } from '@/format/datetime';
 import { formatCoins, toPersianDigits } from '@/format/fa';
-import { haptic, webApp } from '@/telegram/webapp';
+import { haptic } from '@/telegram/webapp';
 import { useParticipationStore } from '@/stores/participation';
 
 /**
@@ -144,14 +144,6 @@ onMounted(load);
               @click="router.push(`/events/${item.eventPublicId}`)"
             >
               رویداد
-            </button>
-            <button
-              v-if="item.chatPublicId"
-              type="button"
-              class="min-h-11 rounded-xl bg-tg-bg px-3 text-sm text-tg-link"
-              @click="webApp?.close()"
-            >
-              گفت‌وگو در تلگرام
             </button>
             <button
               v-if="LIVE.has(item.status)"

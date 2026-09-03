@@ -103,7 +103,6 @@ describe('no template emits injected markup', () => {
     TEMPLATES.BOT_WIZARD,
     TEMPLATES.BOT_REQUESTS,
     TEMPLATES.BOT_MY_EVENTS,
-    TEMPLATES.BOT_CHATS,
     TEMPLATES.BOT_DISCOVER,
     TEMPLATES.BOT_REVIEWS,
     TEMPLATES.BOT_TERMS_STANDING,
@@ -119,6 +118,11 @@ describe('no template emits injected markup', () => {
     // The moderation queue, built by `formatAdminQueue`, which escapes every
     // event title it interpolates — `admin-cases.test.ts` is the proof.
     TEMPLATES.BOT_ADMIN_CASES,
+    // One direct message, built by `formatDirectMessage`, which escapes the
+    // body, the sender's display name and the activity title — `direct.test.ts`
+    // is the proof, and the body is a stranger's words, so it is the one on this
+    // list that would matter most.
+    TEMPLATES.BOT_DIRECT_MESSAGE,
   ];
 
   it.each(Object.values(TEMPLATES).filter((key) => !PRE_RENDERED.includes(key)))(
@@ -142,7 +146,7 @@ describe('no template emits injected markup', () => {
     expect([...PRE_RENDERED].sort()).toEqual(
       [
         TEMPLATES.BOT_ADMIN_CASES,
-        TEMPLATES.BOT_CHATS,
+        TEMPLATES.BOT_DIRECT_MESSAGE,
         TEMPLATES.BOT_DISCOVER,
         TEMPLATES.BOT_MY_EVENTS,
         TEMPLATES.BOT_PARTICIPANTS,
@@ -213,51 +217,37 @@ describe('an unknown template', () => {
 });
 
 /**
- * The relayed chat message is the one template where a mistake breaks the
- * product's central promise, so it gets its own assertion.
+ * A direct message is the one template carrying a stranger's words verbatim, so
+ * it gets its own assertion (v0.8.0).
+ *
+ * It replaces the relayed-chat assertions that were here. The property is the
+ * same and the risk is higher: the chat sanitised what it relayed, and this
+ * deliberately does not — contact details are the point — so escaping is the
+ * only thing standing between somebody's message and the parse mode.
  */
-describe('the chat relay template', () => {
-  const CHAT = '11111111-2222-3333-4444-555555555555';
+describe('the direct-message template', () => {
+  it('passes the pre-rendered body through and keeps the reply button', () => {
+    const keyboard = JSON.stringify([[{ text: 'پاسخ', callbackData: 'dm:reply:x' }]]);
+    const message = render(TEMPLATES.BOT_DIRECT_MESSAGE, {
+      text: '<b>پیام دربارهٔ «سفر شمال»</b>',
+      keyboard,
+    });
 
-  it('carries the alias and the text, and nothing else', () => {
-    const message = render(TEMPLATES.CHAT_MESSAGE, {
-      senderAlias: 'میهمان ۱',
+    expect(message?.text).toContain('<b>پیام دربارهٔ «سفر شمال»</b>');
+    expect((message?.keyboard ?? []).flat().map((button) => button.callbackData)).toContain(
+      'dm:reply:x',
+    );
+  });
+
+  /** No `text_mention`, no handle, no id — the body is all the template reads. */
+  it('reads nothing but the body and the keyboard', () => {
+    const message = render(TEMPLATES.BOT_DIRECT_MESSAGE, {
       text: 'ساعت هفت جلوی کافه',
-      chatPublicId: CHAT,
-      // Fields a caller might wrongly include. The template reads neither.
       telegramUserId: '573914882',
       username: 'leaky_handle',
     });
 
-    expect(message?.text).toContain('میهمان ۱');
-    expect(message?.text).toContain('ساعت هفت جلوی کافه');
-    expect(message?.text).not.toContain('573914882');
-    expect(message?.text).not.toContain('leaky_handle');
-  });
-
-  /**
-   * The close button is where the plan's third callback comes from.
-   *
-   * `chat:close:<id>` has no other source, so a relay message with no keyboard
-   * would leave the handler for it unreachable — dead code that reads as a feature.
-   */
-  it('offers the close button, keyed on the chat', () => {
-    const message = render(TEMPLATES.CHAT_MESSAGE, { senderAlias: 'م', chatPublicId: CHAT });
-    const buttons = (message?.keyboard ?? []).flat();
-
-    expect(buttons.map((button) => button.callbackData)).toContain(`chat:close:${CHAT}`);
-  });
-
-  /** An edit says so. Silence would leave the recipient acting on a retracted line. */
-  it('marks an edited message as edited', () => {
-    const message = render(TEMPLATES.CHAT_MESSAGE_EDITED, {
-      senderAlias: 'میهمان ۱',
-      text: 'ساعت هشت',
-      chatPublicId: CHAT,
-    });
-
-    expect(message?.text).toContain('ویرایش شد');
-    expect(message?.text).toContain('ساعت هشت');
+    expect(message?.text).toBe('ساعت هفت جلوی کافه');
   });
 });
 

@@ -78,34 +78,4 @@ export class ReportsController {
       ...(body.description !== undefined ? { description: body.description } : {}),
     });
   }
-
-  /**
-   * Reporting a **conversation**, not a message.
-   *
-   * §4.6 lists `MESSAGE` as a target type, but a message has no public id: §4.4
-   * exposes conversations by `anonymous_chat.public_id` and messages only by a
-   * per-chat sequence number, deliberately. Naming an individual message from
-   * outside would need an identifier the product does not publish, so the thing a
-   * user can actually report is the conversation — which is also what opens the
-   * case a break-glass grant then requires (T14).
-   *
-   * Nobody is notified. Telling one side of an anonymous chat that the other
-   * reported them is the single notification this module must never send.
-   */
-  @Post('chats/:publicId/report')
-  @RateLimit('REPORT_FILE')
-  @HttpCode(HttpStatus.CREATED)
-  async reportChat(
-    @Param('publicId') publicId: string,
-    @Body(new ZodValidationPipe(fileReportRequest)) body: FileReportRequest,
-    @CurrentUser() current: AuthenticatedUser,
-  ): Promise<FileReportResponse> {
-    const userId = await this.users.resolveInternalId(current.publicId);
-    return this.reports.file(userId, {
-      targetType: 'MESSAGE',
-      targetPublicId: publicId,
-      reason: body.reason,
-      ...(body.description !== undefined ? { description: body.description } : {}),
-    });
-  }
 }

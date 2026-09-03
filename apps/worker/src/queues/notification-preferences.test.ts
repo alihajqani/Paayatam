@@ -59,7 +59,6 @@ function buildProcessors(options: {
     notifications as never,
     userSettings as never,
     { send, botUsername: 'paayatambot' } as never,
-    {} as never, // ChatService
     {} as never, // ParticipationService
     {} as never, // EventLifecycleService
     {} as never, // ReviewService
@@ -88,9 +87,9 @@ async function runSend(processors: Processors): Promise<void> {
 }
 
 describe('notification preferences', () => {
-  it('does not send a chat relay to somebody who turned chat off', async () => {
+  it('does not send a direct message to somebody who turned messages off', async () => {
     const { processors, send, markSuppressed } = buildProcessors({
-      templateKey: TEMPLATES.CHAT_MESSAGE,
+      templateKey: TEMPLATES.DIRECT_MESSAGE_RECEIVED,
       notifyChat: false,
     });
 
@@ -100,8 +99,10 @@ describe('notification preferences', () => {
     expect(markSuppressed).toHaveBeenCalledWith('n-1');
   });
 
-  it('still sends a chat relay to somebody who left it on', async () => {
-    const { processors, send } = buildProcessors({ templateKey: TEMPLATES.CHAT_MESSAGE });
+  it('still sends one to somebody who left them on', async () => {
+    const { processors, send } = buildProcessors({
+      templateKey: TEMPLATES.DIRECT_MESSAGE_RECEIVED,
+    });
 
     await runSend(processors);
 
@@ -109,8 +110,8 @@ describe('notification preferences', () => {
   });
 
   /**
-   * One preference silences one category. Turning off chat must not stop an
-   * activity being cancelled under somebody.
+   * One preference silences one category. Turning off direct messages must not
+   * stop an activity being cancelled under somebody.
    */
   it('does not let one preference silence another category', async () => {
     const { processors, send } = buildProcessors({

@@ -12,7 +12,7 @@ import {
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../catalog/settings.service';
-import { MessageCipher } from '../chat/message-cipher';
+import { MessageCipher } from '../crypto/message-cipher';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
 import { ChatUnsealService } from './chat-unseal.service';

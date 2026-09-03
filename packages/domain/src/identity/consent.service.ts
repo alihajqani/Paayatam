@@ -269,9 +269,12 @@ export class ConsentService {
      * required documents, and the two are not the same number. `consent` is
      * UNIQUE on `(user_id, policy_version_id, context)` — the context is part of
      * the key precisely so one person can accept one document under more than
-     * one circumstance — and `ChatService.recordConsent` writes exactly such a
-     * row: a `CONTACT_SHARE` acceptance against the **current PRIVACY version**,
-     * the moment somebody agrees to exchange contact details.
+     * one circumstance — and the anonymous chat's contact-sharing step wrote
+     * exactly such a row: a `CONTACT_SHARE` acceptance against the **current
+     * PRIVACY version**, the moment somebody agreed to exchange contact details.
+     * That feature is gone as of v0.8.0 and the rows it wrote are not: an account
+     * that shared contact details once still carries one, so the bug below is
+     * still reachable by exactly the people it originally trapped.
      *
      * So a user with two required documents and three rows was measured as
      * `3 === 2` → false, and the gate closed on them permanently. Every write
