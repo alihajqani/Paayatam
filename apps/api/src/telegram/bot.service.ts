@@ -237,6 +237,28 @@ const WAITLIST_BUTTON_FA = '⏳ ثبت در نوبت انتظار';
 const JOIN_ACTION_FA = 'پایتم گفتن به این فعالیت';
 
 /**
+ * The button that writes to the host, saying who it reaches.
+ *
+ * It said «دایرکت», which names the *medium* and not the addressee. On a screen
+ * that also offers «پایتم» and two report buttons, the question a reader has is
+ * "who am I about to write to?" — and the answer matters here more than
+ * elsewhere, because this is the one control on the activity screen that sends a
+ * stranger a message rather than filing something with the product.
+ */
+const DIRECT_BUTTON_FA = '✉️ پیام مستقیم به میزبان';
+
+/**
+ * The button under a message somebody has just read.
+ *
+ * Offered in **both** directions, which is what makes this a conversation: a
+ * guest writes, the host reads and answers, and the reply the guest receives
+ * carries the same button back. `DirectMessageService.reply` has always allowed
+ * that — only the parent's *recipient* may answer — so what was missing was the
+ * control, not the permission.
+ */
+const DIRECT_REPLY_BUTTON_FA = '✍️ پاسخ به این پیام';
+
+/**
  * The bot's receiving half (plan §6: `/start`, `callback_query`, `message:text`,
  * `edited_message`, `my_chat_member`).
  *
@@ -2771,7 +2793,7 @@ export class BotService {
                */
               [
                 {
-                  text: '✉️ دایرکت',
+                  text: DIRECT_BUTTON_FA,
                   callbackData: encodeDirectCallback('write', eventPublicId),
                 },
               ],
@@ -3446,7 +3468,7 @@ export class BotService {
             ? [
                 [
                   {
-                    text: '✍️ پاسخ به این پیام',
+                    text: DIRECT_REPLY_BUTTON_FA,
                     callbackData: encodeDirectCallback('reply', message.publicId),
                   },
                 ],
