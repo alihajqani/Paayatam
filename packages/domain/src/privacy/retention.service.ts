@@ -73,6 +73,21 @@ export const RETENTION = {
  *
  * Deleted in dependency order, so nothing is ever orphaned mid-purge — see
  * `CHAT_DEPENDENTS`, which is the part a first reading gets wrong.
+ *
+ * ── What is deliberately absent: `direct_message` (v0.8.0) ──────────────────
+ *
+ * The chat's ninety-day clock existed because the chat was **anonymous**: two
+ * strangers wrote under aliases, and what made that safe was the transcript not
+ * outliving the conversation. «پیام مستقیم به میزبان» is the opposite
+ * arrangement — nobody is anonymous, contact details are deliberately not
+ * masked, and what people use it for is arranging to meet. A thread that
+ * disappeared on a timer would take the address with it, and the person who
+ * needed it would have no way to get it back.
+ *
+ * So no query below touches `direct_message`, and `retention.int.test.ts` seeds
+ * one older than every window in §8 and asserts it survives — an absence is the
+ * kind of thing that gets reintroduced by somebody adding "one more table" to
+ * the purge.
  */
 @Injectable()
 export class RetentionService {

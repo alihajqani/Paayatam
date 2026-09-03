@@ -375,6 +375,72 @@ describe('the audit trail, twenty-four months', () => {
   });
 });
 
+/**
+ * Direct messages are kept, and this is the test that says so on purpose.
+ *
+ * The anonymous chat had a ninety-day clock because it was anonymous: two
+ * strangers wrote to each other under aliases, and the promise that made that
+ * safe was that the transcript did not outlive the conversation. «پیام مستقیم به
+ * میزبان» is the opposite arrangement — it is not anonymous, contact details are
+ * deliberately *not* masked, and what people use it for is arranging to meet.
+ * A thread that vanished on a timer would take the address with it.
+ *
+ * So the row is absent from `PurgeResult` and from every query in `purge()`, and
+ * absence is exactly the kind of thing that gets reintroduced by accident. This
+ * seeds a message far older than the longest window in §8 and asserts it, and
+ * its reply, are still there afterwards.
+ */
+describe('direct messages are not on any retention schedule', () => {
+  it('keeps a message and its reply, however old', async () => {
+    const event = await prisma.event.create({
+      data: {
+        hostUserId: hostId,
+        title: 'شب بازی رومیزی',
+        description: 'یک دورهمی دوستانه برای بازی رومیزی و گپ.',
+        titleNormalized: 'شب بازی رومیزی',
+        descriptionNormalized: 'یک دورهمی دوستانه برای بازی رومیزی و گپ.',
+        categoryId: fixture.categoryId,
+        cityId: fixture.tehranId,
+        startsAt: daysAgo(2000),
+        endsAt: new Date(daysAgo(2000).getTime() + 3 * 3_600_000),
+        capacity: 5,
+        costType: 'FREE',
+        status: 'COMPLETED',
+        moderationStatus: 'APPROVED',
+      },
+    });
+
+    const first = await prisma.directMessage.create({
+      data: {
+        eventId: event.id,
+        senderUserId: guestId,
+        recipientUserId: hostId,
+        bodyCiphertext: Buffer.alloc(16, 1),
+        bodyNonce: Buffer.alloc(12, 2),
+        keyVersion: 1,
+        createdAt: daysAgo(2000),
+      },
+    });
+
+    await prisma.directMessage.create({
+      data: {
+        eventId: event.id,
+        senderUserId: hostId,
+        recipientUserId: guestId,
+        parentId: first.id,
+        bodyCiphertext: Buffer.alloc(16, 3),
+        bodyNonce: Buffer.alloc(12, 4),
+        keyVersion: 1,
+        createdAt: daysAgo(1999),
+      },
+    });
+
+    await retention.purge();
+
+    await expect(prisma.directMessage.count()).resolves.toBe(2);
+  });
+});
+
 describe('the ledgers are not on any retention schedule', () => {
   /**
    * Neither ledger appears in §8's table and neither is purged here. That is not an
