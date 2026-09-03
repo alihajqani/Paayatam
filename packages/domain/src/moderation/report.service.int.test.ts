@@ -254,16 +254,25 @@ describe('the threshold (plan §11: three distinct reporters)', () => {
     const eventPublicId = await publishEvent();
     await reportedBy(eventPublicId, 2);
     await prisma.report.updateMany({ data: { status: 'ACTIONED' } });
-    // Back to visible, as a moderator restoring it would leave it.
-    await prisma.event.update({ where: { publicId: eventPublicId }, data: { status: 'PUBLISHED' } });
-
-    await reportedBy(eventPublicId, 1);
+    // Back to visible, as a moderator restoring it would leave it. Two people
+    // have objected and a third has not yet, so nothing is due to happen.
+    await prisma.event.update({
+      where: { publicId: eventPublicId },
+      data: { status: 'PUBLISHED' },
+    });
     await expect(statusOf(eventPublicId)).resolves.toBe('PUBLISHED');
 
     await reportedBy(eventPublicId, 1);
 
-    // Two actioned plus two fresh is four people who objected, and three is the
-    // threshold.
+    /**
+     * Two actioned plus one fresh is three people who objected, and three is the
+     * threshold.
+     *
+     * Under the old `status: 'OPEN'` filter this same third report counted **one**
+     * — a moderator having worked the first two took them out of the sum — and
+     * the activity stayed visible however many more arrived. That is the reported
+     * bug, in one assertion.
+     */
     await expect(statusOf(eventPublicId)).resolves.toBe('HIDDEN');
   });
 
@@ -281,7 +290,10 @@ describe('the threshold (plan §11: three distinct reporters)', () => {
     await expect(statusOf(eventPublicId)).resolves.toBe('HIDDEN');
 
     await prisma.report.updateMany({ data: { status: 'DISMISSED' } });
-    await prisma.event.update({ where: { publicId: eventPublicId }, data: { status: 'PUBLISHED' } });
+    await prisma.event.update({
+      where: { publicId: eventPublicId },
+      data: { status: 'PUBLISHED' },
+    });
 
     await reportedBy(eventPublicId, 2);
     await expect(statusOf(eventPublicId)).resolves.toBe('PUBLISHED');

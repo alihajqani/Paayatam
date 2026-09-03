@@ -209,16 +209,25 @@ async function seedHostAndEvent(): Promise<{ hostId: string; eventPublicId: stri
  * A user who can afford to register an activity.
  *
  * `/create_event` checks the price before opening the form (v0.6.6), so a wizard
- * test seeded with an empty wallet never gets a wizard. Separate from `seedGuest`
- * rather than folded into it, because several suites assert an exact balance and
- * a helper that silently funded everybody would make those assertions about the
- * helper.
+ * test seeded with an empty wallet never gets a wizard.
+ *
+ * It is now the *same* balance `seedGuest` grants, and the helper survives as a
+ * name rather than as an amount: «this test is about a host who can pay» reads
+ * differently from «this one happens to have coins», and a suite that says which
+ * it means is one somebody can change safely later.
  */
 async function seedFundedHost(telegramUserId: number, displayName = 'میزبان'): Promise<string> {
-  const userId = await seedGuest(telegramUserId, displayName);
-  await prisma.coinAccount.create({ data: { userId, balance: 1_000 } });
-  return userId;
+  return seedGuest(telegramUserId, displayName);
 }
+
+/**
+ * What every seeded account starts with.
+ *
+ * Named because three tests below are about a *balance* and have to say what
+ * they are adding to — «۲۵ + the seed» reads as arithmetic somebody meant, where
+ * a bare 1025 reads as a number somebody copied out of a failure message.
+ */
+const SEEDED_BALANCE = 1_000;
 
 async function seedGuest(telegramUserId: number, displayName = 'میهمان'): Promise<string> {
   const guest = await prisma.user.create({
@@ -238,7 +247,7 @@ async function seedGuest(telegramUserId: number, displayName = 'میهمان'): 
    * A balance rather than a ledger entry: the seed writes rows directly here, and
    * the coin CHECK is `balance >= 0`, which this satisfies.
    */
-  await prisma.coinAccount.create({ data: { userId: guest.id, balance: 1_000 } });
+  await prisma.coinAccount.create({ data: { userId: guest.id, balance: SEEDED_BALANCE } });
   return guest.id;
 }
 
@@ -2398,7 +2407,7 @@ describe('POST /telegram/:secret — entering a code in the bot', () => {
     await type(GUEST_TELEGRAM_ID, 'SUMMER24');
 
     const balance = await coins.balanceOf(guestId);
-    expect(balance).toBe(25);
+    expect(balance).toBe(SEEDED_BALANCE + 25);
     // The form has done its job and must stop claiming what the user types.
     expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(0);
   });
@@ -2417,7 +2426,8 @@ describe('POST /telegram/:secret — entering a code in the bot', () => {
     await tap(GUEST_TELEGRAM_ID, 'cd:gift:x');
     await type(GUEST_TELEGRAM_ID, 'summer 24');
 
-    expect(await coins.balanceOf(guestId)).toBe(0);
+    // Untouched: a refused code grants nothing.
+    expect(await coins.balanceOf(guestId)).toBe(SEEDED_BALANCE);
     // The form stays open, because a refused code is usually a typo.
     expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(1);
   });
@@ -2440,7 +2450,7 @@ describe('POST /telegram/:secret — entering a code in the bot', () => {
     // And the correction is simply the next message.
     await seedGiftCode('SUMMER24', 25);
     await type(GUEST_TELEGRAM_ID, 'SUMMER24');
-    expect(await coins.balanceOf(guestId)).toBe(25);
+    expect(await coins.balanceOf(guestId)).toBe(SEEDED_BALANCE + 25);
   });
 
   it('records a referral from a code somebody typed rather than tapped', async () => {
