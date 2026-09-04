@@ -14,6 +14,7 @@ import { CatalogService } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
+import { FoundingService } from '../founding/founding.service';
 import { ProfileService, onboardingRewardKey } from './profile.service';
 
 /**
@@ -45,7 +46,18 @@ const catalog = new CatalogService(service, settings, catalogEnv);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const audit = new AuditService(service, clock);
-const profiles = new ProfileService(service, clock, env, catalog, settings, coins, trust, audit);
+const founding = new FoundingService(service, settings, coins);
+const profiles = new ProfileService(
+  service,
+  clock,
+  env,
+  catalog,
+  settings,
+  coins,
+  trust,
+  founding,
+  audit,
+);
 
 let fixture: CatalogFixture;
 
@@ -542,5 +554,89 @@ describe('ProfileService.update — editing an existing profile', () => {
     await expect(profiles.update(userId, { inviteOptOut: false })).resolves.toMatchObject({
       inviteOptOut: false,
     });
+  });
+});
+
+/**
+ * The launch campaign, reached through the path that actually allocates a rank
+ * (v0.9.0).
+ *
+ * `FoundingService`'s own suite proves the allocator. What is only provable here
+ * is the wiring: that the rank commits with the profile that earned it, that a
+ * later edit does not hand out a second one, and — the one a reviewer should
+ * care about most — that the campaign is **inert until somebody switches it on**.
+ */
+describe('ProfileService.complete — the founding rank', () => {
+  async function enableCampaign(): Promise<void> {
+    await prisma.appSetting.upsert({
+      where: { key: 'founding.enabled' },
+      create: { key: 'founding.enabled', value: 1 },
+      update: { value: 1 },
+    });
+  }
+
+  it('allocates nothing on a freshly deployed instance', async () => {
+    const userId = await createUser(prisma);
+
+    const result = await profiles.complete(userId, validInput());
+
+    expect(result.founding).toBeNull();
+    expect(result.balance).toBe(50);
+    await expect(prisma.foundingMember.count()).resolves.toBe(0);
+  });
+
+  it('grants the rank and the tier coins alongside the onboarding reward', async () => {
+    await enableCampaign();
+    const userId = await createUser(prisma);
+
+    const result = await profiles.complete(userId, validInput());
+
+    expect(result.founding).toEqual({ rank: 1, tier: 1, coins: 150 });
+    // Both grants, one transaction: 50 for the profile and 150 for the rank.
+    expect(result.balance).toBe(200);
+    await expect(prisma.coinLedger.count({ where: { userId } })).resolves.toBe(2);
+  });
+
+  it('records the rank on the completion audit row rather than a second entry', async () => {
+    await enableCampaign();
+    const userId = await createUser(prisma);
+
+    await profiles.complete(userId, validInput());
+
+    const rows = await prisma.auditLog.findMany({ where: { targetId: userId } });
+    expect(rows.map((r) => r.action)).toEqual(['profile.completed']);
+    expect(rows[0]?.after).toMatchObject({ foundingRank: 1, foundingTier: 1 });
+  });
+
+  it('does not rank somebody again when they edit their profile', async () => {
+    await enableCampaign();
+    const userId = await createUser(prisma);
+    await profiles.complete(userId, validInput());
+
+    clock.advance(60 * 60 * 1000);
+    const second = await profiles.complete(userId, validInput({ displayName: 'سارا م.' }));
+
+    expect(second.founding).toBeNull();
+    expect(second.balance).toBe(200);
+    await expect(prisma.foundingMember.count({ where: { userId } })).resolves.toBe(1);
+  });
+
+  /**
+   * Ten concurrent completions of the same profile grant one onboarding reward —
+   * the property this file has asserted since M3 — and must grant one rank for
+   * the same reason. The rank rides the same transaction, so if the two ever
+   * disagree, one of them is being allocated outside the lock.
+   */
+  it('grants one rank across 10 concurrent completions', async () => {
+    await enableCampaign();
+    const userId = await createUser(prisma);
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => profiles.complete(userId, validInput())),
+    );
+
+    expect(results.filter((r) => r.founding !== null)).toHaveLength(1);
+    await expect(prisma.foundingMember.count()).resolves.toBe(1);
+    await expect(coins.balanceOf(userId)).resolves.toBe(200);
   });
 });

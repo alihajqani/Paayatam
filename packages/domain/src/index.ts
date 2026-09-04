@@ -78,6 +78,15 @@ export {
 export type { RedeemedGiftCode } from './economy/gift-code.service';
 export { EconomyModule } from './economy/economy.module';
 
+export {
+  FoundingService,
+  FOUNDING_REWARD_REASON,
+  foundingRewardKey,
+  tierFor,
+} from './founding/founding.service';
+export type { FoundingAward, FoundingProgress } from './founding/founding.service';
+export { FoundingModule } from './founding/founding.module';
+
 export { ageFromBirthYear, gregorianYearIn, isOldEnough } from './profile/age';
 export {
   ProfileService,

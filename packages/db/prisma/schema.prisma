@@ -84,6 +84,7 @@ model User {
   chatActions         ChatAction[]         @relation("ChatActionActor")
   trustScore          TrustScore?
   trustLedger         TrustScoreLedger[]
+  foundingMember      FoundingMember?
   referralsMade       Referral[]           @relation("ReferralsMade")
   reviewsWritten      Review[]             @relation("ReviewsWritten")
   reportsFiled        Report[]             @relation("ReportsFiled")
@@ -526,6 +527,14 @@ enum CoinLedgerType {
   HOST_CANCELLATION_REFUND
   ADMIN_ADJUSTMENT
   REVERSAL
+  /// The launch campaign's one-time grant to the first N members (v0.9.0).
+  ///
+  /// Last, because `ALTER TYPE … ADD VALUE` appends and this file has to match
+  /// the order Postgres actually holds. Separate from `ONBOARDING_REWARD` even
+  /// though the same transaction writes both: folding them together would make
+  /// `SUM(amount) WHERE type = 'ONBOARDING_REWARD'` mean two things at once, and
+  /// the campaign's cost would stop being answerable.
+  FOUNDING_REWARD
 
   @@map("coin_ledger_type")
 }
@@ -585,6 +594,7 @@ model CoinLedger {
   penalisedParticipants EventParticipant[]
   giftCodeRedemption    GiftCodeRedemption?
   messageCampaign       MessageCampaign?
+  foundingMember        FoundingMember?
 
   @@index([userId, createdAt])
   @@index([type, createdAt])
@@ -669,6 +679,73 @@ model TrustScoreLedger {
   @@index([userId, createdAt])
   @@index([type, createdAt])
   @@map("trust_score_ledger")
+}
+
+/// The founding-member counter. Exactly one row, `id = 1`, enforced by a CHECK.
+///
+/// A counter row rather than a Postgres sequence, and the difference is the
+/// whole reason this table exists. A sequence hands a number to a transaction
+/// that then rolls back and the number is gone — rank 428 would simply never
+/// exist. In most products that gap is invisible; here the number is displayed
+/// («نفر ۴۲۷ از ۱۰۰۰») and the running total is published to the channel, so a
+/// hole in it is both visible and unexplainable. `UPDATE … SET next_rank =
+/// next_rank + 1 RETURNING` is gap-free precisely because the number is only
+/// consumed if the transaction that took it commits.
+///
+/// The same allocator `anonymous_chat.next_seq` uses, and for the same stated
+/// reasons: `MAX(rank) + 1` races under READ COMMITTED and needs a retry loop,
+/// and `SELECT … FOR UPDATE` would put a second explicit lock in a product that
+/// deliberately has one.
+///
+/// `max_rank` is a column and not an `app_setting`, unlike every other tunable
+/// number in the product. The conditional UPDATE has to read the cap under the
+/// same row lock that increments the counter; a settings read outside that lock
+/// is a check a concurrent transaction can beat, which is the exact race the
+/// lock exists to remove.
+model FoundingCampaign {
+  id        Int      @id @default(1)
+  /// The next rank to hand out. 1-based.
+  nextRank  Int      @default(1) @map("next_rank")
+  /// The cap. Nothing is allocated once `next_rank` passes it.
+  maxRank   Int      @default(1000) @map("max_rank")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("founding_campaign")
+}
+
+/// One founding member. Written once, never updated.
+///
+/// There is no state machine here — a rank is allocated or it is not — so
+/// nothing in this table transitions and none of it goes through
+/// `assertTransition`.
+model FoundingMember {
+  /// PRIMARY KEY, which **is** the "one rank per person, for life" guarantee:
+  /// not a rule the service remembers, a rule the database enforces against
+  /// every caller that will ever exist.
+  userId       String   @id @map("user_id")
+  /// 1-based and gap-free. UNIQUE, because two members holding «#۴۲۷» would be a
+  /// bug in the allocator and this is what turns it into a failed INSERT.
+  rank         Int      @unique
+  /// Snapshotted at allocation, exactly as `gift_code_redemption.coins` and
+  /// `event_participant.cancellation_bucket` are: the tier boundaries are
+  /// runtime settings and may be retuned, and this row has to stay explainable
+  /// against the tier that actually applied rather than the one that applies
+  /// today.
+  tier         Int
+  /// What was actually granted, snapshotted for the same reason.
+  coins        Int
+  /// The coin movement that paid it. Nullable because a tier configured to grant
+  /// zero coins still produces a real member — the argument that also lets
+  /// `trust_score_ledger.delta` be zero. UNIQUE: one ledger row, one award.
+  coinLedgerId String?  @unique @map("coin_ledger_id")
+  awardedAt    DateTime @default(now()) @map("awarded_at") @db.Timestamptz(3)
+
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger CoinLedger? @relation(fields: [coinLedgerId], references: [id], onDelete: Restrict)
+
+  /// "Who are the first hundred?" — the campaign roll-up, ordered.
+  @@index([tier, rank])
+  @@map("founding_member")
 }
 
 enum ReferralStatus {

@@ -33,6 +33,8 @@ export const coinLedgerType = z.enum([
   'HOST_CANCELLATION_REFUND',
   'ADMIN_ADJUSTMENT',
   'REVERSAL',
+  // The launch campaign's one-time grant to the first N members (v0.9.0).
+  'FOUNDING_REWARD',
 ]);
 export type CoinLedgerType = z.infer<typeof coinLedgerType>;
 

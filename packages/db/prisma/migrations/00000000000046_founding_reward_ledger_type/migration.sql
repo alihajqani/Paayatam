@@ -1,0 +1,21 @@
+-- Migration 0046: the `FOUNDING_REWARD` coin ledger type (v0.9.0).
+--
+-- Its own file because `ALTER TYPE … ADD VALUE` cannot run inside a transaction
+-- in Postgres — the same reason 0022, 0023, 0029, 0031, 0032, 0034 and 0043 are
+-- separate. It is not rolled back by a later failure; additive-only, so a
+-- partial application leaves a type with one unused value and nothing else.
+--
+-- ── Why a new value and not `ONBOARDING_REWARD` ─────────────────────────────
+--
+-- Both are granted by the same transaction, to the same user, at the same
+-- moment — which is exactly the argument for keeping them apart. "They completed
+-- a profile" and "they were among the first thousand" are different questions in
+-- an audit, are asked by different people, and are tuned by different numbers.
+-- Folding the second into the first would make the campaign's cost
+-- unanswerable: `SUM(amount) WHERE type = 'ONBOARDING_REWARD'` would silently
+-- mean two things at once, and no later query could separate them.
+--
+-- This is the same reasoning the schema already records for `GIFT_CODE_REDEEM`
+-- being separate from `ADMIN_ADJUSTMENT`, and for the three M22 sinks being
+-- separate from one another rather than a single `SPEND`.
+ALTER TYPE "coin_ledger_type" ADD VALUE IF NOT EXISTS 'FOUNDING_REWARD';

@@ -826,13 +826,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_PROFILE: {
       const keyboard = parseKeyboard(payload);
       const interests = str(payload, 'interests');
+      /**
+       * The launch-campaign line, and the one screen that shows the **rank**
+       * rather than only the tier (v0.9.0). This page is the member's own, so
+       * the number is theirs to see; every list a stranger reads gets the badge
+       * alone (`foundingBadge`).
+       *
+       * Absent for everybody who is not a member, and `str` already answers ''
+       * for a missing key — so a non-member's profile is byte-for-byte what it
+       * was before this shipped.
+       */
+      const founding = str(payload, 'founding');
       return {
         text:
           `<b>نمایه شما</b>\n\n` +
           `${str(payload, 'displayName')}\n` +
           `📍 ${str(payload, 'cityName')}\n` +
           `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰\n` +
-          `🏷 علاقه‌مندی‌ها: ${interests === '' ? 'هنوز چیزی انتخاب نکرده‌اید' : interests}`,
+          `🏷 علاقه‌مندی‌ها: ${interests === '' ? 'هنوز چیزی انتخاب نکرده‌اید' : interests}` +
+          (founding === '' ? '' : `\n🎟 ${founding}`),
         deepLink: `profile/edit`,
         ...(keyboard !== undefined ? { keyboard } : {}),
       };

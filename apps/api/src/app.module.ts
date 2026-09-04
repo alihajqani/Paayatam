@@ -21,6 +21,7 @@ import {
   ParticipationModule,
   PrivacyModule,
   ProfileModule,
+  FoundingModule,
 } from '@payetam/domain';
 import {
   ClockModule,
@@ -77,6 +78,10 @@ import { VersionController } from './version/version.controller';
     EconomyModule,
     ReviewsModule,
     ProfileModule,
+    // The launch campaign (v0.9.0). `BotService` reads a member's own rank for
+    // the profile screen; `ProfileService` allocates one, and imports this
+    // module itself rather than relying on it being in the root graph.
+    FoundingModule,
     ModerationModule,
     EventsModule,
     InvitationsModule,

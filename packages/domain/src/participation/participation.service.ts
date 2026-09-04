@@ -112,6 +112,16 @@ export interface ParticipantSummary {
    * brand-new account has no row and has done nothing wrong.
    */
   trustScore: number | null;
+  /**
+   * Which launch-campaign tier this person is in, or null (v0.9.0).
+   *
+   * **The tier, never the rank.** The number is on the member's own profile
+   * because it is theirs; putting «نفر ۱۲» next to a name in a list strangers
+   * read would rank the people in the room against each other, which is a
+   * hierarchy the product has no reason to draw. A tier badge says "was here
+   * early" and stops there.
+   */
+  foundingTier: number | null;
   status: ParticipantStatus;
   requestedAt: Date;
   hostDeadlineAt: Date | null;
@@ -701,7 +711,16 @@ export class ParticipationService {
         requestedAt: true,
         hostDeadlineAt: true,
         userId: true,
-        user: { select: { publicId: true, profile: { select: { displayName: true } } } },
+        user: {
+          select: {
+            publicId: true,
+            profile: { select: { displayName: true } },
+            // The tier only. `rank` is deliberately not selected: a column that
+            // is never read cannot be leaked into a response by a later `select`
+            // that widens (§3.6 layer 2).
+            foundingMember: { select: { tier: true } },
+          },
+        },
       },
     });
 
@@ -727,6 +746,7 @@ export class ParticipationService {
         userPublicId: row.user.publicId,
         displayName: row.user.profile?.displayName ?? 'کاربر پایه‌تَم',
         trustScore: scores.get(row.userId) ?? null,
+        foundingTier: row.user.foundingMember?.tier ?? null,
         status: row.status,
         requestedAt: row.requestedAt,
         hostDeadlineAt: row.hostDeadlineAt,

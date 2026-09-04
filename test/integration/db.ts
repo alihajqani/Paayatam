@@ -71,12 +71,30 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
       "role_permission", "permission", "role", "admin_user",
       "event_participant", "event", "blacklist_term",
       "blacklist_version", "user_interest", "user_profile", "referral",
-      "gift_code_redemption", "gift_code",
+      "gift_code_redemption", "gift_code", "founding_member",
       "trust_score_ledger", "trust_score", "coin_ledger",
       "coin_account", "consent", "telegram_account", "audit_log", "user",
       "policy_version", "interest", "category", "district", "city",
       "app_setting", "feature_flag", "province", "event_channel_config"
     RESTART IDENTITY CASCADE
+  `;
+
+  /**
+   * `founding_campaign` is reset, not truncated, and the difference matters.
+   *
+   * The singleton row is created by migration 0047, not by a seed — so
+   * truncating it would leave the table empty and `FoundingService.award` would
+   * silently allocate nothing from that point on. Every founding assertion in
+   * every later suite would then pass for the wrong reason: "no rank was given"
+   * is exactly what a full campaign looks like.
+   *
+   * `ON CONFLICT DO UPDATE` rather than a bare UPDATE so this also repairs a
+   * database where the row is genuinely missing.
+   */
+  await prisma.$executeRaw`
+    INSERT INTO "founding_campaign" ("id", "next_rank", "max_rank")
+    VALUES (1, 1, 1000)
+    ON CONFLICT ("id") DO UPDATE SET "next_rank" = 1, "max_rank" = 1000
   `;
 }
 

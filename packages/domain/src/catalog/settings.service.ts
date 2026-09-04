@@ -20,6 +20,57 @@ export const SETTING_DEFAULTS = {
   'economy.onboarding_reward_coins': 50,
 
   /**
+   * The launch campaign: the first N members to complete a profile get a
+   * permanent rank, a tier and a one-time grant that declines by tier (v0.9.0).
+   *
+   * The declining schedule is deliberate and is the campaign's only urgency
+   * mechanism: it makes arriving early worth something, throttles demand to
+   * match how fast supply is being built, and turns each tier filling up into
+   * something worth announcing.
+   *
+   * **The amounts are small on purpose.** The economy is already loose — a user
+   * who joins six activities, hosts two, publishes one to the channel and writes
+   * three reviews is about twenty coins down over three months, so the fifty
+   * coins of `economy.onboarding_reward_coins` already cover most of a year. A
+   * grant large enough to feel like a prize would also be large enough to make
+   * `cancellation.coins_lt_3h` free, and that penalty is the only thing standing
+   * between the product and a no-show problem. What is actually scarce here is
+   * the rank itself: there will only ever be `founding_campaign.max_rank` of
+   * them, and minting one costs nothing.
+   *
+   * The cap is **not** here — it is `founding_campaign.max_rank`, because the
+   * allocator has to read it under the same row lock that increments the
+   * counter. See the model's comment.
+   *
+   * **Off by default, and that is the important one.** A rank is irreversible:
+   * the counter never moves backwards, so every rank handed out before the
+   * campaign was meant to start is one that cannot be given to the person it was
+   * promised to. Defaulting this on would mean the campaign begins the moment
+   * the code ships — if the deploy is on a Tuesday and the announcement is on
+   * Friday, ranks 1 through 40 go to whoever happened to sign up in between, and
+   * there is no way to take them back. An operator turns it on when the campaign
+   * actually opens.
+   *
+   * The same discipline `economy.event_join_coins` follows in the schema: the
+   * feature ships inert and a price, or here a campaign, starts when somebody
+   * decides it does.
+   */
+  'founding.enabled': 0,
+  'founding.tier1_max_rank': 100,
+  'founding.tier1_coins': 150,
+  'founding.tier2_max_rank': 400,
+  'founding.tier2_coins': 80,
+  /**
+   * The last tier's boundary should match `founding_campaign.max_rank`. It is
+   * restated here because the tier lookup is arithmetic over these six numbers
+   * and needs an upper bound of its own; a rank past it gets the last tier
+   * rather than no tier, so the two drifting apart degrades the labelling rather
+   * than losing anybody their membership.
+   */
+  'founding.tier3_max_rank': 1000,
+  'founding.tier3_coins': 40,
+
+  /**
    * The referral pair (plan §11), paid only after the referred user **attends**
    * an event — not on signup. A referral that pays out for creating an account
    * pays out for creating accounts (T6).

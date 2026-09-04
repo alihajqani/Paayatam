@@ -8,6 +8,7 @@ import { CatalogService, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { TRUST_PROFILE_COMPLETE_REASON, TrustService } from '../economy/trust.service';
+import { FoundingService, type FoundingAward } from '../founding/founding.service';
 import { AuditService } from '../audit/audit.service';
 import { isOldEnough } from './age';
 
@@ -76,6 +77,15 @@ export interface ProfileCompletion {
   rewardGranted: boolean;
   /** The score after the profile-completion movement (plan §11: +5). */
   trustScore: number;
+  /**
+   * The launch-campaign rank, when this call allocated one (v0.9.0).
+   *
+   * Null for the overwhelming majority of calls — every completion after the
+   * campaign fills, every one while it is switched off, and every re-edit of a
+   * profile that was already complete. The adapter renders a line only when this
+   * is set, so "nothing to announce" needs no separate flag.
+   */
+  founding: FoundingAward | null;
 }
 
 /** The reason code written to the ledger. Stable: the admin panel renders it. */
@@ -114,6 +124,7 @@ export class ProfileService {
     private readonly settings: SettingsService,
     private readonly coins: CoinService,
     private readonly trust: TrustService,
+    private readonly founding: FoundingService,
     private readonly audit: AuditService,
   ) {}
 
@@ -393,11 +404,33 @@ export class ProfileService {
         skipDuplicates: true,
       });
 
+      let founding: FoundingAward | null = null;
       if (previousState !== 'PROFILE_COMPLETE') {
         await tx.user.update({
           where: { id: userId },
           data: { onboardingState: 'PROFILE_COMPLETE' },
         });
+
+        /**
+         * The launch campaign's rank (v0.9.0).
+         *
+         * **Before** the coin movements below, and that ordering is load-bearing
+         * rather than stylistic: `award` takes `founding_campaign` and then
+         * `coin_account`, so running it after this method had already taken
+         * `coin_account` would invert the pair and hand the product its first
+         * deadlock-shaped lock cycle (ADR-0006). The full order on this path is
+         * `user → founding_campaign → coin_account`.
+         *
+         * **Only on a genuine first completion**, which is why it sits inside
+         * this branch rather than relying on `award`'s own idempotency. Users who
+         * were already `PROFILE_COMPLETE` when the campaign shipped are not
+         * ranked by editing their bio: that would hand the first hundred slots to
+         * whoever happened to open the profile screen in the week after a deploy,
+         * which is a lottery rather than a launch campaign. Granting them ranks is
+         * a deliberate backfill ordered by `user_profile.completed_at`, not a
+         * side effect of an edit.
+         */
+        founding = await this.founding.award(userId, tx);
       }
 
       // Joins this transaction: the reward commits with the profile that earned
@@ -456,6 +489,12 @@ export class ProfileService {
             interestCount: interestIds.length,
             rewardGranted: movement.applied,
             trustScore: trust.score,
+            // Extends the existing row rather than writing a second one: one
+            // action, one entry. The rank is a fact about this completion, not
+            // an event of its own, and a `founding.awarded` row would make the
+            // trail claim two things happened where a user did one.
+            foundingRank: founding?.rank ?? null,
+            foundingTier: founding?.tier ?? null,
           },
         },
         tx,
@@ -465,6 +504,7 @@ export class ProfileService {
         balance: movement.balance,
         rewardGranted: movement.applied,
         trustScore: trust.score,
+        founding,
       };
     });
 
@@ -480,6 +520,7 @@ export class ProfileService {
       balance: result.balance,
       rewardGranted: result.rewardGranted,
       trustScore: result.trustScore,
+      founding: result.founding,
     };
   }
 }

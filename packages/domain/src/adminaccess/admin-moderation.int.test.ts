@@ -16,6 +16,7 @@ import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { ChannelService } from '../channel/channel.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
+import { FoundingService } from '../founding/founding.service';
 import { ProfileService } from '../profile/profile.service';
 import { normalize } from '../moderation/persian-normalizer';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
@@ -59,6 +60,7 @@ const catalog = new CatalogService(service, settings, catalogEnv);
 // Only `APP_TIMEZONE` is read, and only by the 18+ check on a profile edit.
 const envForProfile = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
+const founding = new FoundingService(service, settings, coins);
 const profiles = new ProfileService(
   service,
   clock,
@@ -67,6 +69,7 @@ const profiles = new ProfileService(
   settings,
   coins,
   trust,
+  founding,
   audit,
 );
 const operations = new AdminOperationsService(

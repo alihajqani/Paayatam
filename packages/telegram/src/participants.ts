@@ -1,6 +1,7 @@
 import { PARTICIPANT_STATUS_GUEST_FA, type ParticipantStatus } from '@payetam/shared';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
+import { foundingBadge } from './founding';
 
 /**
  * Who is coming (v0.6.2).
@@ -27,6 +28,12 @@ import { escapeHtml, toPersianDigits } from './escape';
 export interface ParticipantLine {
   displayName: string;
   trustScore: number | null;
+  /**
+   * The launch-campaign tier, or null (v0.9.0). Never the rank — see
+   * `foundingBadge`, which also explains why a number here would collide with
+   * the two this line already carries.
+   */
+  foundingTier: number | null;
   status: ParticipantStatus;
   waitlistRank: number | null;
 }
@@ -41,7 +48,8 @@ export function formatParticipants(eventTitle: string, lines: readonly Participa
         : '';
 
     return (
-      `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.displayName)}</b>\n` +
+      `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.displayName)}</b>` +
+      `${foundingBadge(line.foundingTier)}\n` +
       `  ⭐️ ${trust}\n` +
       `  ${PARTICIPANT_STATUS_GUEST_FA[line.status]}${rank}`
     );

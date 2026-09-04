@@ -13,6 +13,7 @@ import { SettingsService } from '../catalog/settings.service';
 import { MessageCipher } from '../crypto/message-cipher';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
+import { FoundingService } from '../founding/founding.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
@@ -85,6 +86,7 @@ const catalog = new CatalogService(service, settings, catalogEnv);
 const envForProfile: Env = { ...env, APP_TIMEZONE: 'Asia/Tehran' };
 
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
+const founding = new FoundingService(service, settings, coins);
 const profiles = new ProfileService(
   service,
   clock,
@@ -93,6 +95,7 @@ const profiles = new ProfileService(
   settings,
   coins,
   trust,
+  founding,
   audit,
 );
 const operations = new AdminOperationsService(

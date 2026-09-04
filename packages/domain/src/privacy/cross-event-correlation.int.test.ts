@@ -177,8 +177,25 @@ describe('one host, two of their own events, one guest', () => {
 
     // What comes with it is a public id, a name and a reputation number. Not a
     // Telegram identifier, not a phone, not an email, and not a birth year.
+    //
+    // ── `foundingTier` was added deliberately (v0.9.0) ──────────────────────
+    //
+    // This list is an allowlist, and widening it is a decision rather than a
+    // formality. The tier is admissible on two grounds. It carries almost no
+    // entropy — three values across the whole campaign — so as a correlation key
+    // it is far weaker than `trustScore`, which is a 0–100 number this list
+    // already admits. And it is not a fact *about* the guest in the sense
+    // ADR-0009 protects: it says they completed a profile early, which is a
+    // property of the product's timeline, not of the person.
+    //
+    // The **rank** would fail both tests and is deliberately not selected in
+    // `ParticipationService`: one of a thousand is a unique number, which is
+    // precisely the pseudonym ADR-0009 layer 3 refuses to assign. If a later
+    // change puts `foundingRank` in this projection, this assertion is the thing
+    // that should stop it.
     expect(Object.keys(queueOne[0] ?? {}).sort()).toEqual([
       'displayName',
+      'foundingTier',
       'hostDeadlineAt',
       'publicId',
       'requestedAt',

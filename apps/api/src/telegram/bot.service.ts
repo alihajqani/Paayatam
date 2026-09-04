@@ -54,6 +54,8 @@ import {
   isDirectMessageMode,
   DirectMessageService,
   type ReferralClaim,
+  FoundingService,
+  type FoundingAward,
 } from '@payetam/domain';
 import {
   ENV,
@@ -88,6 +90,7 @@ import {
   formatEventDetail,
   insufficientCoinsNotice,
   formatParticipants,
+  foundingTierName,
   commandGroupFor,
   decodeMenuCallback,
   menuGroupKeyFor,
@@ -301,6 +304,7 @@ export class BotService {
     private readonly participation: ParticipationService,
     private readonly profiles: ProfileService,
     private readonly trust: TrustService,
+    private readonly founding: FoundingService,
     private readonly reviews: ReviewService,
     private readonly conversations: ConversationService,
     private readonly catalog: CatalogService,
@@ -844,7 +848,10 @@ export class BotService {
           return this.drawWizard(updateId, user, outcome);
         }
 
-        const trustScore = await this.trust.scoreOf(user.id);
+        const [trustScore, member] = await Promise.all([
+          this.trust.scoreOf(user.id),
+          this.founding.memberOf(user.id),
+        ]);
         /**
          * The edit is a button on the card, not a command under it.
          *
@@ -863,6 +870,16 @@ export class BotService {
           // there are none, which the template renders as a sentence rather than
           // as a blank field.
           interests: profile.interests.map((interest) => interest.nameFa).join('، '),
+          // Assembled here rather than in the template, which takes scalars and
+          // has no business knowing the tier names. The key is simply absent for
+          // a non-member, so their profile screen is unchanged.
+          ...(member !== null
+            ? {
+                founding:
+                  `نفر ${toPersianDigits(String(member.rank))} از هزار نفر اول · ` +
+                  foundingTierName(member.tier),
+              }
+            : {}),
           ...(this.env.ENABLE_CONVERSATION_WIZARD
             ? {
                 keyboard: JSON.stringify([
@@ -3101,6 +3118,7 @@ export class BotService {
       participants.map((row) => ({
         displayName: row.displayName,
         trustScore: row.trustScore,
+        foundingTier: row.foundingTier,
         status: row.status,
         waitlistRank: row.waitlistRank,
       })),
@@ -5028,7 +5046,7 @@ export class BotService {
     }
 
     try {
-      await this.profiles.complete(user.id, {
+      const completion = await this.profiles.complete(user.id, {
         displayName: form.displayName,
         birthYear: form.birthYear,
         cityId: form.cityId,
@@ -5038,10 +5056,19 @@ export class BotService {
         interestIds: form.interestIds ?? [],
       });
       await this.conversations.clear(user.id);
+      // Only for the call that actually allocated one — which is a handful of
+      // requests in the campaign's whole life, so the extra read costs nothing
+      // on the path everybody else takes.
+      const cap = completion.founding === null ? 0 : (await this.founding.progress()).max;
       await this.notice(
         updateId,
         user,
-        'نمایه شما ساخته شد ✅\n\nحالا از دکمه‌های پایین صفحه، ' +
+        'نمایه شما ساخته شد ✅\n\n' +
+          // Ahead of the menu hints on purpose: the rank is the one thing in this
+          // message that is true only for this person and only once, and burying
+          // it under two button names would waste the only moment it lands.
+          foundingLine(completion.founding, cap) +
+          'حالا از دکمه‌های پایین صفحه، ' +
           `«${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» فعالیت‌های نزدیک را نشان می‌دهد ` +
           `و «${menuPathFor('create_event') ?? 'ساختن فعالیت'}» یکی می‌سازد.`,
       );
@@ -5832,6 +5859,30 @@ function missingFields(form: CreateEventForm): string[] {
   // of the above is missing — but a refusal that named nothing would be worse
   // than the sentence this replaced.
   return missing.length > 0 ? missing : ['یکی از پاسخ‌ها'];
+}
+
+/**
+ * The one-off line that tells somebody their number, or nothing at all.
+ *
+ * The tier name comes from `@payetam/telegram` rather than a second table here:
+ * the roster badge and this line have to agree, and two copies of the same three
+ * strings is exactly the pair that drifts the first time a wave is renamed.
+ *
+ * Returns the empty string for the null case rather than making the caller
+ * branch — every completion after the campaign fills gets one, and a message
+ * built out of two concatenations reads better than one built out of an `if`.
+ */
+export function foundingLine(award: FoundingAward | null, max: number): string {
+  if (!award) return '';
+  const rank = toPersianDigits(String(award.rank));
+  // `max` is read rather than written as «هزار», because the cap is a column an
+  // operator can change. A sentence that says "one thousand" while the campaign
+  // is capped at 500 is wrong on the one screen it is quoted from most.
+  const total = toPersianDigits(String(max));
+  return (
+    `🎟 شما نفر ${rank} از ${total} نفر اولِ پایه‌تم هستید.\n` +
+    `نشان «${foundingTierName(award.tier)}» برای همیشه روی نمایه شما می‌ماند.\n\n`
+  );
 }
 
 /** «رایگان» / «۵۰٬۰۰۰ تومان» / «دنگی», for the summary. */
