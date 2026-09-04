@@ -47,6 +47,53 @@ ssh <host> 'cd /srv/payetam && git fetch --tags 2>/dev/null; git rev-parse v0.X.
 and check the hash against `git ls-remote --tags origin v0.X.Y` locally. A
 partially-rejected fetch still fetches the *new* tags, which is why this works.
 
+## The server's nginx conf is edited out of band, and blocks every deploy
+
+`docker/sites-available/app.paayatam.online.conf` carries a `location` block
+added directly on the server on 2026-09-04, serving internal documents from the
+certbot webroot behind an unguessable path segment. `deploy.sh` refuses a dirty
+working tree `[validated: scripts/deploy.sh:88]`, so **every deploy stops there
+until it is dealt with**.
+
+**It cannot be committed.** The GitHub repository is public `[validated: cmd —
+unauthenticated `api.github.com/repos/alihajqani/Paayatam` → HTTP 200,
+2026-09-05]` and the path segment is the only thing protecting those documents,
+so committing the block publishes the secret.
+
+The procedure that works, and preserves it in two places:
+
+```bash
+cd /srv/payetam
+cp docker/sites-available/app.paayatam.online.conf ~/oob-nginx-$(date +%Y%m%d-%H%M%S).conf
+git stash push -m "oob: internal-docs nginx location" -- docker/sites-available/app.paayatam.online.conf
+./scripts/deploy.sh <tag> --no-pull
+git stash pop                                    # the file is identical between tags, so this is clean
+./scripts/compose.sh exec -T nginx nginx -t && ./scripts/compose.sh exec -T nginx nginx -s reload
+```
+
+`stash`, not `git checkout --`: the change is preserved rather than discarded,
+which is also the only form an agent sandbox will run. nginx bind-mounts
+`./sites-available` read-only `[validated: docker/docker-compose.prod.yml:350]`,
+so restoring the file and reloading is enough — nothing is baked into the image.
+
+**The real fix is not this procedure.** Obscurity is the only control on those
+pages and it survives only as long as nobody commits the file; it should become
+an authenticated route, after which the config can live in the repo like every
+other one `[validated: observed during the v0.9.0 deploy, 2026-09-05]`.
+
+## Adding a setting needs no seed run in production
+
+`seed-settings` is gated three ways in production — `ALLOW_PROD_SEED=1`, then a
+typed confirmation that refuses a non-TTY stdin `[validated: tools/seed-guard.ts:72-90,119]`
+— and **it is not needed to expose a new key**. The admin settings board is built
+from `SETTING_DEFAULTS` rather than from `app_setting`, so a key with no row is
+already listed at its default and editable; saving is what creates the row
+`[validated: packages/domain/src/adminaccess/admin-operations.service.ts:1081;
+admin-moderation.int.test.ts:502]`.
+
+Run the seed for visibility in the table if you want it, never to make a feature
+reachable — and never pipe an answer at the confirmation.
+
 ## A deploy that dies before the checkout changes nothing
 
 Steps 1–4 are reversible by doing nothing, and the rollback target is written
