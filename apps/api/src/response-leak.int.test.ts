@@ -1658,6 +1658,39 @@ function withoutChannelIdentity(body: string): string {
   return out;
 }
 
+/**
+ * Every UUID in the body, blanked — for the phone-number pattern only.
+ *
+ * ── The false positive this removes ─────────────────────────────────────────
+ *
+ * `(?:\+98|0)9\d{9}` is eleven consecutive digits, and a UUID's last group is
+ * twelve hex characters with no separator inside it. A random one is all-digits
+ * and starts `09` about once in nine thousand — negligible for a single id, and
+ * not negligible at all for a scan that reads every list endpoint the API has.
+ * `GET /admin/v1/places` and `GET /admin/v1/cities` return one id per row, the
+ * fixtures accumulate as the suite runs, and the whole run then fails on a
+ * "phone number" that is a province's primary key.
+ *
+ * Measured rather than guessed: P ≈ 1.1e-4 per UUID, so a body set carrying a few
+ * hundred of them fails several percent of the time — which is exactly the
+ * frequency at which a test gets re-run until it goes green instead of read.
+ * This file already makes that argument once, for the `@username` pattern that
+ * used to match the domain of every email address: **a detector that calls a
+ * benign string a leak gets silenced rather than fixed.** The same reasoning, and
+ * the same kind of narrow fix.
+ *
+ * Narrow in two ways. It applies to the phone pattern alone — the identity
+ * patterns still read the raw body, and a Telegram id that happened to sit inside
+ * something UUID-shaped must still be caught. And it blanks only the exact
+ * 8-4-4-4-12 hex shape, so a real phone number keeps every digit it has.
+ */
+function withoutUuids(body: string): string {
+  return body.replaceAll(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+    'UUID',
+  );
+}
+
 /** Does a listed URL reach this route pattern? Query strings do not count. */
 function reaches(pattern: string, url: string): boolean {
   const path = url.split('?')[0] ?? url;
@@ -1699,7 +1732,10 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
       const exempt = IDENTITY_PATTERNS.has(name) && IDENTITY_BY_DESIGN.test(route);
       // A channel's own handle is forgiven on the routes that describe channels;
       // everything else in the same body is still scanned.
-      const body = CHANNEL_IDENTITY_BY_DESIGN.test(route) ? withoutChannelIdentity(raw) : raw;
+      const scoped = CHANNEL_IDENTITY_BY_DESIGN.test(route) ? withoutChannelIdentity(raw) : raw;
+      // Primary keys are not phone numbers. Identity patterns still see the raw
+      // body — see `withoutUuids`.
+      const body = name === 'a phone number' ? withoutUuids(scoped) : scoped;
 
       if (!exempt && pattern.test(body)) {
         offenders.push(`${endpoint.method} ${endpoint.url} → ${body.slice(0, 300)}`);
@@ -1741,6 +1777,42 @@ describe('the response-leak scan (§3.6 layer 5)', () => {
         expect(pattern.test(redacted), name).toBe(true);
       }
     }
+  });
+
+  /**
+   * The UUID redaction, held to the same standard as the channel one.
+   *
+   * Both failure modes are silent again. If it stopped matching UUIDs the suite
+   * would go back to failing a few percent of the time on a province's primary
+   * key, and a scan that fails at random is a scan that gets re-run rather than
+   * read. If it matched more than a UUID it could swallow a real number and
+   * forgive the leak this pattern exists to catch.
+   */
+  it('blanks UUIDs and leaves a real phone number alone', () => {
+    const body = JSON.stringify({
+      id: '01a06e1f-99ef-7184-b661-d8b70e448b82',
+      // The shape that caused this: a UUID whose last group is eleven digits
+      // beginning `09`. Not a phone number; a primary key.
+      unlucky: '01a06e1f-99ef-7184-b661-091234567890',
+      phone: '09121234567',
+      international: '+989121234567',
+    });
+
+    const redacted = withoutUuids(body);
+
+    expect(redacted).not.toContain('01a06e1f-99ef-7184-b661-d8b70e448b82');
+    expect(redacted).not.toContain('091234567890');
+    // The two real numbers survive, so the pattern still catches them.
+    expect(redacted).toContain('09121234567');
+    expect(redacted).toContain('+989121234567');
+
+    const phone = LEAK_PATTERNS.find((p) => p.name === 'a phone number');
+    expect(phone?.pattern.test(redacted)).toBe(true);
+    expect(
+      phone?.pattern.test(
+        withoutUuids(JSON.stringify({ id: '01a06e1f-99ef-7184-b661-091234567890' })),
+      ),
+    ).toBe(false);
   });
 
   /**
