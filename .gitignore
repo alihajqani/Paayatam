@@ -61,3 +61,12 @@ pnpm-debug.log*
 # untracked original was in the way — which is the failure that found it.
 docs/production-deployment-todo.md
 .claude-work-checkpoint.md
+
+# Machine-local memory: hostnames, VPN topology, per-machine ports.
+# The rest of .memory/ is committed — see .memory/index.md.
+.memory/local/
+
+# Claude Code: skills and shared settings are committed; per-session and
+# per-machine state is not. Keeps `git add .claude/` from sweeping them in.
+.claude/settings.local.json
+.claude/RESUME.md
