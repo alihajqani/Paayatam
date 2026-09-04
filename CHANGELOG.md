@@ -14,6 +14,73 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.9.0] — 2026-09-04
+
+The launch campaign: the first thousand members to complete a profile get a
+permanent rank, a tier badge and a one-time coin grant that declines by tier.
+
+**It ships switched off.** `founding.enabled` defaults to `0`, so deploying this
+starts nothing — an operator opens the campaign from the settings board when it
+actually begins. That default is the feature's main safety property rather than a
+convenience: a rank is irreversible, the counter never moves backwards, and a
+campaign that began at deploy time would hand the first several dozen ranks to
+whoever happened to sign up between the deploy and the announcement.
+
+### Added
+
+- **A rank, allocated inside the transaction that completes a profile.** The
+  obvious implementation was a `gift_code` with `max_redemptions = 1000` — that
+  machinery exists, caps under a row lock and needs no migration — and it was
+  rejected because with a code, "member #427" means "the 427th person who typed a
+  string". The number sits on a profile for months and gets published to the
+  channel, so it has to count members rather than redemptions. It also costs the
+  user nothing: no code to find, none to type. The gift-code system is untouched
+  and stays available for other campaigns.
+- **A gap-free allocator.** `founding_campaign` is a single counter row and the
+  allocation is one conditional `UPDATE … SET next_rank = next_rank + 1
+  RETURNING`. A Postgres sequence would have been shorter and wrong: it hands a
+  number to a transaction that then rolls back and the number is gone, so rank 428
+  could simply never exist. Invisible in most products, unexplainable in one that
+  displays the number. Same pattern and same reasoning as `anonymous_chat.next_seq`.
+- **Three tiers, declining.** «بنیان‌گذار» (1–100, 150 coins), «پیشگام» (101–400,
+  80) and «همراه نخست» (401–1000, 40), all six boundaries in `app_setting`. The
+  amounts are deliberately small: an active member is about twenty coins down over
+  three months, so the existing fifty-coin onboarding reward already covers most of
+  a year, and a grant large enough to feel like a prize would also be large enough
+  to make `cancellation.coins_lt_3h` free — and that penalty is what stands between
+  the product and a no-show problem. What is scarce here is the rank.
+- **The badge, where it belongs.** The member's own profile screen shows the rank;
+  every list a stranger reads shows the tier alone. One of a thousand is a unique
+  number and would be exactly the pseudonym ADR-0009 layer 3 refuses to assign, so
+  `ParticipationService` does not select it. `cross-event-correlation.int.test.ts`
+  asserts the participant projection's key set and is what stops that changing by
+  accident — its allowlist was widened for `foundingTier` deliberately, on the
+  grounds that three values across a whole campaign is a far weaker correlation key
+  than the 0–100 `trustScore` the list already admits.
+
+### Changed
+
+- `coin_ledger_type` gains `FOUNDING_REWARD`. Separate from `ONBOARDING_REWARD`
+  even though one transaction writes both: folding them together would make
+  `SUM(amount) WHERE type = 'ONBOARDING_REWARD'` mean two things at once and the
+  campaign's cost unanswerable.
+- The profile-completion audit row carries `foundingRank` and `foundingTier`
+  rather than a second entry. One action, one row.
+
+### Migrations
+
+`00000000000046_founding_reward_ledger_type` and `00000000000047_founding_members`,
+split because `ALTER TYPE … ADD VALUE` cannot run inside a transaction — the same
+reason 0022, 0023, 0029, 0031, 0032, 0034 and 0043 are separate. Both additive:
+two new tables and one enum value, nothing dropped, renamed or narrowed, so the
+previous image runs against this schema and rollback stays safe.
+
+### Also
+
+- Three test suites finished during v0.8.1 and never committed are included:
+  sealing an answered request's notification, `hostPriceFor` on an odd price, and
+  the `participation.min_response_minutes` floor.
+
 ## [v0.8.1] — 2026-09-04
 
 Eight QA findings. The largest is a wiring bug that had been switching off a
