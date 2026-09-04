@@ -14,6 +14,109 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.8.1] — 2026-09-04
+
+Eight QA findings. The largest is a wiring bug that had been switching off a
+whole feature since M22, and most of the rest are fields, buttons or messages
+that existed on one side of a boundary and not the other.
+
+### Fixed
+
+- **The mandatory-channel-membership gate has been letting everybody through
+  since M22.** `MEMBERSHIP_PROBE` was registered in `AppModule`'s own
+  `providers`, under a comment saying `ChannelMembershipService` would resolve it
+  there. Nest scopes providers to the declaring module, and that service is
+  declared in `ChannelModule` — so the injection, which is `@Optional()`, was
+  always `undefined`. `probeFor` then answered `UNKNOWN/NO_PROBE` for every
+  channel, and every outcome except an authoritative `NOT_MEMBER` fails open by
+  design. Nothing reported a problem: the graph resolved (that is what optional
+  means), `app.module.test.ts` passed, and an operator who switched the
+  requirement on watched nothing happen. It is a `@Global()` module now, which is
+  how every other cross-cutting port here is published. `PROJECT_MEMORY` §7.26.
+- **`/start` never mentioned the channels.** `/start` is exempt from the
+  `APP_ACCESS` *refusal*, deliberately — gating account creation would refuse the
+  deep links the join screen sends people back through — and that exemption had
+  quietly become "the one command that never shows the gate at all". A returning
+  user met the requirement for the first time as a refusal of something else,
+  several taps later.
+- **A profile created through the bot had no interests.** `user_interest` has
+  existed since M3 and `CompleteProfileView` had checkboxes for it; ADR-0017
+  retired the view and the wizard that replaced it had no step, so `complete` was
+  called with a hard-coded `[]` — on a product whose discovery ranking reads the
+  column.
+- **The review-window reminder had a template and no producer.**
+  `REVIEW_WINDOW_OPEN` has had Persian copy, a notification category, a deep link
+  and a `render()` case since M12 and **nothing ever emitted it**, so for the
+  whole seven-day window the only way to learn a review was owed was to open
+  `/reviews` and look. It matters more than a missed nudge usually would because
+  the pair is blind: one person's silence costs two people their feedback.
+  `PROJECT_MEMORY` §7.27.
+- **The Trust Score history could not be paged.** `/wallet` grew a page control
+  in v0.7.0 and `/trust` did not, so «سکه و امتیاز» had one half you could read
+  all of and one you could not — twenty rows, fixed, with nothing to say there
+  were more behind them.
+- **A request nobody answered told the guest nothing at all.** An expiry moved
+  the row to EXPIRED, freed its slot and emitted no notification of any kind — so
+  the person who had asked simply never heard back. Survivable while asking was
+  free; not survivable next to a refund, because the only trace would have been a
+  coin movement labelled «برگشت تراکنش» with nothing to attach it to.
+  `PARTICIPATION_EXPIRED` says the host did not answer in time — not that the
+  guest was refused, which would attribute a decision to a host who made none.
+- **The host's decision buttons stayed live after the decision.** A second tap
+  was refused correctly by `assertParticipantTransition`, so the state was never
+  at risk; what the host saw was a decision they had already taken, offered
+  again, and then an error for taking it.
+
+### Added
+
+- **Interest tags in the bot.** A `multi` step kind — the first in the wizard
+  machine whose answers do not advance it — plus `/interests`, which opens the
+  same `EDIT_PROFILE` form with the other six steps `when`'d out. A tap adds, a
+  second tap on the same button removes, «تمام» writes the set. The draft is
+  prefilled from the profile, and `touchedFields` is what keeps «رد کردن»
+  meaning "leave them alone" rather than "write back what you were shown".
+- **«☰ منوی اصلی», one reply-keyboard button.** v0.7.0 removed seven labels
+  because `reply_markup` holds one thing and they were crowding every inline
+  keyboard off the screen; that is an argument about seven, not about one. A
+  reply keyboard lives on the client, so this is attached where
+  `remove_keyboard` used to go and stays put while messages carrying inline
+  keyboards go past. `onText` resolves it before offering text to an open wizard,
+  so it is also the way out of a form.
+- **A page control on the Trust Score history**, five to a page, editing the
+  message it is on — the same shape `/wallet` uses.
+
+### Changed
+
+- **Asking to join is a deposit, not a fee.** `economy.event_join_coins` is
+  charged inside the join transaction as before and is now **reversed whenever
+  the guest never got an answer** — the host rejected, or the deadline passed.
+  The ledger row is undone rather than today's price credited, so a refund cannot
+  drift from what was actually taken, and the two carry different reason codes
+  because they are different answers to "why did this number move". A
+  **withdrawal is still not refunded**: the guest changed their mind, and
+  `cancel` prices that on its own thresholds. Both messages name the figure.
+- **A review may carry up to five tags.** The wizard asked for exactly one, on
+  the argument that accumulating into an array would need a step that loops and
+  that «a loop is the one shape `progressOf` cannot count». The shape was right
+  and the conclusion was wrong: a `multi` step loops and is still one step, so
+  «گام ۱ از ۲» holds however many times the keyboard is redrawn.
+- **A submitted review says what happens next.** Reviews are blind until both
+  sides write, and somebody who goes looking for what a stranger said about them
+  and finds nothing reads that as the feature being broken. The confirmation now
+  says so — including for a reviewer who adds nothing beyond the rating, which
+  previously got silence.
+- **Decisions taken on the participants console redraw the console**
+  (`ev:acc`/`ev:rej`), and decisions taken on the notification rewrite it to say
+  what was decided, with no keyboard. `chat:accept`/`chat:reject` still work,
+  because every notification already in a host's history encodes them.
+
+### Database
+
+- `00000000000045_review_window_reminder` — one nullable `review_pair.reminded_at`
+  and one index. Additive; every existing row reads NULL, so the first sweep
+  after the deploy reminds everybody whose window is open, which is the point
+  rather than a side effect.
+
 ## [v0.8.0] — 2026-09-03
 
 One feature removed and one bug fixed, and they are the same story: the product
