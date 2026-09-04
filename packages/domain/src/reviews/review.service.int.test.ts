@@ -296,6 +296,107 @@ describe('the window opens when attendance is settled', () => {
 });
 
 /**
+ * The reminder that had a template and no producer (v0.8.1).
+ *
+ * `TEMPLATES.REVIEW_WINDOW_OPEN` has had Persian copy, a notification category
+ * and a `render()` case since M12 and **nothing ever emitted it**, so for the
+ * whole seven-day window the only way to learn a review was waiting was to open
+ * `/reviews` and look. It matters more than a missed nudge usually would because
+ * the pair is blind: one person's silence costs two people their feedback.
+ */
+describe('the window-open reminder', () => {
+  async function reminders() {
+    return prisma.outboxEvent.findMany({
+      where: { eventType: 'review.window_open' },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  it('tells both sides once the window is open', async () => {
+    const { guestPublicId } = await reviewableParticipation();
+
+    await expect(reviews.announceOpenWindows()).resolves.toBe(1);
+
+    const emitted = await reminders();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.payload).toMatchObject({
+      hostUserPublicId: hostPublicId,
+      guestUserPublicId: guestPublicId,
+      eventTitle: 'شب بازی رومیزی',
+    });
+  });
+
+  /**
+   * `reminded_at` is stamped in the same transaction as the outbox row, so the
+   * sweep running hourly for a week does not send a reminder an hour.
+   */
+  it('announces one pair exactly once, however often the sweep runs', async () => {
+    await reviewableParticipation();
+
+    await reviews.announceOpenWindows();
+    await expect(reviews.announceOpenWindows()).resolves.toBe(0);
+
+    expect(await reminders()).toHaveLength(1);
+
+    const pair = await prisma.reviewPair.findFirstOrThrow();
+    expect(pair.remindedAt).not.toBeNull();
+  });
+
+  /** Before `opens_at` there is nothing to write, and `submit` would refuse. */
+  it('says nothing while the window is still shut', async () => {
+    const eventPublicId = await publishEvent();
+    const guest = await createProfiledUser();
+    const request = await participation.join(guest.id, eventPublicId);
+    await participation.accept(hostId, request.publicId);
+
+    clock.set(AFTER_SETTLEMENT);
+    await lifecycle.retireStarted();
+    await lifecycle.settleAttendance();
+
+    // Back to before the window opened. The pair exists; it is not answerable.
+    clock.set(new Date(ENDS_AT.getTime() - 3_600_000));
+    await expect(reviews.announceOpenWindows()).resolves.toBe(0);
+    expect(await reminders()).toHaveLength(0);
+  });
+
+  /**
+   * Past the deadline a reminder is an invitation to a form that refuses.
+   * `settleExpired` owns these.
+   */
+  it('says nothing once the window has closed', async () => {
+    await reviewableParticipation();
+    clock.set(new Date(ENDS_AT.getTime() + 8 * 24 * 3_600_000));
+
+    await expect(reviews.announceOpenWindows()).resolves.toBe(0);
+    expect(await reminders()).toHaveLength(0);
+  });
+
+  /**
+   * The template says «تا N روز آینده», and rounding down would say «تا ۰ روز» on
+   * the last day — a deadline the reader has already missed, for a form that
+   * still works.
+   */
+  it('never counts down to zero days', async () => {
+    await reviewableParticipation();
+    // Six and a half days in: half a day left, which must read as one.
+    clock.set(new Date(ENDS_AT.getTime() + 6.5 * 24 * 3_600_000));
+
+    await reviews.announceOpenWindows();
+
+    const [emitted] = await reminders();
+    expect((emitted?.payload as { daysLeft: number }).daysLeft).toBeGreaterThanOrEqual(1);
+  });
+
+  /** A pair somebody has already answered still reminds the other side. */
+  it('still reminds when one side has written', async () => {
+    const { participantPublicId, guestId } = await reviewableParticipation();
+    await reviews.submit(guestId, participantPublicId, { rating: 5 });
+
+    await expect(reviews.announceOpenWindows()).resolves.toBe(1);
+  });
+});
+
+/**
  * D7, the whole reason this milestone exists.
  *
  * Asserted at the service layer, which is what the API calls — the plan's "at the

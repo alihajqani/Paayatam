@@ -1731,11 +1731,58 @@ describe('POST /telegram/:secret — acting on your own events', () => {
       where: { userId: guestId },
       select: { publicId: true },
     });
+    /**
+     * `ev:acc`/`ev:rej`, not `chat:accept`/`chat:reject` (v0.8.1).
+     *
+     * The same two decisions on a second prefix, because what should happen to
+     * the *message* afterwards differs: a decision taken here redraws the list
+     * so the decided row loses its buttons, while one taken on the notification
+     * leaves a line saying what was decided and no keyboard at all. One action
+     * could do either and would be wrong on one of the two screens.
+     */
     const rows = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
     expect(rows[0]?.map((button) => button.callbackData)).toEqual([
-      `chat:accept:${participant.publicId}`,
-      `chat:reject:${participant.publicId}`,
+      `ev:acc:${participant.publicId}`,
+      `ev:rej:${participant.publicId}`,
     ]);
+  });
+
+  /**
+   * Deciding from the console redraws the console (v0.8.1).
+   *
+   * The row moves to «پذیرفته‌شده» and its two buttons go with it, so the same
+   * decision cannot be offered twice. Asserted as an **edit**, not a second
+   * message: a console that answered a tap by appending another copy of itself
+   * would be the wall of near-identical messages every paging screen in this bot
+   * was fixed out of.
+   */
+  it('redraws the console in place once a decision is taken', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان یکم');
+    await participation.join(guestId, eventPublicId);
+    await tap(HOST_TELEGRAM_ID, `ev:who:${eventPublicId}`);
+
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { userId: guestId },
+      select: { publicId: true },
+    });
+    const before = await prisma.notification.count({
+      where: { templateKey: TEMPLATES.BOT_PARTICIPANTS },
+    });
+
+    await tap(HOST_TELEGRAM_ID, `ev:acc:${participant.publicId}`);
+
+    // The decision landed…
+    const decided = await prisma.eventParticipant.findFirstOrThrow({
+      where: { publicId: participant.publicId },
+      select: { status: true },
+    });
+    expect(decided.status).toBe('ACCEPTED');
+
+    // …and the console was edited rather than sent again.
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_PARTICIPANTS } }),
+    ).toBe(before);
   });
 
   /**
@@ -2314,7 +2361,17 @@ describe('POST /telegram/:secret — rating somebody', () => {
     expect(state.kind).toBe('WRITE_REVIEW');
     expect(state.targetPublicId).toBe(participantPublicId);
 
+    /**
+     * Two tags, then «تمام», then the comment (v0.8.1).
+     *
+     * The tag step is a multi-select now, so a tap toggles and **does not
+     * advance** — `wz:done:` is what moves to the comment. That extra tap is the
+     * whole difference between "the tag that fits best" and a review that can say
+     * two true things about the same evening.
+     */
     await tap(GUEST_TELEGRAM_ID, 'wz:tag:FRIENDLY');
+    await tap(GUEST_TELEGRAM_ID, 'wz:tag:PUNCTUAL');
+    await tap(GUEST_TELEGRAM_ID, 'wz:done:');
     await type(GUEST_TELEGRAM_ID, 'میزبان خوبی بود');
     await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
 
@@ -2324,10 +2381,89 @@ describe('POST /telegram/:secret — rating somebody', () => {
     });
     // The rating survives the amendment untouched.
     expect(review.rating).toBe(5);
-    expect(review.tags).toEqual(['FRIENDLY']);
+    expect(review.tags).toEqual(['FRIENDLY', 'PUNCTUAL']);
     expect(review.comment).toBe('میزبان خوبی بود');
     // And the form closed.
     expect(await prisma.conversationState.count({ where: { userId: guestId } })).toBe(0);
+  });
+
+  /**
+   * A second tap on a chosen tag takes it off again.
+   *
+   * One button for both directions, which is the whole of "add and remove" — and
+   * the property that would silently be lost if the walk ever advanced a `multi`
+   * step on a successful tap.
+   */
+  it('lets a tag be unticked before the review is written', async () => {
+    const { guestId, participantPublicId } = await seedPending();
+
+    await tap(GUEST_TELEGRAM_ID, `rv:rate5:${participantPublicId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:tag:FRIENDLY');
+    await tap(GUEST_TELEGRAM_ID, 'wz:tag:PUNCTUAL');
+    await tap(GUEST_TELEGRAM_ID, 'wz:tag:FRIENDLY');
+    await tap(GUEST_TELEGRAM_ID, 'wz:done:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const review = await prisma.review.findFirstOrThrow({
+      where: { reviewerUserId: guestId },
+      select: { tags: true },
+    });
+    expect(review.tags).toEqual(['PUNCTUAL']);
+  });
+
+  /**
+   * A reviewer who writes nothing is still offered the tags, and can still
+   * answer them.
+   *
+   * The tags step is **first** for exactly this reason: most people write no
+   * comment, tags are two taps and a comment is a paragraph, so asking for the
+   * writing first would put the part almost nobody completes in front of the
+   * part almost everybody would.
+   */
+  it('records tags from somebody who writes no comment', async () => {
+    const { guestId, participantPublicId } = await seedPending();
+
+    await tap(GUEST_TELEGRAM_ID, `rv:rate4:${participantPublicId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:tag:WELL_ORGANISED');
+    await tap(GUEST_TELEGRAM_ID, 'wz:done:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const review = await prisma.review.findFirstOrThrow({
+      where: { reviewerUserId: guestId },
+      select: { rating: true, tags: true, comment: true },
+    });
+    expect(review.rating).toBe(4);
+    expect(review.tags).toEqual(['WELL_ORGANISED']);
+    expect(review.comment).toBeNull();
+  });
+
+  /**
+   * The reviewer is told the review landed, and told why they cannot yet read
+   * the other one (v0.8.1).
+   *
+   * Reviews are blind until both sides write, and somebody who goes looking for
+   * what a stranger said about them and finds nothing reads that as the feature
+   * being broken. The moment the review lands is the moment to say so.
+   */
+  it('confirms the review and explains the blind reveal', async () => {
+    const { participantPublicId } = await seedPending();
+
+    await tap(GUEST_TELEGRAM_ID, `rv:rate5:${participantPublicId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:tag:FRIENDLY');
+    await tap(GUEST_TELEGRAM_ID, 'wz:done:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const notice = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_NOTICE },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const text = String((notice.payload as Record<string, unknown>)['text']);
+    expect(text).toContain('نظر شما کامل شد');
+    expect(text).toContain('هر دو نظرتان را نوشته باشید');
   });
 
   /** Skipping both steps leaves the rating alone rather than saying «ثبت شد» twice. */
@@ -2335,6 +2471,8 @@ describe('POST /telegram/:secret — rating somebody', () => {
     const { guestId, participantPublicId } = await seedPending();
 
     await tap(GUEST_TELEGRAM_ID, `rv:rate3:${participantPublicId}`);
+    // «رد کردن» still leaves a multi-select the same way it leaves any other
+    // step: nothing chosen, and on to the next question.
     await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
     await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
     await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');

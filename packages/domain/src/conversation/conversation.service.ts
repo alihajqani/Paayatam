@@ -278,6 +278,32 @@ export class ConversationService {
       return { kind: 'submit', snapshot };
     }
 
+    /**
+     * «تمام» — the selection on a `multi` step is finished (v0.8.1).
+     *
+     * A multi-select step is the only shape here whose answers do not advance it,
+     * so this is what does. It carries **no patch**: everything it is confirming
+     * was already written into the form by the taps that preceded it, which is
+     * what makes an abandoned selection identical to a skipped one rather than a
+     * half-applied one.
+     *
+     * `nextStep` from the *current* step and the *current* form, exactly as a
+     * successful `accept` would — so a `when` that depends on what was ticked is
+     * re-evaluated here too.
+     */
+    if (input.action === 'done') {
+      const following = nextStep(definition, step.key, snapshot.form);
+      if (following === null) {
+        await this.save(userId, snapshot, updateId);
+        return { kind: 'summary', snapshot };
+      }
+
+      const moved = { ...snapshot, step: following.key };
+      await this.save(userId, moved, updateId);
+      const { position, total } = progressOf(definition, following.key, snapshot.form);
+      return { kind: 'step', step: following, snapshot: moved, position, total };
+    }
+
     /** «افزودن جزئیات بیشتر» from the summary: open the optional half. */
     if (input.action === 'details') {
       const form = { ...snapshot.form, wantsDetails: true };
@@ -358,6 +384,27 @@ export class ConversationService {
       ...Object.keys(result.patch),
     ]);
     const form = { ...snapshot.form, ...result.patch, [TOUCHED_KEY]: [...touched] };
+
+    /**
+     * A `multi` step keeps the floor (v0.8.1).
+     *
+     * Its `accept` **toggles** rather than answers, so advancing on a successful
+     * patch would turn "choose several" into "choose exactly one, silently". The
+     * step is redrawn with the new selection ticked and the user leaves it with
+     * «تمام», «رد کردن» or «بازگشت».
+     *
+     * Read off `ui` rather than off a per-step flag, because it is a property of
+     * the kind: any step drawn as a multi-select behaves this way, and a wizard
+     * author who forgets to set a flag would otherwise get a single-select that
+     * looks like a multi-select.
+     */
+    if (step.ui === 'multi') {
+      const stayed = { ...snapshot, form };
+      await this.save(userId, stayed, updateId);
+      const { position, total } = progressOf(definition, step.key, form);
+      return { kind: 'step', step, snapshot: stayed, position, total };
+    }
+
     const following = nextStep(definition, step.key, form);
 
     if (following === null) {

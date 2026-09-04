@@ -82,22 +82,77 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
 }
 
 /**
- * The labels a bottom keyboard used to draw, and what each stands for.
+ * The one button under the compose box (v0.8.1).
  *
- * ── The keyboard is gone; this is not ───────────────────────────────────────
+ * ── Why a reply keyboard came back, and only one button of it ───────────────
  *
- * v0.7.0 removed the persistent reply keyboard entirely, and every message the
- * bot sends now carries `remove_keyboard` so a client holding one drops it. That
- * does **not** make this map deletable, and the reason is the whole of why it
- * was ever separate from the layout: a reply keyboard lives on the client, and
- * until the user receives a message from this build they are still holding the
- * old one. A label this build could not resolve would be handed to `onText` and
- * **relayed into an anonymous chat**, where a stranger would receive «📨
- * درخواست‌های من».
+ * v0.7.0 removed the persistent keyboard entirely: seven labels under every
+ * chat, none of which could coexist with an inline keyboard, because
+ * `reply_markup` holds exactly one thing. That argument is about *seven*. It is
+ * not an argument against one, and removing all of them took away the only
+ * control in the product that is always on screen — so somebody halfway into a
+ * form, or looking at a digest whose keyboard is spent on filters, had no way
+ * back to the menu except typing a command they would have to already know.
  *
- * So every label the keyboard ever offered stays resolvable, whether or not
- * anything still draws it. This decides what a tap *means*; nothing decides what
- * is drawn any more.
+ * One button, and it opens `/menu`, which is the two-tap route to everything.
+ *
+ * ── How it coexists with the inline keyboards ───────────────────────────────
+ *
+ * `reply_markup` holds one thing **per message**, and a reply keyboard is not
+ * per message: it lives on the *client* until another one replaces it. So a
+ * message carrying an inline keyboard sends only that, the bottom button stays
+ * where it was, and nothing is lost. The sender attaches this to messages that
+ * would otherwise carry nothing — see `TelegramClient.send`, which used to send
+ * `remove_keyboard` in exactly that slot.
+ *
+ * ── Why the label must resolve to a command ─────────────────────────────────
+ *
+ * Because a reply-keyboard tap arrives as **ordinary text**. `onText` checks
+ * `menuCommandFor` before it offers the message to an open wizard, so this is
+ * also the escape hatch out of a form — and if it did not resolve, the wizard
+ * would swallow «☰ منوی اصلی» as an answer, or, with no wizard open, the bot
+ * would answer it as a stray message. That is the whole reason `MENU_COMMANDS`
+ * outlives whatever is drawn.
+ */
+export const MAIN_MENU_LABEL = '☰ منوی اصلی';
+
+/**
+ * The bottom keyboard, as plain data.
+ *
+ * `is_persistent` so it does not collapse into the paperclip after one use, and
+ * `resize_keyboard` so one button is one button's worth of height rather than a
+ * third of the screen. `one_time_keyboard` is deliberately absent: the point is
+ * that it is always there.
+ */
+export interface ReplyKeyboard {
+  keyboard: readonly (readonly { text: string }[])[];
+  resize_keyboard: true;
+  is_persistent: true;
+}
+
+export function mainMenuReplyKeyboard(): ReplyKeyboard {
+  return {
+    keyboard: [[{ text: MAIN_MENU_LABEL }]],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+}
+
+/**
+ * Every label a bottom keyboard has ever drawn, and what each stands for.
+ *
+ * ── Wider than what is drawn, deliberately ──────────────────────────────────
+ *
+ * v0.7.0 drew none of these and v0.8.1 draws exactly one, and the map still
+ * carries all eight. That is the whole reason it was ever separate from the
+ * layout: a reply keyboard lives on the *client*, so until a user receives a
+ * message from this build they are still holding whichever one they were given.
+ * A label this build could not resolve would fall through `onText` to the
+ * «پیام شما را دریافت کردم» answer — and before v0.8.0, into an anonymous chat,
+ * where a stranger received «📨 درخواست‌های من».
+ *
+ * So every label stays resolvable whether or not anything draws it. This decides
+ * what a tap *means*; `mainMenuReplyKeyboard` decides what is drawn.
  *
  * ── Why the labels are not the commands ─────────────────────────────────────
  *
@@ -106,6 +161,7 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
  * the resolution necessary rather than incidental.
  */
 export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
+  [MAIN_MENU_LABEL, 'menu'],
   ['➕ ساختن فعالیت', 'create_event'],
   ['🔎 دیدن فعالیت‌ها', 'discover'],
   ['🎟 فعالیت‌های من', 'myevents'],

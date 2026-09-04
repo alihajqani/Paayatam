@@ -4,6 +4,7 @@ import type { InlineKeyboardButton } from 'grammy/types';
 import { autoRetry } from '@grammyjs/auto-retry';
 import type { Env } from '@payetam/config';
 import { ENV } from '@payetam/platform';
+import { mainMenuReplyKeyboard } from '@payetam/telegram';
 import type { InlineKeyboard } from '@payetam/telegram';
 
 /** What a send attempt produced, classified so the caller can decide what to do. */
@@ -169,24 +170,29 @@ export class TelegramClient {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 
     /**
-     * An inline keyboard, or an instruction to take the old bottom one away.
+     * An inline keyboard, or the one persistent button (v0.8.1).
      *
      * `reply_markup` is one field, so Telegram cannot be given both at once, and
      * the inline keyboard wins wherever there is one because it is the thing the
      * message is asking about.
      *
-     * `remove_keyboard` on everything else is v0.7.0's half of removing the
-     * persistent menu. **Deleting the code that sent it would not have removed
-     * it**: a reply keyboard lives on the client and stays under the compose box
-     * until a message replaces it, so every user who had one would have kept it
-     * indefinitely, tapping labels at a build that no longer draws them. This is
-     * what actually takes it away, and it is idempotent — a client with no
-     * keyboard ignores it.
+     * The other branch used to be `remove_keyboard`, which was v0.7.0's half of
+     * taking the seven-label menu away — and it had to be sent rather than merely
+     * stopped being drawn, because a reply keyboard lives on the *client* and
+     * stays under the compose box until a message replaces it. That is the same
+     * mechanic this now relies on in the other direction: `mainMenuReplyKeyboard`
+     * is sent on every message that has no inline keyboard of its own, and it
+     * **stays** under the compose box while the messages that do carry one go
+     * past. So the bottom button is always there and never competes for the field.
+     *
+     * A new `ReplyKeyboardMarkup` replaces whatever the client is holding, which
+     * is what takes the old seven-label keyboard off anyone who still has one —
+     * the job `remove_keyboard` was doing, done by the thing that replaces it.
      */
     const markup =
       keyboard !== undefined
         ? { reply_markup: toReplyMarkup(keyboard) }
-        : { reply_markup: { remove_keyboard: true as const } };
+        : { reply_markup: toBottomMarkup() };
 
     try {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
@@ -321,6 +327,28 @@ export class TelegramClient {
       return outcome.kind === 'SENT' ? { kind: 'EDITED' } : outcome;
     }
   }
+}
+
+/**
+ * The persistent bottom button → Telegram's `ReplyKeyboardMarkup`.
+ *
+ * A copy rather than a cast: `packages/telegram` builds keyboards as `readonly`
+ * data — it is a catalogue, and nothing downstream should be able to mutate a
+ * shared keyboard — while grammY's types are mutable arrays. The spread is the
+ * whole translation, and it belongs here for the same reason `toReplyMarkup`
+ * does: this is the file that knows the wire format.
+ */
+function toBottomMarkup(): {
+  keyboard: { text: string }[][];
+  resize_keyboard: true;
+  is_persistent: true;
+} {
+  const bottom = mainMenuReplyKeyboard();
+  return {
+    keyboard: bottom.keyboard.map((row) => row.map((button) => ({ text: button.text }))),
+    resize_keyboard: bottom.resize_keyboard,
+    is_persistent: bottom.is_persistent,
+  };
 }
 
 /**

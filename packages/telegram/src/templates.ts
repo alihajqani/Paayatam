@@ -40,6 +40,15 @@ export const TEMPLATES = {
   PARTICIPATION_REJECTED: 'participation.rejected',
   /** The host learns a guest withdrew — before a decision, or after one. */
   PARTICIPATION_CANCELLED_HOST: 'participation.cancelled.host',
+  /**
+   * The guest learns their request ran out of time (v0.8.1).
+   *
+   * There was no such message until v0.8.1: a request that expired moved to
+   * EXPIRED, freed its slot, and told nobody. It became necessary rather than
+   * merely kind when the coins started coming back — a refund the payer is never
+   * told about reaches them as an unexplained balance change.
+   */
+  PARTICIPATION_EXPIRED: 'participation.expired',
   WAITLIST_PROMOTED_GUEST: 'waitlist.promoted.guest',
   WAITLIST_PROMOTED_HOST: 'waitlist.promoted.host',
   EVENT_CANCELLED: 'event.cancelled',
@@ -358,12 +367,52 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         `my-requests`,
       );
 
-    case TEMPLATES.PARTICIPATION_REJECTED:
+    /**
+     * Turned down — and told what came back with it (v0.8.1).
+     *
+     * Asking costs coins, and from v0.8.1 a rejection returns them. Saying so is
+     * not a courtesy: the guest watched a number go down when they asked, and a
+     * refund they are not told about is indistinguishable from no refund. The
+     * sentence appears only when something actually moved — joining is free in
+     * any deployment that has not set a price, and «۰ سکه بازگشت» reads as a bug.
+     */
+    case TEMPLATES.PARTICIPATION_REJECTED: {
+      const refunded = payload['coinsRefunded'];
+      const refund =
+        typeof refunded === 'number' && refunded > 0
+          ? `\n<b>${toPersianDigits(refunded)} سکه</b> بابت این درخواست به شما بازگشت.`
+          : '';
       return {
         text:
-          `درخواست شما برای «${str(payload, 'eventTitle')}» پذیرفته نشد.\n` +
+          `درخواست شما برای «${str(payload, 'eventTitle')}» پذیرفته نشد.` +
+          `${refund}\n` +
           `فعالیت‌های دیگری هم هست — سری بزنید.`,
       };
+    }
+
+    /**
+     * The host never answered, and the guest is told so plainly (v0.8.1).
+     *
+     * Not «رد شد»: they were not rejected, and saying so would attribute a
+     * decision to a host who made none. What happened is that the time ran out,
+     * which is a fact about the request rather than a judgement about the person
+     * — and the sentence after it is the one that matters, because somebody whose
+     * request evaporated needs a next step more than an explanation.
+     */
+    case TEMPLATES.PARTICIPATION_EXPIRED: {
+      const refunded = payload['coinsRefunded'];
+      const refund =
+        typeof refunded === 'number' && refunded > 0
+          ? `\n<b>${toPersianDigits(refunded)} سکه</b> بابت این درخواست به شما بازگشت.`
+          : '';
+      return {
+        text:
+          `<b>مهلت پاسخ میزبان گذشت</b>\n\n` +
+          `میزبان «${str(payload, 'eventTitle')}» در مهلت تعیین‌شده پاسخی نداد، ` +
+          `بنابراین درخواست شما بسته شد.${refund}\n` +
+          `فعالیت‌های دیگری هم هست — سری بزنید.`,
+      };
+    }
 
     /**
      * Two sentences for two situations, because they ask different things of the
@@ -762,14 +811,28 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * whether the wizards are switched on. A payload with none degrades to the
      * card alone, which is a card without an edit rather than a broken one.
      */
+    /**
+     * The profile card, and the interests it now shows (v0.8.1).
+     *
+     * A profile screen that did not mention interests was a screen that could not
+     * tell you they were empty — which they were, for every account the bot
+     * onboarded, because no surface wrote them. Naming the field is half of what
+     * makes «🏷 علاقه‌مندی‌ها» under it worth pressing.
+     *
+     * `interests` arrives as one pre-joined string rather than an array, because
+     * a notification payload holds scalars (invariant 7) and this is a snapshot
+     * of an answer, not a live list.
+     */
     case TEMPLATES.BOT_PROFILE: {
       const keyboard = parseKeyboard(payload);
+      const interests = str(payload, 'interests');
       return {
         text:
           `<b>نمایه شما</b>\n\n` +
           `${str(payload, 'displayName')}\n` +
           `📍 ${str(payload, 'cityName')}\n` +
-          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰`,
+          `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰\n` +
+          `🏷 علاقه‌مندی‌ها: ${interests === '' ? 'هنوز چیزی انتخاب نکرده‌اید' : interests}`,
         deepLink: `profile/edit`,
         ...(keyboard !== undefined ? { keyboard } : {}),
       };

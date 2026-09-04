@@ -21,9 +21,25 @@ import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
  * it. `UpdateProfileInput` takes a partial for exactly this reason, and the
  * caller sends only the keys the user actually answered.
  *
- * That is why there is no `when` anywhere in this file: nothing here is
- * conditional on anything else, and the flow is a straight line somebody can
- * step out of at any point by pressing «رد کردن».
+ * The flow is otherwise a straight line somebody can step out of at any point by
+ * pressing «رد کردن» — nothing here is conditional on anything the *user* has
+ * answered.
+ *
+ * ── The one `when`, and why it is not a second wizard ──────────────────────
+ *
+ * `onlyInterests` (v0.8.1) hides the six ordinary steps so `/interests` can open
+ * this same form at its last one. A second `ConversationKind` would have been
+ * the obvious alternative and it is worse three ways: it is a migration for a
+ * form that already exists, it duplicates the interests step (so the toggle
+ * logic and the Persian copy could drift), and `conversation_state.user_id` is
+ * UNIQUE — so the two would evict each other anyway, which is the behaviour a
+ * single kind gives for free.
+ *
+ * It is a *caller's* flag rather than an answer, which is why it is not asked
+ * about anywhere: `ConversationService.start` seeds it through `initialForm`,
+ * `nextStep` re-reads it on every move like any other `when`, and `progressOf`
+ * therefore says «گام ۱ از ۱» — which is what somebody who asked for their
+ * interests should see.
  */
 
 export interface EditProfileForm {
@@ -34,6 +50,34 @@ export interface EditProfileForm {
   cityId?: string;
   districtId?: string;
   bio?: string;
+  /**
+   * The interests this profile claims (v0.8.1).
+   *
+   * An **array, and replacing rather than merging** — which is what
+   * `ProfileService.update` already does with it: it deletes every row not in
+   * the list and upserts the rest, so the field means "these, and only these".
+   * That is also why the step prefills from the current selection: without it,
+   * finishing the form would silently clear whatever was there before.
+   *
+   * `undefined` and `[]` are different answers and both are reachable.
+   * `undefined` is «رد کردن» — leave the interests alone, the same meaning every
+   * other skipped step has here — and `[]` is «تمام» with nothing ticked, which
+   * is somebody deliberately clearing them. `UpdateProfileInput` distinguishes
+   * the two by presence, so the caller sends the key only when it was answered.
+   */
+  interestIds?: string[];
+  /**
+   * Ask about the interests and nothing else.
+   *
+   * Set by `/interests` through `initialForm`, never by a step. See the header
+   * for why this is a flag on one wizard rather than a second wizard.
+   */
+  onlyInterests?: boolean;
+}
+
+/** Every step except the interests, which `/interests` skips past. */
+function fullFormOnly(form: EditProfileForm): boolean {
+  return form.onlyInterests !== true;
 }
 
 const GENDERS = gender.options;
@@ -152,6 +196,7 @@ function birthYearOf(input: WizardInput): number | string {
 const steps: WizardStep<EditProfileForm>[] = [
   {
     key: 'name',
+    when: fullFormOnly,
     ui: 'text',
     optional: true,
     prompt: () => 'نام نمایشی‌تان چه باشد؟ برای تغییر ندادن، «رد کردن» را بزنید.',
@@ -162,6 +207,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'gender',
+    when: fullFormOnly,
     ui: 'choice',
     optional: true,
     prompt: () => 'جنسیت؟',
@@ -181,6 +227,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'birth',
+    when: fullFormOnly,
     ui: 'text',
     optional: true,
     prompt: () => 'سال تولد شما به شمسی؟ برای نمونه: ۱۳۷۰',
@@ -192,6 +239,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'prov',
+    when: fullFormOnly,
     ui: 'choice',
     optional: true,
     prompt: () => 'در کدام استان هستید؟',
@@ -211,6 +259,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'city',
+    when: fullFormOnly,
     ui: 'choice',
     optional: true,
     prompt: () => 'کدام شهر؟',
@@ -230,6 +279,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'bio',
+    when: fullFormOnly,
     ui: 'text',
     optional: true,
     prompt: () => 'یکی دو جمله دربارهٔ خودتان.',
@@ -237,6 +287,77 @@ const steps: WizardStep<EditProfileForm>[] = [
       // One character is a legitimate bio; the floor is only "you sent something".
       const result = acceptText(input, 1, 500, 'معرفی');
       return result.ok ? { ok: true, patch: { bio: result.value } } : result;
+    },
+  },
+  /**
+   * The interests — the field the bot could never fill (v0.8.1).
+   *
+   * ── Why it was missing, and why that mattered ───────────────────────────────
+   *
+   * `user_interest` has existed since M3, `ProfileService.complete` takes
+   * `interestIds`, `CompleteProfileView` had checkboxes for it, and the wizard
+   * that replaced that view had no step for it — so from ADR-0017 onwards every
+   * profile completed through the bot had **no interests at all**, and the Mini
+   * App being retired meant there was no longer anywhere to add them. A column
+   * nothing writes is a column that quietly becomes empty for the whole user
+   * base, and discovery ranking reads it.
+   *
+   * ── Why it is last ─────────────────────────────────────────────────────────
+   *
+   * Because it is the one step that loops. `multi` redraws itself on every tap,
+   * so somebody choosing five interests spends five updates here — and putting
+   * that in the middle of the form makes «گام ۴ از ۷» sit still while they work,
+   * which reads as a stuck bot. At the end, the next thing after «تمام» is the
+   * summary, which is exactly what the tick count has been promising.
+   *
+   * ── Why the toggle is here and not in the machine ──────────────────────────
+   *
+   * `accept` is a pure function over the form, and toggling is a pure function
+   * over the form. The machine's job is knowing that a `multi` step does not
+   * advance; *what* a tap means is still the step's, exactly as it is for every
+   * other kind — which is what keeps a second multi-select from having to accept
+   * this one's idea of a value.
+   */
+  {
+    key: 'tags',
+    ui: 'multi',
+    optional: true,
+    prompt: () =>
+      'به چه چیزهایی علاقه دارید؟ هر تعداد که می‌خواهید انتخاب کنید، بعد «تمام» را بزنید.',
+    load: (_form, deps) => deps.interests(),
+    selectedOf: (form) => form.interestIds ?? [],
+    accept: (input, form) => {
+      // Typed text on a step made of buttons. Naming «تمام» matters here for the
+      // same reason it does on the review tags: a multi-select is the one kind
+      // where answering and leaving are different gestures.
+      if (input.kind === 'text') {
+        return {
+          ok: false,
+          error:
+            'علاقه‌مندی‌ها را از دکمه‌های زیر انتخاب کنید. ' +
+            'وقتی انتخابتان تمام شد، «تمام» را بزنید.',
+        };
+      }
+
+      const id = chosenId(input);
+      if (id === null) {
+        return {
+          ok: false,
+          error:
+            `علاقه‌مندی‌ها را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از ` +
+            `آن‌ها نیست. وقتی تمام شد «تمام» را بزنید.`,
+        };
+      }
+
+      const current = form.interestIds ?? [];
+      // A tap on something already chosen removes it. That is the whole of "add
+      // and remove": one control, and the tick says which direction the next tap
+      // goes — a separate «حذف» mode would be a second screen for one bit.
+      const next = current.includes(id)
+        ? current.filter((candidate) => candidate !== id)
+        : [...current, id];
+
+      return { ok: true, patch: { interestIds: next } };
     },
   },
 ];

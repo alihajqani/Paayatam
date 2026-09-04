@@ -47,6 +47,18 @@ export const WIZARD_CONTROLS = [
   'recheck',
   /** «افزودن جزئیات بیشتر» on a summary. */
   'details',
+  /**
+   * «تمام» — the only way out of a `multi` step (v0.8.1).
+   *
+   * A multi-select step is the one shape whose *answer* does not advance it:
+   * tapping an option toggles it and redraws, so something else has to say the
+   * selection is finished. A control rather than a step-keyed action, because it
+   * means the same thing wherever it is offered and because
+   * `ConversationService.handle` has to recognise it **before** the
+   * "this button belongs to another step" guard, which only lets controls
+   * through.
+   */
+  'done',
 ] as const;
 export type WizardControl = (typeof WIZARD_CONTROLS)[number];
 

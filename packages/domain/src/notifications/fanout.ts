@@ -163,6 +163,40 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     case 'direct.message_seen':
       return recipient(row, 'senderUserPublicId', TEMPLATES.DIRECT_MESSAGE_SEEN);
 
+    /**
+     * The host let the clock run out, and only the guest hears about it (v0.8.1).
+     *
+     * `recipient` like the other single-recipient participation events. The host
+     * is deliberately not told: an expiry is the outcome their own inaction
+     * chose, and a message about it would be the product scolding them for
+     * something it already handled.
+     */
+    case 'participation.expired':
+      return recipient(row, 'participantUserPublicId', TEMPLATES.PARTICIPATION_EXPIRED);
+
+    /**
+     * The window is open, and both sides are told (v0.8.1).
+     *
+     * The same two recipients and the same key shape as `review.revealed`, for
+     * the same reason: the window opens for the *pair*, and telling one of them
+     * first would hand them a head start on writing — which for a blind pair is
+     * the asymmetry D7 exists to remove.
+     */
+    case 'review.window_open': {
+      const planned: PlannedNotification[] = [];
+      for (const key of ['hostUserPublicId', 'guestUserPublicId']) {
+        const userPublicId = text(payload, key);
+        if (userPublicId === '') continue;
+        planned.push({
+          userPublicId,
+          templateKey: TEMPLATES.REVIEW_WINDOW_OPEN,
+          dedupeKey: `${row.id}:${key}`,
+          payload,
+        });
+      }
+      return planned;
+    }
+
     /** D7: both sides at the same instant, so neither gets a head start. */
     case 'review.revealed': {
       const planned: PlannedNotification[] = [];

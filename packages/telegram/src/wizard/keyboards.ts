@@ -95,6 +95,67 @@ export function choiceKeyboard(
   return rows;
 }
 
+/**
+ * A paged list of options where several can be chosen at once (v0.8.1).
+ *
+ * ── Why this could not be `choiceKeyboard` with a flag ──────────────────────
+ *
+ * Because the *interaction* differs, not the layout. A `choice` tap is an answer
+ * and advances the wizard; a `multi` tap is a toggle and redraws the same step
+ * with one more (or one fewer) tick on it. What is here is the drawing half of
+ * that: a selected option carries a tick and an unselected one does not, so the
+ * keyboard **is** the state — there is no separate list of what has been chosen
+ * to read, and no way for the two to disagree.
+ *
+ * ── Why «تمام» is a row of its own ─────────────────────────────────────────
+ *
+ * A step whose answers do not advance it needs something that does, and it has to
+ * be unmissable: a «تمام» tucked next to «انصراف» is a step people get stuck on.
+ * It sits above the controls, alone, and says how many are chosen — which is the
+ * one fact the ticks do not give you at a glance when the options run to a second
+ * page.
+ *
+ * The tick is prefixed rather than appended because Persian is RTL and a leading
+ * emoji lands on the *right*, where the eye starts.
+ */
+export function multiChoiceKeyboard(
+  step: string,
+  choices: readonly Choice[],
+  selected: readonly string[],
+  page: number,
+  trailer: readonly InlineButton[] = [],
+): InlineKeyboard {
+  const chosen = new Set(selected);
+  const ticked = choices.map((choice) => ({
+    value: choice.value,
+    label: chosen.has(choice.value) ? `✅ ${choice.label}` : choice.label,
+  }));
+
+  /**
+   * The page row and the option grid come from `choiceKeyboard`, unchanged.
+   *
+   * Reused rather than reimplemented: paging is the part that took the argument
+   * about Tehran's 1252 cities to get right, and a second copy of it would be a
+   * second thing to get wrong. The trailer is appended here instead so «تمام» can
+   * be slotted between the options and the controls.
+   */
+  const rows = [
+    ...choiceKeyboard(step, ticked, page),
+    [
+      {
+        text:
+          chosen.size === 0
+            ? '✔️ تمام'
+            : `✔️ تمام (${toPersianDigits(String(chosen.size))} انتخاب)`,
+        callbackData: encodeWizardCallback({ action: 'done', value: '' }),
+      },
+    ],
+  ];
+
+  if (trailer.length > 0) rows.push([...trailer]);
+  return rows;
+}
+
 /** A blank cell. Telegram needs `callback_data` on every non-URL button. */
 function filler(): InlineButton {
   return { text: ' ', callbackData: encodeWizardCallback({ action: 'page', value: '0' }) };

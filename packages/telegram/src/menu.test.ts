@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAIN_MENU_LABEL,
   MENU_COMMANDS,
   MODERATION_MENU_LABEL,
+  mainMenuReplyKeyboard,
   menuCommandFor,
   menuGroupKeyFor,
   menuLabelFor,
@@ -11,16 +13,18 @@ import { TEMPLATES, render } from './templates';
 import { BOT_COMMANDS, COMMAND_GROUPS, commandGroupFor } from './commands';
 
 /**
- * The bottom keyboard is gone (v0.7.0); its resolver is not.
+ * The bottom keyboard is one button now (v0.8.1); its resolver still knows eight.
  *
- * Nothing draws a reply keyboard any more and every message carries
- * `remove_keyboard`, but a keyboard lives on the *client* until a message
- * replaces it — so until a user hears from this build they are still holding the
- * old one. A label this build could not resolve would be handed to `onText` and
- * relayed into an anonymous chat, where a stranger would receive «📨
- * درخواست‌های من». That is what this suite protects.
+ * v0.7.0 removed all seven labels and sent `remove_keyboard` on everything;
+ * v0.8.1 puts «☰ منوی اصلی» back, alone, on the messages that have no inline
+ * keyboard of their own. Neither release lets the map shrink, and the reason is
+ * unchanged: a reply keyboard lives on the *client* until a message replaces it,
+ * so until a user hears from this build they are still holding whichever one
+ * they were given. A label this build could not resolve would fall through
+ * `onText` — and before v0.8.0, into an anonymous chat, where a stranger would
+ * receive «📨 درخواست‌های من». That is what this suite protects.
  */
-describe('the retired bottom keyboard still resolves', () => {
+describe('the bottom keyboard resolves every label it has ever drawn', () => {
   /** Report: `/profile` was reachable only by typing it. It resolves as a label. */
   it('resolves the profile', () => {
     expect(menuCommandFor('👤 نمایه من')).toBe('profile');
@@ -163,5 +167,46 @@ describe('menuLabelFor', () => {
     // `</b>` is not a command, so the pattern is a slash followed by a command's
     // own charset.
     expect(text).not.toMatch(/\/[a-z_]{3,}/);
+  });
+});
+
+/**
+ * The one button that is actually drawn (v0.8.1).
+ *
+ * `reply_markup` holds one thing per *message*, and a reply keyboard is not per
+ * message — it stays under the compose box while messages carrying inline
+ * keyboards go past. So this coexists with every inline keyboard in the product
+ * by living somewhere else entirely, and the only thing that has to be true here
+ * is that a tap on it resolves to a command rather than being treated as typing.
+ */
+describe('the main-menu button', () => {
+  it('resolves to the menu, so a tap is a command and not a message', () => {
+    expect(menuCommandFor(MAIN_MENU_LABEL)).toBe('menu');
+  });
+
+  it('survives the whitespace a client may add around a label', () => {
+    expect(menuCommandFor(`  ${MAIN_MENU_LABEL}  `)).toBe('menu');
+  });
+
+  it('draws exactly one button, sized and pinned', () => {
+    const keyboard = mainMenuReplyKeyboard();
+
+    expect(keyboard.keyboard).toEqual([[{ text: MAIN_MENU_LABEL }]]);
+    // Without `resize_keyboard` one button takes a third of the screen; without
+    // `is_persistent` it collapses into the paperclip after one use, which is the
+    // opposite of always being there.
+    expect(keyboard.resize_keyboard).toBe(true);
+    expect(keyboard.is_persistent).toBe(true);
+  });
+
+  /**
+   * `menu` has to be a command the bot answers.
+   *
+   * A label that resolves to a command nothing handles is a button that answers
+   * «این فرمان را نمی‌شناسم» — which is worse than no button, and is exactly what
+   * a rename of `/menu` would silently produce.
+   */
+  it('names a command the bot publishes', () => {
+    expect(BOT_COMMANDS.map((entry) => entry.command)).toContain('menu');
   });
 });

@@ -585,6 +585,25 @@ export class Processors implements OnModuleInit {
       }
 
       case JOBS.REVIEW_SWEEP: {
+        /**
+         * Two ends of the same window, on the one hourly job (v0.8.1).
+         *
+         * The opening reminder is not a second schedule entry, because it is the
+         * same clock: `opens_at` and `deadline_at` are both derived from an
+         * activity's end, both move at the granularity of an hour, and a pair
+         * that has just been reminded is a pair this job will settle in seven
+         * days. Splitting them would be two cron lines answering one question.
+         *
+         * Announcing **before** settling, so the last hour of a window sends the
+         * reminder rather than racing the sweep that closes it. They cannot
+         * overlap in practice — `announceOpenWindows` excludes anything past its
+         * deadline — and the order makes that explicit rather than incidental.
+         */
+        const announced = await this.reviews.announceOpenWindows();
+        if (announced > 0) {
+          this.logger.log(`Review windows opened: ${String(announced)} announced`);
+        }
+
         const settled = await this.reviews.settleExpired();
         if (settled.partial + settled.empty > 0) {
           this.logger.log(

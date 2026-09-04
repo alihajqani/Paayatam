@@ -126,11 +126,19 @@ export class TrustService {
    * This is what ADR-0007 means by "the admin panel renders the ledger, not the
    * number", and it is equally what the user's own `GET /me/trust` shows. A score
    * nobody can account for is a score nobody can appeal.
+   *
+   * `offset` is what makes that promise reachable rather than merely stated: the
+   * bot renders five rows at a time and «بعدی» is `offset + 5`. Without it the
+   * first page was the only page, which is a different promise.
    */
-  async historyOf(userId: string, limit = 50): Promise<TrustEntry[]> {
+  async historyOf(userId: string, limit = 50, offset = 0): Promise<TrustEntry[]> {
     const rows = await this.prisma.trustScoreLedger.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      // `skip` for the same reason `CoinService.historyOf` has one (v0.8.1): the
+      // bot pages this five at a time, and a page is an offset into an ordering
+      // rather than a second query shape.
+      skip: Math.max(Math.trunc(offset), 0),
       take: Math.min(Math.max(limit, 1), 200),
     });
 

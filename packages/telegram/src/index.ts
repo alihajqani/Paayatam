@@ -37,7 +37,7 @@ export { capacityLabel, seatsLine, seatsLineFromRemaining } from './seats';
 export { formatDirectMessage } from './direct';
 export type { DirectMessageLine } from './direct';
 export { toPersianAmount } from './escape';
-export { formatTrust, trustLabelFa } from './trust';
+export { formatTrust, trustLabelFa, trustPageRow } from './trust';
 export { REPORT_REASON_CHOICES, reportPrompt, reportReasonLabel } from './report';
 export { notificationCategory, preferenceKeyFor } from './notification-category';
 export {
@@ -58,6 +58,7 @@ export { encodeChannelRecheckCallback, isChannelRecheckCallback } from './callba
 export { MAX_DISCOVER_PAGE } from './callback-data';
 export { MAX_MY_EVENTS_PAGE, encodeMyEventsCallback, parseMyEventsCallback } from './callback-data';
 export { MAX_WALLET_PAGE, encodeWalletCallback, parseWalletCallback } from './callback-data';
+export { MAX_TRUST_PAGE, encodeTrustCallback, parseTrustCallback } from './callback-data';
 export { encodeDirectCallback, parseDirectCallback } from './callback-data';
 export type { DirectCallback, DirectCallbackAction } from './callback-data';
 export { BACK_TARGETS, encodeBackCallback, parseBackCallback } from './callback-data';
@@ -138,7 +139,13 @@ export {
   toJalali,
 } from './wizard/jalali';
 export type { JalaliDate } from './wizard/jalali';
-export { CHOICES_PER_PAGE, calendarKeyboard, choiceKeyboard, controlRow } from './wizard/keyboards';
+export {
+  CHOICES_PER_PAGE,
+  calendarKeyboard,
+  choiceKeyboard,
+  controlRow,
+  multiChoiceKeyboard,
+} from './wizard/keyboards';
 export type { Choice } from './wizard/keyboards';
 export { renderStep, renderSummary } from './wizard/render';
 export type { StepScreenInput, SummaryLine, WizardScreen } from './wizard/render';
@@ -186,4 +193,6 @@ export type { DiscoverFilters, DiscoverWhen, DiscoverCost } from './callback-dat
 export type { ReviewCallback, ReviewRating } from './callback-data';
 
 export { hostDecisionKeyboard, openAppButton } from './keyboards';
+export { MAIN_MENU_LABEL, mainMenuReplyKeyboard } from './keyboards';
+export type { ReplyKeyboard } from './keyboards';
 export type { InlineButton, InlineKeyboard } from './keyboards';

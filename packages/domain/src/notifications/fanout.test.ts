@@ -23,6 +23,9 @@ describe('single-recipient events', () => {
   it.each([
     ['participation.accepted', TEMPLATES.PARTICIPATION_ACCEPTED],
     ['participation.rejected', TEMPLATES.PARTICIPATION_REJECTED],
+    // The host is deliberately not told about an expiry: it is the outcome their
+    // own inaction chose, and a message would be the product scolding them.
+    ['participation.expired', TEMPLATES.PARTICIPATION_EXPIRED],
     ['participation.no_show', TEMPLATES.NO_SHOW_RECORDED],
   ])('%s tells the participant', (eventType, templateKey) => {
     const planned = planNotifications(row(eventType, { participantUserPublicId: GUEST }));
@@ -88,6 +91,29 @@ describe('two-recipient events', () => {
 
     expect(planned).toHaveLength(2);
     expect(planned.every((plan) => plan.templateKey === TEMPLATES.REVIEW_REVEALED)).toBe(true);
+  });
+
+  /**
+   * The reminder that had a template and no producer until v0.8.1.
+   *
+   * Both sides, for the same reason the reveal tells both: the window opens for
+   * the *pair*, and telling one of them first would hand them a head start on
+   * writing — the asymmetry a blind pair exists to remove.
+   */
+  it('review.window_open tells both sides, with one key each', () => {
+    const planned = planNotifications(
+      row('review.window_open', {
+        hostUserPublicId: HOST,
+        guestUserPublicId: GUEST,
+        eventTitle: 'قهوه و بازی',
+        daysLeft: 7,
+      }),
+    );
+
+    expect(planned).toHaveLength(2);
+    expect(planned.every((plan) => plan.templateKey === TEMPLATES.REVIEW_WINDOW_OPEN)).toBe(true);
+    expect(new Set(planned.map((plan) => plan.dedupeKey)).size).toBe(2);
+    expect(planned.map((plan) => plan.userPublicId).sort()).toEqual([HOST, GUEST].sort());
   });
 
   /**

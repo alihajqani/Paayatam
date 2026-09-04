@@ -6,6 +6,7 @@ import {
   calendarKeyboard,
   choiceKeyboard,
   controlRow,
+  multiChoiceKeyboard,
   type Choice,
 } from './keyboards';
 
@@ -123,5 +124,81 @@ describe('controlRow', () => {
     expect(controlRow({})).toHaveLength(0);
     expect(controlRow({ back: true }).map((b) => b.text)).toEqual(['« بازگشت']);
     expect(controlRow({ back: true, skip: true, cancel: true })).toHaveLength(3);
+  });
+});
+
+/**
+ * Choosing several (v0.8.1).
+ *
+ * The keyboard **is** the state: a ticked label is a chosen value, so there is
+ * no second list of what has been selected and no way for the two to disagree.
+ * That is what these assert — the ticks, the toggle affordance, and the «تمام»
+ * that ends a step whose own answers never advance it.
+ */
+describe('multiChoiceKeyboard', () => {
+  const three = choices(3);
+
+  it('ticks what is chosen and leaves the rest alone', () => {
+    const labels = multiChoiceKeyboard('tags', three, ['v1'], 0)
+      .flat()
+      .map((button) => button.text);
+
+    expect(labels).toContain('✅ گزینه 1');
+    expect(labels).toContain('گزینه 0');
+    expect(labels).not.toContain('✅ گزینه 0');
+  });
+
+  /**
+   * A ticked option carries the same `callback_data` as an unticked one.
+   *
+   * That is the whole of "add and remove": one button, and the step's `accept`
+   * reads the current form to decide which way the tap goes. A separate remove
+   * action would be a second protocol for one bit of state.
+   */
+  it('gives a chosen option the same callback as an unchosen one', () => {
+    const chosen = multiChoiceKeyboard('tags', three, ['v1'], 0).flat();
+    const none = multiChoiceKeyboard('tags', three, [], 0).flat();
+
+    const callbackFor = (buttons: typeof chosen, label: string) =>
+      buttons.find((button) => button.text.endsWith(label))?.callbackData;
+
+    expect(callbackFor(chosen, 'گزینه 1')).toBe(callbackFor(none, 'گزینه 1'));
+  });
+
+  it('always offers «تمام», and counts what is chosen', () => {
+    const empty = multiChoiceKeyboard('tags', three, [], 0)
+      .flat()
+      .find((button) => parseWizardCallback(button.callbackData ?? '')?.action === 'done');
+    expect(empty?.text).toBe('✔️ تمام');
+
+    const two = multiChoiceKeyboard('tags', three, ['v0', 'v1'], 0)
+      .flat()
+      .find((button) => parseWizardCallback(button.callbackData ?? '')?.action === 'done');
+    expect(two?.text).toContain('۲');
+  });
+
+  /** «تمام» must be reachable from every page, not only the first. */
+  it('keeps «تمام» below the options on a later page', () => {
+    const rows = multiChoiceKeyboard('tags', choices(CHOICES_PER_PAGE * 2), ['v0'], 1);
+    const done = rows
+      .flat()
+      .filter((button) => parseWizardCallback(button.callbackData ?? '')?.action === 'done');
+
+    expect(done).toHaveLength(1);
+  });
+
+  /** Paging is `choiceKeyboard`'s, reused rather than re-derived. */
+  it('pages the options exactly as a single-select does', () => {
+    const many = choices(CHOICES_PER_PAGE + 5);
+    const options = (rows: readonly (readonly { callbackData?: string }[])[]) =>
+      rows.flat().filter((b) => parseWizardCallback(b.callbackData ?? '')?.action === 'tags');
+
+    expect(options(multiChoiceKeyboard('tags', many, [], 0))).toHaveLength(CHOICES_PER_PAGE);
+    expect(options(multiChoiceKeyboard('tags', many, [], 1))).toHaveLength(5);
+  });
+
+  it('appends the trailer beneath «تمام»', () => {
+    const rows = multiChoiceKeyboard('tags', three, [], 0, controlRow({ skip: true }));
+    expect(rows[rows.length - 1]?.map((button) => button.text)).toEqual(['رد کردن']);
   });
 });

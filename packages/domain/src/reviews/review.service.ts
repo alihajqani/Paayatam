@@ -630,6 +630,139 @@ export class ReviewService {
     return result;
   }
 
+  /**
+   * Tell both sides their review window has opened (v0.8.1).
+   *
+   * ── The template that had no producer ───────────────────────────────────────
+   *
+   * `TEMPLATES.REVIEW_WINDOW_OPEN` has had Persian copy, a notification category
+   * and a `render()` case since M12, and **nothing has ever emitted it**. The
+   * window opens 24 hours after an activity ends and closes seven days later, and
+   * for that entire week the only way to find out a review was waiting was to
+   * open `/reviews` and look. `PROJECT_MEMORY` §7 trap 24 is the same shape one
+   * layer up — *when an error is built to carry detail, grep for who reads it* —
+   * and this is its mirror: when a template is written, grep for who sends it.
+   *
+   * It matters more here than a missed nudge usually would, because the pair is
+   * **blind**. A review nobody writes is not just one missing rating: the
+   * counterparty's review never reveals either, so one person's silence costs two
+   * people their feedback.
+   *
+   * ── Why both sides, always ─────────────────────────────────────────────────
+   *
+   * The window opens for the pair, not for a person, and at the moment it opens
+   * neither side has written — `opensAt` is in the future for the whole period a
+   * review could already have been submitted. So there is no "who still owes one"
+   * to compute here; that is `listPending`'s job, and `/reviews` is where the
+   * message sends them.
+   *
+   * ── Exactly once, and what happens on the first run ────────────────────────
+   *
+   * `reminded_at` is stamped in the same transaction as the outbox row, so a
+   * crash between them is impossible and a re-run finds nothing. Pairs that
+   * existed before migration 0045 all read NULL, so the first sweep after the
+   * deploy reminds everybody whose window is currently open — which is the point,
+   * not a side effect: those are exactly the people who are owed a review and
+   * have never been told.
+   *
+   * Bounded by `limit` per run like every other sweep here, so a backlog is
+   * worked through over several hours rather than becoming one burst against
+   * Telegram's rate limit.
+   */
+  async announceOpenWindows(limit = 200): Promise<number> {
+    const now = this.clock.now();
+
+    const due = await this.prisma.reviewPair.findMany({
+      where: {
+        remindedAt: null,
+        opensAt: { lte: now },
+        // Past the deadline there is nothing to write, so a reminder would be an
+        // invitation to a form that refuses. `settleExpired` has these.
+        deadlineAt: { gt: now },
+        status: { in: ['PENDING', 'PARTIAL'] },
+      },
+      select: { id: true },
+      orderBy: { opensAt: 'asc' },
+      take: limit,
+    });
+
+    let announced = 0;
+    for (const { id } of due) {
+      if (await this.announceOne(id, now)) announced += 1;
+    }
+    return announced;
+  }
+
+  /** One pair, in its own transaction — the shape every sweep here uses. */
+  private async announceOne(pairId: string, now: Date): Promise<boolean> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        /**
+         * Claimed by the update, not by the scan.
+         *
+         * `updateMany` with `reminded_at: null` in the filter is the claim: two
+         * workers running the sweep at once both scanned the same row, and
+         * exactly one of them matches. A read-then-write would have a window
+         * between them, and the visible cost of losing that race is somebody
+         * being told twice about the same review.
+         */
+        const claimed = await tx.reviewPair.updateMany({
+          where: { id: pairId, remindedAt: null },
+          data: { remindedAt: now },
+        });
+        if (claimed.count === 0) return false;
+
+        const pair = await tx.reviewPair.findUniqueOrThrow({
+          where: { id: pairId },
+          select: {
+            deadlineAt: true,
+            participant: {
+              select: {
+                publicId: true,
+                user: { select: { publicId: true } },
+                event: {
+                  select: { publicId: true, title: true, host: { select: { publicId: true } } },
+                },
+              },
+            },
+          },
+        });
+
+        await this.outbox.emit(
+          {
+            aggregateType: 'review_pair',
+            aggregateId: pairId,
+            eventType: 'review.window_open',
+            // Public ids only — this payload becomes the text of a Telegram
+            // message (ADR-0009, invariant 7).
+            payload: {
+              participantPublicId: pair.participant.publicId,
+              eventPublicId: pair.participant.event.publicId,
+              eventTitle: pair.participant.event.title,
+              hostUserPublicId: pair.participant.event.host.publicId,
+              guestUserPublicId: pair.participant.user.publicId,
+              /**
+               * How long is left, rounded **up**.
+               *
+               * The template says «تا N روز آینده», and rounding down would say
+               * «تا ۰ روز» on the last day — a deadline the reader has already
+               * missed, for a form that still works.
+               */
+              daysLeft: Math.max(
+                Math.ceil((pair.deadlineAt.getTime() - now.getTime()) / 86_400_000),
+                1,
+              ),
+            },
+          },
+          tx,
+        );
+
+        return true;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+  }
+
   private async settleOne(pairId: string, now: Date): Promise<ReviewPairStatus | null> {
     return this.prisma.$transaction(
       async (tx) => {

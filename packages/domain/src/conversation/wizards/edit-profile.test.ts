@@ -29,9 +29,111 @@ describe('every step is skippable', () => {
     }
   });
 
-  /** Nothing here is conditional, so the flow is a straight line. */
-  it('has no conditional steps', () => {
-    expect(editProfileWizard.steps.every((step) => step.when === undefined)).toBe(true);
+  /**
+   * Nothing is conditional on an **answer**, so the ordinary flow is a straight
+   * line.
+   *
+   * This asserted `when === undefined` on every step until v0.8.1, when
+   * `/interests` gave the six ordinary steps one — and the property the old
+   * assertion was protecting was never "no step has a `when`". It was that
+   * somebody filling in this form cannot have a question disappear because of
+   * something they typed three screens earlier, which is a real hazard in
+   * `CREATE_EVENT` (where «رایگان» removes the amount step) and would be
+   * bewildering here.
+   *
+   * `onlyInterests` is set by the *caller* before the first screen and never
+   * changes afterwards, so it cannot do that. The test says so by walking the
+   * whole form with every step answered and checking the shape does not move.
+   */
+  it('does not let an answer remove a question', () => {
+    const answered: EditProfileForm = {
+      displayName: 'علی',
+      gender: 'MALE',
+      birthYear: 1991,
+      provinceId: UUID,
+      cityId: UUID,
+      bio: 'کوهنورد.',
+      interestIds: [UUID],
+    };
+
+    const applicable = (form: EditProfileForm) =>
+      editProfileWizard.steps.filter((step) => step.when === undefined || step.when(form));
+
+    expect(applicable(answered).map((step) => step.key)).toEqual(
+      applicable({}).map((step) => step.key),
+    );
+  });
+
+  /**
+   * `/interests` opens this same wizard at its last step (v0.8.1).
+   *
+   * A second `ConversationKind` would have been a migration, a duplicate
+   * interests step and — because `conversation_state.user_id` is UNIQUE — two
+   * forms that evict each other anyway. One flag, and `progressOf` then says
+   * «گام ۱ از ۱», which is what somebody who asked for their interests should
+   * see rather than «گام ۷ از ۷» on a form they never filled in.
+   */
+  it('shows only the interests when the caller asks for them', () => {
+    const form: EditProfileForm = { onlyInterests: true };
+    const applicable = editProfileWizard.steps.filter(
+      (step) => step.when === undefined || step.when(form),
+    );
+
+    expect(applicable.map((step) => step.key)).toEqual(['tags']);
+  });
+});
+
+/**
+ * The interests, which the bot could not set at all until v0.8.1.
+ *
+ * `user_interest` has existed since M3 and `CompleteProfileView` had checkboxes
+ * for it; ADR-0017 retired the view and the wizard that replaced it had no step,
+ * so every profile the bot created carried no interests — on a product whose
+ * discovery ranking reads them.
+ */
+describe('interests', () => {
+  const OTHER = '0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e70';
+
+  it('adds a tap to the selection', () => {
+    expect(accept('tags', UUID, {}, 'callback')).toEqual({
+      ok: true,
+      patch: { interestIds: [UUID] },
+    });
+  });
+
+  it('keeps what was already chosen', () => {
+    expect(accept('tags', OTHER, { interestIds: [UUID] }, 'callback')).toEqual({
+      ok: true,
+      patch: { interestIds: [UUID, OTHER] },
+    });
+  });
+
+  /** The same button removes it — one control, and the tick says which way. */
+  it('removes one that is already chosen', () => {
+    expect(accept('tags', UUID, { interestIds: [UUID, OTHER] }, 'callback')).toEqual({
+      ok: true,
+      patch: { interestIds: [OTHER] },
+    });
+  });
+
+  it('refuses anything that is not one of the offered ids', () => {
+    expect(accept('tags', 'board-games', {}, 'callback').ok).toBe(false);
+  });
+
+  /**
+   * The keyboard is drawn from the draft, so the ticks and the answer cannot
+   * disagree. Without this the multi-select would open blank over a profile that
+   * already has interests, and «تمام» would clear them.
+   */
+  it('reports what is already selected, for the ticks', () => {
+    const step = stepByKey(editProfileWizard, 'tags');
+    expect(step?.selectedOf?.({ interestIds: [UUID] })).toEqual([UUID]);
+    expect(step?.selectedOf?.({})).toEqual([]);
+  });
+
+  /** A multi-select is drawn by the kind, and the machine reads the kind. */
+  it('is a multi-select step', () => {
+    expect(stepByKey(editProfileWizard, 'tags')?.ui).toBe('multi');
   });
 });
 

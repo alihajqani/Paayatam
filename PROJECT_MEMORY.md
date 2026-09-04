@@ -56,8 +56,9 @@ no HTTP framework and no grammY.** `apps/api` and `apps/worker` are thin adapter
 over the same services. That is what stops the bot and the Mini App from drifting
 apart — treat it as an invariant, not a preference.
 
-Scale: 54 Prisma models · 30 migrations · 15 API controllers · 49 domain services
-· 19 domain modules · 15 Mini App views · 1431 unit/component tests.
+Scale (measured 2026-09-03 on `fix/bot-qa-round-1`): 56 Prisma models · 43 migrations
+· 14 API controllers · 47 domain services · 20 domain modules · 143 test files,
+51 of them integration. Re-measure rather than trusting this line.
 
 ## 4. The twelve invariants
 
@@ -92,7 +93,10 @@ Carried forward from the milestone briefs; they are not negotiable defaults.
 ## 6. Verification — the actual commands
 
 ```bash
-pnpm -w typecheck            # tsc -b, project refs, + vue-tsc on both frontends
+make typecheck               # tsc -b, project refs, + vue-tsc on both frontends
+                             # NOT the bare `rtk pnpm <script>` shorthand: it
+                             # reports a FAILING run as green and exits 0.
+                             # See .memory/runtime/verification.md
 pnpm -w lint                 # eslint .
 pnpm -w format:check         # prettier --check .
 npx vitest run --project unit --project miniapp --project admin   # ~12 s
@@ -315,11 +319,65 @@ suite was green through all of them.
    **A `load()` that can legitimately return `[]` needs an answer for that case
    at the point the question is asked.**
 
+26. **Trap 1 again, and silent this time: `@Optional()` turned a mis-scoped
+   provider into a gate that admitted everybody.** `MEMBERSHIP_PROBE` was
+   registered in `AppModule`'s own `providers` array, under a comment saying
+   `ChannelMembershipService` would resolve it there. It cannot:
+   `ChannelMembershipService` is declared in `ChannelModule`, which imports
+   `CatalogModule` and nothing else, and Nest scopes providers to the declaring
+   module. The first instance of this trap (§7.1) failed to *boot*, which is
+   loud. This one injected `undefined` into an `@Optional()` parameter, so
+   `probeFor` answered `{ kind: 'UNKNOWN', reason: 'NO_PROBE' }` for every
+   channel — and every outcome except an authoritative `NOT_MEMBER` **fails open
+   by design**. So the mandatory-membership requirement admitted everybody, on
+   every surface, from M22 until v0.8.1, and nothing anywhere reported a problem:
+   `app.module.test.ts` passed (the graph resolves — that is what optional
+   means), the integration suite passed, and an operator who switched the
+   requirement on watched nothing happen and had no way to tell why.
+   The fix is a `@Global()` module in `apps/api`, which is how every other
+   cross-cutting port here is published. The general shape, and it is the sharper
+   half of §7.1: **`@Optional()` converts a wiring error into a behaviour
+   change.** Any `@Optional() @Inject(TOKEN)` across a module boundary needs a
+   test that the token actually arrives — asserting the graph resolves proves
+   nothing, because the graph resolves either way. And a fail-open default under
+   a mis-wired dependency is a feature that silently does not exist.
+
+27. **A template with no producer is a feature nobody shipped.**
+   `TEMPLATES.REVIEW_WINDOW_OPEN` had Persian copy, a notification category, a
+   deep link and a `render()` case from M12, and **nothing ever emitted it** — so
+   for the whole seven-day review window the only way to learn a review was owed
+   was to open `/reviews` and look. It is §7.24 pointing the other way (*when an
+   error is built to carry detail, grep for who reads it*): **when a template is
+   written, grep for who sends it.** `notification-category.ts` listing a key is
+   not evidence that anything produces it.
+
 ## 8. Deliberate design positions — do not "fix" these
 
 - The channel membership gate **fails open on every outcome except an
   authoritative `NOT_MEMBER`**, so a Telegram outage degrades the gate rather
-  than the product. It is **off by default**.
+  than the product. It is **off by default**. Failing open is the position;
+  *never having a probe* was a bug (§7.26) and is not — `MembershipProbeModule`
+  is `@Global()` for that reason and must stay a module import rather than a
+  provider on `AppModule`.
+- **The bottom keyboard is one button, and only on messages that carry no inline
+  keyboard** (v0.8.1). `reply_markup` holds one thing *per message*, but a reply
+  keyboard lives on the **client** until another replaces it — so «☰ منوی اصلی»
+  is attached where `remove_keyboard` used to go, stays put while messages with
+  inline keyboards go past, and competes with nothing. v0.7.0's argument for
+  removing the menu was about *seven* labels crowding every screen; it was never
+  an argument against one. Do not re-add the other six, and do not "simplify" the
+  sender by attaching it to every message — an inline keyboard would then be
+  dropped.
+- **Asking to join is a deposit, not a fee** (v0.8.1). `economy.event_join_coins`
+  is charged inside the join transaction and **reversed whenever the guest never
+  got an answer** — a rejection *and* an expiry. `refundJoinCharge` undoes the
+  ledger row rather than crediting today's price, so a refund cannot drift from
+  what was taken, and the two carry different reason codes because «the host said
+  no» and «the host never answered» are different answers to "why did this number
+  move". A **withdrawal is not refunded**: the guest changed their mind, and
+  `cancel` prices that on its own thresholds. The comment in `join` that used to
+  say refunding "would make this a deposit, which is a different product
+  decision" records the decision that was taken, not one still open.
 - `APP_ACCESS` gating is enforced **by the router, not `AuthGuard`** — a gate
   over every authenticated route would refuse the very calls the screen that
   clears it is built from. From v0.6.5 that means **both** routers: the bot's
@@ -443,7 +501,7 @@ heading, which looks like styling and is a wrong date.
 | Kind | Command | Shape |
 |---|---|---|
 | `CREATE_EVENT` | `/create_event` | eleven steps, then a summary; the optional nine are behind «افزودن جزئیات بیشتر» |
-| `EDIT_PROFILE` | `/edit_profile` | six steps, every one skippable |
+| `EDIT_PROFILE` | `/edit_profile`, `/interests` | seven steps, every one skippable; the last is a **multi-select** over the interest catalogue, and `/interests` opens the same wizard with the other six `when`'d out |
 | `EDIT_EVENT` | `/edit_event` | `pick`, then the create wizard's own steps with `optional` set |
 | `ACCEPT_POLICIES` | opened by the gate, or `/terms` | one step, not cancellable |
 | `WRITE_REVIEW` / `FILE_REPORT` / `ADMIN_CASE` / `REDEEM_CODE` | see §10b | |

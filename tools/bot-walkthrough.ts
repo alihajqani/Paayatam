@@ -115,6 +115,15 @@ const deps: WizardDeps = {
       { value: id(200), label: 'منطقه ۱' },
       { value: id(201), label: 'منطقه ۲' },
     ]),
+  // Enough to see the multi-select tick, page and count without a database.
+  interests: () =>
+    Promise.resolve([
+      { value: id(60), label: 'کوه‌نوردی' },
+      { value: id(61), label: 'بازی رومیزی' },
+      { value: id(62), label: 'کافه‌گردی' },
+      { value: id(63), label: 'دویدن' },
+      { value: id(64), label: 'عکاسی' },
+    ]),
 };
 
 function drawKeyboard(keyboard: InlineKeyboard): string {
@@ -139,55 +148,97 @@ function screen(title: string, text: string, keyboard: InlineKeyboard): void {
 async function walk<F>(
   label: string,
   definition: WizardDefinition<F>,
-  answers: Record<string, WizardInput>,
+  /**
+   * One answer per step, or **several** for a multi-select.
+   *
+   * An array is how a `multi` step is scripted: each entry is a tap, the screen
+   * is redrawn between them with the ticks updated, and the step is left the way
+   * «تمام» leaves it. Modelling that here rather than answering once is the
+   * difference between a walkthrough and a walkthrough that lies — the real
+   * machine holds a `multi` step until `done`, and a driver that advanced on the
+   * first tap would print a screen nobody will ever see.
+   */
+  answers: Record<string, WizardInput | WizardInput[]>,
+  /**
+   * What the caller seeds the draft with, as `ConversationService.start` does.
+   *
+   * `/interests` opens `EDIT_PROFILE` with `onlyInterests`, which `when`s the six
+   * ordinary steps out — so without this the second walk below would open on the
+   * display name and print a form nobody asked for.
+   */
+  initial: Partial<F> = {},
 ): Promise<F> {
   console.log(`\n\n${'═'.repeat(72)}\n  ${label}\n${'═'.repeat(72)}`);
 
-  let form: F = definition.empty();
+  let form: F = Object.assign({}, definition.empty(), initial);
   let step = firstStep(definition, form);
 
   while (step !== null) {
-    const choices: Choice[] = step.load === undefined ? [] : await step.load(form, deps);
-    const { position, total } = progressOf(definition, step.key, form);
+    const current = step;
     const earliest = tehranToday(NOW);
 
-    const drawn = renderStep({
-      prompt: step.prompt(form),
-      ui: step.ui,
-      stepKey: step.key,
-      choices,
-      page: 0,
-      anchor: earliest,
-      earliest,
-      position,
-      total,
-      canGoBack: position > 1,
-      optional: step.optional === true,
-      cancellable: step.cancellable !== false,
-    });
-    screen(
-      `${label} · step "${step.key}" (${String(position)}/${String(total)})`,
-      drawn.text,
-      drawn.keyboard,
-    );
+    /** Draw the step as it stands right now — twice over, for a multi-select. */
+    const draw = async (): Promise<void> => {
+      const choices: Choice[] = current.load === undefined ? [] : await current.load(form, deps);
+      const { position, total } = progressOf(definition, current.key, form);
 
-    const answer = answers[step.key];
-    if (answer === undefined) {
-      console.log(`\n    ⟶ no scripted answer for "${step.key}"; stopping this walk.`);
+      const drawn = renderStep({
+        prompt: current.prompt(form),
+        ui: current.ui,
+        stepKey: current.key,
+        choices,
+        // What is already ticked, so the walkthrough shows the ✅ the user sees.
+        ...(current.selectedOf !== undefined ? { selected: current.selectedOf(form) } : {}),
+        page: 0,
+        anchor: earliest,
+        earliest,
+        position,
+        total,
+        canGoBack: position > 1,
+        optional: current.optional === true,
+        cancellable: current.cancellable !== false,
+      });
+      screen(
+        `${label} · step "${current.key}" (${String(position)}/${String(total)})`,
+        drawn.text,
+        drawn.keyboard,
+      );
+    };
+
+    await draw();
+
+    const scripted = answers[current.key];
+    if (scripted === undefined) {
+      console.log(`\n    ⟶ no scripted answer for "${current.key}"; stopping this walk.`);
       return form;
     }
-    console.log(`\n    ⟵ answering: ${JSON.stringify(answer)}`);
 
-    const result = apply(step, answer, form);
-    if (!result.ok) {
-      console.log(`    ✗ REFUSED: ${result.error}`);
-      return form;
+    /**
+     * A `multi` step takes every tap before it moves; every other kind takes one.
+     *
+     * The redraw between taps is the point: it is what shows the tick arriving
+     * and the «تمام» counter going up, which is the whole of what this step looks
+     * like and is exactly what a one-answer driver would hide.
+     */
+    const taps = Array.isArray(scripted) ? scripted : [scripted];
+    for (const answer of taps) {
+      console.log(`\n    ⟵ answering: ${JSON.stringify(answer)}`);
+
+      const result = apply(current, answer, form);
+      if (!result.ok) {
+        console.log(`    ✗ REFUSED: ${result.error}`);
+        return form;
+      }
+      // `Object.assign` rather than a spread: `F` is unconstrained here so the two
+      // real forms fit without a cast at either call site, and TypeScript will not
+      // spread an unconstrained generic.
+      form = Object.assign({}, form, result.patch);
+
+      if (current.ui === 'multi') await draw();
     }
-    // `Object.assign` rather than a spread: `F` is unconstrained here so the two
-    // real forms fit without a cast at either call site, and TypeScript will not
-    // spread an unconstrained generic.
-    form = Object.assign({}, form, result.patch);
-    step = nextStep(definition, step.key, form);
+
+    if (current.ui === 'multi') console.log('\n    ⟵ «تمام»');
+    step = nextStep(definition, current.key, form);
   }
   return form;
 }
@@ -292,7 +343,28 @@ async function main(): Promise<void> {
     name: { kind: 'text', value: 'علی' },
     gender: { kind: 'callback', action: 'gender', value: 'MALE' },
     birth: { kind: 'text', value: '۱۳۷۰' },
+    prov: { kind: 'callback', action: 'prov', value: id(10) },
+    city: { kind: 'callback', action: 'city', value: id(20) },
+    bio: { kind: 'text', value: 'کوهنورد و کتاب‌خوان.' },
+    // Two taps and then a third that removes the first, so the walkthrough shows
+    // the tick arriving, the counter moving, and the same button undoing itself.
+    tags: [
+      { kind: 'callback', action: 'tags', value: id(60) },
+      { kind: 'callback', action: 'tags', value: id(61) },
+      { kind: 'callback', action: 'tags', value: id(60) },
+    ],
   });
+
+  // ── 5b. The interests on their own, the way `/interests` opens them ──────
+  await walk(
+    'INTERESTS (the /interests form)',
+    editProfileWizard,
+    { tags: [{ kind: 'callback', action: 'tags', value: id(62) }] },
+    // Seeded exactly as `startProfileWizard` seeds it: the flag that hides the
+    // other six steps, and the interests the profile already claims — so the
+    // keyboard opens with them ticked rather than blank.
+    { onlyInterests: true, interestIds: [id(60)] },
+  );
 
   // ── 6. What the notification templates emit ──────────────────────────────
   console.log(

@@ -27,6 +27,30 @@ import { assertParticipantTransition, SLOT_HOLDING_STATUSES, holdsSeat } from '.
 export const EVENT_JOIN_REASON = 'participation.requested';
 
 /**
+ * The reason code a *refunded* join charge carries (v0.8.1).
+ *
+ * Its own string rather than `EVENT_JOIN_REASON` reused on a `REVERSAL`, for the
+ * reason ADR-0007 gives about every other code in the ledger: «why did this
+ * number move» is the question the column answers, and "the host said no" is a
+ * different answer from "they asked to join". Stable, because the admin ledger
+ * renders it and a rename would make every historical row read as something
+ * else.
+ */
+export const EVENT_JOIN_REFUND_REASON = 'participation.rejected_refund';
+
+/**
+ * The same refund, when nobody decided at all (v0.8.1).
+ *
+ * Its own code rather than `EVENT_JOIN_REFUND_REASON` reused, for the reason
+ * that one is not `EVENT_JOIN_REASON` reused: «the host said no» and «the host
+ * never answered» are different answers to "why did this number move", and they
+ * have different people to ask about them. An operator reading a ledger should
+ * be able to count unanswered requests without joining back to
+ * `event_participant`.
+ */
+export const EVENT_JOIN_EXPIRY_REFUND_REASON = 'participation.expired_refund';
+
+/**
  * The exactly-once key for a join charge.
  *
  * `(event, user)` rather than the participant id, because it has to be
@@ -375,7 +399,30 @@ export class ParticipationService {
     });
   }
 
-  /** The host says no, and the seat the request was holding goes back. */
+  /**
+   * The host says no, the seat the request was holding goes back — **and so do
+   * the coins** (v0.8.1).
+   *
+   * ── Why asking is now a deposit, and not a fee ──────────────────────────────
+   *
+   * `join` charges `economy.event_join_coins` for the *ask*, and the comment
+   * there used to reason that a rejection keeps it because refunding "would make
+   * this a deposit, which is a different product decision". That decision has
+   * been taken: it is a deposit. What the charge is actually for is protecting a
+   * host's attention from somebody spraying requests at fifty activities, and a
+   * guest whose one request was turned down did not do that — they paid five
+   * coins to be told no, by a host they never met, for a reason they never hear.
+   *
+   * A **rejection** is refunded and nothing else is. An expiry is not (the host
+   * was asked and the queue slot was held for a day), a withdrawal is not (the
+   * guest changed their mind and `cancel` prices that on its own thresholds), and
+   * an acceptance obviously is not. Only the case where the product took a
+   * payment for something the payer never received.
+   *
+   * Inside the same transaction as the state change, under the event lock this
+   * transaction already holds, taking the coin-account lock beneath it — the
+   * event → coin account order ADR-0006 fixes and `join` already follows.
+   */
   async reject(hostUserId: string, participantPublicId: string): Promise<ParticipationDetail> {
     const now = this.clock.now();
 
@@ -387,6 +434,14 @@ export class ParticipationService {
       const updated = await tx.eventParticipant.update({
         where: { id: participant.id },
         data: { status: 'REJECTED', decidedAt: now, version: { increment: 1 } },
+      });
+
+      const refunded = await this.refundJoinCharge(tx, participant.id, {
+        reasonCode: EVENT_JOIN_REFUND_REASON,
+        // The host caused it, and the trail should say whose decision it was
+        // rather than attributing a user's refund to `SYSTEM`.
+        actorType: 'USER',
+        actorId: hostUserId,
       });
 
       // The seat is free again, so the queue moves — in the same transaction and
@@ -402,7 +457,7 @@ export class ParticipationService {
           targetType: 'event_participant',
           targetId: participant.id,
           before: { status: participant.status },
-          after: { status: 'REJECTED' },
+          after: { status: 'REJECTED', coinsRefunded: refunded },
         },
         tx,
       );
@@ -417,6 +472,14 @@ export class ParticipationService {
             eventPublicId: event.publicId,
             eventTitle: event.title,
             participantUserPublicId: await this.publicIdOf(tx, participant.userId),
+            /**
+             * How many coins went back, so the message can say so.
+             *
+             * Zero whenever joining was free — which is the shipped state for
+             * every deployment that has not set a price — and the template says
+             * nothing rather than «۰ سکه بازگشت», which reads as a bug.
+             */
+            coinsRefunded: refunded,
           },
         },
         tx,
@@ -908,6 +971,75 @@ export class ParticipationService {
   }
 
   /**
+   * Give back what asking cost, when the host says no (v0.8.1).
+   *
+   * ── Why it reverses a row rather than paying an amount ─────────────────────
+   *
+   * Because the price is a setting. Reading `economy.event_join_coins` here and
+   * crediting that would refund **today's** price for a request made when the
+   * price was something else — the classic shape of a refund that is a second
+   * source of truth about a payment. `coin_ledger` already holds what was
+   * actually taken, and `CoinService.reverse` writes the mirror of it: same
+   * subject, same `ref`, `reverses_ledger_id` set, so a ledger filtered by this
+   * participant shows the charge and its refund together.
+   *
+   * ── Exactly-once, twice over ───────────────────────────────────────────────
+   *
+   * `reverse` derives its idempotency key from the row it undoes, and there is a
+   * UNIQUE on `reverses_ledger_id` behind that. Either alone would be enough; the
+   * third guard is that a rejection is a **terminal** transition, so
+   * `assertParticipantTransition` has already refused a second one before this
+   * runs.
+   *
+   * Returns how many coins moved, so the notification can say. **Zero when
+   * joining was free** — the shipped default for any deployment that has not set
+   * a price — and zero is the honest answer: `join` writes no ledger row at all
+   * at zero, so there is nothing here to find and nothing to announce.
+   */
+  private async refundJoinCharge(
+    tx: Prisma.TransactionClient,
+    participantId: string,
+    /**
+     * Why it came back, and who caused it.
+     *
+     * A rejection is a host's decision and is attributed to them; an expiry is a
+     * deadline passing and is attributed to `SYSTEM`, because writing a host's id
+     * against something they conspicuously did not do would be the audit trail
+     * inventing an actor.
+     */
+    refund:
+      | { reasonCode: string; actorType: 'USER'; actorId: string }
+      | { reasonCode: string; actorType: 'SYSTEM' },
+  ): Promise<number> {
+    const charges = await tx.coinLedger.findMany({
+      where: {
+        refType: 'event_participant',
+        refId: participantId,
+        type: 'EVENT_JOIN_SPEND',
+        // Belt and braces: `reverse` refuses a second attempt on its own key, and
+        // Postgres treats NULLs as distinct in the UNIQUE on `reverses_ledger_id`.
+        reversal: { is: null },
+      },
+      select: { id: true, amount: true },
+    });
+
+    let refunded = 0;
+    for (const charge of charges) {
+      await this.coins.reverse(
+        {
+          ledgerId: charge.id,
+          reasonCode: refund.reasonCode,
+          actorType: refund.actorType,
+          ...(refund.actorType === 'USER' ? { actorId: refund.actorId } : {}),
+        },
+        tx,
+      );
+      refunded += Math.abs(charge.amount);
+    }
+    return refunded;
+  }
+
+  /**
    * Take a seat, under the lock the caller is already holding.
    *
    * The guard runs again here rather than trusting the caller: this is the only
@@ -985,6 +1117,25 @@ export class ParticipationService {
           data: { status: 'EXPIRED', version: { increment: 1 } },
         });
 
+        /**
+         * The coins come back (v0.8.1).
+         *
+         * The rejection refund landed first, on the argument that the product
+         * must not keep a payment for something the payer never received. An
+         * expiry is the **stronger** case, not a weaker one: a rejected guest at
+         * least got an answer, and this one got nothing at all — their request
+         * sat in a queue for a day and quietly died. Charging five coins for that
+         * is charging for the host's silence.
+         *
+         * Attributed to `SYSTEM`, because nobody acted. Writing the host's id
+         * against a refund caused by them *not* deciding would put a fiction in
+         * the trail.
+         */
+        const refunded = await this.refundJoinCharge(tx, participant.id, {
+          reasonCode: EVENT_JOIN_EXPIRY_REFUND_REASON,
+          actorType: 'SYSTEM',
+        });
+
         await this.audit.record(
           {
             actorType: 'SYSTEM',
@@ -992,7 +1143,38 @@ export class ParticipationService {
             targetType: 'event_participant',
             targetId: participant.id,
             before: { status: 'PENDING' },
-            after: { status: 'EXPIRED' },
+            after: { status: 'EXPIRED', coinsRefunded: refunded },
+          },
+          tx,
+        );
+
+        /**
+         * And the guest is told — which nothing did until v0.8.1.
+         *
+         * A request that expired produced **no notification of any kind**: the
+         * row went to EXPIRED, the queue moved up, and the person who had asked
+         * was never informed. That was survivable while asking was free. It is
+         * not survivable alongside a refund, because the only trace the guest
+         * would otherwise have is a coin movement in `/wallet` labelled «برگشت
+         * تراکنش» with nothing to attach it to — a balance that changes for
+         * reasons a user cannot see is exactly what ADR-0007 exists to prevent.
+         *
+         * Only the guest. The host is not told that a request they ignored has
+         * expired: it is the outcome their own inaction chose, and a message
+         * about it would be the product scolding them.
+         */
+        await this.outbox.emit(
+          {
+            aggregateType: 'event_participant',
+            aggregateId: participant.id,
+            eventType: 'participation.expired',
+            payload: {
+              participantPublicId: participant.publicId,
+              eventPublicId: event.publicId,
+              eventTitle: event.title,
+              participantUserPublicId: await this.publicIdOf(tx, participant.userId),
+              coinsRefunded: refunded,
+            },
           },
           tx,
         );

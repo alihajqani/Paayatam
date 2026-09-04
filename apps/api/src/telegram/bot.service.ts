@@ -6,6 +6,7 @@ import {
   ConsentService,
   CoinService,
   ConversationService,
+  touchedFields,
   DiscoveryService,
   EventLifecycleService,
   EventService,
@@ -87,7 +88,6 @@ import {
   formatEventDetail,
   insufficientCoinsNotice,
   formatParticipants,
-  encodeChatCallback,
   commandGroupFor,
   decodeMenuCallback,
   menuGroupKeyFor,
@@ -130,7 +130,10 @@ import {
   formatOwnedEvent,
   myEventsPageRow,
   parseMyEventsCallback,
+  encodeMenuCommand,
   parseWalletCallback,
+  parseTrustCallback,
+  trustPageRow,
   encodeDirectCallback,
   parseDirectCallback,
   parseMyEventCommand,
@@ -673,15 +676,8 @@ export class BotService {
        * this"; naming the reviewer would undo the double-blind the review pair
        * exists to hold.
        */
-      case 'trust': {
-        const [score, history] = await Promise.all([
-          this.trust.scoreOf(user.id),
-          this.trust.historyOf(user.id, TRUST_HISTORY_LIMIT),
-        ]);
-        return this.reply(updateId, user.id, TEMPLATES.BOT_TRUST, {
-          text: formatTrust(score, history),
-        });
-      }
+      case 'trust':
+        return this.drawTrust(updateId, user, 0);
 
       /**
        * `/referral` — the caller's code, and what it has earned.
@@ -844,7 +840,7 @@ export class BotService {
         if (profile === null) {
           if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
           if (!(await this.mayWrite(updateId, user))) return;
-          const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+          const outcome = await this.startProfileWizard(user.id, updateId);
           return this.drawWizard(updateId, user, outcome);
         }
 
@@ -863,6 +859,10 @@ export class BotService {
           displayName: profile.displayName,
           cityName: profile.city.nameFa,
           trustScore,
+          // One scalar, because a notification payload holds scalars. Empty when
+          // there are none, which the template renders as a sentence rather than
+          // as a blank field.
+          interests: profile.interests.map((interest) => interest.nameFa).join('، '),
           ...(this.env.ENABLE_CONVERSATION_WIZARD
             ? {
                 keyboard: JSON.stringify([
@@ -870,6 +870,20 @@ export class BotService {
                     {
                       text: '✏️ ویرایش نمایه',
                       callbackData: encodeSettingCallback(SETTING_PROFILE, true),
+                    },
+                  ],
+                  /**
+                   * The interests, one tap from the card that names them.
+                   *
+                   * `menuCommandFor` cannot be used here — this is an inline
+                   * button, not a reply-keyboard label — so it carries the menu
+                   * protocol's «run this command» action, which is what the
+                   * `/menu` buttons already use.
+                   */
+                  [
+                    {
+                      text: '🏷 علاقه‌مندی‌ها',
+                      callbackData: encodeMenuCommand('interests'),
                     },
                   ],
                 ]),
@@ -1069,7 +1083,48 @@ export class BotService {
       case 'edit_profile': {
         if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
         if (!(await this.mayWrite(updateId, user))) return;
-        const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+        const outcome = await this.startProfileWizard(user.id, updateId);
+        return this.drawWizard(updateId, user, outcome);
+      }
+
+      /**
+       * `/interests` — add and remove interest tags, and nothing else (v0.8.1).
+       *
+       * ── Why it is a command and not a step people scroll to ────────────────
+       *
+       * `user_interest` is read by discovery ranking and, until v0.8.1, was
+       * written by nothing the bot could reach — `CompleteProfileView` had the
+       * checkboxes and ADR-0017 retired the view without replacing the field. So
+       * this is the first surface in the product that can set them at all, and
+       * the first that can *unset* one.
+       *
+       * The wizard is `EDIT_PROFILE` with its other six steps `when`'d out, so
+       * the multi-select, the toggle and the validation are the ones the profile
+       * form already uses. Add is a tap, remove is a second tap on the same
+       * button, and «تمام» writes the set.
+       *
+       * Behind `mayWrite` like every other write on this surface — the bot does
+       * not pass through `AuthGuard`, so the consent gate has to be asked for
+       * explicitly here (trap 13).
+       */
+      case 'interests': {
+        if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+        if (!(await this.mayWrite(updateId, user))) return;
+        /**
+         * A profile has to exist first.
+         *
+         * `ProfileService.update` refuses when there is none, and the refusal a
+         * new user would meet — «نمایه یافت نشد» — is true and useless. The whole
+         * form is what they need, and it collects the interests on its way.
+         */
+        if ((await this.profiles.find(user.id)) === null) {
+          return this.openProfileForm(
+            updateId,
+            user,
+            'هنوز نمایه‌ای نساخته‌اید. ابتدا نمایه‌تان را کامل کنید؛ علاقه‌مندی‌ها هم در همین فرم پرسیده می‌شود.',
+          );
+        }
+        const outcome = await this.startProfileWizard(user.id, updateId, true);
         return this.drawWizard(updateId, user, outcome);
       }
 
@@ -1215,7 +1270,25 @@ export class BotService {
      * up to date — a returning user pressing `/start` gets the welcome and
      * nothing else.
      */
-    await this.gateAfterWelcome(updateId, user);
+    if (await this.gateAfterWelcome(updateId, user)) return;
+
+    /**
+     * And the channel requirement, in the same place and for the same reason.
+     *
+     * `/start` is exempt from the `APP_ACCESS` *refusal* — gating account
+     * creation would refuse the deep links the join screen sends people back
+     * through — and that exemption had quietly become "the one command that
+     * never mentions the channels at all". So a user who had accepted the terms
+     * on a previous visit met the requirement for the first time as a refusal of
+     * something else entirely, several taps later.
+     *
+     * Shown rather than enforced: the welcome is already sent, nothing is
+     * refused, and the screen carries the join links and «بررسی دوباره». Only
+     * after the consent gate, because a user who owes an acceptance gets the
+     * channel screen from `finishConsent` — two gates in one message would be
+     * one nobody finishes.
+     */
+    await this.channelsBlock(updateId, user);
   }
 
   /**
@@ -1317,13 +1390,16 @@ export class BotService {
    *
    * Separate from `mayWrite` because the two differ in what they do when the
    * gate is *clear*: `mayWrite` returns a verdict its caller acts on, and this
-   * simply stops. Folding them would give `onStart` a boolean it has no use for.
+   * reports only whether it drew a screen. `onStart` reads that to decide
+   * whether the channel requirement is worth showing as well — two gates stacked
+   * in one reply is one nobody finishes.
    */
-  private async gateAfterWelcome(updateId: number, user: BotUser): Promise<void> {
-    if (await this.consent.hasAcceptedCurrentPolicies(user.id)) return;
+  private async gateAfterWelcome(updateId: number, user: BotUser): Promise<boolean> {
+    if (await this.consent.hasAcceptedCurrentPolicies(user.id)) return false;
 
     const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
     await this.drawWizard(updateId, user, outcome);
+    return true;
   }
 
   /**
@@ -1707,6 +1783,13 @@ export class BotService {
       return this.drawWallet(update.updateId, user, walletPage, messageId);
     }
 
+    /** A page of the Trust Score's history. A read, like the wallet's. */
+    const trustPage = parseTrustCallback(data);
+    if (trustPage !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.drawTrust(update.updateId, user, trustPage, messageId);
+    }
+
     /**
      * «بازگشت به فهرست» — take the activity, and the command that opened it,
      * back out of the chat.
@@ -1804,7 +1887,7 @@ export class BotService {
         await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
         return;
       }
-      return this.onEventCallback(update.updateId, user, callbackQueryId, eventCallback);
+      return this.onEventCallback(update.updateId, user, callbackQueryId, eventCallback, messageId);
     }
 
     const callback = parseChatCallback(data);
@@ -1829,17 +1912,76 @@ export class BotService {
         case 'accept':
           await this.participation.accept(user.id, callback.id);
           await this.answer(callbackQueryId, 'پذیرفته شد ✅');
-          return;
+          return this.sealDecision(update.updateId, user, messageId, 'ACCEPTED');
 
         case 'reject':
           await this.participation.reject(user.id, callback.id);
           await this.answer(callbackQueryId, 'رد شد');
-          return;
+          return this.sealDecision(update.updateId, user, messageId, 'REJECTED');
       }
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
+      /**
+       * A refused decision seals the notification too.
+       *
+       * The overwhelmingly common refusal here is `INVALID_STATE_TRANSITION` —
+       * the host tapped a button on a request that was already decided,
+       * withdrawn or expired, which is exactly the state this whole change
+       * exists to stop being reachable. Leaving the buttons up after telling
+       * somebody they no longer work would be the product arguing with itself.
+       *
+       * Only that one. A `CHANNEL_MEMBERSHIP_REQUIRED` or a rate limit is
+       * temporary and the decision is still owed, so those keep their buttons.
+       */
+      if (error.code === ErrorCode.INVALID_STATE_TRANSITION) {
+        await this.sealDecision(update.updateId, user, messageId, 'STALE');
+      }
     }
+  }
+
+  /**
+   * Take the decision buttons off the message they were pressed on (v0.8.1).
+   *
+   * ── Why a keyboard that still works is a bug ───────────────────────────────
+   *
+   * `PARTICIPATION_REQUESTED_HOST` carries «پذیرش» and «رد» so the decision can
+   * be taken from the notification, which is the difference between an answered
+   * request and one that expires. What it did *not* do is change afterwards: the
+   * two buttons stayed live, on a message that still read «درخواست تازه», for as
+   * long as it sat in the chat. A second tap was refused correctly by
+   * `assertParticipantTransition` — the state was never at risk — and what the
+   * host saw was a decision they had already taken, offered again, and then a
+   * Persian error for taking it. Three releases of «the accept button is
+   * broken» are that.
+   *
+   * So the message is rewritten to say what was decided, with **no keyboard at
+   * all**: `repaint` sends an empty `keyboard`, which Telegram takes as
+   * `inline_keyboard: []` and removes. Disabling is not on offer — Telegram has
+   * no disabled button, and a greyed-looking one that still answers is worse
+   * than none.
+   *
+   * `messageId` is absent when Telegram did not name the message (an inline
+   * message, or a very old client), and then this does nothing: the toast has
+   * already told the host, and the guest's notification is the real record.
+   */
+  private async sealDecision(
+    updateId: number,
+    user: BotUser,
+    messageId: number | undefined,
+    outcome: 'ACCEPTED' | 'REJECTED' | 'STALE',
+  ): Promise<void> {
+    if (messageId === undefined) return;
+
+    const text =
+      outcome === 'ACCEPTED'
+        ? '<b>درخواست پذیرفته شد</b> ✅\n\nبه این نفر اطلاع داده شد.'
+        : outcome === 'REJECTED'
+          ? '<b>درخواست رد شد</b>\n\nبه این نفر اطلاع داده شد.'
+          : '<b>این درخواست دیگر باز نیست</b>\n\n' +
+            'پیش‌تر تصمیم گرفته شده، یا پس گرفته شده، یا مهلتش گذشته است.';
+
+    await this.repaint(updateId, user, messageId, text, []);
   }
 
   /**
@@ -1869,6 +2011,14 @@ export class BotService {
     user: BotUser,
     callbackQueryId: string,
     callback: EventCallback,
+    /**
+     * The message the button sits on, when Telegram named one.
+     *
+     * Read by `acc` and `rej` alone: a decision taken on the participants
+     * console redraws that console in place, so the row that was just decided
+     * loses its buttons instead of staying tappable.
+     */
+    messageId?: number,
   ): Promise<void> {
     try {
       switch (callback.action) {
@@ -2108,6 +2258,31 @@ export class BotService {
           await this.lifecycle.markNoShow(user.id, callback.id);
           await this.answer(callbackQueryId, 'غیبت ثبت شد');
           return;
+
+        /**
+         * The decision, taken from «چه کسانی می‌آیند» (v0.8.1).
+         *
+         * The list is redrawn over itself with the new statuses, which is what
+         * takes the two buttons off the row that was just decided — a list whose
+         * rows keep offering a decision already made is the same bug the
+         * notification had, one screen along.
+         *
+         * `accept` and `reject` return the participation, and it names its
+         * event: the console is addressed by event and the button carries a
+         * participant, so the id to redraw with comes back from the call rather
+         * than being looked up again.
+         */
+        case 'acc': {
+          const decided = await this.participation.accept(user.id, callback.id);
+          await this.answer(callbackQueryId, 'پذیرفته شد ✅');
+          return this.drawParticipants(updateId, user, decided.eventPublicId, messageId);
+        }
+
+        case 'rej': {
+          const decided = await this.participation.reject(user.id, callback.id);
+          await this.answer(callbackQueryId, 'رد شد');
+          return this.drawParticipants(updateId, user, decided.eventPublicId, messageId);
+        }
       }
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -2909,6 +3084,8 @@ export class BotService {
     updateId: number,
     user: BotUser,
     eventPublicId: string,
+    /** The console being redrawn, when a decision was taken on one already up. */
+    editMessageId?: number,
   ): Promise<void> {
     let event;
     try {
@@ -2935,12 +3112,20 @@ export class BotService {
       .map((row, index) => {
         const number = toPersianDigits(String(index + 1));
         if (row.status === 'PENDING' || row.status === 'WAITLISTED') {
+          /**
+           * `ev:acc`/`ev:rej`, not `chat:accept`/`chat:reject` (v0.8.1).
+           *
+           * The same two decisions, and a different thing has to happen to the
+           * message afterwards: this one is a *list*, so it is redrawn and the
+           * decided row loses its buttons by moving status. The notification's
+           * copies stay on the `chat:` prefix — see `EVENT_CALLBACK_ACTIONS`.
+           */
           return [
             {
               text: `${number} ✅ پذیرش`,
-              callbackData: encodeChatCallback('accept', row.publicId),
+              callbackData: encodeEventCallback('acc', row.publicId),
             },
-            { text: `${number} ✖️ رد`, callbackData: encodeChatCallback('reject', row.publicId) },
+            { text: `${number} ✖️ رد`, callbackData: encodeEventCallback('rej', row.publicId) },
           ];
         }
         if (row.status === 'ACCEPTED' && ended) {
@@ -2955,9 +3140,59 @@ export class BotService {
       })
       .filter((row) => row.length > 0);
 
+    if (editMessageId !== undefined) {
+      return this.repaint(updateId, user, editMessageId, text, rows);
+    }
+
     await this.reply(updateId, user.id, TEMPLATES.BOT_PARTICIPANTS, {
       text,
       ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+    });
+  }
+
+  /**
+   * Open the profile form with the interests it already has ticked (v0.8.1).
+   *
+   * ── Why a helper, and why every caller goes through it ─────────────────────
+   *
+   * Five places open this wizard — `/edit_profile`, the settings board, the
+   * consent gate's follow-on, and two refusals that hand somebody the form that
+   * unblocks them — and the interests step is a **multi-select over a set that
+   * `ProfileService.update` replaces wholesale**. A caller that opened the form
+   * without the prefill would show an empty keyboard for a profile that has five
+   * interests, and «تمام» would then clear them. That is not a bug one call site
+   * can have and the others not, so there is one call site.
+   *
+   * `initialForm` is merged over the wizard's own `empty()`, so nothing else is
+   * prefilled: every other step still means "leave this alone" when skipped,
+   * which is the whole shape of an edit wizard. The interests are the exception
+   * because they are the only field whose *question* has to show the current
+   * answer to be answerable at all.
+   *
+   * The prefill is not a `touchedFields` entry — `handle` writes those, and only
+   * for a patch a user's own answer produced. That is what keeps «رد کردن» here
+   * meaning "leave them alone" rather than "write back what you were shown".
+   */
+  private async startProfileWizard(
+    userId: string,
+    updateId: number,
+    /**
+     * Open at the interests and nothing else — `/interests`.
+     *
+     * The same wizard with `onlyInterests` seeded, so there is one interests
+     * step, one set of Persian copy and one validation path. See
+     * `edit-profile.ts` for why this is a flag rather than a second wizard.
+     */
+    onlyInterests = false,
+  ): Promise<ConversationOutcome> {
+    const profile = await this.profiles.find(userId);
+    const interestIds = profile?.interests.map((interest) => interest.id) ?? [];
+
+    return this.conversations.start(userId, 'EDIT_PROFILE', updateId, null, {
+      // Only when there is something to tick. Seeding `[]` would be seeding a
+      // value that is indistinguishable from the empty form it is merged over.
+      ...(interestIds.length > 0 ? { interestIds } : {}),
+      ...(onlyInterests ? { onlyInterests: true } : {}),
     });
   }
 
@@ -2986,7 +3221,7 @@ export class BotService {
     if (!this.env.ENABLE_CONVERSATION_WIZARD) return;
     if (!(await this.mayWrite(updateId, user))) return;
 
-    const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+    const outcome = await this.startProfileWizard(user.id, updateId);
     return this.drawWizard(updateId, user, outcome);
   }
 
@@ -3300,7 +3535,7 @@ export class BotService {
         return;
       }
       await this.answer(callbackQueryId, 'فرم نمایه باز شد');
-      const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+      const outcome = await this.startProfileWizard(user.id, updateId);
       return this.drawWizard(updateId, user, outcome);
     }
 
@@ -3536,6 +3771,42 @@ export class BotService {
     }
 
     return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
+      text,
+      ...(keyboard.length > 0 ? { keyboard: JSON.stringify(keyboard) } : {}),
+    });
+  }
+
+  /**
+   * The Trust Score and one page of what moved it (v0.8.1).
+   *
+   * `drawWallet`'s twin, and deliberately identical in shape: one extra row
+   * decides «بعدی» rather than a `COUNT(*)` nobody is shown, a page button edits
+   * the message it is on rather than sending a second, and the command sends the
+   * first one. The two screens are the two halves of «سکه و امتیاز» and paging
+   * that behaved differently on each would be two features wearing one name.
+   */
+  private async drawTrust(
+    updateId: number,
+    user: BotUser,
+    page: number,
+    /** The score being redrawn, when a page button was tapped rather than typed. */
+    editMessageId?: number,
+  ): Promise<void> {
+    const [score, rows] = await Promise.all([
+      this.trust.scoreOf(user.id),
+      this.trust.historyOf(user.id, TRUST_HISTORY_LIMIT + 1, page * TRUST_HISTORY_LIMIT),
+    ]);
+
+    const hasNext = rows.length > TRUST_HISTORY_LIMIT;
+    const shown = rows.slice(0, TRUST_HISTORY_LIMIT);
+    const text = formatTrust(score, shown, page);
+    const keyboard = trustPageRow(page, hasNext);
+
+    if (editMessageId !== undefined) {
+      return this.repaint(updateId, user, editMessageId, text, keyboard);
+    }
+
+    return this.reply(updateId, user.id, TEMPLATES.BOT_TRUST, {
       text,
       ...(keyboard.length > 0 ? { keyboard: JSON.stringify(keyboard) } : {}),
     });
@@ -4080,7 +4351,11 @@ export class BotService {
         }
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;
-          const screen = renderSummary(await this.profileSummaryLines(profile), false, 'ثبت نمایه');
+          const screen = renderSummary(
+            await this.profileSummaryLines(profile, touchedFields(outcome.snapshot.form)),
+            false,
+            'ثبت نمایه',
+          );
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
         /**
@@ -4148,8 +4423,12 @@ export class BotService {
         if (outcome.snapshot.kind === 'WRITE_REVIEW') {
           const form = outcome.snapshot.form as WriteReviewForm;
           const lines: SummaryLine[] = [];
-          if (form.tag !== undefined) {
-            lines.push({ label: 'برچسب', value: reviewTagLabel(form.tag) });
+          const tags = form.tags ?? [];
+          if (tags.length > 0) {
+            lines.push({
+              label: tags.length > 1 ? 'برچسب‌ها' : 'برچسب',
+              value: tags.map((tag) => reviewTagLabel(tag)).join('، '),
+            });
           }
           if (form.comment !== undefined) lines.push({ label: 'توضیح', value: form.comment });
           const screen = renderSummary(
@@ -4202,6 +4481,18 @@ export class BotService {
           ui: step.ui,
           stepKey: step.key,
           choices,
+          /**
+           * What is already ticked, for a `multi` step.
+           *
+           * Read off the form through the step's own `selectedOf`, so the
+           * keyboard is drawn from the draft rather than from anything this
+           * method remembers between taps — a multi-select redraws on every tap,
+           * and a selection held anywhere but the draft would be a second copy
+           * that survives exactly as long as the process does.
+           */
+          ...(step.selectedOf !== undefined
+            ? { selected: step.selectedOf(outcomeToDraw.snapshot.form) }
+            : {}),
           page,
           anchor: anchor ?? earliest,
           earliest,
@@ -4357,7 +4648,7 @@ export class BotService {
         user,
         'قوانین پذیرفته شد ✅\n\nیک قدم مانده: نمایه‌تان را کامل کنید تا بتوانید فعالیت بسازید و در فعالیت‌های نزدیک شرکت کنید.',
       );
-      const outcome = await this.conversations.start(user.id, 'EDIT_PROFILE', updateId);
+      const outcome = await this.startProfileWizard(user.id, updateId);
       return this.drawWizard(updateId, user, outcome);
     }
 
@@ -4623,6 +4914,7 @@ export class BotService {
     raw: Record<string, unknown>,
   ): Promise<void> {
     const form = raw as EditProfileForm;
+    const touched = touchedFields(raw);
 
     if ((await this.profiles.find(user.id)) === null) {
       return this.createProfile(updateId, user, form);
@@ -4665,6 +4957,24 @@ export class BotService {
           ...(form.cityId !== undefined ? { cityId: form.cityId } : {}),
           ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
           ...(form.bio !== undefined ? { bio: form.bio } : {}),
+          /**
+           * The interests, and only when they were actually answered (v0.8.1).
+           *
+           * The draft is **prefilled** with what the profile already claims, so
+           * the multi-select can tick them — and after a prefill, "the form has a
+           * value" stops meaning "the user chose it" (`PROJECT_MEMORY` §7 trap
+           * 12, which the time steps learned the hard way). `interestIds` on the
+           * form is therefore not enough; `touchedFields` is what says whether
+           * the step was visited, and «رد کردن» leaves the selection alone rather
+           * than writing back what the prefill happened to hold.
+           *
+           * An empty array is still sent when the step *was* answered: «تمام»
+           * with nothing ticked is somebody clearing their interests, and
+           * `update` replaces the set, so that is exactly what it does.
+           */
+          ...(touched.has('interestIds') && form.interestIds !== undefined
+            ? { interestIds: form.interestIds }
+            : {}),
         },
         { kind: 'USER' },
       );
@@ -4680,11 +4990,16 @@ export class BotService {
   /**
    * The first profile, through the wizard that used to be edit-only.
    *
-   * `interestIds` is empty and that is a real gap rather than a placeholder: the
-   * wizard has no interests step, and `complete` requires the array. Interests
-   * drive discovery ranking, so a bot-onboarded user starts with none until the
-   * wizard grows a step for them — which is better than the alternative this
-   * replaces, where they had no profile at all.
+   * `interestIds` came from the form as of v0.8.1. It used to be a hard-coded
+   * `[]` with a comment calling it a real gap, and it was: `complete` requires
+   * the array, the wizard had no step for it, and discovery ranks on it — so
+   * every profile the bot created after ADR-0017 was created with no interests,
+   * on a product whose other way of setting them was being retired.
+   *
+   * Still `[]` when the step was skipped, because `complete` requires the field
+   * and "did not choose any" is the honest value for somebody who pressed «رد
+   * کردن». Unlike `update`, there is nothing to preserve here — the profile is
+   * being created.
    */
   private async createProfile(
     updateId: number,
@@ -4720,7 +5035,7 @@ export class BotService {
         ...(form.gender !== undefined ? { gender: form.gender } : {}),
         ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
         ...(form.bio !== undefined ? { bio: form.bio } : {}),
-        interestIds: [],
+        interestIds: form.interestIds ?? [],
       });
       await this.conversations.clear(user.id);
       await this.notice(
@@ -4757,12 +5072,26 @@ export class BotService {
   ): Promise<void> {
     const form = snapshot.form as WriteReviewForm;
     const participantPublicId = snapshot.targetPublicId;
+    const tags = form.tags ?? [];
 
     await this.conversations.clear(user.id);
 
-    // Both steps skipped: the rating is already written and there is nothing to
-    // add, so saying «ثبت شد» twice would be the product congratulating itself.
-    if (participantPublicId === null || (form.tag === undefined && form.comment === undefined)) {
+    /**
+     * Both steps skipped — but the rating still went in, and that is worth
+     * saying (v0.8.1).
+     *
+     * This used to return silently, on the reasoning that the star tap had
+     * already answered with a toast and «ثبت شد» twice would be the product
+     * congratulating itself. A toast lasts three seconds and is gone; what was
+     * left in the chat was the wizard's last screen and no record that anything
+     * had been recorded. So the confirmation is sent here too — and it carries
+     * the sentence that is the whole reason somebody would come back to this
+     * screen, which is that reviews are blind until both sides write one.
+     */
+    if (participantPublicId === null || (tags.length === 0 && form.comment === undefined)) {
+      if (participantPublicId !== null) {
+        await this.notice(updateId, user, REVIEW_RECORDED_FA);
+      }
       return;
     }
 
@@ -4772,10 +5101,13 @@ export class BotService {
 
       await this.reviews.edit(user.id, participantPublicId, {
         rating: existing.rating,
-        ...(form.tag !== undefined ? { tags: [form.tag] } : {}),
+        // Every tag that was ticked, not the first of them. `edit` replaces the
+        // whole review, so an empty array here would clear tags a previous edit
+        // had set — which is why this is conditional rather than always sent.
+        ...(tags.length > 0 ? { tags } : {}),
         ...(form.comment !== undefined ? { comment: form.comment } : {}),
       });
-      await this.notice(updateId, user, 'نظر شما کامل شد ✅');
+      await this.notice(updateId, user, `نظر شما کامل شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       await this.notice(updateId, user, `امتیاز شما ثبت شده است. ${ERROR_MESSAGES_FA[error.code]}`);
@@ -4783,7 +5115,11 @@ export class BotService {
   }
 
   /** The profile summary — only what was actually changed. */
-  private async profileSummaryLines(form: EditProfileForm): Promise<SummaryLine[]> {
+  private async profileSummaryLines(
+    form: EditProfileForm,
+    /** Which fields the user answered, as opposed to which the prefill supplied. */
+    touched: ReadonlySet<string>,
+  ): Promise<SummaryLine[]> {
     const catalog = await this.catalog.snapshot();
     const city = catalog.cities.find((candidate) => candidate.id === form.cityId);
 
@@ -4802,6 +5138,26 @@ export class BotService {
     }
     if (city !== undefined) lines.push({ label: 'شهر', value: city.nameFa });
     if (form.bio !== undefined) lines.push({ label: 'معرفی', value: form.bio });
+    /**
+     * The interests, by name and only when the step was answered.
+     *
+     * `touched` rather than "the form has some", because the draft is prefilled
+     * with what the profile already claims — so without it every summary would
+     * list interests as though they had just been chosen, including for somebody
+     * who skipped the step (trap 12, again).
+     */
+    if (touched.has('interestIds')) {
+      const chosen = (form.interestIds ?? [])
+        .map((id) => catalog.interests.find((interest) => interest.id === id)?.nameFa)
+        .filter((name): name is string => name !== undefined);
+      lines.push({
+        label: 'علاقه‌مندی‌ها',
+        // An empty selection is «تمام» with nothing ticked, which is a real
+        // answer — the profile's interests are being cleared — and the summary
+        // has to show that rather than omitting the line and reading as "unchanged".
+        value: chosen.length > 0 ? chosen.join('، ') : 'هیچ‌کدام',
+      });
+    }
 
     // Everything skipped: the summary would be a heading over nothing.
     return lines.length > 0 ? lines : [{ label: 'تغییری ثبت نشد', value: 'همهٔ مرحله‌ها رد شدند' }];
@@ -4828,6 +5184,19 @@ export class BotService {
         (await snapshot()).cities
           .find((city) => city.id === cityId)
           ?.districts.map((district) => ({ value: district.id, label: district.nameFa })) ?? [],
+      /**
+       * The curated interests, active rows only, in the operator's order.
+       *
+       * `snapshot()` already filters on `is_active` and orders by `sort_order`,
+       * so the keyboard is the admin list — the same one
+       * `assertInterestsSelectable` validates the answer against. Two reads of
+       * one table rather than two notions of what an interest is.
+       */
+      interests: async () =>
+        (await snapshot()).interests.map((interest) => ({
+          value: interest.id,
+          label: interest.nameFa,
+        })),
     };
   }
 
@@ -5204,6 +5573,32 @@ function suspendedNotice(supportContact: string | undefined): string {
 }
 
 /**
+ * What a reviewer is told once their review is in (v0.8.1).
+ *
+ * ── Why the second sentence exists ──────────────────────────────────────────
+ *
+ * Because the product's most surprising rule is invisible at exactly the moment
+ * it applies. Reviews are **blind**: neither side can read the other's until
+ * both have written, or the window closes (`REVEALED_PAIR_STATUSES`, D7/D7a).
+ * Somebody who has just rated a stranger and goes looking for what that stranger
+ * said about them finds nothing, and the honest reading of "nothing" is that the
+ * feature is broken or that nobody reviewed them.
+ *
+ * So the moment the review lands is the moment to say it, and to say the part
+ * that is actionable: writing yours is what moves the pair towards revealing.
+ * `ReviewService` explains at length *why* the blindness exists — a rating that
+ * can react to another rating is not an assessment — and none of that belongs on
+ * this screen. What belongs here is the consequence.
+ */
+const REVIEW_BLIND_NOTE_FA =
+  'نظرها دوطرفه و پنهان‌اند: نظر طرف مقابل دربارهٔ شما وقتی نشان داده می‌شود که ' +
+  'هر دو نظرتان را نوشته باشید. نظرهایی که دربارهٔ شما نوشته شده در ' +
+  '«نظرهایی که درباره شما نوشته‌اند» می‌آید.';
+
+/** The same note, under the confirmation that the rating alone was enough. */
+const REVIEW_RECORDED_FA = `نظر شما ثبت شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`;
+
+/**
  * How much of the ledger one page of `/wallet` shows.
  *
  * **Five, not twenty** (v0.7.0). Twenty was a wall of near-identical rows that
@@ -5214,8 +5609,15 @@ function suspendedNotice(supportContact: string | undefined): string {
  */
 const WALLET_HISTORY_LIMIT = 5;
 
-/** The same reasoning as `WALLET_HISTORY_LIMIT`: what fits in one message. */
-const TRUST_HISTORY_LIMIT = 20;
+/**
+ * And the same number for the Trust Score's history (v0.8.1).
+ *
+ * It was twenty, on the same "what fits in one message" reasoning `/wallet` was
+ * fixed out of a release earlier — and with the same consequence: a fixed slice
+ * with nothing to say there was more behind it, so «سکه و امتیاز» had one half
+ * you could read all of and one you could not. Five, and a page row.
+ */
+const TRUST_HISTORY_LIMIT = 5;
 
 /** The same reasoning again: what fits in one Telegram message. */
 const RECEIVED_REVIEW_LIMIT = 15;

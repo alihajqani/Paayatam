@@ -59,8 +59,18 @@ export type FormPatch<F> = { [K in keyof F]?: F[K] | undefined };
 
 export type StepResult<F> = { ok: true; patch: FormPatch<F> } | { ok: false; error: string };
 
-/** How a step is drawn. The service turns this into a keyboard. */
-export type StepUi = 'text' | 'choice' | 'calendar' | 'time' | 'confirm';
+/**
+ * How a step is drawn. The service turns this into a keyboard.
+ *
+ * `multi` is v0.8.1 and is the one member whose *answer does not advance the
+ * wizard*: a tap toggles a value and the same step is redrawn with the ticks
+ * updated, until «تمام» (the `done` control) moves on. Everything else here
+ * answers once and advances.
+ *
+ * That is a property of the step kind rather than of the step, so `handle` can
+ * read it off `ui` instead of every multi-select wizard remembering to say so.
+ */
+export type StepUi = 'text' | 'choice' | 'multi' | 'calendar' | 'time' | 'confirm';
 
 /** What a step may ask the service to load for it. */
 export interface WizardDeps {
@@ -68,6 +78,8 @@ export interface WizardDeps {
   provinces(): Promise<Choice[]>;
   citiesOf(provinceId: string): Promise<Choice[]>;
   districtsOf(cityId: string): Promise<Choice[]>;
+  /** The curated interest list, active rows only, in the operator's order. */
+  interests(): Promise<Choice[]>;
 }
 
 export interface WizardStep<F> {
@@ -76,8 +88,18 @@ export interface WizardStep<F> {
   ui: StepUi;
   /** The question, in Persian. May read the form, for a step that recaps. */
   prompt(form: F): string;
-  /** Options, for a `choice` step. */
+  /** Options, for a `choice` or `multi` step. */
   load?(form: F, deps: WizardDeps): Promise<Choice[]>;
+  /**
+   * Which of those options are already chosen, for a `multi` step.
+   *
+   * The step reads its own field, because the machine does not know which field
+   * a step writes — `accept` returns a patch and the key inside it is the step's
+   * business. Declared here rather than inferred from the step key for the same
+   * reason: `tags` writes `interestIds`, and a convention that happens to hold
+   * for one wizard is a convention the next one breaks silently.
+   */
+  selectedOf?(form: F): readonly string[];
   /**
    * Whether this step applies at all, given what has been answered.
    *

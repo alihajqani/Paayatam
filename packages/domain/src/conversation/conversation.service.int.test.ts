@@ -110,6 +110,138 @@ describe('advancing', () => {
   });
 });
 
+/**
+ * A step whose answers do not advance it (v0.8.1).
+ *
+ * `multi` is the one `StepUi` where a tap is a **toggle**, so the walk has to
+ * hold the step and let «تمام» move on. Get either half wrong and "choose
+ * several" silently becomes "choose exactly one" — which is what the review tags
+ * were until this existed.
+ *
+ * Driven through `EDIT_PROFILE`, whose last step is the interests, because that
+ * is a real wizard rather than a fixture: the property is about the machine, and
+ * a machine that only works on a step written for the test is not the machine.
+ */
+describe('a multi-select step', () => {
+  const ONE = '0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e6f';
+  const TWO = '0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e70';
+
+  /** Straight to the interests, the way `/interests` opens it. */
+  async function openInterests(): Promise<void> {
+    await conversations.start(userId, 'EDIT_PROFILE', 1, null, { onlyInterests: true });
+  }
+
+  function tap(updateId: number, value: string) {
+    return conversations.handle(userId, updateId, { kind: 'callback', action: 'tags', value });
+  }
+
+  it('opens on the step the caller asked for', async () => {
+    await openInterests();
+
+    const state = await conversations.current(userId);
+    expect(state).toMatchObject({ step: 'tags' });
+  });
+
+  it('stays on the step and accumulates what was tapped', async () => {
+    await openInterests();
+
+    const first = await tap(2, ONE);
+    expect(first?.kind).toBe('step');
+    if (first?.kind === 'step') expect(first.step.key).toBe('tags');
+
+    await tap(3, TWO);
+
+    expect((await conversations.current(userId))?.form).toMatchObject({
+      interestIds: [ONE, TWO],
+    });
+  });
+
+  /** The same button both ways: a second tap removes what the first added. */
+  it('removes on a second tap', async () => {
+    await openInterests();
+    await tap(2, ONE);
+    await tap(3, TWO);
+    await tap(4, ONE);
+
+    expect((await conversations.current(userId))?.form).toMatchObject({ interestIds: [TWO] });
+  });
+
+  /**
+   * «گام ۱ از ۱» before the first tap and after the third.
+   *
+   * The loop lives inside one step, which is exactly the property the review
+   * wizard's old "one tag only" comment doubted.
+   */
+  it('does not move the step counter however many taps it takes', async () => {
+    await openInterests();
+
+    const first = await tap(2, ONE);
+    const third = await tap(3, TWO);
+
+    for (const outcome of [first, third]) {
+      expect(outcome?.kind).toBe('step');
+      if (outcome?.kind === 'step') {
+        expect({ position: outcome.position, total: outcome.total }).toEqual({
+          position: 1,
+          total: 1,
+        });
+      }
+    }
+  });
+
+  /** «تمام» is the only thing that moves on, and it keeps the selection. */
+  it('advances on «تمام», carrying what was chosen', async () => {
+    await openInterests();
+    await tap(2, ONE);
+
+    const done = await conversations.handle(userId, 3, {
+      kind: 'callback',
+      action: 'done',
+      value: '',
+    });
+
+    // The interests are the last applicable step here, so «تمام» lands on the
+    // summary rather than on another question.
+    expect(done?.kind).toBe('summary');
+    if (done?.kind === 'summary') {
+      expect(done.snapshot.form).toMatchObject({ interestIds: [ONE] });
+    }
+  });
+
+  /**
+   * «تمام» with nothing ticked is a real answer — somebody clearing their
+   * interests — and it must not be mistaken for a refused tap.
+   */
+  it('advances on «تمام» with nothing chosen', async () => {
+    await openInterests();
+
+    const done = await conversations.handle(userId, 2, {
+      kind: 'callback',
+      action: 'done',
+      value: '',
+    });
+
+    expect(done?.kind).toBe('summary');
+  });
+
+  /**
+   * A redelivered tap re-renders and does **not** toggle.
+   *
+   * The hazard is sharper here than on a single-select: replaying a toggle
+   * silently undoes it, so a user would watch an interest they had just chosen
+   * disappear because Telegram retried the webhook.
+   */
+  it('does not toggle twice on a redelivered tap', async () => {
+    await openInterests();
+    await tap(5, ONE);
+
+    const replay = await tap(5, ONE);
+
+    expect(replay?.kind).toBe('redelivery');
+    expect((await conversations.current(userId))?.form).toMatchObject({ interestIds: [ONE] });
+  });
+});
+
 describe('idempotency', () => {
   /**
    * The property ADR-0017 puts in place of "the bot has no memory". Telegram

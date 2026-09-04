@@ -160,6 +160,27 @@ export const EVENT_CALLBACK_ACTIONS = [
   'inviteyes',
   'drop',
   'dropyes',
+  /**
+   * The host deciding from **the participants console**, as opposed to from the
+   * notification (v0.8.1).
+   *
+   * The same two decisions `chat:accept` and `chat:reject` carry, on a second
+   * prefix, and the split is the whole reason they exist: the two buttons sit on
+   * two different kinds of message, and what should happen to that message
+   * afterwards differs. A decision taken on the notification leaves one line
+   * saying what was decided and no buttons; a decision taken on the console
+   * redraws the console, so the row moves to «پذیرفته‌شده» and its own two
+   * buttons go with it. A single action could do one or the other, and would be
+   * wrong on one of the two screens.
+   *
+   * `chat:accept`/`chat:reject` stay exactly as they are — every notification
+   * already sitting in a host's Telegram history encodes them, and those keep
+   * working.
+   *
+   * Both carry a **participant** public id, like `noshow` and unlike `who`.
+   */
+  'acc',
+  'rej',
 ] as const;
 export type EventCallbackAction = (typeof EVENT_CALLBACK_ACTIONS)[number];
 
@@ -671,6 +692,41 @@ export function parseWalletCallback(data: string): number | null {
 
   const value = Number.parseInt(page, 36);
   return value > MAX_WALLET_PAGE ? null : value;
+}
+
+/**
+ * Paging the Trust Score ledger: `ts:<page>:x`.
+ *
+ * The wallet's shape, its ceiling and its reasoning, applied to the other half
+ * of «سکه و امتیاز». The two were built a release apart and only one of them
+ * could be paged: `/wallet` showed five movements with «قبلی»/«بعدی» under them
+ * and `/trust` showed a fixed twenty with nothing behind them, so a score with
+ * more history than that had the rest unreachable from the bot entirely.
+ *
+ * A separate prefix rather than a shared "page" one, for the reason `wl:` is
+ * separate from `ev:`: a parser that accepted both would be one mistake away
+ * from redrawing the wrong screen from the right number.
+ */
+const TRUST_PREFIX = 'ts';
+
+/** The same ceiling `MAX_WALLET_PAGE` sets, for the same base-36 reason. */
+export const MAX_TRUST_PAGE = 35;
+
+export function encodeTrustCallback(page: number): string {
+  const clamped = Math.min(Math.max(Math.trunc(page), 0), MAX_TRUST_PAGE);
+  return `${TRUST_PREFIX}:${clamped.toString(36)}:x`;
+}
+
+export function parseTrustCallback(data: string): number | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, page] = parts;
+  if (prefix !== TRUST_PREFIX || page === undefined) return null;
+  if (!/^[0-9a-z]$/.test(page)) return null;
+
+  const value = Number.parseInt(page, 36);
+  return value > MAX_TRUST_PAGE ? null : value;
 }
 
 /**

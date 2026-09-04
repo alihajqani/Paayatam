@@ -10,6 +10,7 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { render } from '@payetam/telegram';
+import { ErrorCode } from '@payetam/shared';
 import { planNotifications } from '../notifications/fanout';
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
@@ -20,7 +21,12 @@ import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
 import { normalize } from '../moderation/persian-normalizer';
 import { OutboxService } from '../outbox/outbox.service';
-import { ParticipationService } from './participation.service';
+import {
+  EVENT_JOIN_EXPIRY_REFUND_REASON,
+  EVENT_JOIN_REASON,
+  EVENT_JOIN_REFUND_REASON,
+  ParticipationService,
+} from './participation.service';
 import { SEAT_HOLDING_STATUSES } from './state-machine';
 
 /**
@@ -491,6 +497,140 @@ describe('the host decides', () => {
     expect(rejected.status).toBe('REJECTED');
     expect(await seats(eventPublicId)).toBe(0);
   });
+});
+
+/**
+ * What asking costs, and when it comes back (v0.8.1).
+ *
+ * `economy.event_join_coins` is 5 and the charge lands inside the join
+ * transaction. What changed is the other end: a **rejection** reverses it, so
+ * the charge is a deposit against a host's attention rather than a fee for being
+ * turned down. Nothing else reverses it — an expiry held the host's queue slot
+ * for a day, and a withdrawal is priced on its own thresholds by `cancel`.
+ */
+describe('the join charge and its refund', () => {
+  const JOIN_COST = 5;
+
+  /**
+   * Only the rows this participation caused.
+   *
+   * `createJoiner` endows the account, and that endowment is a `coin_ledger` row
+   * like any other — so a bare `where: { userId }` counts it and every assertion
+   * about "the charge and its refund" would be off by one. `reverse` copies
+   * `ref_type` and `ref_id` from the row it undoes, which is what makes this
+   * filter catch both halves of the pair and nothing else.
+   */
+  async function ledgerFor(userId: string) {
+    return prisma.coinLedger.findMany({
+      where: { userId, refType: 'event_participant' },
+      orderBy: { createdAt: 'asc' },
+      select: { amount: true, type: true, reasonCode: true, reversesLedgerId: true },
+    });
+  }
+
+  it('takes five coins at the moment the request is made', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+
+    await participation.join(joiner, eventPublicId);
+
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET - JOIN_COST);
+    expect(await ledgerFor(joiner)).toMatchObject([
+      { amount: -JOIN_COST, type: 'EVENT_JOIN_SPEND', reasonCode: EVENT_JOIN_REASON },
+    ]);
+  });
+
+  it('gives them back when the host says no', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await participation.reject(hostId, request.publicId);
+
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET);
+
+    const ledger = await ledgerFor(joiner);
+    expect(ledger).toHaveLength(2);
+    // A reversal, not a fresh credit: the refund points at the row it undoes, so
+    // a ledger filtered by this participant shows the charge and its refund
+    // together and the price cannot drift between the two.
+    expect(ledger[1]).toMatchObject({
+      amount: JOIN_COST,
+      type: 'REVERSAL',
+      reasonCode: EVENT_JOIN_REFUND_REASON,
+    });
+    expect(ledger[1]?.reversesLedgerId).not.toBeNull();
+  });
+
+  /**
+   * A second rejection cannot pay twice.
+   *
+   * Three guards stand between here and a double refund and any one would do:
+   * `assertParticipantTransition` refuses a terminal-to-terminal move,
+   * `reverse` derives its idempotency key from the row it undoes, and there is a
+   * UNIQUE on `reverses_ledger_id`. The test is about the outcome rather than
+   * about which of them fired.
+   */
+  it('refunds once however many times the host taps', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await participation.reject(hostId, request.publicId);
+    await expect(participation.reject(hostId, request.publicId)).rejects.toMatchObject({
+      code: ErrorCode.INVALID_STATE_TRANSITION,
+    });
+
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET);
+    expect(await ledgerFor(joiner)).toHaveLength(2);
+  });
+
+  /** An acceptance is what the coins bought. Nothing comes back. */
+  it('keeps the charge when the host says yes', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await participation.accept(hostId, request.publicId);
+
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET - JOIN_COST);
+  });
+
+  /**
+   * A guest who withdraws pays for their own decision.
+   *
+   * The join charge stays and the cancellation is priced by its own bucket on
+   * top — refunding the ask here would make standing down cheaper than never
+   * asking, which is the opposite of what the penalty is for.
+   */
+  it('keeps the charge when the guest withdraws', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await participation.cancel(joiner, request.publicId);
+
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET - JOIN_COST);
+    expect(
+      (await ledgerFor(joiner)).some((row) => row.reasonCode === EVENT_JOIN_REFUND_REASON),
+    ).toBe(false);
+  });
+
+  /** The rejected guest is told, and the message carries the figure. */
+  it('tells the guest how much came back', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await participation.reject(hostId, request.publicId);
+
+    const emitted = await prisma.outboxEvent.findFirst({
+      where: { eventType: 'participation.rejected', aggregateId: { not: '' } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(emitted?.payload).toMatchObject({ coinsRefunded: JOIN_COST });
+  });
 
   /** …and an accepted person who is then cancelled does give one back. */
   it('gives the seat back when an accepted place is given up', async () => {
@@ -754,6 +894,78 @@ describe('expiry', () => {
     expect(await participation.expireOverdue()).toBe(1);
     expect(await participation.expireOverdue()).toBe(0);
     expect(await seats(eventPublicId)).toBe(0);
+  });
+
+  /**
+   * The coins come back, and the guest is told (v0.8.1).
+   *
+   * A stronger case than the rejection refund, not a weaker one: a rejected
+   * guest at least got an answer. This one paid five coins, waited a day, and
+   * got nothing — and until v0.8.1 was not even told the request had died.
+   */
+  it('gives the coins back when nobody answered', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    await participation.join(joiner, eventPublicId);
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET - 5);
+
+    clock.set(new Date('2026-08-16T09:00:01.000Z'));
+    await participation.expireOverdue();
+
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET);
+
+    const refund = await prisma.coinLedger.findFirstOrThrow({
+      where: { userId: joiner, type: 'REVERSAL' },
+      select: { amount: true, reasonCode: true, actorType: true, reversesLedgerId: true },
+    });
+    expect(refund).toMatchObject({
+      amount: 5,
+      // Its own code, so an operator can count unanswered requests without
+      // joining back to `event_participant`.
+      reasonCode: EVENT_JOIN_EXPIRY_REFUND_REASON,
+      // Nobody acted. Writing the host's id against a refund caused by them not
+      // deciding would put a fiction in the trail.
+      actorType: 'SYSTEM',
+    });
+    expect(refund.reversesLedgerId).not.toBeNull();
+  });
+
+  it('tells the guest, and names the refund', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    await participation.join(joiner, eventPublicId);
+
+    clock.set(new Date('2026-08-16T09:00:01.000Z'));
+    await participation.expireOverdue();
+
+    const emitted = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'participation.expired' },
+    });
+    expect(emitted.payload).toMatchObject({ coinsRefunded: 5, eventPublicId });
+
+    // Only the guest: an expiry is the outcome the host's own inaction chose.
+    const planned = planNotifications({
+      id: emitted.id,
+      aggregateId: emitted.aggregateId,
+      eventType: emitted.eventType,
+      payload: emitted.payload as Record<string, unknown>,
+    });
+    expect(planned).toHaveLength(1);
+    expect(render(planned[0]!.templateKey, planned[0]!.payload)?.text).toContain('۵ سکه');
+  });
+
+  /** The sweep running twice must not pay twice. */
+  it('refunds once however often the sweep runs', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    await participation.join(joiner, eventPublicId);
+
+    clock.set(new Date('2026-08-16T09:00:01.000Z'));
+    await participation.expireOverdue();
+    await participation.expireOverdue();
+
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET);
+    expect(await prisma.coinLedger.count({ where: { userId: joiner, type: 'REVERSAL' } })).toBe(1);
   });
 });
 

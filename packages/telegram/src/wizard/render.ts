@@ -1,7 +1,13 @@
 import { escapeHtml, toPersianDigits } from '../escape';
 import type { InlineButton, InlineKeyboard } from '../keyboards';
 import { encodeWizardCallback } from './callback';
-import { calendarKeyboard, choiceKeyboard, controlRow, type Choice } from './keyboards';
+import {
+  calendarKeyboard,
+  choiceKeyboard,
+  controlRow,
+  multiChoiceKeyboard,
+  type Choice,
+} from './keyboards';
 
 /** One drawn screen: the message body, and the buttons under it. */
 export interface WizardScreen {
@@ -13,11 +19,19 @@ export interface StepScreenInput {
   /** The question, already in Persian. */
   prompt: string;
   /** Which keyboard to draw. */
-  ui: 'text' | 'choice' | 'calendar' | 'time' | 'confirm';
+  ui: 'text' | 'choice' | 'multi' | 'calendar' | 'time' | 'confirm';
   /** The step key, which its buttons carry. */
   stepKey: string;
-  /** Options, for a `choice` or `time` step. */
+  /** Options, for a `choice`, `multi` or `time` step. */
   choices?: readonly Choice[];
+  /**
+   * Which options are already chosen, for a `multi` step.
+   *
+   * Read off the form by the step itself (`WizardStep.selectedOf`) rather than
+   * held here, because the selection **is** the answer — a second copy on the
+   * screen's side would be a second thing that could disagree with the draft.
+   */
+  selected?: readonly string[];
   /** Which page of them. */
   page?: number;
   /** The month to draw, and the first day that may be picked. */
@@ -78,6 +92,26 @@ export function renderStep(input: StepScreenInput): WizardScreen {
       return {
         text,
         keyboard: choiceKeyboard(input.stepKey, input.choices ?? [], input.page ?? 0, trailer),
+      };
+
+    /**
+     * The same options, ticked, plus the «تمام» that ends the step.
+     *
+     * `optional` is deliberately still honoured in the trailer: «رد کردن» on a
+     * multi-select means "choose none of these and move on", which is a different
+     * gesture from «تمام» with nothing ticked only in that it cannot be reached
+     * by accident. Both are legitimate and both are offered.
+     */
+    case 'multi':
+      return {
+        text,
+        keyboard: multiChoiceKeyboard(
+          input.stepKey,
+          input.choices ?? [],
+          input.selected ?? [],
+          input.page ?? 0,
+          trailer,
+        ),
       };
 
     case 'calendar': {

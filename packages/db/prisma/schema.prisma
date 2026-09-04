@@ -1899,6 +1899,15 @@ model ReviewPair {
   status     ReviewPairStatus @default(PENDING)
   revealedAt DateTime?        @map("revealed_at") @db.Timestamptz(3)
 
+  /// When the "your review window is open" reminder went out (migration 0045).
+  ///
+  /// NULL means it has not, which is what the hourly sweep selects on.
+  /// `REVIEW_WINDOW_OPEN` had Persian copy and a renderer from M12 and no
+  /// producer at all, so this column is what makes the template reachable —
+  /// see the migration for why the fact is recorded here rather than inferred
+  /// from `notification.dedupe_key`.
+  remindedAt DateTime? @map("reminded_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1914,6 +1923,11 @@ model ReviewPair {
   /// happily drop. Leading on `status` prunes to the pairs still in play, which is
   /// what the partial predicate would have done.
   @@index([status, deadlineAt], map: "review_pair_due_idx")
+  /// The reminder sweep's read: `reminded_at IS NULL AND opens_at <= now`.
+  /// Plain rather than partial on the null, for the reason the migration gives —
+  /// `@@index` cannot express the predicate, and an index Prisma cannot see is
+  /// one `migrate dev` drops.
+  @@index([opensAt], map: "review_pair_reminder_due_idx")
   @@map("review_pair")
 }
 

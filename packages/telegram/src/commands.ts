@@ -50,6 +50,18 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'profile', description: 'نمایه و امتیاز اعتماد شما' },
   { command: 'trust', description: 'امتیاز اعتماد و تغییرهای آن' },
   { command: 'edit_profile', description: 'ویرایش نمایه' },
+  /**
+   * The interests, on their own (v0.8.1).
+   *
+   * A command of its own rather than "it is step seven of `/edit_profile`",
+   * because it is the one field of a profile somebody comes back to change. The
+   * name, the birth year and the city are set once; what you feel like doing
+   * moves, and walking six questions to reach it is how a field stops being
+   * edited. `EDIT_PROFILE` still owns the step — this opens the same wizard with
+   * the other six `when`'d out, so there is one definition of what an interest
+   * is and one place it is validated.
+   */
+  { command: 'interests', description: 'علاقه‌مندی‌های شما' },
   { command: 'terms', description: 'قوانین و حریم خصوصی' },
   { command: 'settings', description: 'تنظیمات اعلان‌ها و حریم خصوصی' },
   /**
@@ -135,7 +147,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
     key: 'ac',
     label: '👤 حساب من',
     hint: 'نمایه، امتیاز اعتماد، تنظیمات و قوانین',
-    commands: ['profile', 'trust', 'edit_profile', 'settings', 'terms'],
+    commands: ['profile', 'trust', 'edit_profile', 'interests', 'settings', 'terms'],
   },
   {
     key: 'hp',
