@@ -11,6 +11,7 @@ import {
 } from '@payetam/domain';
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { TEMPLATES, render } from '@payetam/telegram';
+import { JOBS, QUEUES, QueueService, jobId } from '@payetam/platform';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
   createTestPrisma,
@@ -3877,5 +3878,215 @@ describe('POST /telegram/:secret — moderating from the bot', () => {
     expect(await prisma.conversationState.count()).toBe(0);
     const decided = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
     expect(decided.status).toBe('OPEN');
+  });
+});
+
+/**
+ * Sealing the request notification once a decision is taken (v0.8.1).
+ *
+ * ── The bug this is the regression test for ─────────────────────────────────
+ *
+ * `PARTICIPATION_REQUESTED_HOST` carries «پذیرش» and «رد» so the decision can be
+ * taken from the notification, which is the difference between an answered
+ * request and one that expires. What it did *not* do is change afterwards: the
+ * two buttons stayed live, on a message that still read «درخواست تازه», for as
+ * long as it sat in the chat. A second tap was refused correctly by
+ * `assertParticipantTransition` — the state was never at risk — and what the host
+ * saw was a decision they had already taken, offered again, and then a Persian
+ * error for taking it. Three releases of «the accept button is broken» are that.
+ *
+ * ── Why this reads the queue rather than the notification table ─────────────
+ *
+ * The seal is an **edit**, so it produces a `BOT_EDIT_MESSAGE` job and no
+ * `notification` row — which is exactly the property worth asserting, and it is
+ * invisible to a row count. `repaint` derives the job id from the update and the
+ * message, so the payload can be read straight back and the three sentences
+ * checked. Nothing processes the queue in this process, so the job is still
+ * waiting when the assertion runs.
+ */
+describe('sealing the request notification (v0.8.1)', () => {
+  const sendQueue = (): ReturnType<QueueService['queue']> =>
+    app.get(QueueService).queue(QUEUES.TELEGRAM_SEND);
+
+  /**
+   * A clean queue per test.
+   *
+   * `updateSequence` and `telegramMessageSequence` restart at the same values on
+   * every run, so a job left in Redis by a previous run would have the same id —
+   * and BullMQ treats re-adding a known id as a no-op, which would make this
+   * assert against a stale payload rather than the one this test produced.
+   */
+  beforeEach(async () => {
+    await sendQueue().obliterate({ force: true });
+  });
+
+  /** A tap that names the message it was pressed on, which is what a real one does. */
+  async function tapOnMessage(
+    telegramUserId: number,
+    data: string,
+  ): Promise<{ updateId: number; messageId: number }> {
+    telegramMessageSequence += 1;
+    const messageId = telegramMessageSequence;
+    const payload = update({
+      callback_query: {
+        id: `cb-seal-${String(messageId)}`,
+        from: sender(telegramUserId),
+        message: { message_id: messageId, chat: { id: telegramUserId, type: 'private' } },
+        data,
+      },
+    });
+    const updateId = payload['update_id'] as number;
+
+    await post(payload);
+    return { updateId, messageId };
+  }
+
+  /** The repaint this tap produced, or null when it produced none. */
+  async function sealOf(
+    updateId: number,
+    messageId: number,
+  ): Promise<{ text: string; keyboard: unknown } | null> {
+    const job = await sendQueue().getJob(jobId('repaint', String(updateId), String(messageId)));
+    if (job === undefined) return null;
+
+    const data = job.data as { text?: string; keyboard?: unknown };
+    return { text: data.text ?? '', keyboard: data.keyboard };
+  }
+
+  async function pendingRequest(): Promise<string> {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+    return joined.publicId;
+  }
+
+  it('rewrites the message to say the request was accepted, and takes the buttons off', async () => {
+    const participantPublicId = await pendingRequest();
+
+    const { updateId, messageId } = await tapOnMessage(
+      HOST_TELEGRAM_ID,
+      `chat:accept:${participantPublicId}`,
+    );
+
+    const seal = await sealOf(updateId, messageId);
+    expect(seal).not.toBeNull();
+    expect(seal!.text).toContain('درخواست پذیرفته شد');
+    expect(seal!.text).not.toContain('درخواست تازه');
+    /**
+     * Empty, not absent. Telegram reads `inline_keyboard: []` as "remove the
+     * keyboard"; there is no such thing as a disabled button, and a greyed-looking
+     * one that still answers is worse than none.
+     */
+    expect(seal!.keyboard).toEqual([]);
+  });
+
+  it('rewrites it to say the request was rejected', async () => {
+    const participantPublicId = await pendingRequest();
+
+    const { updateId, messageId } = await tapOnMessage(
+      HOST_TELEGRAM_ID,
+      `chat:reject:${participantPublicId}`,
+    );
+
+    const seal = await sealOf(updateId, messageId);
+    expect(seal!.text).toContain('درخواست رد شد');
+    expect(seal!.keyboard).toEqual([]);
+  });
+
+  /**
+   * The second tap — the one the whole change exists to stop being reachable.
+   *
+   * The state is never at risk (`assertParticipantTransition` refuses it), so what
+   * is asserted is what the *host* is left looking at: a message that now explains
+   * itself instead of two buttons that answer with an error.
+   */
+  it('explains a stale decision rather than offering it again', async () => {
+    const participantPublicId = await pendingRequest();
+    await tapOnMessage(HOST_TELEGRAM_ID, `chat:accept:${participantPublicId}`);
+
+    const { updateId, messageId } = await tapOnMessage(
+      HOST_TELEGRAM_ID,
+      `chat:accept:${participantPublicId}`,
+    );
+
+    const seal = await sealOf(updateId, messageId);
+    expect(seal!.text).toContain('این درخواست دیگر باز نیست');
+    expect(seal!.keyboard).toEqual([]);
+
+    // The decision itself is untouched by the second tap.
+    const participant = await prisma.eventParticipant.findUniqueOrThrow({
+      where: { publicId: participantPublicId },
+      select: { status: true },
+    });
+    expect(participant.status).toBe('ACCEPTED');
+  });
+
+  /**
+   * A withdrawn request seals the same way, and this is the case that is easiest
+   * to get wrong: the host never did anything, so nothing about *their* action
+   * marks the message stale — the guest's cancellation did.
+   */
+  it('seals a request the guest withdrew before the host answered', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.cancel(guestId, joined.publicId);
+
+    const { updateId, messageId } = await tapOnMessage(
+      HOST_TELEGRAM_ID,
+      `chat:accept:${joined.publicId}`,
+    );
+
+    const seal = await sealOf(updateId, messageId);
+    expect(seal!.text).toContain('این درخواست دیگر باز نیست');
+  });
+
+  /**
+   * The seal is an edit, so it must not also send anything.
+   *
+   * A host who is told twice — once in place and once as a new message — is being
+   * shown two different failures for one decision, which is the shape the bug had
+   * before it was a keyboard problem.
+   */
+  it('sends no new message, because a seal is an edit', async () => {
+    const participantPublicId = await pendingRequest();
+    const asked = { templateKey: TEMPLATES.PARTICIPATION_REQUESTED_HOST };
+    const before = await prisma.notification.count({ where: asked });
+
+    await tapOnMessage(HOST_TELEGRAM_ID, `chat:accept:${participantPublicId}`);
+
+    // Nothing was sent to the host: they saw the edit instead. The guest is told
+    // separately, which is a different template and a different person.
+    expect(await prisma.notification.count({ where: asked })).toBe(before);
+  });
+
+  /**
+   * Telegram does not always name the message a button sat on — an inline message,
+   * or a very old client. `sealDecision` does nothing at all then, and the toast
+   * has already told the host.
+   */
+  it('does nothing when Telegram did not name the message', async () => {
+    const participantPublicId = await pendingRequest();
+
+    await post(
+      update({
+        callback_query: {
+          id: 'cb-seal-nomessage',
+          from: sender(HOST_TELEGRAM_ID),
+          data: `chat:accept:${participantPublicId}`,
+        },
+      }),
+    );
+
+    // The decision still lands…
+    const participant = await prisma.eventParticipant.findUniqueOrThrow({
+      where: { publicId: participantPublicId },
+      select: { status: true },
+    });
+    expect(participant.status).toBe('ACCEPTED');
+
+    // …and nothing was queued to edit a message nobody identified.
+    const queued = await sendQueue().getJobs(['waiting', 'delayed', 'prioritized']);
+    expect(queued.filter((job) => job.name === JOBS.BOT_EDIT_MESSAGE)).toHaveLength(0);
   });
 });

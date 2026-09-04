@@ -535,3 +535,103 @@ describe('the host dry run', () => {
     expect(result.bucket).toBe(preview.bucket);
   });
 });
+
+/**
+ * What the host multiplier does to an odd price (ADR-0011, D9).
+ *
+ * `hostPriceFor` is the one half of the penalty table with no direct test: the
+ * suites above reach it through `cancelByHost`, and every price they exercise
+ * happens to land on an integer — `cancellation.coins_lt_3h` is 40 and 40 × 1.5
+ * is 60, so nothing in the file distinguishes rounding from truncating.
+ *
+ * The distinction is not cosmetic and the service comment says so: ×1.5 on an odd
+ * price lands on a half, and a floor would quietly make every such penalty
+ * *cheaper than the multiplier says*. The two buckets whose defaults are odd — 5
+ * and 15 — are exactly where that shows, and neither had an assertion.
+ */
+describe('the host multiplier on an odd price', () => {
+  /**
+   * The default table, and the two entries that land on a half.
+   *
+   * Written as literals rather than computed from the settings, because a test
+   * that recomputes the thing it is checking agrees with any implementation —
+   * including the wrong one.
+   */
+  it.each([
+    // 5 × 1.5 = 7.5 → 8, not 7.
+    ['GT_24H' as const, 8, 5],
+    // 15 × 1.5 = 22.5 → 23, not 22. The case a floor would get wrong.
+    ['H24_TO_H3' as const, 23, 12],
+    // 40 × 1.5 = 60 exactly; here rounding and truncating agree.
+    ['LT_3H' as const, 60, 12],
+    // 60 × 1.5 = 90 exactly.
+    ['NO_SHOW' as const, 90, 12],
+  ])('prices %s at %i coins and %i trust', async (bucket, expectedCoins, expectedTrust) => {
+    const price = await penalties.hostPriceFor(bucket);
+
+    expect(price.coins).toBe(expectedCoins);
+    expect(price.trust).toBe(expectedTrust);
+  });
+
+  /** Rounds up from a half rather than down, which is what «Math.round» buys. */
+  it('rounds a half up rather than truncating it', async () => {
+    await prisma.appSetting.createMany({
+      data: [
+        { key: 'cancellation.coins_h24_to_h3', value: 11 },
+        { key: 'cancellation.host_penalty_multiplier', value: 1.5 },
+      ],
+    });
+
+    // 11 × 1.5 = 16.5. A floor would answer 16.
+    await expect(penalties.hostPriceFor('H24_TO_H3')).resolves.toMatchObject({ coins: 17 });
+  });
+
+  /**
+   * The trust half is the host's own table and is **not** derived from the
+   * participant's.
+   *
+   * §11 splits the host at 24 hours where a participant has four priced buckets,
+   * and the reason is stated in the service: a cancelled activity costs people
+   * their Saturday whether or not it was cheap to call off. So moving the
+   * participant's trust numbers must not move the host's at all.
+   */
+  it('does not derive the host trust cost from the participant table', async () => {
+    await prisma.appSetting.createMany({
+      data: [
+        { key: 'cancellation.trust_h24_to_h3', value: 99 },
+        { key: 'cancellation.trust_lt_3h', value: 99 },
+        { key: 'cancellation.trust_gt_24h', value: 99 },
+      ],
+    });
+
+    await expect(penalties.hostPriceFor('H24_TO_H3')).resolves.toMatchObject({ trust: 12 });
+    await expect(penalties.hostPriceFor('GT_24H')).resolves.toMatchObject({ trust: 5 });
+  });
+
+  /**
+   * The 24-hour split, which is the *only* split the host's trust cost has.
+   *
+   * Everything nearer than a day is the same number, so the three participant
+   * buckets below 24 hours collapse into one here.
+   */
+  it('splits the host trust cost at 24 hours and nowhere else', async () => {
+    const [gt24, h24, lt3, noShow] = await Promise.all([
+      penalties.hostPriceFor('GT_24H'),
+      penalties.hostPriceFor('H24_TO_H3'),
+      penalties.hostPriceFor('LT_3H'),
+      penalties.hostPriceFor('NO_SHOW'),
+    ]);
+
+    expect(gt24.trust).toBe(5);
+    expect([h24.trust, lt3.trust, noShow.trust]).toEqual([12, 12, 12]);
+  });
+
+  /** Zeroing the multiplier is the rollback, and it reaches the coins only. */
+  it('is switched off by a zero multiplier, leaving the trust cost standing', async () => {
+    await prisma.appSetting.create({
+      data: { key: 'cancellation.host_penalty_multiplier', value: 0 },
+    });
+
+    await expect(penalties.hostPriceFor('LT_3H')).resolves.toEqual({ coins: 0, trust: 12 });
+  });
+});

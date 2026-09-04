@@ -1137,3 +1137,152 @@ describe('the audit trail (invariant 10)', () => {
     expect(expiry.actorId).toBeNull();
   });
 });
+
+/**
+ * The deadline floor (v0.7.0).
+ *
+ * `min(now + 24h, starts_at − 3h)` goes **negative** for an activity starting in
+ * under three hours, and the request was then born already expired: the guest was
+ * told it had been sent, the host was notified with two buttons, and whichever of
+ * them pressed first was refused with «این عملیات در وضعیت فعلی ممکن نیست» about a
+ * state nobody had chosen. The sweep had retired it somewhere in between.
+ *
+ * `participation.min_response_minutes` is the floor that fixed it, and until now
+ * it was the one setting in this service with no test at all — so the fix was one
+ * refactor away from being undone silently, and the symptom would have reappeared
+ * as a refusal nobody could reproduce.
+ *
+ * The cases below move the **clock**, not the settings, because the floor is a
+ * property of how close the activity is; the two that do write `app_setting` are
+ * the ones asserting the number is a policy rather than a constant.
+ */
+describe('the deadline floor (v0.7.0)', () => {
+  /** Two hours out: `starts_at − 3h` is an hour in the past. */
+  const IMMINENT = new Date('2026-08-15T11:00:00.000Z');
+
+  it('gives an imminent activity a window instead of a deadline in the past', async () => {
+    const eventPublicId = await createEvent({ startsAt: IMMINENT });
+    const joiner = await createJoiner();
+
+    const result = await participation.join(joiner, eventPublicId);
+
+    // Without the floor this would be 08:00 — before `now`, which is the whole bug.
+    expect(result.hostDeadlineAt).toEqual(new Date('2026-08-15T09:30:00.000Z'));
+    expect(result.hostDeadlineAt!.getTime()).toBeGreaterThan(NOW.getTime());
+    expect(result.status).toBe('PENDING');
+  });
+
+  /**
+   * The floor is itself bounded by the start.
+   *
+   * A deadline after the activity has begun is a decision nobody can act on
+   * either, so `min(now + 30m, starts_at)` is what the floor actually is — and for
+   * an activity ten minutes away the second term is the one that binds.
+   */
+  it('never pushes the deadline past the start of the activity', async () => {
+    const startsAt = new Date('2026-08-15T09:10:00.000Z');
+    const eventPublicId = await createEvent({ startsAt });
+    const joiner = await createJoiner();
+
+    const result = await participation.join(joiner, eventPublicId);
+
+    expect(result.hostDeadlineAt).toEqual(startsAt);
+  });
+
+  /**
+   * The reported symptom, from the host's side.
+   *
+   * This is the assertion that would have failed before v0.7.0: the request was
+   * already past its deadline when it was written, so the sweep retired it and the
+   * host's «پذیرش» met `INVALID_STATE_TRANSITION`.
+   */
+  it('lets the host accept inside that window', async () => {
+    const eventPublicId = await createEvent({ startsAt: IMMINENT });
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    const accepted = await participation.accept(hostId, request.publicId);
+
+    expect(accepted.status).toBe('ACCEPTED');
+    expect(await seats(eventPublicId)).toBe(1);
+  });
+
+  /** And from the guest's side, which is the same bug reached by the other button. */
+  it('lets the guest stand down inside that window', async () => {
+    const eventPublicId = await createEvent({ startsAt: IMMINENT });
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    const cancelled = await participation.cancel(joiner, request.publicId);
+
+    expect(cancelled.status).toBe('CANCELLED_BY_PARTICIPANT');
+  });
+
+  /**
+   * The sweep is the third party to this, and the one that actually did the
+   * damage: it selects `hostDeadlineAt <= now`, so a deadline born in the past was
+   * collected on the very next pass — within a minute, by `SCHEDULE`.
+   */
+  it('does not let the expiry sweep retire it on the next pass', async () => {
+    const eventPublicId = await createEvent({ startsAt: IMMINENT });
+    const joiner = await createJoiner();
+    await participation.join(joiner, eventPublicId);
+
+    expect(await participation.expireOverdue()).toBe(0);
+    expect(await statusCounts(eventPublicId)).toEqual({ PENDING: 1 });
+
+    // …and the window does close, one second past the floor.
+    clock.set(new Date('2026-08-15T09:30:01.000Z'));
+    expect(await participation.expireOverdue()).toBe(1);
+    expect(await statusCounts(eventPublicId)).toEqual({ EXPIRED: 1 });
+  });
+
+  /** The floor is a policy number, so a longer one is a config change. */
+  it('honours a wider floor from app_setting, with no deploy', async () => {
+    await prisma.appSetting.create({
+      data: { key: 'participation.min_response_minutes', value: 90 },
+    });
+    const eventPublicId = await createEvent({ startsAt: IMMINENT });
+    const joiner = await createJoiner();
+
+    const result = await participation.join(joiner, eventPublicId);
+
+    expect(result.hostDeadlineAt).toEqual(new Date('2026-08-15T10:30:00.000Z'));
+  });
+
+  /**
+   * Zero is the rollback, and what it actually restores is worth stating exactly.
+   *
+   * It does **not** put the deadline back to `starts_at − 3h`. The floor is
+   * `min(now + 0, starts_at)`, which is `now` — so the deadline lands on the
+   * current instant rather than an hour behind it. The effect is the same as the
+   * bug, because `expireOverdue` selects `hostDeadlineAt <= now`: the request is
+   * collected by the very next sweep, within a minute. Reaching that deliberately
+   * is the point; reaching it by accident was the report.
+   */
+  it('is disabled by zero, which collapses the window onto the present', async () => {
+    await prisma.appSetting.create({
+      data: { key: 'participation.min_response_minutes', value: 0 },
+    });
+    const eventPublicId = await createEvent({ startsAt: IMMINENT });
+    const joiner = await createJoiner();
+
+    const result = await participation.join(joiner, eventPublicId);
+
+    expect(result.hostDeadlineAt).toEqual(NOW);
+    expect(await participation.expireOverdue()).toBe(1);
+  });
+
+  /**
+   * The floor must not reach an activity that is comfortably away, or it would be
+   * silently widening every ordinary deadline by half an hour.
+   */
+  it('leaves an ordinary deadline exactly where it was', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+
+    const result = await participation.join(joiner, eventPublicId);
+
+    expect(result.hostDeadlineAt).toEqual(new Date('2026-08-16T09:00:00.000Z'));
+  });
+});
