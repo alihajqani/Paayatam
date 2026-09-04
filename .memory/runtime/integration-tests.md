@@ -23,6 +23,15 @@ waiting shell's own command line, so the loop never exits. Use the bracket trick
 until ! pgrep -f 'vitest[.]mjs run' > /dev/null; do sleep 30; done
 ```
 
+**This is not a vitest fact.** It recurred on 2026-09-04 with
+`pgrep -f "deploy.sh v0.8.1"`, which matched the waiter's own wrapper for the
+same reason. Any `pgrep -f` waiter needs the bracket — or, when the process is
+already known, wait on the **pid**, which cannot self-match:
+
+```bash
+while kill -0 "$pid" 2> /dev/null; do sleep 15; done
+```
+
 **3. It runs `dist`, not your edits.** The `integration` project defines no
 `@payetam/*` alias, so packages resolve through `node_modules` to their built
 output `[validated: vitest.config.mts]`, and `apps/api/src/telegram/webhook.int.test.ts:135`

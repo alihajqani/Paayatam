@@ -17,7 +17,7 @@ join; they negotiate anonymously in a Telegram chat before either knows who the
 other is. Coins price the scarce actions, Trust Score prices the people.
 
 Not a bot script. A **NestJS modular monolith** deployed on a single VPS via
-Docker Compose, live in production at **`v0.6.3`** (deployed 2026-08-30).
+Docker Compose, live in production at **`v0.8.1`** (deployed 2026-09-04).
 
 ## 2. Read these, in this order
 
@@ -56,8 +56,8 @@ no HTTP framework and no grammY.** `apps/api` and `apps/worker` are thin adapter
 over the same services. That is what stops the bot and the Mini App from drifting
 apart — treat it as an invariant, not a preference.
 
-Scale (measured 2026-09-03 on `fix/bot-qa-round-1`): 56 Prisma models · 43 migrations
-· 14 API controllers · 47 domain services · 20 domain modules · 143 test files,
+Scale (measured 2026-09-04 at `v0.8.1`): 56 Prisma models · 44 migrations
+· 14 API controllers · 47 domain services · 20 domain modules · 146 test files,
 51 of them integration. Re-measure rather than trusting this line.
 
 ## 4. The twelve invariants
@@ -107,20 +107,19 @@ pnpm --filter @payetam/miniapp build && pnpm --filter @payetam/admin build
 `make help` lists the full development loop. `make dev` brings up the whole
 stack; `make tunnel` + `make webhook` is how you test inside real Telegram.
 
-**Fully green as of 2026-08-28 on `feature/bot-commands`** — the v0.3.1 baseline
-below, re-verified after the bot-command work:
+**Fully green as of 2026-09-04 at `v0.8.1`:**
 
 | Check | Result |
 |---|---|
-| `pnpm -w typecheck` | PASS |
+| `pnpm typecheck` | PASS |
 | `eslint .` | PASS |
 | `prettier --check .` | PASS |
-| unit + miniapp + admin | **1309/1309** in 76 files (13 s) |
-| **integration** (real Postgres) | **1363/1363** in 49 files (32 min) |
-| **Docker production build** | api, worker, web all built |
-| **nginx config validation** | syntax ok, test successful |
+| unit + miniapp + admin | **1650/1650** in 95 files (15 s) |
+| **integration** (real Postgres) | **1505/1505** in 52 files (42 min) |
+| `pnpm build` | api, worker, both SPAs |
+| **production smoke tests** | 27/27 against the live host |
 
-**2672 tests green in total.** The integration run's `ERROR`/`WARN` log lines are
+**3155 tests green in total.** The integration run's `ERROR`/`WARN` log lines are
 negative-path assertions (an invalid blacklist regex, a refused Redis connection,
 a campaign paused on repeated rate limits), not failures.
 

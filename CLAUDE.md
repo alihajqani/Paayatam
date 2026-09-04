@@ -218,9 +218,12 @@ agent making a routine change:
 
 ## Needs Verification
 
-- `.claude-work-checkpoint.md` is in `.gitignore` and `PROJECT_MEMORY.md` §7 calls it
-  untracked on purpose, but `git ls-files` shows it **is currently tracked**.
+- **Resolved 2026-09-04:** `.claude-work-checkpoint.md` **is tracked**
+  (`git ls-files` returns it), so the `.gitignore` line has no effect on it and
+  `PROJECT_MEMORY.md` §7 traps 3/10 are right about `docs/production-deployment-todo.md`
+  only. Being tracked-and-unmodified is why it cannot be swept into a commit today; the
+  staging discipline still stands, because the *other* file is genuinely untracked.
 - `ci.yml` triggers on `push: branches: [main]` while the default branch is `master`, so a
-  direct push to `master` runs no CI — only pull requests do.
-- The scale figures in `PROJECT_MEMORY.md` §3 are behind the tree; the counts above were
-  measured on `fix/bot-qa-round-1`.
+  direct push to `master` runs no CI — only pull requests do. Tags are pushed to
+  branch `fix/bot-qa-round-1`, where `v0.8.0` and `v0.8.1` both sit, so releases have
+  not run CI on push either.
