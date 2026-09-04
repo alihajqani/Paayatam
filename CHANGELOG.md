@@ -77,6 +77,16 @@ previous image runs against this schema and rollback stays safe.
 
 ### Also
 
+- **The response-leak scan was calling a primary key a phone number.** Found
+  while validating this release, and pre-existing. `(?:\+98|0)9\d{9}` is eleven
+  consecutive digits and a UUID's last group is twelve hex characters with no
+  separator, so a random id is all-digits and starts `09` about once in nine
+  thousand — which over every list endpoint the scan reads, with fixtures
+  accumulating as the suite runs, failed the whole project several percent of the
+  time on a province's own id. A scan that fails at random is one that gets re-run
+  rather than read, which is the argument this file already makes about the
+  `@username` pattern and email domains. The phone pattern now ignores the exact
+  UUID shape; the identity patterns still read the raw body.
 - Three test suites finished during v0.8.1 and never committed are included:
   sealing an answered request's notification, `hostPriceFor` on an odd price, and
   the `participation.min_response_minutes` floor.
