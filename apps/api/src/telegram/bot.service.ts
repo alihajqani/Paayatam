@@ -55,6 +55,7 @@ import {
   DirectMessageService,
   type ReferralClaim,
   type ProfileField,
+  type CityLaunchStatus,
   FoundingService,
   type FoundingAward,
 } from '@payetam/domain';
@@ -3992,6 +3993,27 @@ export class BotService {
       );
     }
 
+    /**
+     * A closed city gets the queue, not an empty list (v0.10.0).
+     *
+     * Before the search rather than after it, and not as an "if there were no
+     * results" fallback: an empty list in a city the product has not opened is
+     * not a quiet week, it is a permanent state — and rendering «فعالیتی پیدا
+     * نشد» for it tells somebody to come back tomorrow to see the same nothing.
+     *
+     * There is genuinely nothing to search, because nothing can be created
+     * there: `EventService.create` refuses a city that is not launched.
+     */
+    const launch = await this.catalog.launchStatus(profile.city.id);
+    if (launch !== null && !launch.launched) {
+      return this.notice(
+        updateId,
+        user,
+        cityQueueLine(launch) +
+          'به‌محض باز شدن، همین‌جا خبرتان می‌کنیم. تا آن موقع می‌توانید نمایه‌تان را کامل نگه دارید.',
+      );
+    }
+
     const now = new Date();
     const range = dateRangeFor(filters.when, now);
     const catalog = await this.catalog.snapshot();
@@ -5122,6 +5144,10 @@ export class BotService {
           // message that is true only for this person and only once, and burying
           // it under two button names would waste the only moment it lands.
           foundingLine(completion.founding, cap) +
+          // After the rank and before the menu hints: the rank is the reward,
+          // this is the caveat, and the buttons are what to do next. A caveat
+          // above the reward would read as a refusal.
+          cityQueueLine(completion.cityLaunch) +
           'حالا از دکمه‌های پایین صفحه، ' +
           `«${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» فعالیت‌های نزدیک را نشان می‌دهد ` +
           `و «${menuPathFor('create_event') ?? 'ساختن فعالیت'}» یکی می‌سازد.`,
@@ -5926,6 +5952,28 @@ function missingFields(form: CreateEventForm): string[] {
  * branch — every completion after the campaign fills gets one, and a message
  * built out of two concatenations reads better than one built out of an `if`.
  */
+/**
+ * «شهر شما هنوز باز نیست» — with a number on it (v0.10.0).
+ *
+ * The number is the whole point. "We are not in your city" is a door closing;
+ * "you are the 30th person from Shiraz, and 100 opens it" is a queue somebody
+ * can move, and the only thing that makes them bring the other seventy.
+ *
+ * Empty string when the city is open, which is every completion in Tehran and
+ * Mashhad — so the common path renders exactly what it rendered before.
+ */
+export function cityQueueLine(status: CityLaunchStatus | null): string {
+  if (status === null || status.launched) return '';
+  const position = toPersianDigits(String(status.waiting));
+  const threshold = toPersianDigits(String(status.threshold));
+  return (
+    `📍 پایه‌تَم هنوز در ${status.cityNameFa} فعالیت ندارد.\n` +
+    `شما نفر ${position} از ${status.cityNameFa} هستید — با ${threshold} نفر، ` +
+    `${status.cityNameFa} باز می‌شود.\n` +
+    `هر هم‌شهری که دعوت کنید، این عدد را جلو می‌برد.\n\n`
+  );
+}
+
 export function foundingLine(award: FoundingAward | null, max: number): string {
   if (!award) return '';
   const rank = toPersianDigits(String(award.rank));

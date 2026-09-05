@@ -22,7 +22,12 @@ export type { DomainEvent } from './outbox/outbox.service';
 export { OutboxModule } from './outbox/outbox.module';
 
 export { CatalogService } from './catalog/catalog.service';
-export type { CatalogSnapshot, NamedRef, ResolvedLocation } from './catalog/catalog.service';
+export type {
+  CatalogSnapshot,
+  CityLaunchStatus,
+  NamedRef,
+  ResolvedLocation,
+} from './catalog/catalog.service';
 export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';
 export {
   UserSettingsService,

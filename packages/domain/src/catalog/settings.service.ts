@@ -71,6 +71,20 @@ export const SETTING_DEFAULTS = {
    * two buttons and no reason for a whole release cycle.
    */
   'profile.location_notice': 1,
+
+  /**
+   * How many completed profiles open a city (v0.10.0).
+   *
+   * The number a person in a closed city is told they are counting towards, so
+   * it has to be the *real* threshold rather than an aspiration — somebody who
+   * watches their city reach 100 and stay shut has learned the product lies.
+   *
+   * Tunable because the right number is not knowable yet: 100 is the point at
+   * which a single activity can plausibly fill from one city (see the liquidity
+   * arithmetic in the launch plan), and the first city to actually cross it will
+   * say whether that holds.
+   */
+  'city.launch_threshold': 100,
   'founding.tier1_max_rank': 100,
   'founding.tier1_coins': 150,
   'founding.tier2_max_rank': 400,

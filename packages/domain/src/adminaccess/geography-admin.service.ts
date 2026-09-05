@@ -23,6 +23,8 @@ export interface CitySummary {
   slug: string;
   nameFa: string;
   isActive: boolean;
+  /** Whether the product runs here yet (v0.10.0). */
+  isLaunched: boolean;
   sortOrder: number;
   provinceId: string | null;
   provinceNameFa: string | null;
@@ -311,6 +313,15 @@ export class GeographyAdminService {
       nameFa?: string | undefined;
       provinceId?: string | null | undefined;
       isActive?: boolean | undefined;
+      /**
+       * Open or close the city (v0.10.0).
+       *
+       * No `confirmReferences` guard, unlike `isActive`: closing a city does not
+       * orphan anything. Profiles keep naming it — that is the queue — and the
+       * events already published there keep running; it only stops new ones
+       * being created and turns discovery into the waitlist screen.
+       */
+      isLaunched?: boolean | undefined;
       sortOrder?: number | undefined;
       confirmReferences?: boolean | undefined;
     },
@@ -342,6 +353,7 @@ export class GeographyAdminService {
       data.nameNormalized = normalize(input.nameFa);
     }
     if (input.isActive !== undefined) data.isActive = input.isActive;
+    if (input.isLaunched !== undefined) data.isLaunched = input.isLaunched;
     if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
     if (input.provinceId !== undefined) {
       data.province =
@@ -448,6 +460,7 @@ const CITY_SELECT = {
   slug: true,
   nameFa: true,
   isActive: true,
+  isLaunched: true,
   sortOrder: true,
   provinceId: true,
   province: { select: { nameFa: true } },
@@ -462,6 +475,7 @@ function toCitySummary(row: CityRow): CitySummary {
     slug: row.slug,
     nameFa: row.nameFa,
     isActive: row.isActive,
+    isLaunched: row.isLaunched,
     sortOrder: row.sortOrder,
     provinceId: row.provinceId,
     provinceNameFa: row.province?.nameFa ?? null,
@@ -477,6 +491,10 @@ function cityAuditShape(row: CityRow): Record<string, Prisma.InputJsonValue> {
     slug: row.slug,
     nameFa: row.nameFa,
     isActive: row.isActive,
+    // Opening a city is the decision this trail most needs to hold: it changes
+    // where the product runs, and «چه کسی مشهد را باز کرد و کِی» has to be
+    // answerable (invariant 12).
+    isLaunched: row.isLaunched,
     sortOrder: row.sortOrder,
     provinceId: row.provinceId ?? '',
   };

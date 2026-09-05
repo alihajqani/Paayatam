@@ -4,7 +4,7 @@ import type { Gender, OnboardingState } from '@payetam/db';
 import { CLOCK, ENV, type Clock } from '@payetam/platform';
 import type { Env } from '@payetam/config';
 import { AppError, ErrorCode } from '@payetam/shared';
-import { CatalogService, type NamedRef } from '../catalog/catalog.service';
+import { CatalogService, type CityLaunchStatus, type NamedRef } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { TRUST_PROFILE_COMPLETE_REASON, TrustService } from '../economy/trust.service';
@@ -86,6 +86,15 @@ export interface ProfileCompletion {
    * is set, so "nothing to announce" needs no separate flag.
    */
   founding: FoundingAward | null;
+  /**
+   * Where their city stands, when the product does not run there yet (v0.10.0).
+   *
+   * Null for the two open cities, which is the common case and needs no line on
+   * the screen. Present for everybody else, and the reason completing a profile
+   * in a closed city is allowed at all: it is what turns «شهر شما باز نیست» from
+   * a dead end into a queue with a number on it.
+   */
+  cityLaunch: CityLaunchStatus | null;
 }
 
 /** The reason code written to the ledger. Stable: the admin panel renders it. */
@@ -514,6 +523,16 @@ export class ProfileService {
       throw new AppError(ErrorCode.INTERNAL_ERROR);
     }
 
+    /**
+     * Read **after** the transaction, deliberately.
+     *
+     * The count has to include the profile that was just written, and nothing
+     * about it is enforced on — so putting it inside would lengthen a
+     * transaction that already holds the user row, the campaign counter and the
+     * coin account, to compute a number for a sentence.
+     */
+    const launch = await this.catalog.launchStatus(profile.city.id);
+
     return {
       profile,
       onboardingState: 'PROFILE_COMPLETE',
@@ -521,6 +540,7 @@ export class ProfileService {
       rewardGranted: result.rewardGranted,
       trustScore: result.trustScore,
       founding: result.founding,
+      cityLaunch: launch !== null && !launch.launched ? launch : null,
     };
   }
 }

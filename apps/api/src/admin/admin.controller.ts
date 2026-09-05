@@ -2060,6 +2060,7 @@ function toAdminCityView(city: CitySummary): AdminCityView {
     slug: city.slug,
     nameFa: city.nameFa,
     isActive: city.isActive,
+    isLaunched: city.isLaunched,
     sortOrder: city.sortOrder,
     provinceId: city.provinceId,
     provinceNameFa: city.provinceNameFa,

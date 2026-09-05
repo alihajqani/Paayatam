@@ -135,6 +135,18 @@ export async function seedCatalog(prisma: PrismaClient): Promise<CatalogFixture>
       slug: 'tehran',
       nameFa: 'تهران',
       isActive: true,
+      /**
+       * Open, because the fixture stands for a working product (v0.10.0).
+       *
+       * `is_launched` defaults to false, which is right for a real row — a city
+       * is added to the catalogue long before the product runs there. It is
+       * wrong for the fixture every suite builds its events in: `EventService`
+       * refuses a city that is not launched, so leaving the default here would
+       * fail every event test for a reason none of them are about.
+       *
+       * The suites that care about the closed case set it themselves.
+       */
+      isLaunched: true,
       districts: { create: [{ slug: 'district-1', nameFa: 'منطقه ۱' }] },
     },
     include: { districts: true },
@@ -144,6 +156,8 @@ export async function seedCatalog(prisma: PrismaClient): Promise<CatalogFixture>
     data: {
       slug: 'karaj',
       nameFa: 'کرج',
+      // Inactive, and left closed: this fixture exists to be refused, and both
+      // reasons to refuse it now hold.
       isActive: false,
       districts: { create: [{ slug: 'karaj-central', nameFa: 'مرکز' }] },
     },

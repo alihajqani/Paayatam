@@ -26,6 +26,14 @@ export const ErrorCode = {
   PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
   INVALID_INTEREST: 'INVALID_INTEREST',
   CITY_NOT_AVAILABLE: 'CITY_NOT_AVAILABLE',
+  /**
+   * The city exists and may be lived in, but the product does not run there yet
+   * (v0.10.0). Distinct from `CITY_NOT_AVAILABLE`, which means the catalogue
+   * does not offer it at all: this one is a "not yet" with a queue behind it,
+   * and telling somebody their city is unavailable when it is merely unopened
+   * loses the one thing that would make them wait.
+   */
+  CITY_NOT_LAUNCHED: 'CITY_NOT_LAUNCHED',
   INVALID_DISTRICT: 'INVALID_DISTRICT',
   /** A `customCategoryLabel` was sent for a category that does not allow one (M21). */
   CUSTOM_LABEL_NOT_ALLOWED: 'CUSTOM_LABEL_NOT_ALLOWED',
@@ -230,6 +238,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   // Reworded in M21: the product serves 1,252 cities, and a message naming
   // Tehran would now be wrong in 1,251 of them.
   CITY_NOT_AVAILABLE: 'پایه‌تَم هنوز در شهر انتخاب‌شده فعال نیست.',
+  CITY_NOT_LAUNCHED: 'پایه‌تَم هنوز در شهر شما فعالیت ندارد — ولی می‌توانید در فهرست انتظار باشید.',
   INVALID_DISTRICT: 'منطقهٔ انتخاب‌شده با شهر انتخابی هم‌خوانی ندارد.',
   CUSTOM_LABEL_NOT_ALLOWED: 'برای این دستهٔ تفریح نمی‌توان عنوان دلخواه ثبت کرد.',
   CUSTOM_LABEL_REQUIRED: 'برای دستهٔ «سایر» باید نوع تفریح را بنویسید.',

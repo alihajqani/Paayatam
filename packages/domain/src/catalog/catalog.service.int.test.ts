@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '@payetam/config';
 import type { PrismaClient, PrismaService } from '@payetam/db';
+import { ErrorCode } from '@payetam/shared';
 import {
   createTestPrisma,
+  createUser,
   resetDatabase,
   seedCatalog,
   type CatalogFixture,
@@ -149,5 +151,99 @@ describe('CatalogService.assertInterestsSelectable', () => {
     await expect(
       catalog.assertInterestsSelectable([fixture.retiredInterestId]),
     ).rejects.toMatchObject({ code: 'INVALID_INTEREST' });
+  });
+});
+
+/**
+ * A city can be lived in before it is open (v0.10.0).
+ *
+ * The property worth a database is the split itself: `is_active` and
+ * `is_launched` have to disagree for a closed city, and every path has to read
+ * the right one. A single flag would make each of these tests pass for the
+ * wrong reason.
+ */
+describe('city launch state', () => {
+  /** One completed profile in a city — the unit the waitlist counts. */
+  async function seedProfileIn(cityId: string): Promise<void> {
+    const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+    await prisma.userProfile.create({
+      data: { userId, displayName: 'کاربر', birthYear: 1995, cityId, completedAt: new Date() },
+    });
+  }
+
+  async function closeCity(cityId: string): Promise<void> {
+    await prisma.city.update({ where: { id: cityId }, data: { isLaunched: false } });
+  }
+
+  it('reports an open city as open, and counts nothing', async () => {
+    await prisma.city.update({ where: { id: fixture.tehranId }, data: { isLaunched: true } });
+
+    await expect(catalog.launchStatus(fixture.tehranId)).resolves.toMatchObject({
+      launched: true,
+      waiting: 0,
+    });
+  });
+
+  it('counts the completed profiles waiting on a closed city', async () => {
+    await closeCity(fixture.tehranId);
+
+    const status = await catalog.launchStatus(fixture.tehranId);
+    expect(status).toMatchObject({ launched: false, waiting: 0, threshold: 100 });
+
+    await seedProfileIn(fixture.tehranId);
+    await seedProfileIn(fixture.tehranId);
+
+    await expect(catalog.launchStatus(fixture.tehranId)).resolves.toMatchObject({
+      launched: false,
+      waiting: 2,
+    });
+  });
+
+  it('takes the threshold from app_setting, not from code', async () => {
+    await closeCity(fixture.tehranId);
+    await prisma.appSetting.create({ data: { key: 'city.launch_threshold', value: 40 } });
+
+    await expect(catalog.launchStatus(fixture.tehranId)).resolves.toMatchObject({ threshold: 40 });
+  });
+
+  it('answers null for a city that does not exist', async () => {
+    await expect(catalog.launchStatus('01a06e1f-0000-7000-8000-000000000000')).resolves.toBeNull();
+  });
+
+  /**
+   * The half that must NOT be gated. If this ever refuses, nobody outside the
+   * open cities can be counted and the queue that decides the next launch stops
+   * existing.
+   */
+  it('resolves a location in a closed city, so a profile can still name it', async () => {
+    await closeCity(fixture.tehranId);
+
+    await expect(catalog.resolveLocation(fixture.tehranId, undefined)).resolves.toMatchObject({
+      cityId: fixture.tehranId,
+    });
+  });
+
+  it('refuses the same city when the caller requires it to be open', async () => {
+    await closeCity(fixture.tehranId);
+
+    await expect(
+      catalog.resolveLocation(fixture.tehranId, undefined, prisma, true),
+    ).rejects.toMatchObject({ code: ErrorCode.CITY_NOT_LAUNCHED });
+  });
+
+  /**
+   * A closed city and a city the catalogue does not offer are different
+   * refusals. Collapsing them would tell somebody their city is unavailable when
+   * it is merely unopened, which loses the one thing that would make them wait.
+   */
+  it('tells "not open yet" apart from "not in the catalogue"', async () => {
+    await prisma.city.update({
+      where: { id: fixture.tehranId },
+      data: { isActive: false, isLaunched: true },
+    });
+
+    await expect(
+      catalog.resolveLocation(fixture.tehranId, undefined, prisma, true),
+    ).rejects.toMatchObject({ code: ErrorCode.CITY_NOT_AVAILABLE });
   });
 });

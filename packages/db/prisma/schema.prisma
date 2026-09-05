@@ -314,6 +314,20 @@ model City {
   /// the search falls back to `name_fa` for any row that somehow has none.
   nameNormalized String? @map("name_normalized")
   isActive   Boolean  @default(false) @map("is_active")
+  /// Whether the product actually runs here yet (v0.10.0).
+  ///
+  /// Deliberately **not** `is_active`, which answers a different question: that
+  /// one is "may somebody say they live here", true for every city the catalogue
+  /// offers. This one is "do we run activities here", true for the two the
+  /// launch opened with.
+  ///
+  /// One flag carried both until v0.10.0, and narrowing it to the open cities
+  /// broke the first question — somebody from a closed city could not name their
+  /// city, so they could not be counted, could not be told where their city sits
+  /// in the queue, and either picked one they do not live in or left. The number
+  /// of people waiting is what decides which city opens next, so the data that
+  /// answers it has to be collectable *before* the city is open.
+  isLaunched Boolean  @default(false) @map("is_launched")
   sortOrder  Int      @default(0) @map("sort_order")
   /// Nullable on purpose and permanently — see migration 0020.
   provinceId String?  @map("province_id")
@@ -328,6 +342,8 @@ model City {
   province Province? @relation(fields: [provinceId], references: [id], onDelete: Restrict)
 
   @@index([isActive, sortOrder])
+  /// "Which cities are open?" — the operator's read, short and partial.
+  @@index([isLaunched])
   @@index([provinceId, isActive, sortOrder])
   /// Substring search over 1,252 names, so the picker can be a text field rather
   /// than a list nobody can scroll on a phone (M22).

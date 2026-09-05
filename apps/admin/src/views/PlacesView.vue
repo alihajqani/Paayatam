@@ -117,6 +117,34 @@ const pendingDeactivation = ref<{
   eventCount: number;
 } | null>(null);
 
+/**
+ * Open or close a city (v0.10.0).
+ *
+ * Separate from `setActive`, and with no confirmation step, because the two
+ * answer different questions and only one of them orphans anything. Closing a
+ * city leaves every profile naming it — that *is* the waiting list — and lets
+ * the events already published there run out; it only stops new ones and turns
+ * discovery into the queue screen.
+ */
+async function setLaunched(city: AdminCityView, isLaunched: boolean): Promise<void> {
+  busyId.value = city.id;
+  error.value = null;
+  try {
+    await request<AdminCityView>(`/cities/${city.id}`, {
+      method: 'PATCH',
+      body: { isLaunched },
+    });
+    notice.value = isLaunched
+      ? `«${city.nameFa}» باز شد — از این پس می‌توان اینجا فعالیت ساخت.`
+      : `«${city.nameFa}» بسته شد. نمایه‌ها دست‌نخورده می‌مانند و در فهرست انتظار شمرده می‌شوند.`;
+    await loadCities();
+  } catch (cause) {
+    error.value = messageOf(cause, 'باز یا بسته کردن شهر انجام نشد.');
+  } finally {
+    busyId.value = null;
+  }
+}
+
 async function setActive(city: AdminCityView, isActive: boolean, confirm = false): Promise<void> {
   busyId.value = city.id;
   error.value = null;
@@ -439,6 +467,17 @@ onMounted(load);
                   >
                     {{ city.isActive ? 'فعال' : 'غیرفعال' }}
                   </span>
+                  <span
+                    class="ms-1 rounded-full px-2 py-0.5 text-xs"
+                    :class="city.isLaunched ? 'bg-good-soft text-good' : 'bg-warn-soft text-warn'"
+                    :title="
+                      city.isLaunched
+                        ? 'پایه‌تَم اینجا فعالیت دارد'
+                        : 'قابل انتخاب است، ولی هنوز فعالیتی اینجا نیست — نمایه‌ها در فهرست انتظار می‌شمارند'
+                    "
+                  >
+                    {{ city.isLaunched ? 'باز' : 'بسته' }}
+                  </span>
                 </td>
                 <td class="p-2">
                   <div class="flex gap-2">
@@ -449,6 +488,14 @@ onMounted(load);
                       @click="setActive(city, !city.isActive)"
                     >
                       {{ city.isActive ? 'غیرفعال کردن' : 'فعال کردن' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="min-h-9 rounded-lg border border-line px-3 text-xs disabled:opacity-40"
+                      :disabled="!session.canMutate || busyId === city.id"
+                      @click="setLaunched(city, !city.isLaunched)"
+                    >
+                      {{ city.isLaunched ? 'بستن' : 'باز کردن' }}
                     </button>
                     <button
                       type="button"

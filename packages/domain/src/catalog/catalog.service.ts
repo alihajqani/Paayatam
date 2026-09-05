@@ -60,6 +60,24 @@ export interface ResolvedLocation {
 }
 
 /**
+ * Where a city stands: open, or how far off (v0.10.0).
+ *
+ * `waiting` counts **completed profiles** in the city rather than accounts,
+ * because a profile is the thing that carries a city at all — and it is the
+ * same population the threshold is a claim about. It includes the person being
+ * told the number, which is deliberate: «شما نفر ۳۰ از شیراز هستید» is only true
+ * if they are one of the thirty.
+ */
+export interface CityLaunchStatus {
+  cityNameFa: string;
+  launched: boolean;
+  /** Completed profiles in this city, including the caller's own. */
+  waiting: number;
+  /** Completed profiles that open it. */
+  threshold: number;
+}
+
+/**
  * Owns every list a user is allowed to pick from (plan §3.3).
  *
  * The invariant this module defends is "all user-selectable lists are
@@ -193,17 +211,71 @@ export class CatalogService {
    * client pair Tehran with a district of another city, and every downstream
    * filter would then quietly disagree with itself.
    */
+  /**
+   * Where this city stands in the queue (v0.10.0).
+   *
+   * Two reads and no lock: the number is shown, never enforced on, so a count
+   * that is one behind for a moment is not wrong in any way a reader could
+   * notice. The *decision* it feeds — opening a city — is a human one an
+   * operator makes from the admin panel.
+   *
+   * Returns null for a city the catalogue does not know, which is the same
+   * answer as "there is nothing to say about it": a caller with a bad id has a
+   * bug, and a screen that rendered «شما نفر ۰ از ‹unknown› هستید» would hide it.
+   */
+  async launchStatus(
+    cityId: string,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<CityLaunchStatus | null> {
+    const city = await tx.city.findUnique({
+      where: { id: cityId },
+      select: { nameFa: true, isLaunched: true },
+    });
+    if (!city) return null;
+
+    // Skipped for an open city: the count is only ever rendered as "how far off
+    // is this", and there is no distance to report once it has arrived.
+    if (city.isLaunched) {
+      return {
+        cityNameFa: city.nameFa,
+        launched: true,
+        waiting: 0,
+        threshold: 0,
+      };
+    }
+
+    const [waiting, threshold] = await Promise.all([
+      tx.userProfile.count({ where: { cityId } }),
+      this.settings.getInt('city.launch_threshold', tx),
+    ]);
+
+    return { cityNameFa: city.nameFa, launched: false, waiting, threshold };
+  }
+
   async resolveLocation(
     cityId: string,
     districtId: string | undefined,
     tx: Prisma.TransactionClient = this.prisma,
+    /**
+     * Refuse a city the product does not run in yet (v0.10.0).
+     *
+     * Off by default, and the default is the important half: **completing a
+     * profile in a closed city must succeed.** That is how somebody from Shiraz
+     * ends up counted in Shiraz's queue, which is the whole mechanism by which a
+     * city is chosen to open next. Only the paths that would put an activity
+     * somewhere with nobody to attend it pass this.
+     */
+    requireLaunched = false,
   ): Promise<ResolvedLocation> {
     const city = await tx.city.findUnique({
       where: { id: cityId },
-      select: { id: true, isActive: true },
+      select: { id: true, isActive: true, isLaunched: true },
     });
     if (!city || !city.isActive) {
       throw new AppError(ErrorCode.CITY_NOT_AVAILABLE);
+    }
+    if (requireLaunched && !city.isLaunched) {
+      throw new AppError(ErrorCode.CITY_NOT_LAUNCHED);
     }
 
     if (districtId === undefined) {

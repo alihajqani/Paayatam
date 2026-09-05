@@ -320,7 +320,11 @@ export class EventService {
     const created = await this.prisma.$transaction(async (tx) => {
       await this.assertWithinQuota(tx, hostUserId, now);
 
-      const location = await this.catalog.resolveLocation(input.cityId, input.districtId, tx);
+      // `requireLaunched`, because an activity in a city the product has not
+      // opened is one nobody can be found for (v0.10.0). Profile completion
+      // deliberately does *not* pass it — that is how the queue for a closed
+      // city gets counted in the first place.
+      const location = await this.catalog.resolveLocation(input.cityId, input.districtId, tx, true);
       // After `resolveLocation`, because the city restriction is checked against
       // the city the catalog accepted rather than the one the client sent.
       const category = await this.resolveCategory(

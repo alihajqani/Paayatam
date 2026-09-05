@@ -1584,6 +1584,11 @@ export const adminCityView = z.object({
   slug: z.string(),
   nameFa: z.string(),
   isActive: z.boolean(),
+  /**
+   * Whether the product runs here yet (v0.10.0). Separate from `isActive`,
+   * which is only whether somebody may say they live here.
+   */
+  isLaunched: z.boolean(),
   sortOrder: z.number().int(),
   provinceId: z.uuid().nullable(),
   provinceNameFa: z.string().nullable(),
@@ -1640,6 +1645,8 @@ export const updateCityRequest = z.object({
   nameFa: z.string().trim().min(1).max(80).optional(),
   provinceId: z.uuid().nullable().optional(),
   isActive: z.boolean().optional(),
+  /** Open or close the city. See `adminCityView.isLaunched`. */
+  isLaunched: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(100_000).optional(),
   confirmReferences: z.boolean().optional(),
 });
