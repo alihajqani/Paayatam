@@ -14,6 +14,59 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.10.0] — 2026-09-05
+
+A city can now be chosen before it is open, which is what makes a waiting list
+possible at all.
+
+### The bug in the plan this fixes
+
+The launch was going to be scoped by narrowing `city.is_active` to Tehran and
+Mashhad. That flag was answering two questions at once — *may somebody say they
+live here* and *do we run activities here* — and narrowing it answers the second
+by breaking the first: somebody from Shiraz then has no way to say they are from
+Shiraz, so they cannot be counted, cannot be told where their city sits in the
+queue, and either picks a city they do not live in — which is worse than nothing,
+because it poisons the demand data the next launch decision is made from — or
+leaves.
+
+### Added
+
+- **`city.is_launched`,** separate from `is_active`. Every city stays selectable;
+  only the two open ones accept activities.
+- **A queue with a number on it.** Completing a profile in a closed city now
+  answers «پایه‌تَم هنوز در شیراز فعالیت ندارد. شما نفر ۳۰ از شیراز هستید — با ۱۰۰
+  نفر، شیراز باز می‌شود. هر هم‌شهری که دعوت کنید، این عدد را جلو می‌برد.» The count
+  is completed profiles in that city, so it is always true rather than
+  maintained. The threshold is `city.launch_threshold`, default 100.
+- **`/discover` in a closed city shows the queue, not an empty list** — and shows
+  it *instead of* searching rather than as a fallback, because an empty list
+  there is a permanent state and «فعالیتی پیدا نشد» invites somebody to come back
+  tomorrow and see the same nothing.
+- **The admin panel opens and closes a city.** A «باز»/«بسته» badge on every row
+  in «مکان‌ها» and a button beside the existing activate one. No confirmation
+  step, unlike deactivating: closing a city orphans nothing — profiles keep
+  naming it, which *is* the queue, and published activities run out. The audit
+  row carries `isLaunched`, because "who opened Mashhad, and when" has to be
+  answerable.
+
+### Changed
+
+- `CatalogService.resolveLocation` takes `requireLaunched`, off by default.
+  **Profile completion deliberately does not pass it**; event creation does. That
+  default is the whole mechanism — it is how a closed city's queue gets counted.
+- New error code `CITY_NOT_LAUNCHED`, distinct from `CITY_NOT_AVAILABLE`. Telling
+  somebody their city is unavailable when it is merely unopened loses the one
+  thing that would make them wait.
+
+### Migration
+
+`00000000000048_city_launch_state`. One column with a default, one UPDATE
+backfilling Tehran and Mashhad **by slug** — names are not unique among 1,252
+Persian city names, and `DEFAULT false` alone would leave a live product telling
+every user their city is closed for the length of the deploy. Additive: the
+previous image ignores the column, so rolling back behaves exactly as v0.9.1 did.
+
 ## [v0.9.1] — 2026-09-05
 
 Three things the launch needed and the bot did not have.
