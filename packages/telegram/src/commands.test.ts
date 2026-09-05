@@ -32,7 +32,21 @@ function dispatchedCommands(): Set<string> {
   );
   const body = source.slice(source.indexOf('private async onCommand'));
   const end = body.indexOf('private async onStart');
-  return new Set([...body.slice(0, end).matchAll(/case '([a-z_]+)':/g)].map((m) => m[1] as string));
+  const cases = new Set(
+    [...body.slice(0, end).matchAll(/case '([a-z_]+)':/g)].map((m) => m[1] as string),
+  );
+
+  /**
+   * `/start` is dispatched a layer earlier and by a different mechanism (v0.9.1).
+   *
+   * `route()` matches it as a `START` *intent* rather than as a `case` in
+   * `onCommand`, because it is the one surface allowed to create an account —
+   * every other command requires a user that already exists. So the switch scan
+   * above cannot see it, and reading `route()` for the intent is what keeps this
+   * test an assertion about real dispatch rather than a hard-coded exception.
+   */
+  if (/case 'START':\s*\n\s*return this\.onStart\(/.test(source)) cases.add('start');
+  return cases;
 }
 
 describe('BOT_COMMANDS', () => {
@@ -52,11 +66,16 @@ describe('BOT_COMMANDS', () => {
   });
 
   /**
-   * Telegram offers a Start button of its own; spending a menu line on it again
-   * is the first line of a short list gone.
+   * `/start` is advertised, and used not to be (v0.9.1).
+   *
+   * The old reasoning was that Telegram offers a Start button of its own. It
+   * does — on an *empty* chat, which is not where anybody needs it. Once there
+   * is a conversation the button is gone, and the release announcement sent on
+   * every deploy tells people to press `/start`. Omitting it made the product
+   * ask for something its own menu did not offer.
    */
-  it('does not advertise /start', () => {
-    expect(BOT_COMMANDS.map((c) => c.command)).not.toContain('start');
+  it('advertises /start, first', () => {
+    expect(BOT_COMMANDS[0]?.command).toBe('start');
   });
 
   /**

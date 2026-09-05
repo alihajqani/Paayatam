@@ -237,3 +237,73 @@ describe('bio', () => {
     expect(accept('bio', 'ا'.repeat(501)).ok).toBe(false);
   });
 });
+
+/**
+ * Editing one field at a time (v0.9.1).
+ *
+ * The property that matters is not that a scoped form has one step — it is that
+ * it has the *right* one, and that the unscoped form still has all seven. A
+ * `when` that was slightly wrong would either strand somebody on a question they
+ * did not ask for, or silently drop a step from profile completion, which is the
+ * gate a new user cannot get past.
+ */
+describe('editProfileWizard — one field at a time', () => {
+  function stepsFor(form: EditProfileForm): string[] {
+    return editProfileWizard.steps
+      .filter((step) => step.when === undefined || step.when(form))
+      .map((step) => step.key);
+  }
+
+  it('asks all seven questions when no field is named', () => {
+    expect(stepsFor({})).toEqual(['name', 'gender', 'birth', 'prov', 'city', 'bio', 'tags']);
+  });
+
+  it.each([
+    ['name', ['name']],
+    ['gender', ['gender']],
+    ['birth', ['birth']],
+    ['bio', ['bio']],
+    ['tags', ['tags']],
+  ])('asks only about %s', (field, expected) => {
+    expect(stepsFor({ field } as EditProfileForm)).toEqual(expected);
+  });
+
+  /**
+   * Province and city are one button and two steps. Splitting them would let
+   * somebody change the province and keep the old city — a city in a province
+   * they no longer live in, which the province step's own `accept` clears for
+   * exactly this reason.
+   */
+  it('asks province and city together, because they are one decision', () => {
+    expect(stepsFor({ field: 'loc' })).toEqual(['prov', 'city']);
+  });
+
+  /**
+   * `/interests` predates the field selector and seeds the older flag. A
+   * conversation that was already open when v0.9.1 shipped carries it, so it has
+   * to keep meaning what it meant.
+   */
+  it('still honours onlyInterests, for a form that was already in flight', () => {
+    expect(stepsFor({ onlyInterests: true })).toEqual(['tags']);
+  });
+});
+
+describe('the province prompt', () => {
+  const prov = editProfileWizard.steps.find((step) => step.key === 'prov');
+
+  it('says nothing extra by default', () => {
+    expect(prov?.prompt({})).toBe('در کدام استان هستید؟');
+  });
+
+  /**
+   * The sentence is the whole point of the flag: two buttons and no explanation
+   * reads as a broken product rather than a deliberate one.
+   */
+  it('explains the two open cities when the caller asks it to', () => {
+    const text = prov?.prompt({ locationNotice: true }) ?? '';
+
+    expect(text).toContain('در کدام استان هستید؟');
+    expect(text).toContain('تهران و مشهد');
+    expect(text).toContain('عمدی');
+  });
+});

@@ -54,6 +54,7 @@ import {
   isDirectMessageMode,
   DirectMessageService,
   type ReferralClaim,
+  type ProfileField,
   FoundingService,
   type FoundingAward,
 } from '@payetam/domain';
@@ -91,6 +92,7 @@ import {
   insufficientCoinsNotice,
   formatParticipants,
   foundingTierName,
+  parseProfileFieldCallback,
   commandGroupFor,
   decodeMenuCallback,
   menuGroupKeyFor,
@@ -1100,8 +1102,21 @@ export class BotService {
       case 'edit_profile': {
         if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
         if (!(await this.mayWrite(updateId, user))) return;
-        const outcome = await this.startProfileWizard(user.id, updateId);
-        return this.drawWizard(updateId, user, outcome);
+        /**
+         * The board, not the form (v0.9.1).
+         *
+         * Except for somebody who has no profile yet: there is nothing to pick a
+         * field of, and every step is a question they owe. `openProfileForm`
+         * says so and opens the whole walk, which is what completion needs.
+         */
+        if ((await this.profiles.find(user.id)) === null) {
+          return this.openProfileForm(
+            updateId,
+            user,
+            'هنوز نمایه‌ای نساخته‌اید. بیایید کاملش کنیم.',
+          );
+        }
+        return this.reply(updateId, user.id, TEMPLATES.BOT_PROFILE_EDIT, {});
       }
 
       /**
@@ -1141,7 +1156,7 @@ export class BotService {
             'هنوز نمایه‌ای نساخته‌اید. ابتدا نمایه‌تان را کامل کنید؛ علاقه‌مندی‌ها هم در همین فرم پرسیده می‌شود.',
           );
         }
-        const outcome = await this.startProfileWizard(user.id, updateId, true);
+        const outcome = await this.startProfileWizard(user.id, updateId, 'tags');
         return this.drawWizard(updateId, user, outcome);
       }
 
@@ -1644,6 +1659,32 @@ export class BotService {
     if (await this.channelsBlock(update.updateId, user, 'APP_ACCESS')) {
       await this.answer(callbackQueryId, 'برای ادامه باید در کانال‌های اعلام‌شده عضو شوید.');
       return;
+    }
+
+    /**
+     * A field on the profile-edit board (v0.9.1).
+     *
+     * Before the wizard branch, and the ordering matters: this button *opens* a
+     * conversation, and `parseWizardCallback` would otherwise see a `pf:` string,
+     * fail to parse it, and fall through to «این دکمه دیگر کار نمی‌کند» — which
+     * is what a stale wizard button gets and is exactly wrong here.
+     *
+     * `startProfileWizard` replaces whatever conversation was open, which is the
+     * behaviour `conversation_state.user_id` being UNIQUE gives for free: tapping
+     * «نام نمایشی» while halfway through «شهر» asks about the name, rather than
+     * refusing because something else was in progress.
+     */
+    const profileField = this.env.ENABLE_CONVERSATION_WIZARD
+      ? parseProfileFieldCallback(data)
+      : null;
+    if (profileField !== null) {
+      // The tap is acknowledged before the form is drawn: Telegram spins the
+      // button until the query is answered, and building a wizard step reads the
+      // profile and the catalogue.
+      await this.answer(callbackQueryId, 'باشد');
+      if (!(await this.mayWrite(update.updateId, user))) return;
+      const outcome = await this.startProfileWizard(user.id, update.updateId, profileField);
+      return this.drawWizard(update.updateId, user, outcome);
     }
 
     /**
@@ -3195,22 +3236,35 @@ export class BotService {
     userId: string,
     updateId: number,
     /**
-     * Open at the interests and nothing else — `/interests`.
+     * Ask about this one field and nothing else, or the whole form when absent.
      *
-     * The same wizard with `onlyInterests` seeded, so there is one interests
-     * step, one set of Persian copy and one validation path. See
-     * `edit-profile.ts` for why this is a flag rather than a second wizard.
+     * The same wizard with its other steps `when`'d out, so each field has one
+     * step, one set of Persian copy and one validation path however it was
+     * reached. See `edit-profile.ts` for why this is a flag rather than six
+     * wizards.
      */
-    onlyInterests = false,
+    field?: ProfileField,
   ): Promise<ConversationOutcome> {
-    const profile = await this.profiles.find(userId);
+    const [profile, notice] = await Promise.all([
+      this.profiles.find(userId),
+      /**
+       * Read here because a wizard cannot read it (v0.9.1).
+       *
+       * `WizardStep.prompt` is `(form) => string` by design — pure, synchronous,
+       * and replayable from a stored form. So the caller is the only layer that
+       * can turn a setting into something a prompt can see, which is what
+       * `initialForm` has always been for.
+       */
+      this.settings.getInt('profile.location_notice'),
+    ]);
     const interestIds = profile?.interests.map((interest) => interest.id) ?? [];
 
     return this.conversations.start(userId, 'EDIT_PROFILE', updateId, null, {
       // Only when there is something to tick. Seeding `[]` would be seeding a
       // value that is indistinguishable from the empty form it is merged over.
       ...(interestIds.length > 0 ? { interestIds } : {}),
-      ...(onlyInterests ? { onlyInterests: true } : {}),
+      ...(field !== undefined ? { field } : {}),
+      ...(notice === 1 ? { locationNotice: true } : {}),
     });
   }
 

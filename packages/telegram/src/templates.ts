@@ -10,6 +10,8 @@ import {
   menuOpenerKeyboard,
   menuRootKeyboard,
   menuRootText,
+  profileEditKeyboard,
+  profileEditText,
   type InlineKeyboard,
 } from './keyboards';
 
@@ -136,6 +138,16 @@ export const TEMPLATES = {
   BOT_MY_EVENTS: 'bot.my_events',
   /** `/profile` — who the product thinks you are, including your Trust Score. */
   BOT_PROFILE: 'bot.profile',
+  /**
+   * `/edit_profile` — which field, before any question is asked (v0.9.1).
+   *
+   * The command used to open a seven-step walk. Every step was skippable, which
+   * sounds forgiving and is not: changing a display name meant pressing «رد کردن»
+   * six times, and a form that charges six taps for one edit is a form people
+   * stop opening. The board asks one question — *which field* — and the wizard
+   * then asks only that one.
+   */
+  BOT_PROFILE_EDIT: 'bot.profile_edit',
   /** `/discover` — what is on in the sender's city, without opening anything. */
   BOT_DISCOVER: 'bot.discover',
   /** `/reviews` — the reviews the sender still owes, and when they expire. */
@@ -655,8 +667,12 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_HELP:
       return opened(
         `<b>راهنما</b>\n\n` +
-          `${helpCommandLines()}\n` +
-          `<b>/start</b> — بازگشت به ابتدا\n\n` +
+          // `/start` used to be appended by hand here, because it was the one
+          // command `BOT_COMMANDS` deliberately left out. It is in that list as
+          // of v0.9.1, so a hand-written line would print it twice — with a
+          // second description, which is how two descriptions of one command
+          // start drifting apart.
+          `${helpCommandLines()}\n\n` +
           `<b>پیام به میزبان</b>\n` +
           `از صفحهٔ هر فعالیت، دکمهٔ «پیام مستقیم به میزبان» را بزنید. ` +
           `پاسخ‌ها با دکمهٔ «مشاهدهٔ پیام» و «پاسخ به این پیام» در همین‌جا رد و بدل می‌شود.\n\n` +
@@ -823,6 +839,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * a notification payload holds scalars (invariant 7) and this is a snapshot
      * of an answer, not a live list.
      */
+    case TEMPLATES.BOT_PROFILE_EDIT:
+      return { text: profileEditText(), keyboard: profileEditKeyboard() };
+
     case TEMPLATES.BOT_PROFILE: {
       const keyboard = parseKeyboard(payload);
       const interests = str(payload, 'interests');

@@ -926,6 +926,41 @@ export function parseCodeCallback(data: string): CodeCallbackKind | null {
 }
 
 /**
+ * One field of a profile, from the edit board (v0.9.1).
+ *
+ * `/edit_profile` used to open a seven-step walk, so changing a display name
+ * meant answering six questions about things that had not changed. The board
+ * makes each field a button, and this is what the button carries.
+ *
+ * **The field name, not a value.** The button says which question to ask; what
+ * the answer may be is `edit-profile.ts`'s business and is validated there, the
+ * same way `cd:` opens a code form without carrying a code. A callback that
+ * carried the new value would be a profile edit anybody with the message could
+ * replay.
+ *
+ * The names are the wizard's own `ProfileField` union, kept short because
+ * `callback_data` is capped at 64 bytes by Telegram — `loc` covers province and
+ * city together, which are two steps and one decision.
+ */
+export const PROFILE_FIELD_KEYS = ['name', 'gender', 'birth', 'loc', 'bio', 'tags'] as const;
+export type ProfileFieldKey = (typeof PROFILE_FIELD_KEYS)[number];
+
+const PROFILE_FIELD_PREFIX = 'pf';
+
+export function encodeProfileFieldCallback(field: ProfileFieldKey): string {
+  return `${PROFILE_FIELD_PREFIX}:${field}:${NO_ID}`;
+}
+
+export function parseProfileFieldCallback(data: string): ProfileFieldKey | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, field, id] = parts;
+  if (prefix !== PROFILE_FIELD_PREFIX || id !== NO_ID) return null;
+  return PROFILE_FIELD_KEYS.find((candidate) => candidate === field) ?? null;
+}
+
+/**
  * «بررسی دوباره» on the channel-join screen (v0.6.5).
  *
  * The gate used to be a message with join links and nothing else, so a user who

@@ -216,8 +216,10 @@ export {
   genderLabel,
   gregorianYearToJalali,
   jalaliYearToGregorian,
+  PROFILE_FIELDS,
+  isProfileField,
 } from './conversation/wizards/edit-profile';
-export type { EditProfileForm } from './conversation/wizards/edit-profile';
+export type { EditProfileForm, ProfileField } from './conversation/wizards/edit-profile';
 export { writeReviewWizard, reviewTagLabel } from './conversation/wizards/write-review';
 export { fileReportWizard, reportReasonLabelFa } from './conversation/wizards/file-report';
 export { adminCaseWizard, adminDecisionLabelFa } from './conversation/wizards/admin-case';

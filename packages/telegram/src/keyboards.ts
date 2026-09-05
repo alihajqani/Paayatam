@@ -3,6 +3,8 @@ import {
   encodeMenuCommand,
   encodeMenuGroup,
   encodeMenuRoot,
+  encodeProfileFieldCallback,
+  type ProfileFieldKey,
 } from './callback-data';
 import { COMMAND_GROUPS, describeCommand, type CommandGroup } from './commands';
 import { escapeHtml } from './escape';
@@ -285,6 +287,44 @@ export function menuCommandFor(text: string): string | null {
  * screen; three per row truncates «🆘 راهنما و پشتیبانی» to «🆘 راهنما و…», and a
  * label that cannot be read is a button that has to be guessed at.
  */
+/**
+ * The six fields of a profile, two to a row (v0.9.1).
+ *
+ * Two per row rather than one, because six single-button rows is a screen you
+ * scroll to read; and rather than three, because the Persian labels wrap at
+ * three on a narrow phone and a wrapped button label is unreadable.
+ *
+ * «همه را پشت سر هم» is last and deliberately still offered: completing a
+ * profile from scratch really is all seven questions, and somebody who has just
+ * arrived should not have to tap six buttons to answer them.
+ */
+/** The heading over the board. One line: the buttons say the rest. */
+export function profileEditText(): string {
+  return '<b>ویرایش نمایه</b>\n\nکدام بخش را می‌خواهید عوض کنید؟';
+}
+
+export function profileEditKeyboard(): InlineKeyboard {
+  const fields: { text: string; field: ProfileFieldKey }[] = [
+    { text: '👤 نام نمایشی', field: 'name' },
+    { text: '🚻 جنسیت', field: 'gender' },
+    { text: '🎂 سال تولد', field: 'birth' },
+    { text: '📍 استان و شهر', field: 'loc' },
+    { text: '📝 درباره من', field: 'bio' },
+    { text: '🏷 علاقه‌مندی‌ها', field: 'tags' },
+  ];
+
+  const rows: { text: string; callbackData: string }[][] = [];
+  for (let index = 0; index < fields.length; index += 2) {
+    rows.push(
+      fields.slice(index, index + 2).map((entry) => ({
+        text: entry.text,
+        callbackData: encodeProfileFieldCallback(entry.field),
+      })),
+    );
+  }
+  return rows;
+}
+
 export function menuRootKeyboard(): InlineKeyboard {
   const rows: { text: string; callbackData: string }[][] = [];
   for (let index = 0; index < COMMAND_GROUPS.length; index += 2) {

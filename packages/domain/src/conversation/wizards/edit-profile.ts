@@ -73,11 +73,60 @@ export interface EditProfileForm {
    * for why this is a flag on one wizard rather than a second wizard.
    */
   onlyInterests?: boolean;
+
+  /**
+   * Edit this one field and ask nothing else (v0.9.1).
+   *
+   * The generalisation of `onlyInterests`, which proved the idea for one field
+   * and then stayed one field: `/edit_profile` walked all seven steps, so
+   * changing a display name meant answering six questions about things that had
+   * not changed — and «رد کردن» six times is how a form stops being used.
+   *
+   * A caller's flag, never asked about, seeded through `initialForm` exactly as
+   * `onlyInterests` is. `onlyInterests` is kept and still honoured so that a
+   * conversation already in flight when this shipped keeps working; new callers
+   * use this.
+   */
+  field?: ProfileField;
+
+  /**
+   * Say which cities are open, on the province step (v0.9.1).
+   *
+   * A boolean rather than the sentence itself, because copy lives in code here
+   * like every other prompt in this file — what an operator needs to change is
+   * *whether* it is shown, and that changes the day a third city opens. Seeded
+   * by the caller, which is the only layer that can read a setting: a wizard's
+   * `prompt` is a pure function of the form by design.
+   */
+  locationNotice?: boolean;
 }
 
-/** Every step except the interests, which `/interests` skips past. */
-function fullFormOnly(form: EditProfileForm): boolean {
-  return form.onlyInterests !== true;
+/**
+ * The fields `/edit_profile` offers as separate buttons.
+ *
+ * `loc` is province **and** city together: they are two steps because Telegram
+ * cannot show 1252 cities in one keyboard, not because they are two decisions —
+ * and a menu entry that changed the province while leaving the city behind would
+ * put somebody in a city they never chose.
+ */
+export const PROFILE_FIELDS = ['name', 'gender', 'birth', 'loc', 'bio', 'tags'] as const;
+export type ProfileField = (typeof PROFILE_FIELDS)[number];
+
+export function isProfileField(value: string): value is ProfileField {
+  return (PROFILE_FIELDS as readonly string[]).includes(value);
+}
+
+/**
+ * Does this step run?
+ *
+ * Absent `field` is the whole form, which is what profile *completion* needs —
+ * a new user has answered nothing and every step is a question they owe.
+ */
+function scopedTo(field: ProfileField): (form: EditProfileForm) => boolean {
+  return (form) => {
+    if (form.onlyInterests === true) return field === 'tags';
+    return form.field === undefined || form.field === field;
+  };
 }
 
 const GENDERS = gender.options;
@@ -196,7 +245,7 @@ function birthYearOf(input: WizardInput): number | string {
 const steps: WizardStep<EditProfileForm>[] = [
   {
     key: 'name',
-    when: fullFormOnly,
+    when: scopedTo('name'),
     ui: 'text',
     optional: true,
     prompt: () => 'نام نمایشی‌تان چه باشد؟ برای تغییر ندادن، «رد کردن» را بزنید.',
@@ -207,7 +256,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'gender',
-    when: fullFormOnly,
+    when: scopedTo('gender'),
     ui: 'choice',
     optional: true,
     prompt: () => 'جنسیت؟',
@@ -227,7 +276,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'birth',
-    when: fullFormOnly,
+    when: scopedTo('birth'),
     ui: 'text',
     optional: true,
     prompt: () => 'سال تولد شما به شمسی؟ برای نمونه: ۱۳۷۰',
@@ -239,10 +288,28 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'prov',
-    when: fullFormOnly,
+    when: scopedTo('loc'),
     ui: 'choice',
     optional: true,
-    prompt: () => 'در کدام استان هستید؟',
+    /**
+     * The one prompt that explains itself (v0.9.1).
+     *
+     * With the catalogue trimmed to two provinces, this step shows two buttons
+     * and no reason — and somebody from Shiraz reads that as a broken product
+     * rather than a deliberate one. Saying *why* costs a sentence and turns a
+     * dead end into a decision the reader can agree with.
+     *
+     * Rendered only when the caller seeds `locationNotice`, so the day a third
+     * city opens the sentence stops being true and stops being shown, without a
+     * deploy.
+     */
+    prompt: (form) =>
+      form.locationNotice === true
+        ? 'در کدام استان هستید؟\n\n' +
+          'فعلاً فقط تهران و مشهد باز است — این عمدی است: پایه‌تَم وقتی کار می‌کند ' +
+          'که در شهرتان به‌اندازهٔ کافی آدم باشد. شهر بعدی را بر اساس همین‌که از کجا ' +
+          'بیشتر ثبت‌نام می‌شود باز می‌کنیم.'
+        : 'در کدام استان هستید؟',
     load: (_form, deps) => deps.provinces(),
     accept: (input) => {
       const id = chosenId(input);
@@ -259,7 +326,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'city',
-    when: fullFormOnly,
+    when: scopedTo('loc'),
     ui: 'choice',
     optional: true,
     prompt: () => 'کدام شهر؟',
@@ -279,7 +346,7 @@ const steps: WizardStep<EditProfileForm>[] = [
   },
   {
     key: 'bio',
-    when: fullFormOnly,
+    when: scopedTo('bio'),
     ui: 'text',
     optional: true,
     prompt: () => 'یکی دو جمله دربارهٔ خودتان.',
@@ -320,6 +387,7 @@ const steps: WizardStep<EditProfileForm>[] = [
    */
   {
     key: 'tags',
+    when: scopedTo('tags'),
     ui: 'multi',
     optional: true,
     prompt: () =>

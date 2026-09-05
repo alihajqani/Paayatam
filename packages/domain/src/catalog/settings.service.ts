@@ -56,6 +56,21 @@ export const SETTING_DEFAULTS = {
    * decides it does.
    */
   'founding.enabled': 0,
+
+  /**
+   * Say which cities are open, on the profile form's province step (v0.9.1).
+   *
+   * A switch, not the sentence: the copy lives in `edit-profile.ts` with every
+   * other prompt, and what an operator needs on the day a third city opens is to
+   * stop showing a sentence that has stopped being true — without a deploy.
+   *
+   * **Defaults to 1**, unlike `founding.enabled`, and the asymmetry is the
+   * point. A rank is irreversible so the campaign ships inert; a sentence is
+   * not, and the harm runs the other way — the catalogue is trimmed to two
+   * provinces *today*, so shipping this off would mean a live product showing
+   * two buttons and no reason for a whole release cycle.
+   */
+  'profile.location_notice': 1,
   'founding.tier1_max_rank': 100,
   'founding.tier1_coins': 150,
   'founding.tier2_max_rank': 400,

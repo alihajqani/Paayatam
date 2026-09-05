@@ -23,9 +23,16 @@
  * than trusted, because the failure mode is a `setMyCommands` that rejects the
  * whole array — so one bad entry publishes none of them.
  *
- * `/start` is deliberately **not** here. Telegram gives every bot a Start button
- * of its own, and listing it again spends the first line of a short menu on the
- * one action the client already offers.
+ * `/start` **is** here, and it used to be deliberately absent (v0.9.1).
+ *
+ * The old argument was that Telegram gives every bot a Start button of its own,
+ * so listing it again spends the first line of a short menu on the one action
+ * the client already offers. That is true for somebody opening the bot for the
+ * first time — and they are not who needs it. Telegram shows that button on an
+ * *empty* chat; once there is a conversation it is gone, and the release
+ * announcement this product sends on every deploy says, in as many words,
+ * «لطفاً یک بار /start را بزنید تا ربات از نو باز شود». A menu that omits the one
+ * command the product asks people to run is a menu that makes them type it.
  */
 export interface BotCommand {
   /** Without the slash, as `setMyCommands` wants it. */
@@ -35,6 +42,11 @@ export interface BotCommand {
 }
 
 export const BOT_COMMANDS: readonly BotCommand[] = [
+  /**
+   * First, because it is the one the announcement points at and the one somebody
+   * reaches for when the bot has stopped making sense to them.
+   */
+  { command: 'start', description: 'شروع دوباره و باز کردن منوی اصلی' },
   { command: 'menu', description: 'فهرست دستورها به‌صورت دکمه' },
   { command: 'help', description: 'راهنمای کار با ربات' },
   { command: 'create_event', description: 'ساختن فعالیت تازه' },
@@ -153,7 +165,10 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
     key: 'hp',
     label: '🆘 راهنما و پشتیبانی',
     hint: 'اگر جایی گیر کردید یا چیزی درست کار نکرد',
-    commands: ['menu', 'help', 'bug'],
+    // `start` first, and in this group rather than «حساب من»: it is not
+    // something you do to your account, it is what you reach for when the bot
+    // has stopped making sense — which is what this group is for.
+    commands: ['start', 'menu', 'help', 'bug'],
   },
 ] as const;
 

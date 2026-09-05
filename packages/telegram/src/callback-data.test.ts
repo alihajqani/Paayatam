@@ -7,6 +7,9 @@ import {
   isPublicId,
   parseChatCallback,
   parseCodeCallback,
+  PROFILE_FIELD_KEYS,
+  encodeProfileFieldCallback,
+  parseProfileFieldCallback,
 } from './callback-data';
 
 const ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -113,5 +116,30 @@ describe('the code-entry protocol', () => {
   it('is not confused with a chat button, and does not confuse one', () => {
     expect(parseCodeCallback(encodeChatCallback('accept', ID))).toBeNull();
     expect(parseChatCallback(encodeCodeCallback('gift'))).toBeNull();
+  });
+});
+
+describe('the profile-edit board callbacks (v0.9.1)', () => {
+  it('round-trips every field', () => {
+    for (const field of PROFILE_FIELD_KEYS) {
+      expect(parseProfileFieldCallback(encodeProfileFieldCallback(field))).toBe(field);
+    }
+  });
+
+  /** Telegram caps `callback_data` at 64 bytes and rejects the whole keyboard. */
+  it('stays inside Telegram’s 64-byte budget', () => {
+    for (const field of PROFILE_FIELD_KEYS) {
+      expect(Buffer.byteLength(encodeProfileFieldCallback(field), 'utf8')).toBeLessThanOrEqual(64);
+    }
+  });
+
+  /**
+   * A parser that accepted a neighbouring family's data would open a profile
+   * form for a tap that meant something else entirely.
+   */
+  it('refuses anything that is not its own', () => {
+    for (const data of ['pf:nope:-', 'pf:name', 'pf:name:1', 'cd:gift:-', '', 'pf::-']) {
+      expect(parseProfileFieldCallback(data)).toBeNull();
+    }
   });
 });
