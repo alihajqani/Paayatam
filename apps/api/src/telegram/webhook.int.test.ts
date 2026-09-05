@@ -3305,13 +3305,12 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
     const userId = await seedGuest(GUEST_TELEGRAM_ID, 'نام قدیمی');
     const before = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
 
+    // Through the board (v0.9.1). This used to be six «رد کردن» taps to change
+    // one field, which is the reason the board exists — and "only the answered
+    // field moves" is now structural rather than something six skips promise.
     await type(GUEST_TELEGRAM_ID, '/edit_profile');
+    await tap(GUEST_TELEGRAM_ID, 'pf:name:x');
     await type(GUEST_TELEGRAM_ID, 'نام تازه');
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // birth year
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // province
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // city
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // bio
     await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
 
     const after = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
@@ -3329,16 +3328,19 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
    * it could do itself, three screens after a Jalali date picker. It now asks in
    * Jalali and converts, so ۱۳۷۰ is the *right* answer and moves the form on.
    */
-  it('takes a Jalali year and moves on', async () => {
-    await seedGuest(GUEST_TELEGRAM_ID, 'نام');
+  it('takes a Jalali year and writes the Gregorian one', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID, 'نام');
 
     await type(GUEST_TELEGRAM_ID, '/edit_profile');
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // name
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
+    await tap(GUEST_TELEGRAM_ID, 'pf:birth:x');
     await type(GUEST_TELEGRAM_ID, '۱۳۷۰');
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
 
-    const state = await prisma.conversationState.findFirstOrThrow();
-    expect(state.step).toBe('prov');
+    // Stronger than "the form advanced", which is all this could assert while
+    // the year was step three of seven: the conversion is the point, so the
+    // number that reaches the column is what proves it.
+    const after = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
+    expect(after.birthYear).toBe(1991);
   });
 
   /**
@@ -3351,8 +3353,7 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
     await seedGuest(GUEST_TELEGRAM_ID, 'نام');
 
     await type(GUEST_TELEGRAM_ID, '/edit_profile');
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // name
-    await tap(GUEST_TELEGRAM_ID, 'wz:skip:'); // gender
+    await tap(GUEST_TELEGRAM_ID, 'pf:birth:x');
     await type(GUEST_TELEGRAM_ID, '۱۹۹۱');
 
     const state = await prisma.conversationState.findFirstOrThrow();
