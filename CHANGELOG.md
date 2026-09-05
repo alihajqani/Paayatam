@@ -14,6 +14,53 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.9.1] — 2026-09-05
+
+Three things the launch needed and the bot did not have.
+
+### Added
+
+- **`/edit_profile` is a board of buttons, one per field.** It used to open a
+  seven-step walk in which every step was skippable — which sounds forgiving and
+  is not: changing a display name meant pressing «رد کردن» six times, and a form
+  that charges six taps for one edit is a form people stop opening. Each field is
+  now a button, and the wizard asks only about the one that was tapped. «استان و
+  شهر» is deliberately one button and two steps: they are two keyboards because
+  1252 cities do not fit in one, not two decisions, and a menu entry that changed
+  the province while leaving the city behind would put somebody in a city they
+  never chose.
+- **The profile form says which cities are open.** With the catalogue trimmed to
+  Tehran and Mashhad, the province step showed two buttons and no reason — which
+  reads as a broken product rather than a deliberate one. It now explains why, and
+  says the next city is chosen from where people actually sign up. Behind
+  `profile.location_notice`, so the day a third city opens the sentence stops
+  being shown without a deploy.
+- **`/start` is in the command menu**, and used to be deliberately absent. The old
+  argument was that Telegram offers a Start button of its own. It does — on an
+  *empty* chat, which is not where anybody needs it: once there is a conversation
+  the button is gone, and the release announcement this product sends on every
+  deploy says, in as many words, «لطفاً یک بار /start را بزنید». A menu that omits
+  the one command the product asks people to run is a menu that makes them type it.
+
+### Changed
+
+- The interests-only flag on the profile wizard became a general field selector.
+  `onlyInterests` proved the idea for one field in v0.8.1 and then stayed one
+  field; it is still honoured so a conversation open across the upgrade keeps
+  working, and `/interests` now goes through the same selector as every button on
+  the board.
+- `/help` no longer prints `/start` twice. It was appended by hand precisely
+  because the command list left it out, and the hand-written line carried a second
+  description — which is how two descriptions of one command drift apart.
+
+### Note for the operator
+
+`profile.location_notice` defaults to **1**, unlike `founding.enabled`, and the
+asymmetry is deliberate: a rank is irreversible so the campaign ships inert, but a
+sentence is not, and the catalogue is trimmed *today* — shipping the notice off
+would mean a live product showing two buttons and no reason for a whole release
+cycle.
+
 ## [v0.9.0] — 2026-09-04
 
 The launch campaign: the first thousand members to complete a profile get a
