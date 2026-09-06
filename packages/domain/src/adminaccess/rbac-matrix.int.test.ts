@@ -21,6 +21,7 @@ import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
+import { FoundingAdminService } from './founding-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ProfileService } from '../profile/profile.service';
 import { MessagingService } from '../messaging/messaging.service';
@@ -119,6 +120,7 @@ const unseal = new ChatUnsealService(service, clock, settings, cipher, access, a
 const giftCodes = new GiftCodeAdminService(service, clock, access, settings, audit);
 const referrals = new ReferralAdminService(service, clock, access, audit);
 const insight = new AdminInsightService(service, clock, access);
+const foundingAdmin = new FoundingAdminService(service, clock, access, settings);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
@@ -318,6 +320,19 @@ const OPERATIONS: Operation[] = [
     name: 'GET /admin/v1/dashboard',
     permission: PERMISSIONS.DASHBOARD_READ,
     run: (session) => insight.dashboard(session),
+  },
+  // The launch campaign (v0.10.1). Two entries, not one: the report is
+  // aggregates and the roster names people, which is why they sit behind
+  // different keys on the same screen.
+  {
+    name: 'GET /admin/v1/founding',
+    permission: PERMISSIONS.DASHBOARD_READ,
+    run: (session) => foundingAdmin.report(session),
+  },
+  {
+    name: 'GET /admin/v1/founding/members',
+    permission: PERMISSIONS.USER_READ,
+    run: (session) => foundingAdmin.members(session),
   },
   {
     name: 'GET /admin/v1/users',
@@ -593,7 +608,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(67);
+    expect(OPERATIONS).toHaveLength(69);
   });
 
   for (const role of ROLES) {

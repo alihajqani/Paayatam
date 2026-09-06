@@ -25,6 +25,7 @@ import {
   ChannelAdminService,
   AdminOperationsService,
   ChatUnsealService,
+  FoundingAdminService,
   GeographyAdminService,
   GiftCodeAdminService,
   MessagingAdminService,
@@ -35,6 +36,7 @@ import {
   type RequiredChannelRecord,
   type CitySummary,
   type ConsentRecord,
+  type FoundingMemberRow,
   type MessageCampaignSummary,
   type EventSummary,
   type GiftCodeSummary,
@@ -44,6 +46,7 @@ import {
   type ReferralReview,
   type UserSummary,
 } from '@payetam/domain';
+import { foundingTierName } from '@payetam/telegram';
 import type { Env } from '@payetam/config';
 import { ENV, JOBS, PiiHasher, QUEUES, QueueService, jobId } from '@payetam/platform';
 import { AppError, ErrorCode, PERMISSIONS, resolveVersion } from '@payetam/shared';
@@ -65,6 +68,7 @@ import {
   adminLoginRequest,
   adminReportListQuery,
   adminUserListQuery,
+  foundingMemberListQuery,
   analyticsWindowQuery,
   bulkCreateGiftCodesRequest,
   createGiftCodeRequest,
@@ -136,6 +140,10 @@ import {
   type AdminAuditQuery,
   type AdminAuditResponse,
   type AdminDashboardResponse,
+  type FoundingMemberListQuery,
+  type FoundingMemberListResponse,
+  type FoundingMemberView,
+  type FoundingReportResponse,
   type AdminEventListQuery,
   type AdminEventListResponse,
   type AdminEventView,
@@ -238,6 +246,8 @@ export class AdminController {
     private readonly messaging: MessagingAdminService,
     private readonly policies: PolicyAdminService,
     private readonly insight: AdminInsightService,
+    /** The launch campaign's report. Read-only: the lever lives in settings. */
+    private readonly founding: FoundingAdminService,
     /** «مشکلی پیدا کردم» (v0.6.5) — the product's own queue, not moderation's. */
     private readonly bugReports: BugReportService,
     /**
@@ -867,6 +877,66 @@ export class AdminController {
   @Get('version')
   version(): { version: string } {
     return { version: this.release };
+  }
+
+  // ── The launch campaign ────────────────────────────────────────────────────
+
+  /**
+   * The founding-members campaign, as one report (v0.10.1).
+   *
+   * `dashboard.read`, asserted in the service: every number here is an aggregate,
+   * which is exactly what ADR-0010 means by giving `ANALYST` "read-only
+   * aggregates". The roster below is a different endpoint behind a different
+   * permission, because a count of who joined and a list of who they are are not
+   * the same disclosure.
+   *
+   * **No write lives here.** The campaign's one lever is `founding.enabled` in
+   * `app_setting`, and `POST settings/:key` already owns it — a switch on this
+   * screen would be a second write path to one number.
+   */
+  @Get('founding')
+  async foundingReport(@CurrentAdmin() admin: AdminSession): Promise<FoundingReportResponse> {
+    const report = await this.founding.report(admin);
+    return {
+      enabled: report.enabled,
+      awarded: report.awarded,
+      max: report.max,
+      remaining: report.remaining,
+      coinsGranted: report.coinsGranted,
+      firstAwardedAt: report.firstAwardedAt?.toISOString() ?? null,
+      lastAwardedAt: report.lastAwardedAt?.toISOString() ?? null,
+      joinedLast24h: report.joinedLast24h,
+      joinedLast7Days: report.joinedLast7Days,
+      // `foundingTierName` rather than a second table of Persian names in the
+      // panel: a member is told «شما بنیان‌گذار هستید» by the bot, and a report
+      // that called the same wave something else would be describing a tier
+      // nobody was given.
+      tiers: report.tiers.map((tier) => ({ ...tier, name: foundingTierName(tier.tier) })),
+      trend: report.trend,
+      cities: report.cities,
+      sources: report.sources,
+      waitlist: report.waitlist,
+    };
+  }
+
+  /**
+   * Who the members are, by rank.
+   *
+   * `user.read` — this one names people. Behind the same permission as
+   * `GET users`, and for the same reason: it is the same disclosure reached by a
+   * different route.
+   */
+  @Get('founding/members')
+  async foundingMembers(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(foundingMemberListQuery)) query: FoundingMemberListQuery,
+  ): Promise<FoundingMemberListResponse> {
+    const page = await this.founding.members(admin, {
+      ...(query.tier !== undefined ? { tier: query.tier } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { members: page.rows.map(toFoundingMemberView), total: page.total };
   }
 
   // ── Users ──────────────────────────────────────────────────────────────────
@@ -1965,6 +2035,27 @@ function toAdminUserView(user: UserSummary): AdminUserView {
     trustScore: user.trustScore,
     coinBalance: user.coinBalance,
     createdAt: user.createdAt.toISOString(),
+  };
+}
+
+/**
+ * One founding member, for the roster.
+ *
+ * `publicId` and nothing that could be traced further. The rank is the whole
+ * point of the row here — unlike the bot's roster line, which shows the tier
+ * alone, because a number beside a stranger's name in a list ranks the people in
+ * the room against one another.
+ */
+function toFoundingMemberView(row: FoundingMemberRow): FoundingMemberView {
+  return {
+    rank: row.rank,
+    tier: row.tier,
+    name: foundingTierName(row.tier),
+    coins: row.coins,
+    awardedAt: row.awardedAt.toISOString(),
+    publicId: row.publicId,
+    displayName: row.displayName,
+    cityNameFa: row.cityNameFa,
   };
 }
 

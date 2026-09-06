@@ -52,6 +52,25 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'نمای کلی', permission: PERMISSIONS.DASHBOARD_READ, group: 'overview' },
   },
   {
+    /**
+     * The launch campaign (v0.10.1).
+     *
+     * `dashboard.read` rather than something narrower, because the page's own
+     * report is aggregates and that is exactly what ADR-0010 gives `ANALYST`.
+     * The roster inside it needs `user.read` and the view checks for it before
+     * fetching — one screen, two disclosures, and the narrower half simply is
+     * not requested by a session that cannot have it.
+     *
+     * Filed under «نمای کلی» beside the dashboard: it answers the same question
+     * at the start of a shift — is growth happening, and where — rather than
+     * being a lever on the economy.
+     */
+    path: '/campaign',
+    name: 'campaign',
+    component: () => import('@/views/CampaignView.vue'),
+    meta: { title: 'کمپین هزار نفر', permission: PERMISSIONS.DASHBOARD_READ, group: 'overview' },
+  },
+  {
     path: '/users',
     name: 'users',
     component: () => import('@/views/UsersView.vue'),

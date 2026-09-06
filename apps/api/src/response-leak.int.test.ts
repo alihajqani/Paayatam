@@ -1076,6 +1076,15 @@ beforeAll(async () => {
      * conversation are all scanned.
      */
     /**
+     * The launch campaign (v0.10.1). The report is aggregates; the roster is a
+     * list of *named* accounts ordered by rank, which is the shape most likely
+     * to have a `telegram_account` joined onto it by somebody adding a column.
+     */
+    { method: 'GET', url: '/admin/v1/founding', admin: true },
+    { method: 'GET', url: '/admin/v1/founding/members', admin: true },
+    { method: 'GET', url: '/admin/v1/founding/members?tier=1&limit=5', admin: true },
+
+    /**
      * M19's referral review. The queue is a screen full of *other people's*
      * relationships, which makes it exactly the kind of admin surface a Telegram
      * identifier would be least surprising and most damaging on.

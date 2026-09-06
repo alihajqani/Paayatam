@@ -330,6 +330,12 @@ export {
   updateActivityTagRequest,
   reorderActivityTagsRequest,
   adminPlacesResponse,
+  foundingTierBreakdown,
+  foundingCityRow,
+  foundingReportResponse,
+  foundingMemberView,
+  foundingMemberListQuery,
+  foundingMemberListResponse,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -455,6 +461,12 @@ export type {
   UpdateActivityTagRequest,
   ReorderActivityTagsRequest,
   AdminPlacesResponse,
+  FoundingTierBreakdown,
+  FoundingCityRow,
+  FoundingReportResponse,
+  FoundingMemberView,
+  FoundingMemberListQuery,
+  FoundingMemberListResponse,
 } from './contracts/admin';
 
 export { foldForSearch, foldedIncludes } from './search-fold';

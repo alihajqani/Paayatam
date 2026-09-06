@@ -128,6 +128,18 @@ describe('a session that cannot open a page', () => {
 
     expect(router.currentRoute.value.name).toBe('dashboard');
   });
+
+  /**
+   * The campaign report is aggregates, so it sits behind `dashboard.read` and an
+   * `ANALYST` opens it. The roster inside it is behind `user.read` and the view
+   * does not fetch it for a session that lacks the key — which is what keeps
+   * "read-only aggregates" true of a screen that also has names on it.
+   */
+  it('opens the campaign report, which is aggregates', async () => {
+    await router.push('/campaign');
+
+    expect(router.currentRoute.value.name).toBe('campaign');
+  });
 });
 
 describe('a signed-in operator', () => {
@@ -150,6 +162,7 @@ describe('a signed-in operator', () => {
   it('reaches every screen a SUPER_ADMIN holds', async () => {
     for (const path of [
       '/',
+      '/campaign',
       '/users',
       '/events',
       '/reports',

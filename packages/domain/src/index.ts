@@ -334,6 +334,14 @@ export type {
   UserDetail,
   UserSummary,
 } from './adminaccess/admin-insight.service';
+export { FoundingAdminService } from './adminaccess/founding-admin.service';
+export type {
+  FoundingCityRollup,
+  FoundingMemberPage,
+  FoundingMemberRow,
+  FoundingReport,
+  FoundingTierRollup,
+} from './adminaccess/founding-admin.service';
 export { ReferralAdminService } from './adminaccess/referral-admin.service';
 export type {
   ReferralListFilters,

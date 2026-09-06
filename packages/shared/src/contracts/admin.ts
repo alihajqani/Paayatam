@@ -1818,3 +1818,162 @@ export const notificationSettingsView = z.object({
   hasProfile: z.boolean(),
 });
 export type NotificationSettingsView = z.infer<typeof notificationSettingsView>;
+
+// ── The launch campaign ──────────────────────────────────────────────────────
+
+/**
+ * One wave of the campaign, with what it was *configured* to pay beside what it
+ * *did* pay (v0.10.1).
+ *
+ * Both, and the pair is the point. `maxRank` and `configuredCoins` are read from
+ * `app_setting` as they stand today; `members` and `coins` are summed from the
+ * snapshot on each `founding_member` row, which is what actually applied at the
+ * moment that rank was allocated. An operator who retunes a boundary mid campaign
+ * makes those two disagree, and a screen that showed only the configuration would
+ * report a schedule nobody was ever paid.
+ */
+export const foundingTierBreakdown = z.object({
+  tier: z.number().int().positive(),
+  /** «بنیان‌گذار» · «پیشگام» · «همراه نخست» — the same names the bot uses. */
+  name: z.string(),
+  /** The tier's upper rank bound, as configured now. */
+  maxRank: z.number().int().nonnegative(),
+  /** What a member joining this tier would be granted now. */
+  configuredCoins: z.number().int().nonnegative(),
+  /** Members holding this tier, from the snapshot. */
+  members: z.number().int().nonnegative(),
+  /** Coins actually granted to them, from the snapshot. */
+  coins: z.number().int().nonnegative(),
+});
+export type FoundingTierBreakdown = z.infer<typeof foundingTierBreakdown>;
+
+/**
+ * Where the members came from, one row per city.
+ *
+ * `members` counts founding members; `profiles` counts every completed profile in
+ * the city. They differ, and the gap is worth seeing: profiles completed while
+ * `founding.enabled` was 0, or after the cap was reached, are in the second and
+ * not the first.
+ */
+export const foundingCityRow = z.object({
+  slug: z.string(),
+  nameFa: z.string(),
+  /** Whether the product actually runs there — `city.is_launched`. */
+  isLaunched: z.boolean(),
+  members: z.number().int().nonnegative(),
+  profiles: z.number().int().nonnegative(),
+});
+export type FoundingCityRow = z.infer<typeof foundingCityRow>;
+
+/**
+ * The campaign, as the panel reads it.
+ *
+ * **Read-only, deliberately.** `founding.enabled` is a row in `app_setting` and
+ * the settings screen is where it is written; a second control here would be a
+ * second write path to one number, and the one that drifts is always the one
+ * fewer people read. This endpoint reports the switch's position and links to
+ * where it is thrown.
+ *
+ * Behind `dashboard.read` rather than something narrower, because every number
+ * here is an aggregate and ADR-0010's `ANALYST` is exactly the reader it is for.
+ * The named roster is a different endpoint behind `user.read` — a count of who
+ * joined and a list of who they are are not the same disclosure.
+ */
+export const foundingReportResponse = z.object({
+  /** `founding.enabled !== 0`. A campaign that is off still has a history. */
+  enabled: z.boolean(),
+  /** Ranks handed out: `next_rank - 1`. */
+  awarded: z.number().int().nonnegative(),
+  /** The cap, `founding_campaign.max_rank`. */
+  max: z.number().int().nonnegative(),
+  /** `max - awarded`, floored at zero so a retuned cap cannot read negative. */
+  remaining: z.number().int().nonnegative(),
+  /** Summed from the snapshots, never from today's tier configuration. */
+  coinsGranted: z.number().int().nonnegative(),
+  firstAwardedAt: z.iso.datetime().nullable(),
+  lastAwardedAt: z.iso.datetime().nullable(),
+  joinedLast24h: z.number().int().nonnegative(),
+  joinedLast7Days: z.number().int().nonnegative(),
+  tiers: z.array(foundingTierBreakdown),
+  /** One row per UTC day that saw a member, oldest first. */
+  trend: z.array(
+    z.object({
+      day: z.string(),
+      members: z.number().int().nonnegative(),
+      coins: z.number().int().nonnegative(),
+    }),
+  ),
+  /** Ordered by members, most first. Cities with no member are absent. */
+  cities: z.array(foundingCityRow),
+  /**
+   * How the members reached the product.
+   *
+   * **These overlap.** `referred` and `giftCode` are two things that may both be
+   * true of one person, so they do not sum to `awarded`; `direct` is the count
+   * for whom neither is true, and `referred + giftCode + direct >= awarded` is
+   * the only relation that holds. Reported as three independent counts rather
+   * than a partition, because a partition here would be a lie with arithmetic
+   * on top.
+   */
+  sources: z.object({
+    /** Arrived on somebody's referral code. */
+    referred: z.number().int().nonnegative(),
+    /** Has redeemed a gift code — at any time, not necessarily to sign up. */
+    giftCode: z.number().int().nonnegative(),
+    /** Neither of the above. */
+    direct: z.number().int().nonnegative(),
+  }),
+  /**
+   * The cities that are not open yet, by how close they are.
+   *
+   * The operator's next decision: `city.launch_threshold` completed profiles
+   * open a city, and this is the queue ordered by distance from it. Closed
+   * cities with nobody in them are absent — a list of 1,220 zeroes answers
+   * nothing.
+   */
+  waitlist: z.object({
+    threshold: z.number().int().nonnegative(),
+    cities: z.array(
+      z.object({
+        slug: z.string(),
+        nameFa: z.string(),
+        profiles: z.number().int().nonnegative(),
+      }),
+    ),
+  }),
+});
+export type FoundingReportResponse = z.infer<typeof foundingReportResponse>;
+
+/**
+ * One member, by rank.
+ *
+ * `publicId`, never the internal id and never a Telegram anything (invariant 7).
+ * The display name is here because this endpoint is behind `user.read` and the
+ * question it answers — "who are the first hundred?" — is not answerable without
+ * it.
+ */
+export const foundingMemberView = z.object({
+  rank: z.number().int().positive(),
+  tier: z.number().int().positive(),
+  name: z.string(),
+  coins: z.number().int().nonnegative(),
+  awardedAt: z.iso.datetime(),
+  publicId: z.uuid(),
+  /** Null for an account whose profile row has since been removed. */
+  displayName: z.string().nullable(),
+  cityNameFa: z.string().nullable(),
+});
+export type FoundingMemberView = z.infer<typeof foundingMemberView>;
+
+export const foundingMemberListQuery = z.object({
+  tier: z.coerce.number().int().min(1).max(9).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type FoundingMemberListQuery = z.infer<typeof foundingMemberListQuery>;
+
+export const foundingMemberListResponse = z.object({
+  members: z.array(foundingMemberView),
+  total: z.number().int().nonnegative(),
+});
+export type FoundingMemberListResponse = z.infer<typeof foundingMemberListResponse>;

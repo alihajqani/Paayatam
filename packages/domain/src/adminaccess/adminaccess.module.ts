@@ -14,6 +14,7 @@ import { AdminTelegramService } from './admin-telegram.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { ChannelAdminService } from './channel-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
+import { FoundingAdminService } from './founding-admin.service';
 import { GeographyAdminService } from './geography-admin.service';
 import { MessagingAdminService } from './messaging-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
@@ -55,6 +56,7 @@ import { ReferralAdminService } from './referral-admin.service';
     AdminOperationsService,
     AdminTelegramService,
     AdminInsightService,
+    FoundingAdminService,
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
@@ -70,6 +72,7 @@ import { ReferralAdminService } from './referral-admin.service';
     AdminOperationsService,
     AdminTelegramService,
     AdminInsightService,
+    FoundingAdminService,
     GiftCodeAdminService,
     ReferralAdminService,
     CatalogAdminService,
