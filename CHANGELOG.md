@@ -14,6 +14,64 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.10.1] — 2026-09-06
+
+The founding-1000 campaign gets a screen. Until now every number it produced
+lived in `founding_campaign` and `founding_member` and the only way to read one
+was a `psql` session on the server — so an operator deciding whether to keep
+spending on traffic had to ask an engineer.
+
+Admin-only, read-only, no migration. Nothing a user sees changes.
+
+### Added
+
+- **«کمپین هزار نفر» in the admin panel,** under «نمای کلی» beside the dashboard.
+  It answers, on one screen: whether the campaign is running, how many ranks have
+  been handed out against the cap, how many coins that cost, the daily curve, the
+  three waves, **which cities the members came from**, how they arrived, and the
+  queue of closed cities ordered by distance from `city.launch_threshold` — which
+  is the next launch decision.
+- **`GET /admin/v1/founding`** — the report, as one round of parallel aggregates.
+  Behind `dashboard.read`, so an `ANALYST` can read all of it.
+- **`GET /admin/v1/founding/members`** — the roster by rank, with each member's
+  public id, display name and city. Behind `user.read`.
+
+### Why the roster is a second endpoint
+
+A count of who joined and a list of who they are are not the same disclosure.
+ADR-0010 gives `ANALYST` `dashboard.read` and nothing else because *"read-only
+aggregates means aggregates, not a licence to read every user record"*, and a
+single endpoint would have forced a choice between locking the analyst out of
+their own screen and handing them the names. The view checks the permission and
+simply does not fetch the second half for a session that lacks it.
+
+### What is deliberately absent
+
+**No switch.** The campaign has one lever — `founding.enabled` in `app_setting` —
+and the settings screen already owns it. A control here would be a second write
+path to one number, with a second audit shape and a second set of validation.
+The screen shows the switch's position and links to where it is thrown, for the
+sessions that hold `settings.manage`. Nothing in this release writes, which is
+also why invariant 12 has nothing to say about it.
+
+### Notes
+
+- Every count comes from the **snapshot** on `founding_member`, never recomputed
+  from today's tier boundaries. Those are runtime settings an operator may retune
+  mid campaign, and a report that recomputed would describe a schedule nobody was
+  paid on. The configured numbers sit beside the paid ones so a disagreement is
+  visible rather than hidden.
+- The three acquisition counts — referral, gift code, neither — **overlap and do
+  not sum to the total**, and the screen says so. One person can arrive on a
+  code and redeem another later; a pie chart there would be arithmetic laid over
+  a false claim.
+- A city's members and its waiting list come from one `LEFT JOIN` over
+  `user_profile`, because "how many came from here" and "how many are waiting
+  here" are the same scan with a different filter, and the second is the
+  denominator of the first.
+- Both endpoints are registered in `response-leak.int.test.ts` (invariant 7) and
+  both appear in the RBAC matrix, whose operation count moves 67 → 69.
+
 ## [v0.10.0] — 2026-09-05
 
 A city can now be chosen before it is open, which is what makes a waiting list
