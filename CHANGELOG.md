@@ -14,6 +14,107 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.11.0] — 2026-09-08
+
+The coin economy was a spring, not a sink. Joining an activity cost five coins
+and reviewing that same activity paid ten, so **every attendance left a user
+five coins richer** — nobody ever reached a zero balance, and that one pair is
+the whole reason coin revenue was zero. Not the price, and not the missing
+payment gateway.
+
+This ships `docs/coin-economy-plan.md`: eleven prices as code defaults, twelve
+new keys, three new capabilities, and two admin screens.
+
+**One migration, additive only** — three `coin_ledger_type` values. No table, no
+column, no backfill.
+
+### ⚠️ The prices in the database do not change themselves
+
+`SETTING_DEFAULTS` is the fallback for a **missing** row, so a key that already
+has a row in `app_setting` keeps the value it has. This deployment's database
+holds rows for seven of the eleven, so after upgrading the economy is
+half-applied until an operator sets them from «تنظیمات». That is deliberate —
+reverting a policy number is an admin action with a reason and an audit trail,
+not something a deploy does behind somebody's back — but it is the step without
+which this release does not do what it says.
+
+| Key | Set it to |
+|---|---|
+| `economy.event_join_coins` | 20 |
+| `economy.review_reward_coins` | 5 |
+| `economy.onboarding_reward_coins` | 35 |
+| `economy.referral_referrer_coins` | 20 |
+| `economy.event_create_coins` | 10 |
+| `economy.event_channel_publish_coins` | 15 |
+| `economy.event_channel_send_coins` | 8 |
+| `economy.event_top_invite_coins` | 30 |
+| `founding.tier1_coins` / `tier2` / `tier3` | 30 / 20 / 10 |
+
+### Added
+
+- **Caps on every renewable coin source.** A review, a referral and a hosted
+  event each pay repeatedly and had no ceiling. One rolling window
+  (`economy.earning_cap_days`) and three caps, so the most anybody can farm is
+  about a hundred coins a month. A referrer at their cap is still told their
+  invitation qualified, with different words — silence is the failure v0.7.0
+  already fixed once.
+- **The registration charge becomes a deposit.** `HostRewardService` returns it
+  when the activity was actually held, and pays `economy.host_reward_per_attendee_coins`
+  for each guest who turned up. Conditional on at least two attendees **and** the
+  host having written their reviews, which is why it is an hourly sweep rather
+  than a hook — the last review may land on day six. The refund is floored at
+  what that host was actually charged for that event, read back from the ledger,
+  so a mistuned setting cannot mint coins.
+- **A comeback grant**, once in an account's life, to somebody who has attended
+  at least twice, kept their trust score up, and can no longer afford an
+  activity. Once-in-a-lifetime is the ledger's UNIQUE `idempotency_key`, not a
+  counter somebody could reset. A daily sweep at 10:00 Tehran — chosen for when
+  the message lands, not for load.
+- **«سلامت اقتصاد»** in the admin panel: plan §12's seven monthly metrics,
+  computed live, each with its target and — when unhealthy — what to do about it.
+  Four of the seven are not "higher is better" and two are two-sided.
+- **Every setting explains itself.** «تغییر» now opens one dialog carrying what
+  the number is, what a good value looks like, and what breaks at the extremes.
+  The catalogue lives beside `SETTING_DEFAULTS` and a type constraint makes it
+  total, so a key added without an explanation fails the build.
+- **`GET /admin/v1/economy`**, behind `dashboard.read` — every number on it is an
+  aggregate. Read-only: every lever is a settings row that already has a screen.
+
+### Changed
+
+- **Prices** (as defaults): join 5 → 20, review reward 10 → 5, onboarding 50 →
+  35, referrer 30 → 20, create 5 → 10, channel publish 10 → 15, channel send
+  5 → 8, targeted invite 20 → 30, founding tiers 150/80/40 → 30/20/10.
+- The bot says the registration charge **comes back**, and prices the welcome
+  gift in evenings out rather than in coins — «۳۵ سکه هدیه گرفتید، تقریباً دو بار
+  شرکت» — because coins are a unit a new user has known about for ninety seconds.
+- Two new notifications, both `essential`: the hosting settlement and the
+  comeback grant. Money changing hands is not something a preference silences.
+- `LEDGER_TYPE_LABELS` moved to the admin app's format layer. It was local to
+  one screen and had fallen five types behind the enum, so the ledger filter
+  could not select the product's most common movement.
+
+### Fixed
+
+- **A test that had been failing on `master` since the 7th.** `founding-admin`
+  pinned a trend bucket to the literal `'2026-09-06'`, but `founding_member.awarded_at`
+  defaults to the *database's* `now()` rather than the injected clock — so it was
+  correct on the day it was written and a time bomb after it.
+- About thirty integration assertions were arithmetic over hard-coded prices and
+  now read `SETTING_DEFAULTS`. One mattered: the 20-concurrent-joins case runs
+  fifty iterations against a fixed endowment, so at the new price it exhausted
+  the balance half way through and read as a seat-accounting regression.
+  `catalog.service` keeps its literals deliberately — that suite exists to fail
+  until somebody writes a new price down.
+
+### Deliberately not in this release
+
+The 48-hour boost and the «پایه‌تم پلاس» pass (plan §11 puts both after month
+six, when there is liquidity to make them worth anything), and the `debt` column
+that would make a penalty bite on a zero balance — §13 decision 5 accepts that
+hole for now. A penalty clamped to zero still writes no ledger row, so an account
+with nothing left can still no-show for free.
+
 ## [v0.10.1] — 2026-09-06
 
 The founding-1000 campaign gets a screen. Until now every number it produced
