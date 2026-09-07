@@ -8,7 +8,7 @@ import {
   TEST_CHAT_ENCRYPTION_KEY,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { CoinService } from '../economy/coin.service';
 import { ReferralService } from '../economy/referral.service';
@@ -63,6 +63,13 @@ const referrals = new ReferralService(
 );
 
 let MODERATOR: AdminSession;
+/**
+ * The pair's amounts, read rather than written — the coin economy rebalance moved
+ * the referrer's half, and none of these tests is about the price.
+ */
+const REFERRER_COINS = SETTING_DEFAULTS['economy.referral_referrer_coins'];
+const REFERRED_COINS = SETTING_DEFAULTS['economy.referral_referred_coins'];
+
 let referrer: string;
 let referred: string;
 
@@ -216,7 +223,7 @@ describe('rejecting a referral', () => {
       admin.reject(MODERATOR, id, { reason: 'FRAUD', note: 'Found out too late.' }),
     ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
 
-    expect(await coins.balanceOf(referrer)).toBe(30);
+    expect(await coins.balanceOf(referrer)).toBe(REFERRER_COINS);
   });
 
   it('refuses a rejection nobody explained', async () => {
@@ -275,8 +282,8 @@ describe('reinstating a referral', () => {
     await attend(referred);
     expect(await referrals.qualifyForAttendance(referred)).toBe(true);
 
-    expect(await coins.balanceOf(referrer)).toBe(30);
-    expect(await coins.balanceOf(referred)).toBe(10);
+    expect(await coins.balanceOf(referrer)).toBe(REFERRER_COINS);
+    expect(await coins.balanceOf(referred)).toBe(REFERRED_COINS);
   });
 
   it('refuses to reinstate one that was never rejected', async () => {

@@ -62,6 +62,12 @@ const CATEGORY: Record<string, NotificationCategory> = {
   // with a balance they cannot account for, which is what ADR-0007 exists to
   // prevent.
   [TEMPLATES.REFERRAL_QUALIFIED_REFERRER]: 'essential',
+  [TEMPLATES.REFERRAL_QUALIFIED_REFERRER_CAPPED]: 'essential',
+  // Both for the reason the referral pair above is essential: money changed
+  // hands, and a preference that could silence it would leave somebody with a
+  // balance they cannot account for — which is what ADR-0007 exists to prevent.
+  [TEMPLATES.HOST_SETTLED]: 'essential',
+  [TEMPLATES.COMEBACK_GRANTED]: 'essential',
   [TEMPLATES.REFERRAL_QUALIFIED_REFERRED]: 'essential',
   [TEMPLATES.CONTENT_HIDDEN]: 'essential',
   [TEMPLATES.CONTENT_RESTORED]: 'essential',

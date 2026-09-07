@@ -138,6 +138,55 @@ export class CoinService {
   }
 
   /**
+   * How much of one kind of reward somebody has already earned in a window.
+   *
+   * ── Why this is here and not three private helpers ──────────────────────────
+   *
+   * Three sources in this product are unbounded by construction — a review per
+   * activity, a referral per friend, a bonus per hosted event — and §2's first
+   * principle is that no such source may exist. Each needs the same question
+   * answered before it pays: *how much has this account already taken from this
+   * source since some point in time?* One implementation, so a cap added to a
+   * fourth source cannot quietly count something different from the other three.
+   *
+   * **Counted against the ledger, never against a stored tally.** The ledger is
+   * already the truth (ADR-0007), and a second counter is a second thing that can
+   * disagree with it — the same reasoning `creditAttendance` uses for the daily
+   * trust cap.
+   *
+   * **A reversed reward does not give its allowance back.** `reverse` writes its
+   * opposite under `type = 'REVERSAL'`, which no cap's type filter matches, so an
+   * undone reward still counts against the window. That is the conservative
+   * direction and it is deliberate: a cap that could be reset by reversing and
+   * re-granting would be a cap an operator could be talked into lifting one
+   * account at a time. It is also rare — reversing a reward is an admin act with
+   * a name attached, and the honest remedy is `adjustCoins`.
+   *
+   * `reasonCode` narrows within a type where a type alone is too coarse — both
+   * halves of a referral are `REFERRAL_REWARD`, and only the referrer's half is
+   * capped.
+   */
+  async earnedSince(
+    userId: string,
+    since: Date,
+    filter: { types: readonly CoinLedgerType[]; reasonCode?: string },
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<{ coins: number; count: number }> {
+    const result = await tx.coinLedger.aggregate({
+      where: {
+        userId,
+        type: { in: [...filter.types] },
+        ...(filter.reasonCode !== undefined ? { reasonCode: filter.reasonCode } : {}),
+        createdAt: { gte: since },
+      },
+      _sum: { amount: true },
+      _count: { _all: true },
+    });
+
+    return { coins: result._sum.amount ?? 0, count: result._count._all };
+  }
+
+  /**
    * The statement, newest first.
    *
    * ADR-0007's answer to "where did my coins go?" — the reason a balance is a

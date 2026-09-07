@@ -127,3 +127,73 @@ describe('the review window opening', () => {
     expect(message?.text).toContain('۷');
   });
 });
+
+/**
+ * The hosting settlement (the coin economy rebalance).
+ *
+ * Two amounts that are separately optional — the deposit may already have been
+ * returned by an earlier pass, and the bonus may be at its monthly cap — so the
+ * property under test is that each line appears exactly when there is something
+ * in it. «۰ سکه برگشت» reads as a bug, which is the same reasoning the refund
+ * lines above are built on.
+ */
+describe('the hosting settlement', () => {
+  const payload = { eventTitle: 'کوه‌نوردی', attendees: 4, refund: 25, bonus: 8, total: 33 };
+
+  it('names the deposit and the bonus separately', () => {
+    const message = render(TEMPLATES.HOST_SETTLED, payload);
+    expect(message?.text).toContain('۲۵ سکه');
+    expect(message?.text).toContain('۸ سکه');
+    expect(message?.text).toContain('کوه‌نوردی');
+    expect(message?.text).toContain('۴ مهمان');
+  });
+
+  it('omits the bonus line when the monthly cap paid nothing', () => {
+    const message = render(TEMPLATES.HOST_SETTLED, { ...payload, bonus: 0 });
+    expect(message?.text).toContain('۲۵ سکه');
+    expect(message?.text).not.toContain('پاداش میزبانی');
+  });
+
+  it('omits the deposit line when it was already returned', () => {
+    const message = render(TEMPLATES.HOST_SETTLED, { ...payload, refund: 0 });
+    expect(message?.text).not.toContain('سپردهٔ ثبت فعالیت');
+    expect(message?.text).toContain('۸ سکه');
+  });
+
+  it("escapes an activity title, which is a stranger's text", () => {
+    const message = render(TEMPLATES.HOST_SETTLED, { ...payload, eventTitle: '<b>x</b>' });
+    expect(message?.text).toContain('&lt;b&gt;x&lt;/b&gt;');
+  });
+});
+
+/**
+ * The comeback grant.
+ *
+ * It says what they did (came to things) rather than what they did not (buy
+ * coins), and it names the balance — because the whole point is that they can
+ * afford an activity again and the number is the proof.
+ */
+describe('the comeback grant', () => {
+  it('names the grant and the balance it produced', () => {
+    const message = render(TEMPLATES.COMEBACK_GRANTED, { coins: 20, balance: 20 });
+    expect(message?.text).toContain('۲۰ سکه');
+    expect(message?.text).toContain('موجودی');
+  });
+});
+
+/**
+ * The referral cap's sentence.
+ *
+ * Two properties, and the second is the one worth a test: it must confirm the
+ * referral qualified, and it must **not** claim coins were added. A capped
+ * referrer reading «سکه به حساب شما اضافه شد» would check a balance that had not
+ * moved and report it as a bug.
+ */
+describe('a referral that qualified at the monthly cap', () => {
+  it('confirms the referral without promising coins', () => {
+    const message = render(TEMPLATES.REFERRAL_QUALIFIED_REFERRER_CAPPED, {});
+    expect(message?.text).toContain('شرکت کرد');
+    expect(message?.text).toContain('سقف');
+    expect(message?.text).not.toContain('اضافه شد');
+  });
+});

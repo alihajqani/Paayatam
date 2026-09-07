@@ -13,7 +13,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { InvitationService, inviteSpendKey } from './invitation.service';
 
@@ -52,6 +52,20 @@ const membership = new ChannelMembershipService(
 );
 
 const invitations = new InvitationService(service, clock, env, settings, coins, membership, audit);
+
+/**
+ * The price and the reach, which are two different settings that both used to be
+ * the literal `20`.
+ *
+ * That coincidence is the reason these are named. The coin economy rebalance
+ * moved the price to thirty and left the reach alone, and telling the two apart
+ * in a file full of bare twenties is exactly the reading nobody does carefully at
+ * five o'clock. They are also tuned against each other — changing one without the
+ * other is how a promotion stops making sense — so a test that confused them
+ * would pass for the wrong reason.
+ */
+const INVITE_COST = SETTING_DEFAULTS['economy.event_top_invite_coins'];
+const INVITE_REACH = SETTING_DEFAULTS['events.top_invite_max_recipients'];
 
 let fixture: CatalogFixture;
 let hostId: string;
@@ -128,7 +142,7 @@ describe('the preview', () => {
     const preview = await invitations.preview(hostId, eventPublicId);
 
     expect(preview.selected).toBe(1);
-    expect(preview.cost).toBe(20);
+    expect(preview.cost).toBe(INVITE_COST);
     expect(preview.balance).toBe(HOST_COINS);
     // The requirement that a preview cannot trigger a charge, asserted rather
     // than trusted.
@@ -305,8 +319,8 @@ describe('eligibility', () => {
 
     const result = await invitations.inviteTop(hostId, eventPublicId, 'key-cap');
 
-    expect(result.invited).toBe(20);
-    await expect(prisma.eventInvitation.count({ where: { eventId } })).resolves.toBe(20);
+    expect(result.invited).toBe(INVITE_REACH);
+    await expect(prisma.eventInvitation.count({ where: { eventId } })).resolves.toBe(INVITE_REACH);
   });
 });
 
@@ -316,14 +330,14 @@ describe('the charge', () => {
 
     const result = await invitations.inviteTop(hostId, eventPublicId, 'key-charge');
 
-    expect(result.charged).toBe(20);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_COINS - 20);
+    expect(result.charged).toBe(INVITE_COST);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_COINS - INVITE_COST);
 
     const ledger = await prisma.coinLedger.findUniqueOrThrow({
       where: { idempotencyKey: inviteSpendKey(eventId, 'key-charge') },
     });
     expect(ledger.type).toBe('INVITE_SPEND');
-    expect(ledger.amount).toBe(-20);
+    expect(ledger.amount).toBe(-INVITE_COST);
     expect(ledger.refId).toBe(eventId);
 
     const campaign = await prisma.messageCampaign.findUniqueOrThrow({
@@ -342,7 +356,7 @@ describe('the charge', () => {
     expect(second.replayed).toBe(true);
     expect(second.charged).toBe(0);
     expect(second.campaignPublicId).toBe(first.campaignPublicId);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_COINS - 20);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_COINS - INVITE_COST);
     await expect(prisma.coinLedger.count({ where: { type: 'INVITE_SPEND' } })).resolves.toBe(1);
   });
 
@@ -359,7 +373,7 @@ describe('the charge', () => {
     expect(results.some((result) => result.status === 'fulfilled')).toBe(true);
     await expect(prisma.coinLedger.count({ where: { type: 'INVITE_SPEND' } })).resolves.toBe(1);
     await expect(prisma.messageCampaign.count()).resolves.toBe(1);
-    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_COINS - 20);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_COINS - INVITE_COST);
   });
 
   /**
@@ -392,7 +406,7 @@ describe('the charge', () => {
     const result = await invitations.inviteTop(hostId, eventPublicId, 'key-partial');
 
     expect(result.invited).toBe(2);
-    expect(result.charged).toBe(20);
+    expect(result.charged).toBe(INVITE_COST);
   });
 
   it('refuses when the host cannot afford it, and writes nothing', async () => {
@@ -457,7 +471,7 @@ describe('what is recorded', () => {
     const row = await prisma.auditLog.findFirstOrThrow({
       where: { action: 'event.invite_top.purchased' },
     });
-    expect(row.after).toMatchObject({ invited: 1, coinsCharged: 20 });
+    expect(row.after).toMatchObject({ invited: 1, coinsCharged: INVITE_COST });
     const invited = await prisma.eventInvitation.findFirstOrThrow();
     expect(JSON.stringify(row.after)).not.toContain(invited.userId);
   });

@@ -11,7 +11,7 @@ import {
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService } from '../catalog/catalog.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
 import { FoundingService } from '../founding/founding.service';
@@ -59,6 +59,18 @@ const profiles = new ProfileService(
   audit,
 );
 
+/**
+ * The two grants a completion can make, read rather than written.
+ *
+ * They were `50` and `150` at seven call sites. The coin economy rebalance moved
+ * both, which turned every one of those into an assertion about amounts the
+ * product no longer grants — and not one of these tests is about the amount. What
+ * they are about is that the grant happens **once**, in one transaction, and not
+ * again on an edit.
+ */
+const ONBOARDING = SETTING_DEFAULTS['economy.onboarding_reward_coins'];
+const TIER1 = SETTING_DEFAULTS['founding.tier1_coins'];
+
 let fixture: CatalogFixture;
 
 function validInput(overrides: Partial<Parameters<typeof profiles.complete>[1]> = {}) {
@@ -104,7 +116,7 @@ describe('ProfileService.complete — the happy path', () => {
 
     expect(result.onboardingState).toBe('PROFILE_COMPLETE');
     expect(result.rewardGranted).toBe(true);
-    expect(result.balance).toBe(50);
+    expect(result.balance).toBe(ONBOARDING);
     expect(result.profile).toMatchObject({
       displayName: 'سارا',
       gender: 'FEMALE',
@@ -123,7 +135,7 @@ describe('ProfileService.complete — the happy path', () => {
     expect(ledger[0]).toMatchObject({
       idempotencyKey: onboardingRewardKey(userId),
       type: 'ONBOARDING_REWARD',
-      amount: 50,
+      amount: ONBOARDING,
       actorType: 'SYSTEM',
     });
   });
@@ -176,10 +188,10 @@ describe('ProfileService.complete — the reward is granted exactly once', () =>
     );
 
     expect(results.filter((r) => r.rewardGranted)).toHaveLength(1);
-    expect(results.every((r) => r.balance === 50)).toBe(true);
+    expect(results.every((r) => r.balance === ONBOARDING)).toBe(true);
 
     await expect(prisma.coinLedger.count({ where: { userId } })).resolves.toBe(1);
-    await expect(coins.balanceOf(userId)).resolves.toBe(50);
+    await expect(coins.balanceOf(userId)).resolves.toBe(ONBOARDING);
     await expect(prisma.userProfile.count({ where: { userId } })).resolves.toBe(1);
     await expect(prisma.userInterest.count({ where: { userId } })).resolves.toBe(2);
   });
@@ -192,7 +204,7 @@ describe('ProfileService.complete — the reward is granted exactly once', () =>
     const second = await profiles.complete(userId, validInput({ displayName: 'سارا م.' }));
 
     expect(second.rewardGranted).toBe(false);
-    expect(second.balance).toBe(50);
+    expect(second.balance).toBe(ONBOARDING);
     expect(second.profile.displayName).toBe('سارا م.');
     // Completion is a moment, not a field that follows the latest edit.
     expect(second.profile.completedAt).toEqual(NOW);
@@ -581,7 +593,7 @@ describe('ProfileService.complete — the founding rank', () => {
     const result = await profiles.complete(userId, validInput());
 
     expect(result.founding).toBeNull();
-    expect(result.balance).toBe(50);
+    expect(result.balance).toBe(ONBOARDING);
     await expect(prisma.foundingMember.count()).resolves.toBe(0);
   });
 
@@ -591,9 +603,9 @@ describe('ProfileService.complete — the founding rank', () => {
 
     const result = await profiles.complete(userId, validInput());
 
-    expect(result.founding).toEqual({ rank: 1, tier: 1, coins: 150 });
-    // Both grants, one transaction: 50 for the profile and 150 for the rank.
-    expect(result.balance).toBe(200);
+    expect(result.founding).toEqual({ rank: 1, tier: 1, coins: TIER1 });
+    // Both grants, one transaction: the profile reward and the tier's.
+    expect(result.balance).toBe(ONBOARDING + TIER1);
     await expect(prisma.coinLedger.count({ where: { userId } })).resolves.toBe(2);
   });
 
@@ -617,7 +629,7 @@ describe('ProfileService.complete — the founding rank', () => {
     const second = await profiles.complete(userId, validInput({ displayName: 'سارا م.' }));
 
     expect(second.founding).toBeNull();
-    expect(second.balance).toBe(200);
+    expect(second.balance).toBe(ONBOARDING + TIER1);
     await expect(prisma.foundingMember.count({ where: { userId } })).resolves.toBe(1);
   });
 
@@ -637,6 +649,6 @@ describe('ProfileService.complete — the founding rank', () => {
 
     expect(results.filter((r) => r.founding !== null)).toHaveLength(1);
     await expect(prisma.foundingMember.count()).resolves.toBe(1);
-    await expect(coins.balanceOf(userId)).resolves.toBe(200);
+    await expect(coins.balanceOf(userId)).resolves.toBe(ONBOARDING + TIER1);
   });
 });

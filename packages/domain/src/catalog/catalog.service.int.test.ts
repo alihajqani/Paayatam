@@ -10,7 +10,7 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { CatalogService } from './catalog.service';
-import { SettingsService } from './settings.service';
+import { SETTING_DEFAULTS, SettingsService } from './settings.service';
 
 /**
  * The catalog's one job: nothing inactive is ever offered, and nothing inactive
@@ -58,16 +58,23 @@ describe('CatalogService promotion pricing', () => {
     //
     // `toEqual` and not `toMatchObject`, deliberately: this is the list of prices
     // the product charges, and a field appearing in it without anybody deciding
-    // the number is exactly what an exact assertion is for. M22 added the last
-    // four, and the documented defaults are 5 / 15 / 10 with a cap of 20.
+    // the number is exactly what an exact assertion is for.
+    //
+    // **Literals here, and only here.** Every other suite reads these from
+    // `SETTING_DEFAULTS` so that a price change does not produce a page of false
+    // regressions in tests that are about something else. This one is the
+    // opposite by design: it exists to make a price change *fail* until somebody
+    // writes the new number down. The values below are the coin economy
+    // rebalance's, and the registration total is the sum of the two above it.
     expect(snapshot.promotion).toEqual({
-      eventCreateCoins: 5,
-      eventChannelPublishCoins: 10,
+      eventCreateCoins: 10,
+      eventChannelPublishCoins: 15,
       // The one number a host is quoted, and the reason the two above are never
-      // shown apart.
-      eventRegisterCoins: 15,
-      eventChannelSendCoins: 5,
-      eventTopInviteCoins: 20,
+      // shown apart. A deposit now, not a fee — it comes back when the activity
+      // is actually held.
+      eventRegisterCoins: 25,
+      eventChannelSendCoins: 8,
+      eventTopInviteCoins: 30,
       topInviteMaxRecipients: 20,
     });
   });
@@ -79,9 +86,15 @@ describe('CatalogService promotion pricing', () => {
 
     expect(snapshot.promotion.eventCreateCoins).toBe(55);
     // The others keep their defaults, so one edit cannot silently move a price
-    // nobody touched.
-    expect(snapshot.promotion.eventChannelPublishCoins).toBe(10);
-    expect(snapshot.promotion.eventTopInviteCoins).toBe(20);
+    // nobody touched. Read from the catalogue rather than written as literals:
+    // what is under test is that they did **not** move, which is a property of
+    // the edit and not of the numbers.
+    expect(snapshot.promotion.eventChannelPublishCoins).toBe(
+      SETTING_DEFAULTS['economy.event_channel_publish_coins'],
+    );
+    expect(snapshot.promotion.eventTopInviteCoins).toBe(
+      SETTING_DEFAULTS['economy.event_top_invite_coins'],
+    );
   });
 });
 

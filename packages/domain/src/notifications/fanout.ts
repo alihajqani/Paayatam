@@ -23,6 +23,18 @@ function text(payload: Record<string, unknown>, key: string): string {
 }
 
 /**
+ * A number out of a payload, or zero.
+ *
+ * Zero for a missing or malformed value, deliberately: the one caller uses it to
+ * pick between "you were paid" and "you were not", and a garbled payload should
+ * fall to the sentence that promises nothing.
+ */
+function number(payload: Record<string, unknown>, key: string): number {
+  const value = payload[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
  * One domain event → the notifications it should produce (ADR-0005).
  *
  * A **pure function**, which is the point: the fan-out is where "who gets told
@@ -262,7 +274,14 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
       if (referrer !== '') {
         planned.push({
           userPublicId: referrer,
-          templateKey: TEMPLATES.REFERRAL_QUALIFIED_REFERRER,
+          // Zero coins is a referrer at `economy.referral_reward_cap`, not a
+          // missing number: the payout is emitted either way, and the sentence is
+          // chosen here because the fan-out is where "one fact, several
+          // recipients, several messages" already lives.
+          templateKey:
+            number(payload, 'referrerCoins') > 0
+              ? TEMPLATES.REFERRAL_QUALIFIED_REFERRER
+              : TEMPLATES.REFERRAL_QUALIFIED_REFERRER_CAPPED,
           dedupeKey: `${row.id}:referrer`,
           payload,
         });
@@ -277,6 +296,21 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
       }
       return planned;
     }
+
+    /**
+     * The host's settlement (the coin economy rebalance).
+     *
+     * One recipient, so `recipient()` would do — except that the payload's key is
+     * `hostUserPublicId` and this is the only place that name appears. Spelled
+     * out rather than folded into the helper, so a reader of this file can see
+     * every recipient key without opening the emitters.
+     */
+    case 'host.settled':
+      return recipient(row, 'hostUserPublicId', TEMPLATES.HOST_SETTLED);
+
+    /** The comeback grant. Unprompted, to one person. */
+    case 'economy.comeback_granted':
+      return recipient(row, 'userPublicId', TEMPLATES.COMEBACK_GRANTED);
 
     default:
       return [];

@@ -233,7 +233,7 @@ const INTERESTS = [
  * point of `app_setting` (ADR-0007).
  */
 const SETTINGS: { key: string; value: number }[] = [
-  { key: 'economy.onboarding_reward_coins', value: 50 },
+  { key: 'economy.onboarding_reward_coins', value: 35 },
   { key: 'profile.min_age_years', value: 18 },
 ];
 

@@ -75,6 +75,23 @@ export interface ProfileCompletion {
   balance: number;
   /** True only for the call that actually granted the coins. */
   rewardGranted: boolean;
+  /**
+   * How many coins that grant was, and what one join costs today.
+   *
+   * Carried rather than left for the adapter to read back, because the adapter's
+   * sentence — «۳۵ سکه هدیه گرفتید، تقریباً دو بار شرکت» — is arithmetic over
+   * three settings, and a second read is a second chance for the message and the
+   * ledger row to disagree.
+   *
+   * The review reward is there because the sentence divides by the **effective**
+   * price of an activity (join minus the rebate for reviewing it), which is what
+   * the runway is actually measured in — dividing by the sticker price would
+   * describe a grant of 35 against a join of 20 as one activity when it funds
+   * two. `rewardCoins` is `0` when nothing was granted.
+   */
+  rewardCoins: number;
+  joinCost: number;
+  reviewReward: number;
   /** The score after the profile-completion movement (plan §11: +5). */
   trustScore: number;
   /**
@@ -517,6 +534,14 @@ export class ProfileService {
       };
     });
 
+    // After the transaction: it is one setting read for a sentence, and the
+    // transaction above already holds the user row, the campaign counter and the
+    // coin account.
+    const prices = await this.settings.getNumbers([
+      'economy.event_join_coins',
+      'economy.review_reward_coins',
+    ]);
+
     const profile = await this.find(userId);
     if (!profile) {
       // Unreachable: the transaction above committed one.
@@ -538,6 +563,9 @@ export class ProfileService {
       onboardingState: 'PROFILE_COMPLETE',
       balance: result.balance,
       rewardGranted: result.rewardGranted,
+      rewardCoins: result.rewardGranted ? rewardCoins : 0,
+      joinCost: prices['economy.event_join_coins'],
+      reviewReward: prices['economy.review_reward_coins'],
       trustScore: result.trustScore,
       founding: result.founding,
       cityLaunch: launch !== null && !launch.launched ? launch : null,

@@ -167,6 +167,18 @@ export interface SummaryLine {
  * the first step with everything still filled in, which is what makes the summary
  * a checkpoint rather than a point of no return.
  *
+ * ── Why the price is a parameter and not a line in the form ─────────────────
+ *
+ * `note` carries the one sentence that has to be true at the moment it is read:
+ * what registering costs, and that it comes back. Both halves are settings an
+ * operator can change, so a number written into this file would be a number the
+ * service might not charge — and a message naming a price nobody is charged is
+ * worse than one naming none.
+ *
+ * It sits **above** the commit instruction rather than below the fields, because
+ * it is the last thing somebody should read before pressing the button, not a
+ * footnote under a form they have already scrolled past.
+ *
  * ── Why the commit label is a parameter ─────────────────────────────────────
  *
  * It was the constant «ثبت فعالیت», and three wizards reach this screen. So
@@ -179,6 +191,7 @@ export function renderSummary(
   lines: readonly SummaryLine[],
   canAddDetails: boolean,
   commitLabel = 'ثبت فعالیت',
+  note?: string,
 ): WizardScreen {
   const body = lines
     .map((line) => `<b>${escapeHtml(line.label)}:</b> ${escapeHtml(line.value)}`)
@@ -206,7 +219,10 @@ export function renderSummary(
   ]);
 
   return {
-    text: `<b>بازبینی نهایی</b>\n\n${body}\n\n<i>اگر همه‌چیز درست است، «${commitLabel}» را بزنید.</i>`,
+    text:
+      `<b>بازبینی نهایی</b>\n\n${body}\n\n` +
+      (note === undefined ? '' : `${escapeHtml(note)}\n\n`) +
+      `<i>اگر همه‌چیز درست است، «${commitLabel}» را بزنید.</i>`,
     keyboard: buttons,
   };
 }

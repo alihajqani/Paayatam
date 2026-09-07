@@ -125,7 +125,7 @@ beforeEach(async () => {
   hostA = await createUser(prisma, 'PROFILE_COMPLETE');
   hostB = await createUser(prisma, 'PROFILE_COMPLETE');
   /**
-   * Coins, because asking to join costs five from v0.7.0
+   * Coins, because asking to join has a price
    * (`economy.event_join_coins`) and this guest joins both activities. Nothing
    * here asserts a balance; the endowment only has to be out of the way.
    */

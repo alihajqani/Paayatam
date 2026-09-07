@@ -3,8 +3,10 @@ import type { Job } from 'bullmq';
 import {
   ChannelService,
   CoinService,
+  ComebackService,
   ConversationService,
   EventLifecycleService,
+  HostRewardService,
   InvitationService,
   MessagingService,
   NotificationService,
@@ -111,6 +113,17 @@ export class Processors implements OnModuleInit {
      * is the API's, because it is the process the update arrives at.
      */
     private readonly conversations: ConversationService,
+    /**
+     * Returning a host's deposit once they have held the evening and written
+     * their reviews (the coin economy rebalance).
+     *
+     * The one place in the worker that *grants* coins on a schedule rather than
+     * reading them, and it is on a schedule for a reason no hook could satisfy:
+     * the condition it waits for is a person finishing a task over several days.
+     */
+    private readonly hostRewards: HostRewardService,
+    /** And the one-per-lifetime grant to somebody who has run out. */
+    private readonly comeback: ComebackService,
   ) {}
 
   /**
@@ -503,6 +516,41 @@ export class Processors implements OnModuleInit {
         const settled = await this.lifecycle.settleAttendance();
         if (settled.attended > 0) {
           this.logger.log(`Settled ${String(settled.attended)} attendances`);
+          await this.onDomainEvent(job);
+        }
+        return;
+      }
+
+      /**
+       * The hosting settlement (the coin economy rebalance).
+       *
+       * Logged only when it paid, like the other sweeps: almost every hourly pass
+       * finds nothing, because it re-asks about the same few days of events until
+       * each host has written their reviews.
+       *
+       * `onDomainEvent` drains the outbox immediately rather than waiting for the
+       * five-minute backstop — a host who has just been paid should be told now,
+       * and the message is the whole reason the deposit is a promise rather than
+       * a silent balance change.
+       */
+      case JOBS.SETTLE_HOST_REWARDS: {
+        const settled = await this.hostRewards.settle();
+        if (settled.events > 0) {
+          this.logger.log(
+            `Settled ${String(settled.events)} host(s) for ${String(settled.coins)} coins`,
+          );
+          await this.onDomainEvent(job);
+        }
+        return;
+      }
+
+      /** The comeback grant. Same shape, once a day. */
+      case JOBS.GRANT_COMEBACK_COINS: {
+        const granted = await this.comeback.sweep();
+        if (granted.granted > 0) {
+          this.logger.log(
+            `Comeback grant: ${String(granted.granted)} account(s), ${String(granted.coins)} coins`,
+          );
           await this.onDomainEvent(job);
         }
         return;

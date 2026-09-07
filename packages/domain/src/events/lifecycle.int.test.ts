@@ -12,7 +12,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { ReferralService } from '../economy/referral.service';
@@ -117,8 +117,18 @@ const ENDS_AT = new Date(STARTS_AT.getTime() + 3 * 3_600_000);
  * than as bare numbers, so they stay about the reward or the penalty they are
  * testing when the join price changes again.
  */
-const JOIN_COST = 5;
-const JOIN_BUDGET = 100;
+/**
+ * Read from the code defaults rather than written as a literal.
+ *
+ * These were `5` and `10`, matching the prices at the time, and the coin economy
+ * rebalance moved both — so every balance assertion below became arithmetic
+ * about numbers the product no longer charges. Reading them keeps the
+ * assertions about *the behaviour under test* (a refund happened, a reward was
+ * paid) rather than about a price that is a settings row.
+ */
+const JOIN_COST = SETTING_DEFAULTS['economy.event_join_coins'];
+const REFERRER_REWARD = SETTING_DEFAULTS['economy.referral_referrer_coins'];
+const JOIN_BUDGET = 20 * JOIN_COST;
 
 /** Past the end and past the settlement delay, so a sweep will act. */
 const AFTER_SETTLEMENT = new Date(ENDS_AT.getTime() + 25 * 3_600_000);
@@ -393,15 +403,17 @@ describe('settling who attended', () => {
     });
     expect(announced).not.toBeNull();
     const payload = announced?.payload as Record<string, unknown>;
-    expect(payload['referrerCoins']).toBe(30);
-    expect(payload['referredCoins']).toBe(10);
+    expect(payload['referrerCoins']).toBe(REFERRER_REWARD);
+    expect(payload['referredCoins']).toBe(SETTING_DEFAULTS['economy.referral_referred_coins']);
     // Public ids only: an outbox payload becomes a message body (invariant 7).
     expect(JSON.stringify(payload)).not.toContain(referrer);
     expect(JSON.stringify(payload)).not.toContain(person.userId);
 
     // The referrer never joined anything, so their endowment is untouched.
-    await expect(coins.balanceOf(referrer)).resolves.toBe(JOIN_BUDGET + 30);
-    await expect(coins.balanceOf(person.userId)).resolves.toBe(JOIN_BUDGET - JOIN_COST + 10);
+    await expect(coins.balanceOf(referrer)).resolves.toBe(JOIN_BUDGET + REFERRER_REWARD);
+    await expect(coins.balanceOf(person.userId)).resolves.toBe(
+      JOIN_BUDGET - JOIN_COST + SETTING_DEFAULTS['economy.referral_referred_coins'],
+    );
   });
 });
 

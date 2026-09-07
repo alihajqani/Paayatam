@@ -420,7 +420,7 @@ export class ParticipationService {
    * this a deposit, which is a different product decision". That decision has
    * been taken: it is a deposit. What the charge is actually for is protecting a
    * host's attention from somebody spraying requests at fifty activities, and a
-   * guest whose one request was turned down did not do that — they paid five
+   * guest whose one request was turned down did not do that — they paid the
    * coins to be told no, by a host they never met, for a reason they never hear.
    *
    * A **rejection** is refunded and nothing else is. An expiry is not (the host
@@ -1144,7 +1144,7 @@ export class ParticipationService {
          * must not keep a payment for something the payer never received. An
          * expiry is the **stronger** case, not a weaker one: a rejected guest at
          * least got an answer, and this one got nothing at all — their request
-         * sat in a queue for a day and quietly died. Charging five coins for that
+         * sat in a queue for a day and quietly died. Charging for that
          * is charging for the host's silence.
          *
          * Attributed to `SYSTEM`, because nobody acted. Writing the host's id

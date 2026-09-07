@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
 import { CoinService } from './coin.service';
+import { ComebackService } from './comeback.service';
 import { GiftCodeService } from './gift-code.service';
 import { PenaltyService } from './penalty.service';
 import { ReferralService } from './referral.service';
@@ -19,7 +20,21 @@ import { TrustService } from './trust.service';
  */
 @Module({
   imports: [CatalogModule],
-  providers: [CoinService, TrustService, ReferralService, PenaltyService, GiftCodeService],
-  exports: [CoinService, TrustService, ReferralService, PenaltyService, GiftCodeService],
+  providers: [
+    CoinService,
+    TrustService,
+    ReferralService,
+    PenaltyService,
+    GiftCodeService,
+    ComebackService,
+  ],
+  exports: [
+    CoinService,
+    TrustService,
+    ReferralService,
+    PenaltyService,
+    GiftCodeService,
+    ComebackService,
+  ],
 })
 export class EconomyModule {}

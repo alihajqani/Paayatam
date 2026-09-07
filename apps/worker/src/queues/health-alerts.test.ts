@@ -54,6 +54,8 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     (overrides.coins ?? {}) as never,
     alerts as never,
     {} as never, // ConversationService — this suite never reaches a wizard
+    {} as never, // HostRewardService
+    {} as never, // ComebackService
   );
 }
 

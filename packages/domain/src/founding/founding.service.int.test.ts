@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '@payetam/db';
 import { FakeClock } from '@payetam/platform';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { FoundingService, foundingRewardKey } from './founding.service';
 
@@ -39,6 +39,17 @@ async function setSetting(key: string, value: number): Promise<void> {
   });
 }
 
+/**
+ * What the first two waves pay, read rather than written.
+ *
+ * They were `150` and `80` at six call sites. The coin economy rebalance cut the
+ * campaign to a seventh of its cost, and none of these tests is about the amount
+ * — they are about the rank being allocated once, the boundary putting somebody
+ * in the right wave, and the amount being **snapshotted** onto the row.
+ */
+const TIER1 = SETTING_DEFAULTS['founding.tier1_coins'];
+const TIER2 = SETTING_DEFAULTS['founding.tier2_coins'];
+
 beforeEach(async () => {
   await resetDatabase(prisma);
   /**
@@ -61,20 +72,20 @@ describe('FoundingService.award', () => {
     const first = await createUser(prisma);
     const second = await createUser(prisma);
 
-    expect(await award(first)).toEqual({ rank: 1, tier: 1, coins: 150 });
-    expect(await award(second)).toEqual({ rank: 2, tier: 1, coins: 150 });
+    expect(await award(first)).toEqual({ rank: 1, tier: 1, coins: TIER1 });
+    expect(await award(second)).toEqual({ rank: 2, tier: 1, coins: TIER1 });
 
     const row = await prisma.foundingMember.findUnique({ where: { userId: second } });
-    expect(row).toMatchObject({ rank: 2, tier: 1, coins: 150 });
+    expect(row).toMatchObject({ rank: 2, tier: 1, coins: TIER1 });
     // The grant and the row are one fact: the member points at the ledger row
-    // that paid it, which is what makes "why does this account have 150 coins?"
+    // that paid it, which is what makes "why does this account have these coins?"
     // answerable from either end.
     expect(row?.coinLedgerId).not.toBeNull();
 
     const ledger = await prisma.coinLedger.findUnique({
       where: { idempotencyKey: foundingRewardKey(second) },
     });
-    expect(ledger).toMatchObject({ amount: 150, type: 'FOUNDING_REWARD' });
+    expect(ledger).toMatchObject({ amount: TIER1, type: 'FOUNDING_REWARD' });
     expect(ledger?.id).toBe(row?.coinLedgerId);
   });
 
@@ -104,7 +115,7 @@ describe('FoundingService.award', () => {
   it('refuses a second rank to the same user', async () => {
     const userId = await createUser(prisma);
 
-    expect(await award(userId)).toEqual({ rank: 1, tier: 1, coins: 150 });
+    expect(await award(userId)).toEqual({ rank: 1, tier: 1, coins: TIER1 });
     expect(await award(userId)).toBeNull();
 
     // And the second call took no number: the next member is 2, not 3. A rank
@@ -123,8 +134,8 @@ describe('FoundingService.award', () => {
     const first = await createUser(prisma);
     const second = await createUser(prisma);
 
-    expect(await award(first)).toEqual({ rank: 1, tier: 1, coins: 150 });
-    expect(await award(second)).toEqual({ rank: 2, tier: 2, coins: 80 });
+    expect(await award(first)).toEqual({ rank: 1, tier: 1, coins: TIER1 });
+    expect(await award(second)).toEqual({ rank: 2, tier: 2, coins: TIER2 });
   });
 
   it('stops at the cap and keeps working afterwards', async () => {

@@ -9,7 +9,7 @@ import {
   TEST_CHAT_ENCRYPTION_KEY,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { FoundingService } from '../founding/founding.service';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
@@ -67,6 +67,15 @@ let tehranId: string;
 let shirazId: string;
 
 /** A user with a completed profile in a city, optionally given a rank. */
+/**
+ * What tier 1 pays, read rather than written.
+ *
+ * It was `150` at four call sites. The coin economy rebalance cut it to thirty,
+ * and none of these tests is about the amount — they are about the amount being
+ * **snapshotted**, which is a property that holds whatever the number is.
+ */
+const TIER1 = SETTING_DEFAULTS['founding.tier1_coins'];
+
 async function member(cityId: string, withRank: boolean): Promise<string> {
   const userId = await createUser(prisma, 'PROFILE_COMPLETE');
   await prisma.userProfile.create({
@@ -131,8 +140,8 @@ describe('the report', () => {
     expect(report.awarded).toBe(2);
     expect(report.remaining).toBe(998);
     expect(report.joinedLast24h).toBe(2);
-    // Tier 1 pays 150 by default, and both of these are ranks 1 and 2.
-    expect(report.coinsGranted).toBe(300);
+    // Both of these are ranks 1 and 2, so both are paid at tier 1.
+    expect(report.coinsGranted).toBe(2 * TIER1);
   });
 
   /**
@@ -148,8 +157,8 @@ describe('the report', () => {
 
     const tier1 = report.tiers.find((row) => row.tier === 1);
     expect(tier1?.configuredCoins).toBe(5);
-    expect(tier1?.coins).toBe(150);
-    expect(report.coinsGranted).toBe(150);
+    expect(tier1?.coins).toBe(TIER1);
+    expect(report.coinsGranted).toBe(TIER1);
   });
 
   /**
@@ -196,7 +205,21 @@ describe('the report', () => {
 
     const report = await admin.report(SUPER);
 
-    expect(report.trend).toEqual([{ day: '2026-09-06', members: 1, coins: 150 }]);
+    /**
+     * The day comes from the **database**, not from the fake clock.
+     *
+     * `founding_member.awarded_at` is `@default(now())`, so the bucket this row
+     * lands in is the real server date rather than this suite's `NOW`. The
+     * assertion used to be the literal `'2026-09-06'`, which was today on the day
+     * it was written and has been a time bomb ever since — it started failing on
+     * the 7th, on `master`, with nothing having changed.
+     *
+     * Derived here rather than pinned, so the test keeps asserting what it is
+     * about (one bucket, holding the snapshotted amount) without asserting what
+     * date it is.
+     */
+    const today = new Date().toISOString().slice(0, 10);
+    expect(report.trend).toEqual([{ day: today, members: 1, coins: TIER1 }]);
   });
 
   /** A campaign that has never run is a page of zeroes, not a failure. */

@@ -140,6 +140,18 @@ export const JOBS = {
   OUTBOX_BACKSTOP: 'outbox-backstop',
   REVIEW_SWEEP: 'review-sweep',
   SETTLE_ATTENDANCE: 'settle-attendance',
+  /**
+   * Return the host's deposit and pay the per-guest bonus.
+   *
+   * Separate from `SETTLE_ATTENDANCE` and on a different cadence, because it
+   * waits on something a nightly sweep cannot: the host has to have written their
+   * reviews, and those arrive over the seven days *after* attendance settles.
+   * There is no single moment to hang it on, so it re-asks hourly and pays the
+   * first time the answer is yes.
+   */
+  SETTLE_HOST_REWARDS: 'settle-host-rewards',
+  /** The one-per-lifetime grant to somebody who has attended, behaved, and run out. */
+  GRANT_COMEBACK_COINS: 'grant-comeback-coins',
   /** Publish newly-eligible events, and take down posts that have gone stale. */
   CHANNEL_SYNC: 'channel-sync',
   /** The retention purge (§8): expired chats, notifications, outbox and audit rows. */
@@ -220,6 +232,28 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
   { name: JOBS.OUTBOX_BACKSTOP, pattern: '*/5 * * * *' },
   { name: JOBS.REVIEW_SWEEP, pattern: '0 * * * *' },
   { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
+  /**
+   * Hourly, at twenty past.
+   *
+   * Hourly rather than nightly because what it waits for is a *person* finishing
+   * their reviews, and making a host wait until 3 a.m. to see their deposit come
+   * back would turn a promise kept into a promise kept eventually. The scan is a
+   * few days of completed events and almost every pass finds nothing to do.
+   *
+   * Twenty past, so it never starts in the same minute as the two every-minute
+   * sweeps at the top of the hour.
+   */
+  { name: JOBS.SETTLE_HOST_REWARDS, pattern: '20 * * * *' },
+  /**
+   * Once a day, at ten in the morning Tehran time — and the only job here whose
+   * schedule is chosen for when the *message* arrives rather than for load.
+   *
+   * It is an unprompted gift, so it should land when somebody is awake and might
+   * act on it. At 04:00 with the purges it would be read hours later alongside
+   * everything else, which is exactly the treatment that makes a gesture look
+   * like an automated mailing.
+   */
+  { name: JOBS.GRANT_COMEBACK_COINS, pattern: '0 10 * * *', tz: 'Asia/Tehran' },
   { name: JOBS.CHANNEL_SYNC, pattern: '*/5 * * * *' },
   // Every minute. The API nudges this queue on confirmation, so the schedule is
   // the backstop rather than the mechanism — a campaign confirmed while the worker

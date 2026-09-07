@@ -12,7 +12,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
@@ -102,13 +102,13 @@ async function createEvent(capacity = 1, startsAt: Date = STARTS_AT): Promise<st
 /**
  * Enough coins to ask to join, several times over.
  *
- * `economy.event_join_coins` is 5 from v0.7.0 and `join` charges it inside the
+ * `join` charges `economy.event_join_coins` inside the
  * same transaction, so a joiner with an empty account is refused with
  * `INSUFFICIENT_COINS` before reaching any of the behaviour this suite is about.
  * The endowment is deliberately generous and round: nothing here asserts a bare
  * balance, so the number only has to be out of the way.
  */
-const JOIN_BUDGET = 500;
+const JOIN_BUDGET = 100 * SETTING_DEFAULTS['economy.event_join_coins'];
 
 async function createJoiner(): Promise<string> {
   const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: JOIN_BUDGET });

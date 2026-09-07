@@ -12,7 +12,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { ParticipationService } from '../participation/participation.service';
 import { CoinService } from './coin.service';
@@ -112,7 +112,16 @@ async function publishEvent(capacity = 5): Promise<string> {
  * cancellation. Adding it to the grant rather than subtracting it from every
  * expectation is what keeps those assertions readable as the thing they test.
  */
-const JOIN_COST = 5;
+/**
+ * Read from the code defaults rather than written as a literal.
+ *
+ * These were `5` and `10`, matching the prices at the time, and the coin economy
+ * rebalance moved both — so every balance assertion below became arithmetic
+ * about numbers the product no longer charges. Reading them keeps the
+ * assertions about *the behaviour under test* (a refund happened, a reward was
+ * paid) rather than about a price that is a settings row.
+ */
+const JOIN_COST = SETTING_DEFAULTS['economy.event_join_coins'];
 
 /** Coins in hand, granted the only way anything may: through the ledger. */
 async function fund(userId: string, amount: number): Promise<void> {

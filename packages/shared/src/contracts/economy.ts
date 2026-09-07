@@ -25,8 +25,8 @@ export const coinLedgerType = z.enum([
   'EVENT_CREATE_SPEND',
   'CHANNEL_POST_SPEND',
   'INVITE_SPEND',
-  // Asking to join an activity (v0.6.3). `economy.event_join_coins` is 0 by
-  // default, so no live ledger carries this yet.
+  // Asking to join an activity (v0.6.3). Twenty coins since the economy
+  // rebalance, and the product's largest sink by some distance.
   'EVENT_JOIN_SPEND',
   'CANCELLATION_PENALTY',
   'NO_SHOW_PENALTY',
@@ -35,6 +35,11 @@ export const coinLedgerType = z.enum([
   'REVERSAL',
   // The launch campaign's one-time grant to the first N members (v0.9.0).
   'FOUNDING_REWARD',
+  // The coin economy rebalance: the host deposit coming back, the per-guest
+  // bonus on top of it, and the one-per-lifetime comeback grant.
+  'EVENT_DEPOSIT_REFUND',
+  'HOST_REWARD',
+  'COMEBACK_GRANT',
 ]);
 export type CoinLedgerType = z.infer<typeof coinLedgerType>;
 

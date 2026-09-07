@@ -16,8 +16,28 @@ import type { Prisma } from '@payetam/db';
  * granting the documented default. Every default here matches plan §11.
  */
 export const SETTING_DEFAULTS = {
-  /** Coins granted once, when a user first completes their profile. */
-  'economy.onboarding_reward_coins': 50,
+  /**
+   * Coins granted once, when a user first completes their profile.
+   *
+   * **Thirty-five since the economy rebalance**, down from fifty, and the number
+   * is chosen against the **effective** price of an activity rather than on its
+   * own. That effective price is `event_join_coins - review_reward_coins` —
+   * fifteen at today's numbers — because somebody who joins also writes the
+   * review, which is how the runway actually plays out: 35 → 20 → 5, two
+   * evenings, dry around day 30.
+   *
+   * Read against the sticker price of twenty it looks like one activity and
+   * fifteen wasted coins, and that reading is what makes this setting easy to
+   * get wrong: two is the smallest number of evenings from which a person can
+   * tell whether they want a third, and one is somebody meeting the product once
+   * and leaving without ever seeing the pattern.
+   *
+   * So this number depends on **two** others. An operator who raises the join
+   * price, or drops the review reward to zero, and leaves this alone has
+   * shortened the free runway without touching it — which §10 names as one of
+   * the two things that invalidate the whole plan.
+   */
+  'economy.onboarding_reward_coins': 35,
 
   /**
    * The launch campaign: the first N members to complete a profile get a
@@ -28,15 +48,19 @@ export const SETTING_DEFAULTS = {
    * match how fast supply is being built, and turns each tier filling up into
    * something worth announcing.
    *
-   * **The amounts are small on purpose.** The economy is already loose — a user
-   * who joins six activities, hosts two, publishes one to the channel and writes
-   * three reviews is about twenty coins down over three months, so the fifty
-   * coins of `economy.onboarding_reward_coins` already cover most of a year. A
-   * grant large enough to feel like a prize would also be large enough to make
+   * **The amounts are small on purpose, and are now much smaller.** They were
+   * 150/80/40, which at today's prices is seven free activities for tier 1 and a
+   * campaign that gives away about a month of the revenue target before the
+   * product has earned a rial of it — to precisely the people who have not yet
+   * shown they will stay. 30/20/10 keeps the 3:2:1 spacing and costs a seventh of
+   * that.
+   *
+   * A grant large enough to feel like a prize would also be large enough to make
    * `cancellation.coins_lt_3h` free, and that penalty is the only thing standing
    * between the product and a no-show problem. What is actually scarce here is
    * the rank itself: there will only ever be `founding_campaign.max_rank` of
-   * them, and minting one costs nothing.
+   * them, and minting one costs nothing — which is why the campaign's real prize
+   * is the rank and the badge rather than the coins beside them.
    *
    * The cap is **not** here — it is `founding_campaign.max_rank`, because the
    * allocator has to read it under the same row lock that increments the
@@ -86,9 +110,9 @@ export const SETTING_DEFAULTS = {
    */
   'city.launch_threshold': 100,
   'founding.tier1_max_rank': 100,
-  'founding.tier1_coins': 150,
+  'founding.tier1_coins': 30,
   'founding.tier2_max_rank': 400,
-  'founding.tier2_coins': 80,
+  'founding.tier2_coins': 20,
   /**
    * The last tier's boundary should match `founding_campaign.max_rank`. It is
    * restated here because the tier lookup is arithmetic over these six numbers
@@ -97,23 +121,41 @@ export const SETTING_DEFAULTS = {
    * than losing anybody their membership.
    */
   'founding.tier3_max_rank': 1000,
-  'founding.tier3_coins': 40,
+  'founding.tier3_coins': 10,
 
   /**
    * The referral pair (plan §11), paid only after the referred user **attends**
    * an event — not on signup. A referral that pays out for creating an account
    * pays out for creating accounts (T6).
+   *
+   * The referrer's half is **capped** as well as priced: `economy.referral_reward_cap`
+   * referrals in `economy.earning_cap_days`. Uncapped, this was the largest
+   * farmable source in the product — the attendance condition bounds how *fast* a
+   * farm can run, not how *big* it can get, and a person with thirty willing
+   * friends could mint six hundred coins in a month without breaking a rule.
+   *
+   * The referred user's ten are deliberately **not** capped. They are paid once
+   * per lifetime by construction (`referral.referred_user_id` is UNIQUE), so
+   * there is nothing to cap, and a cap that could withhold them would punish the
+   * newcomer for the popularity of whoever invited them.
    */
-  'economy.referral_referrer_coins': 30,
+  'economy.referral_referrer_coins': 20,
   'economy.referral_referred_coins': 10,
 
   /**
    * What the paid actions on an activity cost (M22 phase 5).
    *
    * Here rather than as constants for the reason §11 gives about every other
-   * number in this table: an operator who finds that five coins is too steep for
+   * number in this table: an operator who finds that the price is too steep for
    * a first event has to be able to change it without a deploy, and a price that
    * only exists in a compiled bundle cannot be changed at all.
+   *
+   * **This is a deposit, not a fee**, as of the economy rebalance:
+   * `economy.host_deposit_refund_coins` gives it back when the activity is
+   * actually held. Supply is the scarce side of this marketplace and a host who
+   * turns up should be net positive in coins; what the charge is really pricing
+   * is the *ghost* activity, which is registered, listed, never held, and costs
+   * every guest who planned an evening around it.
    *
    * **Zero is a legitimate value and means free**, which is how the feature is
    * rolled back: set `economy.event_create_coins` to 0 and creating an event stops
@@ -121,31 +163,35 @@ export const SETTING_DEFAULTS = {
    * skip the ledger write entirely at zero, so a free action leaves no row
    * claiming somebody paid nothing.
    */
-  'economy.event_create_coins': 5,
+  'economy.event_create_coins': 10,
   /**
    * The channel publication a new activity gets by default.
    *
    * Charged **with** `event_create_coins` in the same transaction, so registering
-   * an activity costs `5 + 10 = 15` and puts it in the channel without the host
+   * an activity costs `10 + 15 = 25` and puts it in the channel without the host
    * asking. Two settings rather than one `event_register_coins`, because the two
    * halves buy different things and an operator has to be able to price them
    * apart — and because the create charge already exists in the ledger under its
    * own type, which a merged number would have made unreadable.
    *
-   * **The split is deliberately not shown to the user.** The bot says «ثبت فعالیت
-   * ۱۵ سکه هزینه دارد» and stops; a host choosing between two line items they
-   * cannot decline is a choice that does not exist.
+   * **The split is deliberately not shown to the user.** The bot quotes the sum
+   * and stops; a host choosing between two line items they cannot decline is a
+   * choice that does not exist. What the bot *does* now say beside the sum is
+   * that it comes back if the activity happens — the difference between «۲۵ سکه
+   * هزینه دارد» and «۲۵ سکه سپرده است» is the difference between having hosts and
+   * not having them.
    */
-  'economy.event_channel_publish_coins': 10,
+  'economy.event_channel_publish_coins': 15,
   /**
    * Renewing a channel post — publishing the same activity again so it is seen
    * again. Cheaper than the original publication because the activity is already
    * in the channel's history; what is being bought is position, not reach.
    */
-  'economy.event_channel_send_coins': 5,
-  'economy.event_top_invite_coins': 20,
+  'economy.event_channel_send_coins': 8,
+  'economy.event_top_invite_coins': 30,
   /**
-   * What asking to join an activity costs (v0.6.3; **five since v0.7.0**).
+   * What asking to join an activity costs (v0.6.3; five from v0.7.0, **twenty
+   * since the economy rebalance**).
    *
    * It shipped at zero, deliberately: joining had been free on every surface
    * since M6, and the channel post's «پایتم» button reaches the same
@@ -154,10 +200,25 @@ export const SETTING_DEFAULTS = {
    * adding a button to a channel post. The price existed so an operator could
    * set one without a deploy.
    *
-   * Five is now the product's answer rather than an operator's. The reason is
-   * the same one that puts a price on creating an activity: a request costs a
-   * host their attention and a slot of their queue, and a free ask is one
-   * somebody sends to nine activities to see which answers.
+   * Five was the product's first answer, and it was the wrong one: joining cost
+   * five and reviewing the same activity paid ten, so every attendance left a
+   * user **five coins richer**. The economy was a spring, not a sink, and no
+   * amount of pricing elsewhere could fix a loop that pays more than it takes.
+   *
+   * Twenty is the backbone of the whole model. It is anchored to the evening
+   * rather than to the software: going out costs 200–500 thousand toman in a café
+   * and transport, and twenty coins is about 19 thousand — four to ten per cent of
+   * a night out, less than the fare to get there. The rule that produced it, and
+   * the one to keep if this ever moves: **a coin price never exceeds ten per cent
+   * of what the activity itself costs the person.**
+   *
+   * With `economy.review_reward_coins` at five, the effective price of an
+   * activity is fifteen, which is a 25% discount for writing a review rather than
+   * a payment for consuming.
+   *
+   * **When the market is thin, lower this — never raise it.** If fill rate drops
+   * below 60%, the problem is supply and every price is too high; the emergency
+   * lever is this key back to 10, which is one settings change and no deploy.
    *
    * **Zero still works and still means free** — the service skips the ledger
    * write entirely, because `coin_ledger.amount` may not be zero and a row
@@ -165,13 +226,151 @@ export const SETTING_DEFAULTS = {
    *
    * A waitlisted request is charged like an accepted one, and deliberately: what
    * is being paid for is the *ask*, which consumes the host's attention whether
-   * or not a seat was free. Refunding a rejection would make the price a
-   * deposit, which is a different product decision and one nobody has taken. A
-   * **host** cancelling the whole activity does refund it — see
-   * `PenaltyService.refundParticipant`, which reverses every charge whose
-   * subject is that participation.
+   * or not a seat was free.
+   *
+   * **A rejected or expired request is refunded** — `refundJoinCharge` in
+   * `ParticipationService`, since v0.8.1. This paragraph used to say the opposite
+   * and was stale; only the guest's own withdrawal keeps the charge now. A
+   * **host** cancelling the whole activity refunds it too, through
+   * `PenaltyService.refundParticipant`, which reverses every charge whose subject
+   * is that participation.
    */
-  'economy.event_join_coins': 5,
+  'economy.event_join_coins': 20,
+
+  // ── The earning caps, and the three sources they bound ─────────────────────
+  //
+  // §2's first principle: **every grant must be finite and non-renewable.** Three
+  // sources in this product are neither — a review per activity, a referral per
+  // friend, a hosting bonus per event — and each grows with exactly the activity
+  // the product is trying to encourage. That is not a reason to remove them; it
+  // is a reason to put a ceiling on them.
+  //
+  // One window, three ceilings. A key per window would be three numbers an
+  // operator has to keep equal, and the first one that drifts is the one nobody
+  // reads.
+  //
+  // The three together are the answer to "how much can somebody who farms this
+  // full-time take out?" — 60 from referrals, 20 from reviews, 20 from hosting,
+  // so **100 coins a month, five activities**. That is the number §12 says to
+  // measure: if the top earner in any thirty days is above it, a cap has been
+  // left off something.
+
+  /**
+   * The rolling window every earning cap is measured over.
+   *
+   * Rolling rather than calendar, and deliberately: a calendar month resets at
+   * midnight on the first, which turns a cap into a race and rewards whoever
+   * noticed. A window that always looks back thirty days has no edge to game.
+   *
+   * **Zero disables every cap at once**, which is the rollback for all three in
+   * one move — the services skip the whole lookup at zero rather than treating it
+   * as a zero-length window that refuses everything.
+   */
+  'economy.earning_cap_days': 30,
+  /** Coins from reviews inside `economy.earning_cap_days`. Four reviews a month. */
+  'economy.review_reward_cap': 20,
+  /**
+   * **Referrals**, not coins, inside the window — the one cap counted in events
+   * rather than in currency.
+   *
+   * Because the referrer's price is a separate setting an operator may move: a
+   * cap of 60 coins would silently become "two referrals" the day
+   * `economy.referral_referrer_coins` went to 30, and "how many friends may I
+   * bring this month?" would have a different answer than anybody intended. Three
+   * referrals is three referrals whatever they pay.
+   *
+   * At the default of 20 coins each this is 60 coins a month, which keeps
+   * referrals comfortably the best way to earn — which is correct. Bringing
+   * somebody who stays is worth more to this product than anything else a user
+   * can do.
+   */
+  'economy.referral_reward_cap': 3,
+
+  // ── Hosting: the deposit, and what makes it come back ──────────────────────
+  //
+  // §2's third principle: **supply is subsidised, demand pays.** Hosts are the
+  // scarce side. A host who shows up should be net *positive* in coins and should
+  // never be forced to buy any — if hosting is expensive there are no activities,
+  // and with no activities nobody buys anything at any price.
+  //
+  // So `economy.event_create_coins` + `economy.event_channel_publish_coins` is a
+  // deposit rather than a fee, and this is the half that returns it.
+
+  /**
+   * The registration deposit, returned when the activity was actually held.
+   *
+   * Matches `event_create_coins + event_channel_publish_coins` at the defaults
+   * (10 + 15 = 25), and is a **separate key rather than a computed sum** for two
+   * reasons: an operator has to be able to return less than was charged (a
+   * partial deposit is a legitimate policy), and the sum is the *price today*
+   * while a refund is about a charge made weeks ago.
+   *
+   * `HostRewardService` floors it at what the host was actually charged for that
+   * specific event, read back from the ledger. Without that floor, raising this
+   * above the registration price would turn hosting into a mint — and the check
+   * is structural rather than a rule somebody has to remember.
+   */
+  'economy.host_deposit_refund_coins': 25,
+  /** On top of the deposit, per guest who actually turned up. */
+  'economy.host_reward_per_attendee_coins': 2,
+  /**
+   * How many guests must have attended before any of it is paid.
+   *
+   * Two, not one: one guest is a coffee with a friend, and a bonus that pays at
+   * one is a bonus two people can trade back and forth all month. It is also the
+   * point below which "was this a real activity?" stops being answerable from the
+   * numbers alone.
+   */
+  'economy.host_reward_min_attendees': 2,
+  /**
+   * The per-guest bonus inside `economy.earning_cap_days`. **The deposit refund
+   * is not counted against it** — returning what somebody paid is not earning.
+   */
+  'economy.host_reward_cap': 20,
+
+  // ── The comeback grant ─────────────────────────────────────────────────────
+
+  /**
+   * One grant, once in an account's life, to somebody who has run out.
+   *
+   * The user this is for is specific and worth naming: they have been to at least
+   * two activities, they behaved well enough for a trust score above the
+   * threshold, and they now cannot afford a third. Every number in the plan says
+   * that person should be converting to a purchase — and the honest reading of
+   * why they might not is that the first payment is the hardest thing this
+   * product ever asks for. This is the last thing offered before they leave.
+   *
+   * Not a retention loop: the ledger's UNIQUE `idempotency_key` on
+   * `comeback:{userId}` makes "once in a lifetime" structural rather than a
+   * counter somebody could reset. **Zero switches it off.**
+   */
+  'economy.comeback_grant_coins': 20,
+  /** Attended activities required. Proof they used the product, not just joined it. */
+  'economy.comeback_min_attended_events': 2,
+  /**
+   * Trust required.
+   *
+   * Above the 50 an account starts at, so it cannot be met by doing nothing, and
+   * comfortably below what two clean attendances reach. Somebody who no-showed
+   * their way to a low score is not who this grant is for.
+   */
+  'economy.comeback_min_trust': 55,
+
+  /**
+   * The reference price of one coin, in toman. **Reporting only.**
+   *
+   * Nothing in the product charges toman and nothing ever should: prices inside
+   * the bot are in coins, always, and inflation is applied to the *package price*
+   * outside the product. That is the single most structural decision in the
+   * pricing plan — 950 becomes 1,200 becomes 1,500 without one number in the bot
+   * changing and without any user seeing "the service got more expensive".
+   *
+   * It exists here so the panel's economy report can put a toman figure beside a
+   * coin figure. Change it when the package prices are revised, and understand
+   * that doing so re-prices **history** on that report: it is a conversion rate
+   * applied at read time, not a rate anything was sold at.
+   */
+  'economy.coin_reference_price_toman': 950,
   /**
    * How many people one paid invitation reaches (phase 11).
    *
@@ -393,8 +592,32 @@ export const SETTING_DEFAULTS = {
    * that, with no deploy.
    */
   'review.partial_reveal_affects_trust': 0,
-  /** Coins for writing one (plan §11). Paid on submission — see `ReviewService`. */
-  'economy.review_reward_coins': 10,
+  /**
+   * Coins for writing one. Paid on submission — see `ReviewService`.
+   *
+   * **Five, and capped**, since the economy rebalance. It was ten, against a join
+   * price of five, which made every attended activity net *positive* for the
+   * guest: this single pair of numbers is why coin revenue was zero, and it was
+   * not the price and not the missing payment gateway.
+   *
+   * Five against twenty is a different thing entirely — a 25% rebate for writing
+   * rather than a wage for consuming. The incentive that actually carries reviews
+   * is not the coins at all: reviews are blind, and writing one is how you get to
+   * *see* what the other side wrote about you (D7). That is stronger than any
+   * number here, which is why halving this is safe and zeroing it would not be.
+   *
+   * `economy.review_reward_cap` bounds the total over
+   * `economy.earning_cap_days`. Uncapped, this is a source that grows with
+   * activity and has no ceiling — one activity, one review, five coins, forever —
+   * and §2's first principle is that no such source may exist. Twenty coins a
+   * month is four reviews, which is more than an ordinary member writes and less
+   * than a ring of friends running fake activities needs.
+   *
+   * **Watch the review rate for two weeks after changing this.** If it falls
+   * below 50%, the trust signal is degrading and this should go to seven — the
+   * reviews are what separate this product from a group chat.
+   */
+  'economy.review_reward_coins': 5,
   /**
    * What a star is worth to the person receiving it (plan §11).
    *

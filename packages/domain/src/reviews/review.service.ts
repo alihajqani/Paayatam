@@ -120,6 +120,42 @@ export class ReviewService {
   ) {}
 
   /**
+   * What this particular review pays, after the rolling cap.
+   *
+   * Zero is a legitimate answer and means "write it for free": either the reward
+   * is switched off, or the window's allowance is spent. The caller writes no
+   * ledger row at zero.
+   *
+   * **A cap of zero means uncapped, not "pay nothing"** — the same convention
+   * every other limit in this table uses, and the reason the check is `<= 0`
+   * rather than a comparison against the earned total. `earning_cap_days` of zero
+   * disables the lookup entirely, which is how all three caps roll back at once.
+   */
+  private async rewardFor(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    policy: {
+      'economy.review_reward_coins': number;
+      'economy.review_reward_cap': number;
+      'economy.earning_cap_days': number;
+    },
+    now: Date,
+  ): Promise<number> {
+    const reward = policy['economy.review_reward_coins'];
+    const cap = policy['economy.review_reward_cap'];
+    const days = policy['economy.earning_cap_days'];
+    if (reward <= 0 || cap <= 0 || days <= 0) return Math.max(reward, 0);
+
+    const since = new Date(now.getTime() - days * 24 * 3_600_000);
+    const earned = await this.coins.earnedSince(userId, since, { types: ['REVIEW_REWARD'] }, tx);
+
+    // Floored at zero rather than allowed negative: an operator who lowers the
+    // cap below what somebody has already been paid must stop the next reward,
+    // not claw back the last one.
+    return Math.max(0, Math.min(reward, cap - earned.coins));
+  }
+
+  /**
    * Judge a review's free text, exactly as an event's is judged (ADR-0012).
    *
    * §4.6 gives `review.moderation_status` and this is what writes it. A review
@@ -294,9 +330,13 @@ export class ReviewService {
       throw new AppError(ErrorCode.VALIDATION_FAILED, { field: 'rating' });
     }
 
-    const [editMinutes, rewardCoins] = await Promise.all([
+    const [editMinutes, policy] = await Promise.all([
       this.settings.getInt('review.edit_window_minutes'),
-      this.settings.getInt('economy.review_reward_coins'),
+      this.settings.getNumbers([
+        'economy.review_reward_coins',
+        'economy.review_reward_cap',
+        'economy.earning_cap_days',
+      ]),
     ]);
 
     return this.prisma.$transaction(
@@ -359,20 +399,43 @@ export class ReviewService {
          * somebody *else* did their part, which is both unfair and exactly the
          * incentive D7 removes elsewhere: it would give a reviewer a reason to care
          * what the counterparty does.
+         *
+         * ── The monthly cap, and why it does not refuse the review ─────────────
+         *
+         * `economy.review_reward_cap` bounds what reviews may pay over
+         * `economy.earning_cap_days`. Past it the review is **still written, still
+         * revealed and still moves trust** — only the coins stop. That split is the
+         * whole point: the reward is an incentive, the review is the product's
+         * trust signal, and refusing the second to enforce a limit on the first
+         * would trade the thing that matters for the thing that is merely
+         * expensive.
+         *
+         * A partial grant is paid where the allowance is partly used — five coins
+         * owed against three remaining pays three, not nothing and not five.
+         *
+         * **Nothing is written at zero**, because `coin_ledger.amount` may not be
+         * zero and a row claiming somebody was paid nothing is worse than no row.
+         * Unlike the penalty path, which has the same property, this one does not
+         * consume the idempotency key — which is safe because the review's own
+         * UNIQUE `(participant_id, reviewer_user_id)` is what makes this
+         * transaction happen once.
          */
-        await this.coins.apply(
-          {
-            userId,
-            amount: rewardCoins,
-            type: 'REVIEW_REWARD',
-            reasonCode: REVIEW_REWARD_REASON,
-            idempotencyKey: reviewRewardKey(review.id),
-            actorType: 'SYSTEM',
-            refType: 'review',
-            refId: review.id,
-          },
-          tx,
-        );
+        const reward = await this.rewardFor(tx, userId, policy, now);
+        if (reward > 0) {
+          await this.coins.apply(
+            {
+              userId,
+              amount: reward,
+              type: 'REVIEW_REWARD',
+              reasonCode: REVIEW_REWARD_REASON,
+              idempotencyKey: reviewRewardKey(review.id),
+              actorType: 'SYSTEM',
+              refType: 'review',
+              refId: review.id,
+            },
+            tx,
+          );
+        }
 
         if (nextStatus === 'REVEALED') {
           await this.revealPair(tx, context.pairId, now, 'REVEALED');

@@ -12,7 +12,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { ReferralService } from '../economy/referral.service';
@@ -117,17 +117,18 @@ const AFTER_SETTLEMENT = new Date(ENDS_AT.getTime() + 25 * 3_600_000);
 /** Inside the review window: opens at end + 24 h, closes at end + 7 d. */
 const IN_WINDOW = new Date(ENDS_AT.getTime() + 48 * 3_600_000);
 /**
- * What asking to join costs, and enough of it (`economy.event_join_coins`).
+ * Enough coins to join, several times over (`economy.event_join_coins`).
  *
- * Five from v0.7.0, charged by `join` inside the same transaction — so a joiner
- * with an empty account is refused with `INSUFFICIENT_COINS` before reaching any
- * of the behaviour this suite is about.
+ * `join` charges inside the same transaction, so a joiner with an empty account
+ * is refused with `INSUFFICIENT_COINS` before reaching any of the behaviour this
+ * suite is about.
  *
- * The balance assertion below is written relative to the endowment rather than
- * as a bare number, so it stays about the review reward when the join price
- * changes again.
+ * Derived from the price rather than written as `100`, because the price moved
+ * from five to twenty in the coin economy rebalance and a fixed endowment would
+ * have quietly become "four joins" — and the balance assertions below are all
+ * relative to it, so they stay about the review reward either way.
  */
-const JOIN_BUDGET = 100;
+const JOIN_BUDGET = 20 * SETTING_DEFAULTS['economy.event_join_coins'];
 
 /** Past the deadline. */
 const AFTER_DEADLINE = new Date(ENDS_AT.getTime() + 8 * 24 * 3_600_000);
@@ -575,7 +576,9 @@ describe('what a review is worth (plan §11)', () => {
     await reviews.submit(hostId, participantPublicId, { rating: 5 });
 
     // The host reviews; they never joined, so their endowment is untouched.
-    await expect(coins.balanceOf(hostId)).resolves.toBe(JOIN_BUDGET + 10);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(
+      JOIN_BUDGET + SETTING_DEFAULTS['economy.review_reward_coins'],
+    );
   });
 
   it.each([
@@ -884,5 +887,103 @@ describe('a review comment is moderated (§4.6)', () => {
     expect(opened.blacklistVersion).toBe(3);
     // The case names the rules that fired, never the text they fired on (ADR-0009).
     expect(JSON.stringify(opened.matchedTerms)).not.toContain('میزبان');
+  });
+});
+
+/**
+ * The monthly cap on review rewards (docs/coin-economy-plan.md §3).
+ *
+ * ── The property that matters is the *split* ────────────────────────────────
+ *
+ * At the cap, the review is still written, still revealed, and still moves the
+ * counterparty's trust. Only the coins stop. That separation is the whole point:
+ * the reward is an incentive, but the review itself is the product's trust
+ * signal — and refusing the second to enforce a limit on the first would trade
+ * the thing that matters for the thing that is merely expensive.
+ *
+ * `economy.review_reward_cap` is set low here rather than writing twenty reviews:
+ * the cap's arithmetic is what is under test, not the default's value.
+ */
+describe('the monthly cap on review rewards', () => {
+  const REWARD = SETTING_DEFAULTS['economy.review_reward_coins'];
+
+  /**
+   * A second and third reviewable participation, in one test.
+   *
+   * `reviewableParticipation` leaves the clock inside the review window, which is
+   * past the fixed `STARTS_AT` every event it publishes uses — so a second call
+   * would try to join an activity that has already happened. Rewinding first is
+   * what makes it re-callable, and a cap is not testable with one review.
+   */
+  async function anotherReviewable(): Promise<{ participantPublicId: string; guestId: string }> {
+    clock.set(NOW);
+    return reviewableParticipation();
+  }
+
+  it('pays the remainder when the allowance is partly spent, then stops', async () => {
+    // One and a half rewards' worth of allowance: the first review pays in full,
+    // the second pays what is left, the third pays nothing.
+    const cap = REWARD + Math.floor(REWARD / 2);
+    await prisma.appSetting.create({ data: { key: 'economy.review_reward_cap', value: cap } });
+
+    const before = await coins.balanceOf(hostId);
+    for (let index = 0; index < 3; index += 1) {
+      const { participantPublicId } = await anotherReviewable();
+      await reviews.submit(hostId, participantPublicId, { rating: 5 });
+    }
+
+    await expect(coins.balanceOf(hostId)).resolves.toBe(before + cap);
+  });
+
+  it('still writes the review, and still moves trust, once the coins stop', async () => {
+    await prisma.appSetting.create({ data: { key: 'economy.review_reward_cap', value: 1 } });
+
+    // Spend the allowance.
+    const first = await anotherReviewable();
+    await reviews.submit(hostId, first.participantPublicId, { rating: 5 });
+    const spent = await coins.balanceOf(hostId);
+
+    const { participantPublicId, guestId } = await anotherReviewable();
+    const trustBefore = await trust.scoreOf(guestId);
+
+    const written = await reviews.submit(hostId, participantPublicId, { rating: 5 });
+    // The guest's own review completes the pair and triggers the reveal.
+    await reviews.submit(guestId, participantPublicId, { rating: 3 });
+
+    expect(written.rating).toBe(5);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(spent);
+    await expect(trust.scoreOf(guestId)).resolves.toBe(
+      trustBefore + SETTING_DEFAULTS['trust.review_rating_5'],
+    );
+  });
+
+  it('writes no ledger row at all when the reward is zero', async () => {
+    // `coin_ledger.amount` may not be zero, and a row claiming somebody was paid
+    // nothing is worse than no row.
+    await prisma.appSetting.create({ data: { key: 'economy.review_reward_cap', value: 1 } });
+
+    const first = await anotherReviewable();
+    await reviews.submit(hostId, first.participantPublicId, { rating: 5 });
+    const second = await anotherReviewable();
+    await reviews.submit(hostId, second.participantPublicId, { rating: 5 });
+
+    await expect(
+      prisma.coinLedger.count({ where: { userId: hostId, type: 'REVIEW_REWARD' } }),
+    ).resolves.toBe(1);
+  });
+
+  it('is uncapped when the cap is zero', async () => {
+    // Zero means "no ceiling", the same convention every other limit in this
+    // table uses — not "pay nothing", which is what `review_reward_coins` at
+    // zero means.
+    await prisma.appSetting.create({ data: { key: 'economy.review_reward_cap', value: 0 } });
+
+    const before = await coins.balanceOf(hostId);
+    for (let index = 0; index < 3; index += 1) {
+      const { participantPublicId } = await anotherReviewable();
+      await reviews.submit(hostId, participantPublicId, { rating: 5 });
+    }
+
+    await expect(coins.balanceOf(hostId)).resolves.toBe(before + 3 * REWARD);
   });
 });

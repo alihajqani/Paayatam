@@ -118,7 +118,34 @@ export const TEMPLATES = {
    * used the code.
    */
   REFERRAL_QUALIFIED_REFERRER: 'referral.qualified.referrer',
+  /**
+   * The same fact, to a referrer who has hit `economy.referral_reward_cap`.
+   *
+   * A third template rather than a conditional sentence inside the first,
+   * because the two say opposite things about the coins and a renderer that
+   * branched on a zero would be one template claiming both. Sending nothing was
+   * the other option and it is the wrong one: their invitation *did* qualify, and
+   * a person who was promised coins and hears nothing concludes the product is
+   * broken rather than that a limit exists.
+   */
+  REFERRAL_QUALIFIED_REFERRER_CAPPED: 'referral.qualified.referrer_capped',
   REFERRAL_QUALIFIED_REFERRED: 'referral.qualified.referred',
+  /**
+   * The hosting settlement: the deposit back, plus what the guests earned.
+   *
+   * The message a host has been owed since registration started costing coins.
+   * They paid a deposit, held the evening, wrote their reviews, and until now the
+   * only evidence any of that mattered was a balance that had quietly changed.
+   */
+  HOST_SETTLED: 'host.settled',
+  /**
+   * The comeback grant — coins nobody asked for, to somebody who ran out.
+   *
+   * Unprompted, which is the whole design: it has to read as the product
+   * noticing, not as a reward for having failed to pay. So it names what they did
+   * (they came to things) rather than what they did not (buy coins).
+   */
+  COMEBACK_GRANTED: 'economy.comeback_granted',
   /**
    * Anything the bot has to say about a request it could not carry out.
    *
@@ -646,6 +673,22 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `${num(payload, 'referrerCoins')} سکه به حساب شما اضافه شد.`,
       };
 
+    /**
+     * The cap, said once it is reached rather than announced in advance.
+     *
+     * It names the window rather than the number of referrals, because the number
+     * is a setting and the sentence would go stale; what somebody needs to know is
+     * that this is temporary and roughly when it lifts.
+     */
+    case TEMPLATES.REFERRAL_QUALIFIED_REFERRER_CAPPED:
+      return {
+        text:
+          `<b>دعوت شما به نتیجه رسید</b> ✅\n\n` +
+          `کسی که با کد شما آمده بود در نخستین فعالیتش شرکت کرد.\n\n` +
+          `<i>سقف سکهٔ دعوت در این ماه پر شده، پس این‌بار سکه‌ای اضافه نشد. ` +
+          `دعوت‌های بعدی دوباره سکه می‌گیرند.</i>`,
+      };
+
     /** And to the person who used the code, naming the condition that was met. */
     case TEMPLATES.REFERRAL_QUALIFIED_REFERRED:
       return {
@@ -654,6 +697,50 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `در نخستین فعالیتتان شرکت کردید، پس ${num(payload, 'referredCoins')} سکه ` +
           `به حساب شما اضافه شد.`,
       };
+
+    /**
+     * The host's settlement.
+     *
+     * The deposit and the bonus are named **separately**, unlike registration —
+     * which quotes one number on purpose, because the split there is a boundary
+     * the host cannot act on. Here they can: "your deposit came back" is the
+     * promise being kept, and "and this much for your guests" is the part that
+     * grows if they host again. One merged figure would hide both.
+     *
+     * Either half may be zero — a deposit already returned by an earlier pass, or
+     * a bonus at the monthly cap — so each line appears only when there is
+     * something in it.
+     */
+    case TEMPLATES.HOST_SETTLED: {
+      const refund = num(payload, 'refund');
+      const bonus = num(payload, 'bonus');
+      const lines = [
+        `<b>فعالیت شما تسویه شد</b> 🎉`,
+        ``,
+        `«${str(payload, 'eventTitle')}» با ${num(payload, 'attendees')} مهمان برگزار شد.`,
+        ``,
+      ];
+      if (refund !== '۰') lines.push(`• سپردهٔ ثبت فعالیت: ${refund} سکه برگشت`);
+      if (bonus !== '۰') lines.push(`• پاداش میزبانی: ${bonus} سکه`);
+      lines.push(``, `<i>میزبانی که فعالیتش را برگزار می‌کند، در سکه ضرر نمی‌کند.</i>`);
+      return { text: lines.join('\n') };
+    }
+
+    /**
+     * The comeback grant.
+     *
+     * No «چرا این را گرفتید» beyond one clause, and deliberately: spelling out the
+     * eligibility rule would turn a gesture into a scheme somebody optimises
+     * against. It says what happened, what it buys, and where to go.
+     */
+    case TEMPLATES.COMEBACK_GRANTED:
+      return opened(
+        `<b>${num(payload, 'coins')} سکه برایتان کنار گذاشتیم</b> 🎁\n\n` +
+          `چند فعالیت رفته‌اید و موجودی‌تان تمام شده. این سکه‌ها هدیهٔ ماست ` +
+          `تا یکی دیگر را از دست ندهید.\n\n` +
+          `موجودی شما: ${num(payload, 'balance')} سکه`,
+        `discover`,
+      );
 
     /**
      * `/help` — the only place the bot's own capabilities are written down.

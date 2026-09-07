@@ -257,6 +257,51 @@ export class ReferralService {
   }
 
   /**
+   * What the referrer is paid for this one, after the rolling cap.
+   *
+   * ── Counted in referrals, not in coins ──────────────────────────────────────
+   *
+   * `economy.referral_reward_cap` is a count, and the arithmetic here is
+   * therefore all-or-nothing: three referrals in the window pay in full, the
+   * fourth pays zero. Partial payment would need the cap to be a coin figure, and
+   * a coin figure silently changes meaning the day somebody retunes
+   * `economy.referral_referrer_coins` — "how many friends may I bring this
+   * month?" would have a different answer than anybody intended.
+   *
+   * Counted against the ledger and narrowed by `reasonCode`, because both halves
+   * of a referral share the `REFERRAL_REWARD` type and only the referrer's half
+   * is capped. Rows, not coins, so the count survives the price moving.
+   *
+   * Uncapped when either number is zero, which is the rollback.
+   */
+  private async referrerRewardFor(
+    tx: Prisma.TransactionClient,
+    referrerUserId: string,
+    policy: {
+      'economy.referral_referrer_coins': number;
+      'economy.referral_reward_cap': number;
+      'economy.earning_cap_days': number;
+    },
+    now: Date,
+  ): Promise<number> {
+    const reward = policy['economy.referral_referrer_coins'];
+    const cap = policy['economy.referral_reward_cap'];
+    const days = policy['economy.earning_cap_days'];
+    if (reward <= 0) return 0;
+    if (cap <= 0 || days <= 0) return reward;
+
+    const since = new Date(now.getTime() - days * 24 * 3_600_000);
+    const paid = await this.coins.earnedSince(
+      referrerUserId,
+      since,
+      { types: ['REFERRAL_REWARD'], reasonCode: REFERRAL_REFERRER_REASON },
+      tx,
+    );
+
+    return paid.count >= cap ? 0 : reward;
+  }
+
+  /**
    * Pay out, if the referred user has now attended something.
    *
    * The attendance condition is checked *here* rather than trusted from the
@@ -284,69 +329,95 @@ export class ReferralService {
     });
     if (!attended) return false;
 
-    const [referrerCoins, referredCoins] = await Promise.all([
-      this.settings.getInt('economy.referral_referrer_coins'),
-      this.settings.getInt('economy.referral_referred_coins'),
+    const policy = await this.settings.getNumbers([
+      'economy.referral_referrer_coins',
+      'economy.referral_referred_coins',
+      'economy.referral_reward_cap',
+      'economy.earning_cap_days',
     ]);
+    const referredCoins = policy['economy.referral_referred_coins'];
 
     return this.prisma.$transaction(async (tx) => {
-      // Re-read under the transaction: two attendance settlements landing at once
-      // must not both decide they are the one that qualified it.
-      const current = await tx.referral.findUnique({
-        where: { id: referral.id },
-        select: { status: true },
+      /**
+       * **This is what decides who qualified it.**
+       *
+       * Ten attendance settlements for the same user can land together, and under
+       * READ COMMITTED they all read PENDING because none of them has committed
+       * yet. A read is therefore never the guard. A conditional update is: the
+       * second writer blocks on the row lock, and when it is released Postgres
+       * re-evaluates the `WHERE` against the committed row, finds it no longer
+       * PENDING, and matches nothing. Exactly one caller sees `count === 1`.
+       *
+       * ── Why the guard moved here from the coin movement ────────────────────
+       *
+       * It used to be `referrerReward.applied` — the account lock plus the
+       * idempotency key, which was a correct guard for as long as there was
+       * always a payment to make. `economy.referral_reward_cap` broke that: a
+       * referrer at their cap is paid **nothing**, so there is no movement to be
+       * the guard, and the referral still has to qualify because the referred
+       * user's own ten coins do not depend on how popular their inviter is.
+       *
+       * `reward_ledger_id` is filled in below, once there is a ledger row to name.
+       * A referral qualified at the cap keeps it null, which reads correctly:
+       * qualified, and paid nothing.
+       */
+      const claimed = await tx.referral.updateMany({
+        where: { id: referral.id, status: 'PENDING' },
+        data: { status: 'QUALIFIED', qualifiedAt: now },
       });
-      if (current?.status !== 'PENDING') return false;
+      if (claimed.count === 0) return false;
 
-      const referrerReward = await this.coins.apply(
-        {
-          userId: referral.referrerUserId,
-          amount: referrerCoins,
-          type: 'REFERRAL_REWARD',
-          reasonCode: REFERRAL_REFERRER_REASON,
-          idempotencyKey: referrerRewardKey(referral.id),
-          actorType: 'SYSTEM',
-          refType: 'referral',
-          refId: referral.id,
-        },
-        tx,
-      );
+      const referrerCoins = await this.referrerRewardFor(tx, referral.referrerUserId, policy, now);
+
+      const referrerReward =
+        referrerCoins > 0
+          ? await this.coins.apply(
+              {
+                userId: referral.referrerUserId,
+                amount: referrerCoins,
+                type: 'REFERRAL_REWARD',
+                reasonCode: REFERRAL_REFERRER_REASON,
+                idempotencyKey: referrerRewardKey(referral.id),
+                actorType: 'SYSTEM',
+                refType: 'referral',
+                refId: referral.id,
+              },
+              tx,
+            )
+          : null;
 
       /**
-       * **This is what decides who qualified it**, not the status read above.
+       * The referred user's half is **not** capped, and is paid even when the
+       * referrer's was withheld.
        *
-       * Ten attendance settlements landing together all read PENDING under READ
-       * COMMITTED, because none of them has committed yet — so the read is an
-       * early exit, never the guard. The coin movement is the guard: it takes
-       * `FOR UPDATE` on the referrer's account and checks its idempotency key
-       * while holding it, so exactly one caller is told `applied`. The others
-       * return false and announce nothing, which matters because "did I qualify
-       * this?" becomes a notification in M13.
+       * It is once-per-lifetime by construction — `referral.referred_user_id` is
+       * UNIQUE — so there is nothing for a cap to bound. Withholding it because
+       * somebody else had a busy month would punish the newcomer for the
+       * popularity of whoever invited them, which is the opposite of what this
+       * reward is for.
        */
-      if (!referrerReward.applied) return false;
+      if (referredCoins > 0) {
+        await this.coins.apply(
+          {
+            userId,
+            amount: referredCoins,
+            type: 'REFERRAL_REWARD',
+            reasonCode: REFERRAL_REFERRED_REASON,
+            idempotencyKey: referredRewardKey(referral.id),
+            actorType: 'SYSTEM',
+            refType: 'referral',
+            refId: referral.id,
+          },
+          tx,
+        );
+      }
 
-      await this.coins.apply(
-        {
-          userId,
-          amount: referredCoins,
-          type: 'REFERRAL_REWARD',
-          reasonCode: REFERRAL_REFERRED_REASON,
-          idempotencyKey: referredRewardKey(referral.id),
-          actorType: 'SYSTEM',
-          refType: 'referral',
-          refId: referral.id,
-        },
-        tx,
-      );
-
-      await tx.referral.update({
-        where: { id: referral.id },
-        data: {
-          status: 'QUALIFIED',
-          qualifiedAt: now,
-          rewardLedgerId: referrerReward.ledgerId,
-        },
-      });
+      if (referrerReward !== null) {
+        await tx.referral.update({
+          where: { id: referral.id },
+          data: { rewardLedgerId: referrerReward.ledgerId },
+        });
+      }
 
       await this.audit.record(
         {
@@ -377,6 +448,12 @@ export class ReferralService {
        *
        * Public ids only, and no display names: who took up an invitation is not
        * something the inviter is entitled to be told (ADR-0009, invariant 7).
+       *
+       * **A referrer at their cap is still told**, with different words. Silence
+       * would be the exact failure v0.7.0 fixed — a promise kept and nobody saying
+       * so, which users report as a bug — and it would be worse here, because the
+       * reason there are no coins is a rule they have never seen. `referrerCoins`
+       * of zero is what the fan-out reads to choose the sentence.
        */
       await this.outbox.emit(
         {

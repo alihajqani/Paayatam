@@ -73,6 +73,8 @@ function buildProcessors(options: {
     {} as never, // CoinService
     {} as never, // TelegramLoggerService
     {} as never, // ConversationService
+    {} as never, // HostRewardService
+    {} as never, // ComebackService
   );
 
   return { processors, send, markSuppressed };

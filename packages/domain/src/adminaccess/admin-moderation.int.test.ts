@@ -495,6 +495,16 @@ describe('reviewing one case', () => {
   });
 });
 
+/**
+ * The price this suite tunes, read rather than written.
+ *
+ * It was `20` at five call sites here and moved to thirty in the coin economy
+ * rebalance. Not one of these tests is about the price — they are about the
+ * catalogue being the source of the list, about «تغییر داده‌شده» meaning what it
+ * says, and about the audit row recording the value that was replaced.
+ */
+const INVITE_COST = SETTING_DEFAULTS['economy.event_top_invite_coins'];
+
 describe('changing a policy number', () => {
   it('lists every key from the code catalogue, with its default beside it', async () => {
     const listed = await operations.listSettings(SUPER);
@@ -502,8 +512,8 @@ describe('changing a policy number', () => {
     expect(listed).toHaveLength(Object.keys(SETTING_DEFAULTS).length);
     expect(listed.every((row) => row.overridden === false)).toBe(true);
     expect(listed.find((row) => row.key === 'economy.event_top_invite_coins')).toMatchObject({
-      value: 20,
-      defaultValue: 20,
+      value: INVITE_COST,
+      defaultValue: INVITE_COST,
     });
   });
 
@@ -522,13 +532,13 @@ describe('changing a policy number', () => {
     const listed = await operations.listSettings(SUPER);
     expect(listed.find((row) => row.key === 'economy.event_top_invite_coins')).toMatchObject({
       value: 55,
-      defaultValue: 20,
+      defaultValue: INVITE_COST,
       overridden: true,
     });
 
     const entry = await prisma.auditLog.findFirstOrThrow({ where: { action: 'setting.changed' } });
     expect(entry.targetId).toBe('economy.event_top_invite_coins');
-    expect(entry.before).toEqual({ value: 20 });
+    expect(entry.before).toEqual({ value: INVITE_COST });
     expect(entry.after).toMatchObject({ value: 55, reason: 'Nowruz campaign pricing.' });
   });
 

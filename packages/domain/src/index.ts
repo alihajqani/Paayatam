@@ -29,12 +29,12 @@ export type {
   ResolvedLocation,
 } from './catalog/catalog.service';
 export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';
+export type { SettingKey } from './catalog/settings.service';
 export {
   UserSettingsService,
   DEFAULT_NOTIFICATION_SETTINGS,
 } from './identity/user-settings.service';
 export type { UserNotificationSettings } from './identity/user-settings.service';
-export type { SettingKey } from './catalog/settings.service';
 export { CatalogModule } from './catalog/catalog.module';
 
 export { CoinService, reversalKey } from './economy/coin.service';
@@ -73,6 +73,12 @@ export {
 } from './economy/referral.service';
 export type { ReferralClaim, ReferralSummary } from './economy/referral.service';
 export { REFERRAL_TRANSITIONS, assertReferralTransition } from './economy/referral-state-machine';
+export {
+  ComebackService,
+  COMEBACK_GRANT_REASON,
+  comebackGrantKey,
+} from './economy/comeback.service';
+export type { ComebackResult } from './economy/comeback.service';
 export {
   GiftCodeService,
   GIFT_CODE_REASON,
@@ -151,6 +157,14 @@ export type {
 } from './events/event.service';
 export { EventLifecycleService, ATTENDANCE_REASON } from './events/lifecycle.service';
 export type { SettlementResult } from './events/lifecycle.service';
+export {
+  HostRewardService,
+  HOST_DEPOSIT_REFUND_REASON,
+  HOST_REWARD_REASON,
+  hostDepositRefundKey,
+  hostRewardKey,
+} from './events/host-reward.service';
+export type { HostSettlementResult } from './events/host-reward.service';
 export { EventsModule } from './events/events.module';
 
 export {

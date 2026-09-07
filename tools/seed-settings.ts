@@ -2,11 +2,11 @@
  * Writes every policy number from plan §11 into `app_setting` (M17).
  *
  * §11's heading is *"all in `app_setting`, runtime-changeable"*, and until M17 that
- * was only half true: `SETTING_DEFAULTS` carried all fifty values in code and the
+ * was only half true: `SETTING_DEFAULTS` carried every value in code and the
  * catalog seed wrote exactly two rows. Every other number worked correctly and was
  * **invisible** — an operator opening the settings table saw two entries and had no
- * way to discover, let alone tune, the other forty-eight. A default that cannot be
- * found is not runtime-changeable.
+ * way to discover, let alone tune, the rest. A default that cannot be found is not
+ * runtime-changeable.
  *
  * Seeding these changes no behaviour, which is the point: `SettingsService` falls
  * back to the same constant when a row is absent, so this run is a no-op
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
 
   console.log(
     `${String(created)} settings created, ${String(kept)} already present ` +
-      `(${String(Object.keys(SETTING_DEFAULTS).length)} in §11)`,
+      `(${String(Object.keys(SETTING_DEFAULTS).length)} in the catalogue)`,
   );
 
   await finish({ settingsCreated: created, settingsKept: kept });

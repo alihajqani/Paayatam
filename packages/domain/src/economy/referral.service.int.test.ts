@@ -9,7 +9,7 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { normalize } from '../moderation/persian-normalizer';
 import { CoinService } from './coin.service';
@@ -44,6 +44,17 @@ const referrals = new ReferralService(
   outbox,
   new MetricsRegistry(),
 );
+
+/**
+ * The pair's amounts, read rather than written.
+ *
+ * They were `30` and `10` at seven call sites. The coin economy rebalance moved
+ * the referrer's half to twenty, which turned every one of those into an
+ * assertion about a price the product no longer pays — and none of these tests
+ * is about the price.
+ */
+const REFERRER_COINS = SETTING_DEFAULTS['economy.referral_referrer_coins'];
+const REFERRED_COINS = SETTING_DEFAULTS['economy.referral_referred_coins'];
 
 let fixture: CatalogFixture;
 let referrer: string;
@@ -342,8 +353,8 @@ describe('the reward requires attendance', () => {
 
     expect(await referrals.qualifyForAttendance(referred)).toBe(true);
 
-    expect(await coins.balanceOf(referrer)).toBe(30);
-    expect(await coins.balanceOf(referred)).toBe(10);
+    expect(await coins.balanceOf(referrer)).toBe(REFERRER_COINS);
+    expect(await coins.balanceOf(referred)).toBe(REFERRED_COINS);
 
     const referral = await prisma.referral.findUniqueOrThrow({
       where: { referredUserId: referred },
@@ -363,7 +374,7 @@ describe('the reward requires attendance', () => {
     const claim = await referrals.claim(referred, await codeOf(referrer));
 
     expect(claim).toEqual({ status: 'QUALIFIED', pendingCoins: 0 });
-    expect(await coins.balanceOf(referrer)).toBe(30);
+    expect(await coins.balanceOf(referrer)).toBe(REFERRER_COINS);
   });
 
   it('pays once, however many times qualification is attempted', async () => {
@@ -374,7 +385,7 @@ describe('the reward requires attendance', () => {
     expect(await referrals.qualifyForAttendance(referred)).toBe(false);
     expect(await referrals.qualifyForAttendance(referred)).toBe(false);
 
-    expect(await coins.balanceOf(referrer)).toBe(30);
+    expect(await coins.balanceOf(referrer)).toBe(REFERRER_COINS);
     expect(await prisma.coinLedger.count({ where: { type: 'REFERRAL_REWARD' } })).toBe(2);
   });
 
@@ -389,12 +400,102 @@ describe('the reward requires attendance', () => {
 
     const settled = results.filter((r) => r.status === 'fulfilled' && r.value);
     expect(settled).toHaveLength(1);
-    expect(await coins.balanceOf(referrer)).toBe(30);
+    expect(await coins.balanceOf(referrer)).toBe(REFERRER_COINS);
   });
 
   it('does nothing for a user nobody referred', async () => {
     await attendAnEvent(referred);
     expect(await referrals.qualifyForAttendance(referred)).toBe(false);
+  });
+});
+
+/**
+ * The monthly cap on referral rewards (docs/coin-economy-plan.md §3).
+ *
+ * ── Why the cap exists at all ───────────────────────────────────────────────
+ *
+ * The attendance condition bounds how *fast* a referral farm can run; it does
+ * not bound how *big* it gets. Somebody with thirty willing friends could mint
+ * six hundred coins in a month without breaking a single rule, and §2's first
+ * principle is that no source may be both renewable and unbounded.
+ *
+ * ── The two properties worth asserting ──────────────────────────────────────
+ *
+ *  1. **The referred user is still paid.** Their ten coins are once per lifetime
+ *     by construction, and withholding them would punish a newcomer for the
+ *     popularity of whoever invited them.
+ *  2. **The referral still qualifies.** Which is why the concurrency guard had to
+ *     move off the coin movement and onto a conditional update: at the cap there
+ *     is no movement to be the guard.
+ */
+describe('the monthly cap on referral rewards', () => {
+  /** One referral, from `referrer`, taken all the way to qualified. */
+  async function bringSomebody(): Promise<string> {
+    const newcomer = await createUser(prisma, 'PROFILE_COMPLETE');
+    await referrals.claim(newcomer, await codeOf(referrer));
+    await attendAnEvent(newcomer);
+    await referrals.qualifyForAttendance(newcomer);
+    return newcomer;
+  }
+
+  it('stops paying the referrer past the cap, and still pays the newcomer', async () => {
+    await prisma.appSetting.create({ data: { key: 'economy.referral_reward_cap', value: 2 } });
+
+    await bringSomebody();
+    await bringSomebody();
+    const third = await bringSomebody();
+
+    // Two referrals' worth, not three.
+    expect(await coins.balanceOf(referrer)).toBe(2 * REFERRER_COINS);
+    // The newcomer's own half is untouched by somebody else's busy month.
+    expect(await coins.balanceOf(third)).toBe(REFERRED_COINS);
+  });
+
+  it('qualifies the referral even when it pays the referrer nothing', async () => {
+    await prisma.appSetting.create({ data: { key: 'economy.referral_reward_cap', value: 1 } });
+
+    await bringSomebody();
+    const second = await bringSomebody();
+
+    const referral = await prisma.referral.findUniqueOrThrow({
+      where: { referredUserId: second },
+    });
+    expect(referral.status).toBe('QUALIFIED');
+    // Nothing was paid, so there is no ledger row to name — and null reads
+    // correctly here: qualified, and paid nothing.
+    expect(referral.rewardLedgerId).toBeNull();
+  });
+
+  it('still pays exactly once under concurrency when the referrer is capped', async () => {
+    // The guard moved from the coin movement to a conditional update on the row,
+    // and this is the case that made it necessary: with no payment, `applied`
+    // could not decide who won.
+    await prisma.appSetting.create({ data: { key: 'economy.referral_reward_cap', value: 1 } });
+    await bringSomebody();
+
+    const newcomer = await createUser(prisma, 'PROFILE_COMPLETE');
+    await referrals.claim(newcomer, await codeOf(referrer));
+    await attendAnEvent(newcomer);
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, () => referrals.qualifyForAttendance(newcomer)),
+    );
+
+    const settled = results.filter((r) => r.status === 'fulfilled' && r.value);
+    expect(settled).toHaveLength(1);
+    expect(await coins.balanceOf(newcomer)).toBe(REFERRED_COINS);
+    // And exactly one announcement, so the newcomer is not told twice.
+    expect(await prisma.outboxEvent.count({ where: { eventType: 'referral.qualified' } })).toBe(2);
+  });
+
+  it('is uncapped when the cap is zero', async () => {
+    await prisma.appSetting.create({ data: { key: 'economy.referral_reward_cap', value: 0 } });
+
+    await bringSomebody();
+    await bringSomebody();
+    await bringSomebody();
+
+    expect(await coins.balanceOf(referrer)).toBe(3 * REFERRER_COINS);
   });
 });
 
@@ -444,7 +545,12 @@ describe('the summary', () => {
 
     const summary = await referrals.summaryFor(referrer);
 
-    expect(summary).toMatchObject({ code, invited: 2, qualified: 1, coinsEarned: 30 });
+    expect(summary).toMatchObject({
+      code,
+      invited: 2,
+      qualified: 1,
+      coinsEarned: REFERRER_COINS,
+    });
     // Being owed a favour does not entitle anybody to a list of their friends'
     // accounts.
     const serialized = JSON.stringify(summary);

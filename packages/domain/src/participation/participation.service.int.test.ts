@@ -9,13 +9,13 @@ import {
   seedCatalog,
   type CatalogFixture,
 } from '../../../../test/integration/db';
-import { render } from '@payetam/telegram';
+import { render, toPersianDigits } from '@payetam/telegram';
 import { ErrorCode } from '@payetam/shared';
 import { planNotifications } from '../notifications/fanout';
 import { AuditService } from '../audit/audit.service';
 import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
@@ -132,13 +132,21 @@ async function createEvent(options: EventOptions = {}): Promise<string> {
 /**
  * Enough coins to ask to join, several times over.
  *
- * `economy.event_join_coins` is 5 from v0.7.0 and `join` charges it inside the
- * same transaction, so a joiner with an empty account is refused with
- * `INSUFFICIENT_COINS` before reaching any of the behaviour this suite is about.
- * The endowment is deliberately generous and round: nothing here asserts a bare
- * balance, so the number only has to be out of the way.
+ * `join` charges `economy.event_join_coins` inside the same transaction, so a
+ * joiner with an empty account is refused with `INSUFFICIENT_COINS` before
+ * reaching any of the behaviour this suite is about.
+ *
+ * **A hundred joins' worth, derived from the price rather than written as `500`.**
+ * The literal was a hundred joins at five coins; when the price moved to twenty it
+ * silently became twenty-five, and the concurrency case below — which puts the
+ * same twenty accounts through fifty iterations — began failing on
+ * `INSUFFICIENT_COINS` half way through. It read as a seat-accounting regression,
+ * which is exactly what that test exists to detect, so the false positive was
+ * expensive. What has to hold is "enough that the balance is never the thing
+ * under test"; that is a multiple of the price, never a constant.
  */
-const JOIN_BUDGET = 500;
+const JOIN_COST = SETTING_DEFAULTS['economy.event_join_coins'];
+const JOIN_BUDGET = 100 * JOIN_COST;
 
 async function createJoiner(
   overrides: { birthYear?: number; gender?: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null } = {},
@@ -502,15 +510,13 @@ describe('the host decides', () => {
 /**
  * What asking costs, and when it comes back (v0.8.1).
  *
- * `economy.event_join_coins` is 5 and the charge lands inside the join
- * transaction. What changed is the other end: a **rejection** reverses it, so
+ * `economy.event_join_coins` is charged inside the join transaction. What
+ * changed is the other end: a **rejection** reverses it, so
  * the charge is a deposit against a host's attention rather than a fee for being
  * turned down. Nothing else reverses it — an expiry held the host's queue slot
  * for a day, and a withdrawal is priced on its own thresholds by `cancel`.
  */
 describe('the join charge and its refund', () => {
-  const JOIN_COST = 5;
-
   /**
    * Only the rows this participation caused.
    *
@@ -528,7 +534,7 @@ describe('the join charge and its refund', () => {
     });
   }
 
-  it('takes five coins at the moment the request is made', async () => {
+  it('takes the price at the moment the request is made', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
 
@@ -900,14 +906,14 @@ describe('expiry', () => {
    * The coins come back, and the guest is told (v0.8.1).
    *
    * A stronger case than the rejection refund, not a weaker one: a rejected
-   * guest at least got an answer. This one paid five coins, waited a day, and
-   * got nothing — and until v0.8.1 was not even told the request had died.
+   * guest at least got an answer. This one paid, waited a day, and got nothing —
+   * and until v0.8.1 was not even told the request had died.
    */
   it('gives the coins back when nobody answered', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
     await participation.join(joiner, eventPublicId);
-    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET - 5);
+    expect(await coins.balanceOf(joiner)).toBe(JOIN_BUDGET - JOIN_COST);
 
     clock.set(new Date('2026-08-16T09:00:01.000Z'));
     await participation.expireOverdue();
@@ -919,7 +925,7 @@ describe('expiry', () => {
       select: { amount: true, reasonCode: true, actorType: true, reversesLedgerId: true },
     });
     expect(refund).toMatchObject({
-      amount: 5,
+      amount: JOIN_COST,
       // Its own code, so an operator can count unanswered requests without
       // joining back to `event_participant`.
       reasonCode: EVENT_JOIN_EXPIRY_REFUND_REASON,
@@ -941,7 +947,7 @@ describe('expiry', () => {
     const emitted = await prisma.outboxEvent.findFirstOrThrow({
       where: { eventType: 'participation.expired' },
     });
-    expect(emitted.payload).toMatchObject({ coinsRefunded: 5, eventPublicId });
+    expect(emitted.payload).toMatchObject({ coinsRefunded: JOIN_COST, eventPublicId });
 
     // Only the guest: an expiry is the outcome the host's own inaction chose.
     const planned = planNotifications({
@@ -951,7 +957,9 @@ describe('expiry', () => {
       payload: emitted.payload as Record<string, unknown>,
     });
     expect(planned).toHaveLength(1);
-    expect(render(planned[0]!.templateKey, planned[0]!.payload)?.text).toContain('۵ سکه');
+    expect(render(planned[0]!.templateKey, planned[0]!.payload)?.text).toContain(
+      `${toPersianDigits(String(JOIN_COST))} سکه`,
+    );
   });
 
   /** The sweep running twice must not pay twice. */

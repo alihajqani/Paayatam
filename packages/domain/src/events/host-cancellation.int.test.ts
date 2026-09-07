@@ -14,7 +14,7 @@ import { ChannelConfigService } from '../channel/channel-config.service';
 import { ChannelMembershipService } from '../channel/membership.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { ChannelService } from '../channel/channel.service';
-import { SettingsService } from '../catalog/settings.service';
+import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
 import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
@@ -60,15 +60,18 @@ const penalties = new PenaltyService(service, settings, coins, trust);
 /**
  * Enough coins to ask to join, several times over.
  *
- * `economy.event_join_coins` is 5 from v0.7.0 and `join` charges it inside the
- * same transaction, so a joiner with an empty account is refused with
- * `INSUFFICIENT_COINS` before reaching any of the behaviour this suite is about.
+ * `join` charges `economy.event_join_coins` inside the same transaction, so a
+ * joiner with an empty account is refused with `INSUFFICIENT_COINS` before
+ * reaching any of the behaviour this suite is about.
+ *
  * **Exactly one join's worth**, so a participant's balance is back to zero the
  * moment they have joined — which is the baseline every `fund(…, 100)` below
  * counts from, and keeps those assertions about the refund rather than about the
- * endowment.
+ * endowment. Read from the defaults rather than written as a literal: the price
+ * moved from five to twenty in the coin economy rebalance, and "exactly one
+ * join" is the property that has to hold, not the number five.
  */
-const JOIN_BUDGET = 5;
+const JOIN_BUDGET = SETTING_DEFAULTS['economy.event_join_coins'];
 
 /**
  * What the host holds before they cancel anything.
@@ -386,8 +389,8 @@ describe('the refund (D9a)', () => {
    * This used to assert that the refund reversed an *empty set*, because joining
    * cost nothing — the mechanism was written generically and tested with a
    * synthetic charge so it would be known to work on the day a participant-side
-   * cost appeared. `economy.event_join_coins` is that day: the guest paid five to
-   * ask, the host called the activity off, and the five comes back.
+   * cost appeared. `economy.event_join_coins` is that day: the guest paid to ask,
+   * the host called the activity off, and it comes back.
    */
   it('gives back what taking part actually cost', async () => {
     const eventPublicId = await publishEvent();
@@ -397,8 +400,8 @@ describe('the refund (D9a)', () => {
     clock.set(at(1));
     const result = await events.cancelByHost(hostId, eventPublicId);
 
-    expect(result.coinsRefunded).toBe(5);
-    await expect(coins.balanceOf(person.userId)).resolves.toBe(105);
+    expect(result.coinsRefunded).toBe(JOIN_BUDGET);
+    await expect(coins.balanceOf(person.userId)).resolves.toBe(100 + JOIN_BUDGET);
   });
 
   it('gives back a synthetic participant-side charge in full', async () => {
@@ -432,15 +435,19 @@ describe('the refund (D9a)', () => {
     clock.set(at(1));
     const result = await events.cancelByHost(hostId, eventPublicId);
 
-    // Both of them: the synthetic 25 and the 5 the join actually cost.
-    expect(result.coinsRefunded).toBe(30);
-    await expect(coins.balanceOf(person.userId)).resolves.toBe(105);
+    // Both of them: the synthetic 25 and whatever the join actually cost.
+    expect(result.coinsRefunded).toBe(25 + JOIN_BUDGET);
+    await expect(coins.balanceOf(person.userId)).resolves.toBe(100 + JOIN_BUDGET);
 
     const reversals = await prisma.coinLedger.findMany({
       where: { userId: person.userId, type: 'REVERSAL' },
       select: { amount: true, reasonCode: true },
     });
-    expect(reversals.map((row) => row.amount).sort((a, b) => a - b)).toEqual([5, 25]);
+    // The join charge and the synthetic 25, each reversed in full. Sorted, because
+    // the order two reversals are written in is not what this asserts.
+    expect(reversals.map((row) => row.amount).sort((a, b) => a - b)).toEqual(
+      [JOIN_BUDGET, 25].sort((a, b) => a - b),
+    );
     for (const reversal of reversals) {
       expect(reversal.reasonCode).toBe('cancellation.host_refund');
     }
@@ -469,7 +476,7 @@ describe('the refund (D9a)', () => {
     // fee comes back. The leaver's is not refunded either: they gave up the seat
     // themselves, before the host called anything off.
     expect(result.hadSeats).toBe(1);
-    expect(result.coinsRefunded).toBe(5);
+    expect(result.coinsRefunded).toBe(JOIN_BUDGET);
     await expect(coins.balanceOf(leaver.userId)).resolves.toBe(60);
     expect(stayer.userId).toBeTruthy();
   });

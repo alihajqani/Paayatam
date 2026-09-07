@@ -4299,6 +4299,35 @@ export class BotService {
    * places that quote it, so the precondition, the wizard's opening line and the
    * confirmation cannot drift apart.
    */
+  /**
+   * «ثبت فعالیت ۲۵ سکه سپرده است؛ اگر برگزار شود برمی‌گردد.»
+   *
+   * Every number in it is read at render time from the same settings the service
+   * will charge and refund against, so it cannot quote a price nobody is charged
+   * or promise a refund nobody gets.
+   *
+   * The refund sentence disappears entirely when the refund is switched off
+   * (`economy.host_deposit_refund_coins` at zero), rather than degrading into a
+   * promise of nothing — a half-true sentence about money is worse than a plain
+   * one.
+   */
+  private async registrationNote(): Promise<string> {
+    const [cost, refund, minAttendees] = await Promise.all([
+      this.registrationCost(),
+      this.settings.getInt('economy.host_deposit_refund_coins'),
+      this.settings.getInt('economy.host_reward_min_attendees'),
+    ]);
+
+    const price = `ثبت فعالیت ${toPersianDigits(String(cost))} سکه است.`;
+    if (refund <= 0) return price;
+
+    return (
+      `${price} این مبلغ سپرده است: اگر فعالیت برگزار شود و دست‌کم ` +
+      `${toPersianDigits(String(minAttendees))} مهمان حاضر شوند، ` +
+      `${toPersianDigits(String(Math.min(refund, cost)))} سکه به شما برمی‌گردد.`
+    );
+  }
+
   private async registrationCost(): Promise<number> {
     const [create, channel] = await Promise.all([
       this.settings.getInt('economy.event_create_coins'),
@@ -4533,7 +4562,25 @@ export class BotService {
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
         const form = asCreateEventForm(outcome.snapshot.form);
-        const screen = renderSummary(await this.summaryLines(form), form.wantsDetails !== true);
+        const screen = renderSummary(
+          await this.summaryLines(form),
+          form.wantsDetails !== true,
+          'ثبت فعالیت',
+          /**
+           * The deposit sentence, read live at the moment it is shown.
+           *
+           * The whole reason registration costs anything is that a *ghost*
+           * activity is expensive — registered, listed in the channel, never
+           * held, with every guest who planned an evening around it paying the
+           * real cost. Charging for that and saying nothing about the refund
+           * reads as a fee, and a fee on the scarce side of a marketplace is how
+           * a marketplace runs out of supply.
+           *
+           * The difference between «۲۵ سکه هزینه دارد» and «۲۵ سکه سپرده است و
+           * برمی‌گردد» is the difference between having hosts and not.
+           */
+          await this.registrationNote(),
+        );
         return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
       }
 
@@ -5148,6 +5195,19 @@ export class BotService {
           // this is the caveat, and the buttons are what to do next. A caveat
           // above the reward would read as a refusal.
           cityQueueLine(completion.cityLaunch) +
+          /**
+           * The onboarding gift, **in the unit the user thinks in**.
+           *
+           * The coins landed silently before this: a balance changed and nothing
+           * said why or what it buys. «۳۵ سکه» on its own is a number in a
+           * currency somebody has known about for ninety seconds — it means
+           * nothing until it is priced in evenings out, which is the only thing
+           * they came here for.
+           *
+           * Absent when nothing was granted, which is every re-edit of a profile
+           * that was already complete.
+           */
+          onboardingGiftLine(completion.rewardCoins, completion.joinCost, completion.reviewReward) +
           'حالا از دکمه‌های پایین صفحه، ' +
           `«${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» فعالیت‌های نزدیک را نشان می‌دهد ` +
           `و «${menuPathFor('create_event') ?? 'ساختن فعالیت'}» یکی می‌سازد.`,
@@ -5971,6 +6031,51 @@ export function cityQueueLine(status: CityLaunchStatus | null): string {
     `شما نفر ${position} از ${status.cityNameFa} هستید — با ${threshold} نفر، ` +
     `${status.cityNameFa} باز می‌شود.\n` +
     `هر هم‌شهری که دعوت کنید، این عدد را جلو می‌برد.\n\n`
+  );
+}
+
+/**
+ * «۳۵ سکه هدیه گرفتید — تقریباً دو بار شرکت در فعالیت.»
+ *
+ * ── Why the second half is the whole line ───────────────────────────────────
+ *
+ * The coins used to land silently: a balance changed and nothing said what it
+ * was or what it buys. Naming the figure alone is barely better — «۳۵ سکه» is a
+ * number in a currency somebody has known about for ninety seconds. What makes
+ * it mean anything is dividing it by what an evening costs, because evenings out
+ * are the only unit they came here with.
+ *
+ * ── Which price it divides by, and why that is not obvious ──────────────────
+ *
+ * The **effective** one: what joining costs, minus what reviewing the same
+ * activity gives back. Somebody who joins writes the review — reviews are blind,
+ * and writing one is how you get to see what the other side wrote — so that is
+ * the price the ordinary path actually pays, and it is the price the plan's own
+ * runway table is built on: 35 → 20 → 5, two evenings.
+ *
+ * Dividing by the sticker price instead would say «۱ بار» about a grant that
+ * plainly funds two, which understates the gift at the one moment it is meant to
+ * land. Hence «تقریباً», and hence flooring: the failure worth avoiding is the
+ * other one — promising three and delivering two.
+ *
+ * Empty when nothing was granted (every re-edit of a completed profile) and when
+ * the effective price is zero or negative, where "how many activities does this
+ * buy" has no answer and the honest thing is to say only the number.
+ */
+export function onboardingGiftLine(coins: number, joinCost: number, reviewReward = 0): string {
+  if (coins <= 0) return '';
+  const amount = toPersianDigits(String(coins));
+  const plain = `🎁 ${amount} سکه هدیه گرفتید.\n\n`;
+
+  const effective = joinCost - reviewReward;
+  if (effective <= 0) return plain;
+
+  const activities = Math.floor(coins / effective);
+  if (activities < 1) return plain;
+
+  return (
+    `🎁 ${amount} سکه هدیه گرفتید — تقریباً ` +
+    `${toPersianDigits(String(activities))} بار شرکت در فعالیت.\n\n`
   );
 }
 

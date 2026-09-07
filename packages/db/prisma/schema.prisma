@@ -552,6 +552,28 @@ enum CoinLedgerType {
   /// the campaign's cost would stop being answerable.
   FOUNDING_REWARD
 
+  /// The coin economy rebalance (migration 0049), appended in the order Postgres
+  /// holds them.
+  ///
+  /// `EVENT_DEPOSIT_REFUND` returns the registration charge to a host whose
+  /// activity was actually held — the half that turns
+  /// `economy.event_create_coins` from a fee into a deposit. Distinct from
+  /// `HOST_CANCELLATION_REFUND`, which is the opposite case: the host cancelled
+  /// and the *guests* are being made whole. Merging them would make "what did
+  /// cancellations cost us?" unanswerable.
+  ///
+  /// `HOST_REWARD` is the per-attendee bonus on top of that refund, and is the
+  /// only one of the three that is new money. It is capped over a rolling window,
+  /// which is enforceable only because it is summable on its own.
+  ///
+  /// `COMEBACK_GRANT` is the one-per-lifetime grant to somebody who has attended,
+  /// behaved, and run out. Once-in-a-lifetime is carried by the UNIQUE on
+  /// `idempotency_key` (`comeback:{userId}`) rather than by a column — the same
+  /// guarantee every other one-time grant here leans on.
+  EVENT_DEPOSIT_REFUND
+  HOST_REWARD
+  COMEBACK_GRANT
+
   @@map("coin_ledger_type")
 }
 

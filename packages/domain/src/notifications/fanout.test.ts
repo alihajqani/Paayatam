@@ -137,6 +137,58 @@ describe('two-recipient events', () => {
     expect(new Set(planned.map((plan) => plan.dedupeKey)).size).toBe(2);
   });
 
+  /**
+   * The same event, to a referrer who has hit `economy.referral_reward_cap`.
+   *
+   * The cap pays them nothing, and the temptation is to send nothing — which is
+   * exactly the failure v0.7.0 fixed: a promise kept and nobody saying so, which
+   * users report as a bug. Worse here, because the reason there are no coins is a
+   * rule they have never seen. The referred user's half is untouched.
+   */
+  it('referral.qualified uses the capped sentence when the referrer was paid nothing', () => {
+    const planned = planNotifications(
+      row('referral.qualified', {
+        referrerUserPublicId: HOST,
+        referredUserPublicId: GUEST,
+        referrerCoins: 0,
+        referredCoins: 10,
+      }),
+    );
+
+    expect(planned).toHaveLength(2);
+    expect(planned.map((plan) => plan.templateKey).sort()).toEqual(
+      [TEMPLATES.REFERRAL_QUALIFIED_REFERRER_CAPPED, TEMPLATES.REFERRAL_QUALIFIED_REFERRED].sort(),
+    );
+  });
+
+  /** The hosting settlement: one recipient, keyed on `hostUserPublicId`. */
+  it('host.settled tells the host', () => {
+    const planned = planNotifications(
+      row('host.settled', {
+        hostUserPublicId: HOST,
+        eventTitle: 'کوه‌نوردی',
+        attendees: 4,
+        refund: 25,
+        bonus: 8,
+      }),
+    );
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.userPublicId).toBe(HOST);
+    expect(planned[0]?.templateKey).toBe(TEMPLATES.HOST_SETTLED);
+  });
+
+  /** The comeback grant. Unprompted, to one person. */
+  it('economy.comeback_granted tells the account it was granted to', () => {
+    const planned = planNotifications(
+      row('economy.comeback_granted', { userPublicId: GUEST, coins: 20, balance: 20 }),
+    );
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.userPublicId).toBe(GUEST);
+    expect(planned[0]?.templateKey).toBe(TEMPLATES.COMEBACK_GRANTED);
+  });
+
   it('participation.requested tells the host and the guest', () => {
     const planned = planNotifications(
       row('participation.requested', {
