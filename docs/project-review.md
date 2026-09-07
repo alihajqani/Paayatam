@@ -57,7 +57,7 @@ static bundle:
         │           ┌───────────▼──────────────────┐
         └───────────│  apps/worker                 │────▶ Telegram (the only sender)
                     │  · outbox relay              │
-                    │  · 8 repeatable sweeps       │
+                    │  · 13 repeatable sweeps      │
                     │  · channel publishing        │
                     └──────────────────────────────┘
 ```

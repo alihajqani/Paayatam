@@ -121,6 +121,7 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | Screen | Permission | What it does |
 |---|---|---|
 | نمای کلی (dashboard) | `dashboard.read` | Users, events, participations, chats, reports, cases, coin supply, referrals, gift codes, failed redemptions, moderation backlog, and live database/Redis health |
+| کمپین هزار نفر | `dashboard.read` | The founding campaign: ranks issued against the cap, coins paid, the daily curve, the waves, which cities members came from, and the queue of closed cities — see §14. The member roster on the same page additionally needs `user.read` |
 | کاربران | `user.read` | Search by name or `publicId`, filter by status, paginate |
 | پروندهٔ کاربر | `user.read` | Profile, reputation, balance and where it came from, events, participations, referrals, gift codes, reports both ways. Suspend/ban/restore needs `user.ban`; manual coin and trust adjustment need `coin.adjust` / `trust.adjust` |
 | فعالیت‌ها | `event.moderate` | Search, filter, hide, restore |
@@ -133,7 +134,8 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | معرفی دوستان | `referral.manage` | The fraud queue, with reject and reinstate |
 | دفتر سکه | `ledger.read` | Search the ledger, and reconcile balances against it |
 | گزارش رخدادها | `audit.read` | The audit trail, filterable, with payloads |
-| تنظیمات | `settings.manage` | Every policy number in `app_setting` |
+| سلامت اقتصاد | `dashboard.read` | The seven monthly coin-economy metrics, live — see §15 |
+| تنظیمات | `settings.manage` | Every policy number in `app_setting`, each with its own Persian explanation |
 | تفریحات | `catalog.manage` | Activity tags and the places they belong to (M21) |
 | پیام‌ها | `message.send` | Telegram messages and broadcasts — see §9. A broadcast additionally needs `message.broadcast` |
 | کانال‌های اجباری | `channel.manage` | The channels users must join, in order, and whether the requirement is on — see §11 |
@@ -145,7 +147,10 @@ service layer, which is where invariant 12 lives. An operator who edits the URL 
 answers 403 to everything on it. What the guard buys is that they land on «دسترسی ندارید» with the
 missing permission named, rather than on a page full of red boxes.
 
-An `ANALYST` — `dashboard.read` and nothing else, by ADR-0010 — sees one link.
+An `ANALYST` — `dashboard.read` and nothing else, by ADR-0010 — sees three links: the dashboard, the
+campaign report and «سلامت اقتصاد». All three are aggregates. The campaign page's member roster is behind `user.read`
+and is simply not fetched for that session, which is what keeps "read-only aggregates means
+aggregates" true of a screen that also has names on it.
 
 ### Which release you are looking at (M22)
 
@@ -311,8 +316,26 @@ anything outside the catalogue, so there is no path that could become an "edit a
 variable" screen. Secrets are environment variables the process reads at boot and have never been in
 this table.
 
-Each row shows its documented default beside its current value. A change needs a reason and lands in
-`audit_log`.
+Each row shows its Persian name, a one-line summary, and its documented default beside its current
+value. A change needs a reason and lands in `audit_log`.
+
+**Every setting explains itself.** Pressing «تغییر» opens a dialog carrying three things the table
+cannot: what the number *is* in terms of what a user experiences, what a good value looks like, and
+what breaks at the extremes. That text is a catalogue in the domain, beside `SETTING_DEFAULTS`
+itself, and a type constraint makes it total — a key added without an explanation fails the build.
+The point is that a table of 88 machine keys is not a table anybody can safely act on:
+`economy.host_reward_cap` is not self-describing, and `founding.enabled` is a switch whose position
+cannot be taken back.
+
+Two smaller things in the same dialog. A setting whose only values are 0 and 1 gets **two buttons**
+rather than a number field, because a number field invites a 2 — which every reader treats as truthy
+and nobody intended. And the value field accepts Persian and Arabic-Indic digits, so an operator on
+a Persian keyboard does not have to switch layouts to type a number the screen just showed them in
+Persian.
+
+A search box above the table matches the Persian name and the summary as well as the key, so
+somebody who knows the *thing* they want to change — «جریمه» — finds it without knowing the product
+spells it `cancellation`.
 
 **When a change takes effect:**
 
@@ -696,7 +719,97 @@ CHECK on the table keeps those three moving together, and reopening clears them.
 
 ---
 
-## 14. Conventions, if you are adding a screen
+## 14. The launch campaign — «کمپین هزار نفر» (v0.10.1)
+
+The founding-1000 campaign issues a permanent rank, a tier and a one-time coin grant to the first
+N people who complete a profile. Before this screen existed, every number it produced was readable
+only from a `psql` session on the server.
+
+### It is read-only, and that is deliberate
+
+The campaign has exactly one lever — `founding.enabled` in `app_setting` — and «تنظیمات» already owns
+it. A switch here would be a second write path to one number. The page shows the switch's position
+and links to where it is thrown, for sessions holding `settings.manage`. Nothing on this screen
+writes, so no action on it produces an audit row.
+
+**Switching it on is not reversible in the way switching it off is.** A rank, once allocated, is
+permanent and gap-free; turning the campaign off stops new ones but returns none.
+
+### What each block answers
+
+- **Progress** — ranks issued against `founding_campaign.max_rank`, and how many seats remain.
+- **Waves** — the configured tier boundaries **beside** what was actually paid. `founding_member.tier`
+  and `.coins` are snapshotted at allocation, so retuning a boundary mid-campaign makes these two
+  disagree, and the disagreement is the thing worth seeing. The report never recomputes from today's
+  settings.
+- **Daily curve** — up to 30 days of the last 90 the API returns, oldest on the left.
+- **Members by city** — «اعضا» counts founding members; «نمایه‌ها» counts every completed profile in
+  that city. The gap is people who completed a profile while the campaign was off or after the cap.
+- **From where** — referral, gift code, neither. **These overlap and do not sum**: one person can
+  arrive on a referral code and redeem a gift code later. Only «هیچ‌کدام» is a complement.
+- **Closed-city queue** — each closed city against `city.launch_threshold`. This is the next launch
+  decision; opening a city is done in «شهرها و استان‌ها» (§10).
+- **Roster** — members by rank, with display name, city and a link to the case file. `user.read`.
+
+### A campaign with no events is the failure mode to watch
+
+Ranks are handed out on profile completion, not on attendance. A campaign running against an empty
+calendar spends irreversible numbers on people who arrive to find nothing to join. Check the event
+count before turning it on.
+
+## 15. Coin economy health — «سلامت اقتصاد»
+
+**پنل مدیریت → اقتصاد → سلامت اقتصاد** (`/economy`), behind `dashboard.read`. The seven numbers
+`docs/coin-economy-plan.md` §12 says to look at every month, computed live over a rolling 30 days.
+
+Before this existed, every one of them was a query somebody had to write by hand against production
+— which in practice meant nobody ever looked. The fault the whole economy rebalance was built to fix
+(joining cost 5, reviewing the same activity paid 10, so **every attendance made a user richer**)
+was live for months with nothing on any screen saying so.
+
+### The seven, and how to read them
+
+| Metric | Target | What it says |
+|---|---|---|
+| نرخ نشت | < 35% | Free coins ÷ net burn. The single best indicator of whether the economy is a sink or a spring |
+| میانهٔ روز تا اولین خرید | 30–45 days | Whether the free runway is cut right. **Two-sided**: under 25 is stingy, over 75 is a leak |
+| تبدیل «۳ رویداد رفته» به خرید | > 35% | Whether the product proved its value. If low, the problem is not price |
+| **نرخ پرشدن فعالیت** | **> 60%** | **Governs the rest** |
+| بیشترین سکهٔ کسب‌شدهٔ یک کاربر | ≤ 100/30d | Whether a cap was left off something |
+| تراکنش دستی در روز | ≤ 15 | The operator's own ceiling |
+| نرخ نوشتن نظر | > 50% | The trust signal's health after the reward was halved |
+
+Four of these are **not** "higher is better" and two are two-sided, which is why each card carries
+its own target and — when it is not healthy — what to do about it. The thresholds live in the
+service, not the screen, so a target is changed in one place with a commit behind it.
+
+### The fill-rate banner overrides everything else
+
+When «نرخ پرشدن» is below target the page opens with a red banner saying to stop optimising revenue.
+That is not decoration. Below 60% fill the problem is supply, every price is too high, and every
+coin taken out comes out of the market's own liquidity. The correct move is to *lower*
+`economy.event_join_coins`, not raise it.
+
+### Revenue is a naming convention, and it will lie if you break it
+
+The revenue card is `ADMIN_ADJUSTMENT` rows whose `metadata->>'reason'` starts with `sale:`. There
+is no second place this is enforced, so:
+
+- Card-to-card sales: `reason` = `sale:c2c:<date>-<n>`, `reference` = the **bank transaction id**
+  (which is also what makes the grant idempotent — one receipt can never pay twice).
+- **Gifts and compensation must never carry the `sale:` prefix.** One that does inflates revenue and
+  deflates the leak rate at the same time.
+- Never grant before seeing the deposit in the bank app. A screenshot is not a receipt.
+
+The toman figure uses `economy.coin_reference_price_toman`, applied when the page is read — it is a
+conversion rate, not a rate anything was sold at, so changing it re-prices this page's history.
+
+### Nothing on this page is editable
+
+Every lever that could move any of these numbers is a row in `app_setting` with a reason field and
+an audit trail already attached. The page links there for sessions holding `settings.manage`.
+
+## 16. Conventions, if you are adding a screen
 
 - **A route declares its permission in `meta`.** The navigation and the guard both read it. A route
   with a `group` and no `permission` fails `router.test.ts`.
