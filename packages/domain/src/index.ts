@@ -30,6 +30,8 @@ export type {
 } from './catalog/catalog.service';
 export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';
 export type { SettingKey } from './catalog/settings.service';
+export { SETTING_GUIDE } from './catalog/setting-guide';
+export type { SettingGuide, SettingUnit } from './catalog/setting-guide';
 export {
   UserSettingsService,
   DEFAULT_NOTIFICATION_SETTINGS,
@@ -349,6 +351,12 @@ export type {
   UserSummary,
 } from './adminaccess/admin-insight.service';
 export { FoundingAdminService } from './adminaccess/founding-admin.service';
+export { EconomyReportService } from './adminaccess/economy-report.service';
+export type {
+  EconomyReport,
+  EconomyMetric,
+  MetricStatus,
+} from './adminaccess/economy-report.service';
 export type {
   FoundingCityRollup,
   FoundingMemberPage,

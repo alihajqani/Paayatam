@@ -248,7 +248,7 @@ beforeAll(async () => {
   /**
    * Coins for the viewer, who joins and cancels during the scan.
    *
-   * Asking to join costs five from v0.7.0 (`economy.event_join_coins`). A refusal
+   * Asking to join costs `economy.event_join_coins`. A refusal
    * is a response like any other and would still be scanned — but it would not be
    * the *join* response, and the endpoint list exists to read the real ones.
    */
@@ -1083,6 +1083,16 @@ beforeAll(async () => {
     { method: 'GET', url: '/admin/v1/founding', admin: true },
     { method: 'GET', url: '/admin/v1/founding/members', admin: true },
     { method: 'GET', url: '/admin/v1/founding/members?tier=1&limit=5', admin: true },
+
+    /**
+     * The coin economy report (the economy rebalance).
+     *
+     * Every number on it is an aggregate, which is why it is scanned rather than
+     * assumed safe: the queries behind it group over `coin_ledger`, `user` and
+     * `event_participant`, and the one that finds the top earner is a `GROUP BY
+     * user_id` whose projection somebody could widen to name whoever it found.
+     */
+    { method: 'GET', url: '/admin/v1/economy', admin: true },
 
     /**
      * M19's referral review. The queue is a screen full of *other people's*

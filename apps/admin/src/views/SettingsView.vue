@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import type { AppSettingView, AppSettingsResponse } from '@payetam/shared';
 import { messageOf, request } from '@/api/client';
-import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import SettingEditDialog from '@/components/SettingEditDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import { formatNumber } from '@/format/fa';
 import { useSessionStore } from '@/stores/session';
@@ -25,6 +25,14 @@ import { useSessionStore } from '@/stores/session';
  * §11 for. A change needs a reason, which lands in `audit_log`: a policy number
  * changed in production with nothing recording why is what invariant 12 exists to
  * prevent.
+ *
+ * **Every row carries its own explanation**, served with the value from a
+ * catalogue that lives beside the defaults. That is the difference between a
+ * table somebody can act on and a table of 88 machine keys: `economy.host_reward_cap`
+ * is not self-describing, and neither is a multiplier that only makes sense
+ * against a number three rows away. The full text — what it is, what a good value
+ * looks like, what breaks at the extremes — opens with the edit dialog, which is
+ * the moment it is needed.
  *
  * **When it takes effect** is stated per group, because it genuinely differs.
  * `SettingsService` reads through to the database on every call, so most of these
@@ -77,11 +85,52 @@ const GROUP_LABELS: Record<string, string> = {
   channel: 'کانال تلگرام',
   moderation: 'بررسی و تأیید',
   ranking: 'وزن‌های رتبه‌بندی',
+  founding: 'کمپین هزار نفر اول',
+  city: 'شهرها',
+  invite: 'دعوت هدفمند',
+  review: 'نظرها',
+  release: 'استقرار',
 };
 
+/** The unit after a value in the table. `switch` renders as روشن/خاموش instead. */
+const UNIT_LABELS: Record<string, string> = {
+  coins: 'سکه',
+  toman: 'تومان',
+  days: 'روز',
+  hours: 'ساعت',
+  minutes: 'دقیقه',
+  count: '',
+  score: 'امتیاز',
+  rank: '',
+  weight: '',
+  multiplier: 'برابر',
+  switch: '',
+};
+
+/**
+ * A search box, because 88 rows across seventeen groups is not a list anybody
+ * scrolls.
+ *
+ * Matches the Persian label and summary as well as the key, so somebody who
+ * knows the *thing* they want to change — «جریمه» — finds it without knowing
+ * that the product spells it `cancellation`.
+ */
+const search = ref('');
+
 const groups = computed(() => {
+  const needle = search.value.trim().toLowerCase();
+  const matching =
+    needle === ''
+      ? rows.value
+      : rows.value.filter(
+          (row) =>
+            row.key.toLowerCase().includes(needle) ||
+            row.label.toLowerCase().includes(needle) ||
+            row.summary.toLowerCase().includes(needle),
+        );
+
   const buckets = new Map<string, AppSettingView[]>();
-  for (const row of rows.value) {
+  for (const row of matching) {
     const prefix = row.key.split('.')[0] ?? 'other';
     buckets.set(prefix, [...(buckets.get(prefix) ?? []), row]);
   }
@@ -95,42 +144,33 @@ const groups = computed(() => {
 // ── Changing one ────────────────────────────────────────────────────────────
 
 const editing = ref<AppSettingView | null>(null);
-const draft = ref(0);
 const acting = ref(false);
 const actionError = ref<string | null>(null);
 
 function open(setting: AppSettingView): void {
   editing.value = setting;
-  draft.value = setting.value;
   actionError.value = null;
 }
 
 /**
- * Integer where the default is an integer.
+ * The value and its validation live in the dialog now.
  *
- * The same rule the service enforces, checked before the request: a coin amount
- * that arrives as 12.5 is a corrupted ledger rather than a rounding question, and
- * a ranking weight that has to be whole would be a weight of 0 or 1.
+ * They used to live here, with the field itself pinned to the bottom of the page
+ * outside the confirmation — two controls in two places for one act, and the half
+ * that mattered was the half outside the dialog.
  */
-const draftValid = computed(() => {
+async function save(value: number, reason: string): Promise<void> {
   const setting = editing.value;
-  if (setting === null) return false;
-  if (!Number.isFinite(draft.value) || draft.value < 0) return false;
-  return Number.isInteger(setting.defaultValue) ? Number.isInteger(draft.value) : true;
-});
-
-async function save(reason: string): Promise<void> {
-  if (editing.value === null || !draftValid.value) return;
+  if (setting === null) return;
   acting.value = true;
   actionError.value = null;
-  const key = editing.value.key;
   try {
-    await request<AppSettingView>(`/settings/${encodeURIComponent(key)}`, {
+    await request<AppSettingView>(`/settings/${encodeURIComponent(setting.key)}`, {
       method: 'POST',
-      body: { value: draft.value, reason },
+      body: { value, reason },
     });
+    notice.value = `«${setting.label}» ذخیره شد و تغییر در گزارش رخدادها ثبت شد.`;
     editing.value = null;
-    notice.value = `«${key}» ذخیره شد و تغییر در گزارش رخدادها ثبت شد.`;
     await load();
   } catch (cause) {
     actionError.value = messageOf(cause, 'ذخیرهٔ تنظیم انجام نشد.');
@@ -163,6 +203,16 @@ onMounted(load);
       {{ notice }}
     </p>
 
+    <label class="block">
+      <span class="sr-only">جست‌وجو در تنظیمات</span>
+      <input
+        v-model="search"
+        type="search"
+        placeholder="جست‌وجو — نام فارسی، توضیح یا کلید"
+        class="min-h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm"
+      />
+    </label>
+
     <StateBlock :state="state" :error-text="error" :rows="8" @retry="load">
       <div class="flex flex-col gap-5">
         <section
@@ -179,10 +229,25 @@ onMounted(load);
                 class="border-b border-line last:border-0"
               >
                 <td class="px-4 py-3">
-                  <bdi class="font-mono text-xs">{{ setting.key }}</bdi>
+                  <span class="font-semibold">{{ setting.label }}</span>
+                  <p class="mt-0.5 text-xs leading-relaxed text-ink-soft">{{ setting.summary }}</p>
+                  <bdi class="mt-1 block font-mono text-[0.65rem] text-ink-faint">
+                    {{ setting.key }}
+                  </bdi>
                 </td>
-                <td class="px-4 py-3 tabular-nums">
-                  <bdi class="font-bold">{{ formatNumber(setting.value) }}</bdi>
+                <td class="whitespace-nowrap px-4 py-3 tabular-nums">
+                  <bdi class="font-bold">
+                    {{
+                      setting.unit === 'switch'
+                        ? setting.value === 0
+                          ? 'خاموش'
+                          : 'روشن'
+                        : formatNumber(setting.value)
+                    }}
+                  </bdi>
+                  <span v-if="setting.unit !== 'switch'" class="ms-1 text-xs text-ink-soft">
+                    {{ UNIT_LABELS[setting.unit] }}
+                  </span>
                   <span
                     v-if="setting.overridden"
                     class="ms-2 rounded-full bg-warn-soft px-2 py-0.5 text-xs text-warn"
@@ -190,8 +255,17 @@ onMounted(load);
                     تغییر داده‌شده
                   </span>
                 </td>
-                <td class="px-4 py-3 text-xs text-ink-faint">
-                  پیش‌فرض: <bdi>{{ formatNumber(setting.defaultValue) }}</bdi>
+                <td class="whitespace-nowrap px-4 py-3 text-xs text-ink-faint">
+                  پیش‌فرض:
+                  <bdi>
+                    {{
+                      setting.unit === 'switch'
+                        ? setting.defaultValue === 0
+                          ? 'خاموش'
+                          : 'روشن'
+                        : formatNumber(setting.defaultValue)
+                    }}
+                  </bdi>
                 </td>
                 <td class="px-4 py-3 text-end">
                   <button
@@ -211,39 +285,11 @@ onMounted(load);
     </StateBlock>
   </div>
 
-  <ConfirmDialog
-    :open="editing !== null"
-    :title="editing ? `تغییر ${editing.key}` : ''"
-    :body="
-      editing
-        ? `مقدار فعلی ${String(editing.value)} است و پیش‌فرض مستندشده ${String(editing.defaultValue)}. این تغییر روی رفتار محصول از همین حالا اثر می‌گذارد.`
-        : ''
-    "
-    confirm-label="ذخیره"
-    reason-label="دلیل تغییر (در گزارش رخدادها ثبت می‌شود)"
+  <SettingEditDialog
+    :setting="editing"
     :busy="acting"
     :error="actionError"
     @cancel="editing = null"
     @confirm="save"
   />
-
-  <!--
-    The value itself, beside the dialog: the dialog owns the reason and the
-    confirmation, and this is the one field that differs per setting.
-  -->
-  <div v-if="editing !== null" class="fixed inset-x-0 bottom-6 z-50 mx-auto w-full max-w-md px-4">
-    <label
-      class="flex items-center gap-2 rounded-xl border border-line bg-surface-raised px-4 py-3 text-sm shadow-lg"
-    >
-      <span class="shrink-0 text-ink-soft">مقدار تازه:</span>
-      <input
-        v-model.number="draft"
-        type="number"
-        :step="Number.isInteger(editing.defaultValue) ? 1 : 0.01"
-        min="0"
-        class="min-h-9 flex-1 rounded-lg border border-line bg-surface px-2"
-      />
-      <span v-if="!draftValid" class="shrink-0 text-xs text-danger">مقدار معتبر نیست</span>
-    </label>
-  </div>
 </template>

@@ -1241,11 +1241,59 @@ export const policyConsentResponse = z.object({
 });
 export type PolicyConsentResponse = z.infer<typeof policyConsentResponse>;
 
+/**
+ * How a setting's value should be read, and which control edits it.
+ *
+ * A **rendering** hint, not a storage one: everything in `app_setting` is a
+ * number, including the eight keys whose only values are 0 and 1. `switch` exists
+ * so the panel does not ask an operator to know that convention — a kill switch
+ * shown as a number field is a kill switch somebody sets to 2.
+ */
+export const settingUnit = z.enum([
+  'coins',
+  'toman',
+  'days',
+  'hours',
+  'minutes',
+  'count',
+  'score',
+  'rank',
+  'weight',
+  'multiplier',
+  'switch',
+]);
+export type SettingUnitView = z.infer<typeof settingUnit>;
+
+/**
+ * One policy number, with the Persian that explains it.
+ *
+ * ── Why the explanation travels with the value ──────────────────────────────
+ *
+ * The panel could carry its own copy of this text and save the bytes. It would
+ * also be a second catalogue of 88 entries, maintained by whoever is editing a
+ * Vue file rather than by whoever changed the number — and the entry that goes
+ * stale is always the one that mattered. The catalogue lives beside
+ * `SETTING_DEFAULTS`, is total over it by a type constraint, and reaches the
+ * screen through this contract so the two cannot drift.
+ *
+ * `guidance` is the field that earns its keep: a settings screen showing only a
+ * current value invites somebody to try doubling it and find out. This is where
+ * "what breaks at the extremes" is written down.
+ */
 export const appSettingView = z.object({
   key: z.string(),
   value: z.number(),
   defaultValue: z.number(),
   overridden: z.boolean(),
+  /** The Persian name. Never empty. */
+  label: z.string(),
+  /** One line, for the table row. */
+  summary: z.string(),
+  /** What it does and what changing it changes. Shown in the edit dialog. */
+  detail: z.string(),
+  unit: settingUnit,
+  /** What a good value looks like, and what goes wrong at the extremes. */
+  guidance: z.string(),
 });
 export type AppSettingView = z.infer<typeof appSettingView>;
 
@@ -1948,6 +1996,77 @@ export const foundingReportResponse = z.object({
   }),
 });
 export type FoundingReportResponse = z.infer<typeof foundingReportResponse>;
+
+/**
+ * The coin economy's health, as one report (docs/coin-economy-plan.md §12).
+ *
+ * Behind `dashboard.read`: every number is an aggregate, and the closest this
+ * comes to naming anybody is "the largest amount one account earned in thirty
+ * days", which is a figure rather than a person.
+ *
+ * **Read-only, with no lever on it.** Every number that could change any of these
+ * lives in `app_setting` and is written on the settings screen. A control here
+ * would be a second write path to a number that already has one.
+ */
+export const economyMetricView = z.object({
+  key: z.string(),
+  label: z.string(),
+  /**
+   * Null when there is not enough data — never zero standing in for unknown.
+   * An empty database's leak rate is not 0%, it is unanswerable, and a page that
+   * rendered it as 0% would be reporting perfect health on no evidence.
+   */
+  value: z.number().nullable(),
+  /** How to read `value`: a 0–1 ratio, a count of days, coins, a daily average. */
+  kind: z.enum(['ratio', 'count', 'days', 'perDay', 'coins']),
+  status: z.enum(['good', 'warn', 'bad', 'unknown']),
+  /** The target in words, so the screen never has to encode a threshold. */
+  target: z.string(),
+  meaning: z.string(),
+  /** What to do when it is bad — the half a dashboard usually leaves out. */
+  advice: z.string(),
+  /** The denominator, so a ratio computed from four rows reads as one. */
+  sample: z.number().int().nonnegative(),
+});
+export type EconomyMetricView = z.infer<typeof economyMetricView>;
+
+const economyFlowRow = z.object({
+  type: z.string(),
+  /** Always positive. Direction is which list it is in. */
+  coins: z.number().int().nonnegative(),
+  entries: z.number().int().nonnegative(),
+});
+
+export const economyReportResponse = z.object({
+  windowDays: z.number().int().positive(),
+  metrics: z.array(economyMetricView),
+  supply: z.object({
+    /** `SUM(coin_account.balance)` — what users hold right now, not windowed. */
+    held: z.number().int(),
+    /** Granted, not bought. Admin adjustments without a `sale:` reason count here. */
+    grantedFree: z.number().int().nonnegative(),
+    purchased: z.number().int().nonnegative(),
+    /** Spending **net of refunds**: a charge that was returned never left. */
+    burned: z.number().int().nonnegative(),
+    refunded: z.number().int().nonnegative(),
+  }),
+  revenue: z.object({
+    coinsSold: z.number().int().nonnegative(),
+    transactions: z.number().int().nonnegative(),
+    /**
+     * At `economy.coin_reference_price_toman`, applied when the report is read.
+     * It is a conversion rate, **not** a rate anything was sold at — changing the
+     * setting re-prices this page's history.
+     */
+    toman: z.number().int().nonnegative(),
+    referencePrice: z.number().int().nonnegative(),
+  }),
+  /** Where coins came from in the window, largest first. */
+  sources: z.array(economyFlowRow),
+  /** And where they went. */
+  sinks: z.array(economyFlowRow),
+});
+export type EconomyReportResponse = z.infer<typeof economyReportResponse>;
 
 /**
  * One member, by rank.

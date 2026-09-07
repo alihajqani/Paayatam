@@ -8,12 +8,32 @@ import { AuditService } from '../audit/audit.service';
 import { CoinService } from '../economy/coin.service';
 import { TrustService } from '../economy/trust.service';
 import { assertEventTransition } from '../events/state-machine';
+import { SETTING_GUIDE, type SettingUnit } from '../catalog/setting-guide';
 import { SETTING_DEFAULTS, type SettingKey } from '../catalog/settings.service';
 import { ChannelService } from '../channel/channel.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { ProfileService, type ProfileDetail } from '../profile/profile.service';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
 import { PERMISSIONS, ROLE_PERMISSIONS, type RoleKey } from './permissions';
+
+/**
+ * One policy number as the panel reads it: the value, and the Persian that says
+ * what it is.
+ *
+ * A named type rather than an inline return, because it is the shape three
+ * things have to agree on — this service, the API's contract, and the screen.
+ */
+export interface SettingRow {
+  key: string;
+  value: number;
+  defaultValue: number;
+  overridden: boolean;
+  label: string;
+  summary: string;
+  detail: string;
+  unit: SettingUnit;
+  guidance: string;
+}
 
 export interface CaseSummary {
   id: string;
@@ -1066,9 +1086,7 @@ export class AdminOperationsService {
    * A key in the code with no row is shown with its default, which is exactly
    * what the service would return.
    */
-  async listSettings(
-    session: AdminSession,
-  ): Promise<Array<{ key: string; value: number; defaultValue: number; overridden: boolean }>> {
+  async listSettings(session: AdminSession): Promise<SettingRow[]> {
     this.access.assertPermission(session, PERMISSIONS.SETTINGS_MANAGE);
 
     const stored = new Map(
@@ -1081,11 +1099,22 @@ export class AdminOperationsService {
     return Object.entries(SETTING_DEFAULTS).map(([key, defaultValue]) => {
       const value = stored.get(key);
       const usable = typeof value === 'number' && Number.isFinite(value);
+      // Total over `SETTING_DEFAULTS` by a type constraint on the catalogue
+      // itself, so this index can never miss. Read here rather than in the
+      // controller because the panel's dialog and this row are one thing: the
+      // number and the sentence that explains it must arrive together or the
+      // screen can show a value nobody can interpret.
+      const guide = SETTING_GUIDE[key as SettingKey];
       return {
         key,
         value: usable ? value : defaultValue,
         defaultValue,
         overridden: usable && value !== defaultValue,
+        label: guide.label,
+        summary: guide.summary,
+        detail: guide.detail,
+        unit: guide.unit,
+        guidance: guide.guidance,
       };
     });
   }

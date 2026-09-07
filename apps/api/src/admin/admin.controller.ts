@@ -26,6 +26,7 @@ import {
   AdminOperationsService,
   ChatUnsealService,
   FoundingAdminService,
+  EconomyReportService,
   GeographyAdminService,
   GiftCodeAdminService,
   MessagingAdminService,
@@ -144,6 +145,7 @@ import {
   type FoundingMemberListResponse,
   type FoundingMemberView,
   type FoundingReportResponse,
+  type EconomyReportResponse,
   type AdminEventListQuery,
   type AdminEventListResponse,
   type AdminEventView,
@@ -248,6 +250,11 @@ export class AdminController {
     private readonly insight: AdminInsightService,
     /** The launch campaign's report. Read-only: the lever lives in settings. */
     private readonly founding: FoundingAdminService,
+    /**
+     * The coin economy's health. Read-only for the same reason, and doubly so:
+     * every lever on it is a row in `app_setting` with a screen of its own.
+     */
+    private readonly economy: EconomyReportService,
     /** «مشکلی پیدا کردم» (v0.6.5) — the product's own queue, not moderation's. */
     private readonly bugReports: BugReportService,
     /**
@@ -937,6 +944,34 @@ export class AdminController {
       ...(query.offset !== undefined ? { offset: query.offset } : {}),
     });
     return { members: page.rows.map(toFoundingMemberView), total: page.total };
+  }
+
+  // ── The coin economy ───────────────────────────────────────────────────────
+
+  /**
+   * Is the economy a sink or a spring? (docs/coin-economy-plan.md §12)
+   *
+   * `dashboard.read`, asserted in the service, for the reason the campaign report
+   * is: every number here is an aggregate. The one that comes closest to naming
+   * somebody — the largest amount a single account earned in thirty days — is
+   * deliberately a figure and not a person; whoever needs the account opens the
+   * ledger, which is behind `ledger.read`.
+   *
+   * **No write lives here**, and none should. Every lever that could move any of
+   * these numbers is a row in `app_setting` with a settings screen and an audit
+   * trail already attached to it.
+   */
+  @Get('economy')
+  async economyReport(@CurrentAdmin() admin: AdminSession): Promise<EconomyReportResponse> {
+    const report = await this.economy.report(admin);
+    return {
+      windowDays: report.windowDays,
+      metrics: report.metrics,
+      supply: report.supply,
+      revenue: report.revenue,
+      sources: report.sources,
+      sinks: report.sinks,
+    };
   }
 
   // ── Users ──────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { messageOf, request } from '@/api/client';
 import PagerBar from '@/components/PagerBar.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import { formatDateTime, formatNumber, formatSigned } from '@/format/fa';
+import { LEDGER_TYPE_LABELS } from '@/format/ledger';
 
 /**
  * The coin ledger, and the invariant behind it (ADR-0007).
@@ -113,20 +114,15 @@ watch([userPublicId, type, refType, from, to], () => {
 });
 watch(offset, () => void load());
 
-/** Persian for every ledger type (glossary §1, plan §11.2). */
-const TYPES: Record<string, string> = {
-  ONBOARDING_REWARD: 'پاداش تکمیل پروفایل',
-  REFERRAL_REWARD: 'پاداش معرفی دوستان',
-  REVIEW_REWARD: 'پاداش ثبت بازخورد',
-  GIFT_CODE_REDEEM: 'دریافت کد هدیه',
-  BOOST_SPEND: 'ارتقای نمایش',
-  VIP_SPEND: 'نمایش ویژه',
-  CANCELLATION_PENALTY: 'جریمهٔ لغو',
-  NO_SHOW_PENALTY: 'جریمهٔ عدم حضور',
-  HOST_CANCELLATION_REFUND: 'بازپرداخت لغو میزبان',
-  ADMIN_ADJUSTMENT: 'اصلاح دستی مدیر',
-  REVERSAL: 'برگشت تراکنش',
-};
+/**
+ * Persian for every ledger type (glossary §1, plan §11.2).
+ *
+ * From the format layer rather than a local map. It was local, and had fallen
+ * five types behind the enum — the filter below could not select the three M22
+ * sinks, the join charge or the campaign grant, so a screen whose whole job is
+ * "show me every movement" quietly could not filter to the most common one.
+ */
+const TYPES = LEDGER_TYPE_LABELS;
 
 onMounted(load);
 </script>

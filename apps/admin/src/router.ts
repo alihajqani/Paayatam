@@ -119,6 +119,25 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    /**
+     * The coin economy's health (docs/coin-economy-plan.md §12).
+     *
+     * `dashboard.read` rather than `ledger.read`: every number on it is an
+     * aggregate, which is exactly what ADR-0010 gives `ANALYST`, and the one that
+     * comes closest to naming somebody — the largest amount a single account
+     * earned in thirty days — is a figure rather than a person.
+     *
+     * Filed under «اقتصاد» rather than beside the dashboard, because unlike the
+     * campaign report this is not "how is growth going" — it is the page an
+     * operator opens before touching a price, and it belongs next to the ledger
+     * and the settings it argues about.
+     */
+    path: '/economy',
+    name: 'economy',
+    component: () => import('@/views/EconomyView.vue'),
+    meta: { title: 'سلامت اقتصاد', permission: PERMISSIONS.DASHBOARD_READ, group: 'economy' },
+  },
+  {
     path: '/gift-codes',
     name: 'gift-codes',
     component: () => import('@/views/GiftCodesView.vue'),
