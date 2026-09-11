@@ -14,6 +14,92 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.12.0] — 2026-09-11
+
+Three things the product did not have: a way for a moderator to reach their
+queue, a way for anybody to buy coins, and any word at all before an activity
+started.
+
+**One migration, additive only** — three nullable timestamp columns, no index,
+no backfill.
+
+### ⚠️ Two things a deploy does not do for you
+
+**The coin purchase screen stays hidden until `COIN_PURCHASE_CONTACT` is set.**
+That is the switch, not a feature flag: buying is a bank transfer that a person
+confirms in their banking app before granting anything, so "is there somebody on
+the other end" and "is buying open" are the same question. Set it to the
+`@username` that should answer, and the «🪙 خرید سکه» button appears in the
+wallet. Deliberately **not** `SUPPORT_CONTACT`, which is already set here —
+reusing it would have opened purchases the moment this deployed.
+
+**The first reminder sweep will message people already inside the window.** Every
+`event_participant` row predating the migration reads NULL, which the sweep
+treats as "not yet told", so within fifteen minutes of the deploy everybody
+accepted onto an activity starting in the next 24 hours gets one. That is the
+intent and not a side effect — those are exactly the people about to be fined 60
+coins for missing something nobody ever told them about.
+
+### Added
+
+- **The moderation button is drawn again.** ADR-0018 says the way into the queue
+  is a persistent-menu button only a linked moderator's keyboard carries. v0.8.1
+  cut the bottom keyboard to one button and the moderation row went with the six
+  user labels beside it; the constant, its translation and a test survived, and
+  for three releases **nothing drew it**. A moderator's only way in was to know
+  `/moderate` by heart, and `/moderate` is unadvertised on purpose.
+  Resolved per send through `isLinked` — a count on a unique column, never
+  cached, because ADR-0018 re-resolves a link on every update deliberately — and
+  asked only where a bottom keyboard is actually drawn, which keeps it off every
+  wizard step. All three send paths answer it, campaigns included: a reply
+  keyboard lives on the client, and a broadcast that passed "no" would have taken
+  a moderator's button away.
+- **«🪙 خرید سکه» in the wallet** (ADR-0019). Four tiers with coin count, toman
+  price and what one coin costs in each; the reference price as the anchor; three
+  steps ending at a person. Every other route to a coin in this product is capped
+  and most are once per lifetime, so until now the answer to "I have run out" was
+  a wall rather than an offer — which is why coin revenue was zero, and it was
+  neither the price nor the demand.
+  It takes no money and records no order: no gateway, no `coin_purchase` table,
+  no PENDING row. The only records of a sale are the bank's and the ledger row
+  the operator writes after seeing the deposit. Prices are eight `app_setting`
+  rows, so a quarterly revision is a settings change with no deploy, and a zero
+  on either side retires a tier.
+- **Two reminders before an activity starts.** One a day out, one three hours
+  out, on a quarter-hourly sweep. The second is deliberately the same three hours
+  `participation.min_hours_before_event` and the `coins_lt_3h` penalty step stand
+  on, so it lands immediately before cancelling gets expensive — the last moment
+  at which telling somebody can still change what they do.
+  The host is told once, a day out, with a head count.
+  Event status and participation status are read **together**, which is the whole
+  of the correctness: a cancelled evening whose guests were still ACCEPTED would
+  send somebody out of the house for a meeting that is not happening. `HIDDEN` is
+  in the swept set on purpose — a moderation hide does not cancel anything, and
+  `CONTENT_HIDDEN` promises the host that accepted guests keep their place.
+  The category is `events`, so it can be switched off. A reminder that could not
+  be silenced would be a penalty notice dressed as a courtesy.
+- **[ADR-0019](docs/adr/0019-coin-purchase-by-bank-transfer.md)** — coins are
+  bought from a person by bank transfer; a gateway is deferred, with the number
+  that supersedes this written down (400 transactions a month, `docs/coin-economy-plan.md` §12).
+
+### Changed
+
+- `mainMenuReplyKeyboard` takes `{ moderator }` — required rather than optional,
+  because every caller has to decide: the question is not "add a button" but
+  "which keyboard does this client end up holding".
+- `economy.coin_reference_price_toman` stops being reporting-only. It anchors the
+  purchase screen, which is the one place in the product a toman figure is
+  quoted — for a payment that happens outside it entirely. Everything the bot
+  *charges* is still priced in coins.
+
+### Why it matters
+
+The no-show penalty is the heaviest number in the economy — 60 coins and 15
+trust, three times the price of joining. A product that expects a timed action,
+never tells anybody the time, and then fines them for missing it is not running a
+penalty. A reminder is also the cheapest way to move the no-show rate: cheaper
+than any change to either number.
+
 ## [v0.11.0] — 2026-09-08
 
 The coin economy was a spring, not a sink. Joining an activity cost five coins
