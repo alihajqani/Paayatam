@@ -1125,6 +1125,14 @@ model Event {
   startsAt DateTime @map("starts_at") @db.Timestamptz(3)
   endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
 
+  /// The host's own reminder, sent once in the 24-hour wave (migration 0050).
+  ///
+  /// Here rather than on `event_participant` because a host has no row there.
+  /// One and not two: the useful message for the person who has to shop, book or
+  /// arrive early is a head count a day out, and a three-hour nudge to whoever
+  /// created the evening is noise.
+  hostRemindedAt DateTime? @map("host_reminded_at") @db.Timestamptz(3)
+
   capacity      Int
   /// Invariant 1. Only ever changed under `SELECT … FOR UPDATE` on this row (M6).
   acceptedCount Int @default(0) @map("accepted_count")
@@ -1270,6 +1278,15 @@ model EventParticipant {
   hostDeadlineAt DateTime? @map("host_deadline_at") @db.Timestamptz(3)
   /// Set when a waitlisted request was promoted (M7).
   promotedAt     DateTime? @map("promoted_at") @db.Timestamptz(3)
+
+  /// The two pre-event reminders, claimed one at a time (migration 0050).
+  ///
+  /// Two columns rather than one with a wave number, because "was the first one
+  /// sent?" has to stay answerable after the second — that is precisely the
+  /// question asked when somebody says they were never told. NULL means not yet
+  /// sent, so every row that predates the migration is owed one.
+  remindedFirstAt  DateTime? @map("reminded_first_at") @db.Timestamptz(3)
+  remindedSecondAt DateTime? @map("reminded_second_at") @db.Timestamptz(3)
 
   cancellationReason String?             @map("cancellation_reason")
   cancellationBucket CancellationBucket? @map("cancellation_bucket")

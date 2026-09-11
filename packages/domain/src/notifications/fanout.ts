@@ -187,6 +187,22 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
       return recipient(row, 'participantUserPublicId', TEMPLATES.PARTICIPATION_EXPIRED);
 
     /**
+     * The reminders, each to exactly one person (migration 0050).
+     *
+     * Two event types rather than one fanned out to both sides, because they are
+     * not the same message and they do not happen at the same time: the guest is
+     * told twice, and the host once with a head count. A single type would have
+     * had to carry "which of you is this for" in its payload, which is the shape
+     * `review.window_open` earns by telling both sides the *same* thing at the
+     * *same* instant — and this is the opposite of that.
+     */
+    case 'event.reminder_guest':
+      return recipient(row, 'participantUserPublicId', TEMPLATES.EVENT_REMINDER_GUEST);
+
+    case 'event.reminder_host':
+      return recipient(row, 'hostUserPublicId', TEMPLATES.EVENT_REMINDER_HOST);
+
+    /**
      * The window is open, and both sides are told (v0.8.1).
      *
      * The same two recipients and the same key shape as `review.revealed`, for

@@ -42,6 +42,21 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.WAITLIST_PROMOTED_GUEST]: 'events',
   [TEMPLATES.WAITLIST_PROMOTED_HOST]: 'events',
   [TEMPLATES.EVENT_CANCELLED]: 'events',
+  /**
+   * The two pre-event reminders — `events`, and deliberately not `essential`.
+   *
+   * Somebody can switch these off, which is the right way round: this is news
+   * about a plan, not news about money or a decision made about them. The rule
+   * this map runs on is that a preference silences what the product *decided* to
+   * send, and nobody asked for either of these.
+   *
+   * It does mean a guest who turned activity notifications off can still be
+   * fined for a no-show they were not reminded of. That is the honest cost of
+   * the setting meaning anything at all — a reminder that could not be silenced
+   * would be a penalty notice dressed as a courtesy.
+   */
+  [TEMPLATES.EVENT_REMINDER_GUEST]: 'events',
+  [TEMPLATES.EVENT_REMINDER_HOST]: 'events',
   [TEMPLATES.REVIEW_WINDOW_OPEN]: 'events',
   [TEMPLATES.REVIEW_REVEALED]: 'events',
 

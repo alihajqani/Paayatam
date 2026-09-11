@@ -685,6 +685,28 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      case JOBS.EVENT_REMINDER: {
+        /**
+         * The two pre-event waves, on their own quarter-hourly job.
+         *
+         * Not folded into `EVENT_LIFECYCLE`, which runs every minute and looks
+         * at events that have **already started**. This looks at ones that have
+         * not, and a question measured in hours does not need asking sixty times
+         * an hour.
+         *
+         * Logged only when it did something. Almost every pass finds nothing,
+         * and a line per quarter hour saying so would bury the passes that
+         * matter.
+         */
+        const reminded = await this.lifecycle.remindUpcoming();
+        if (reminded.guests + reminded.hosts > 0) {
+          this.logger.log(
+            `Event reminders: ${String(reminded.guests)} guest(s), ${String(reminded.hosts)} host(s)`,
+          );
+        }
+        return;
+      }
+
       case JOBS.REVIEW_SWEEP: {
         /**
          * Two ends of the same window, on the one hourly job (v0.8.1).

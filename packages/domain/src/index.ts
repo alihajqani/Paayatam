@@ -157,7 +157,13 @@ export type {
   HostCancellationPreview,
   HostQuotaStatus,
 } from './events/event.service';
-export { EventLifecycleService, ATTENDANCE_REASON } from './events/lifecycle.service';
+export {
+  EventLifecycleService,
+  ATTENDANCE_REASON,
+  reminderWaveFor,
+  type ReminderResult,
+  type ReminderWave,
+} from './events/lifecycle.service';
 export type { SettlementResult } from './events/lifecycle.service';
 export {
   HostRewardService,

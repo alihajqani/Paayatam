@@ -582,6 +582,39 @@ export const SETTING_DEFAULTS = {
   'cancellation.trust_no_show': 15,
 
   /**
+   * The two pre-event reminders, in hours before the start (migration 0050).
+   *
+   * ── Why these two hours and not any other two ───────────────────────────────
+   *
+   * The second is **the same three hours** as `participation.min_hours_before_event`
+   * and the `cancellation.coins_lt_3h` step directly above. That is the whole
+   * design: the reminder lands immediately before cancelling gets expensive,
+   * which is the last moment at which telling somebody can still change what
+   * they do. Moving it below three makes it an announcement of a penalty already
+   * incurred; moving it far above makes it one more message that is not yet
+   * about anything.
+   *
+   * The first is a day out, which is the granularity somebody actually plans on
+   * — «فردا» is a thing you can rearrange, «در ۲۶ ساعت» is not.
+   *
+   * ── Why two and not three ───────────────────────────────────────────────────
+   *
+   * Every extra wave costs the same attention the first one spends, and this is
+   * an `events` notification somebody can switch off entirely. Two is what the
+   * penalty ladder has steps for.
+   *
+   * ── The order is load-bearing ───────────────────────────────────────────────
+   *
+   * The first must stay strictly greater than the second. An event created
+   * *inside* the second window is deliberately given only the second reminder —
+   * the sweep skips a first wave it can no longer send in advance — and if these
+   * two crossed, somebody would get both messages minutes apart about an event
+   * starting shortly. `event-reminder.test.ts` holds that boundary.
+   */
+  'reminder.first_hours_before': 24,
+  'reminder.second_hours_before': 3,
+
+  /**
    * The host's side (ADR-0011, D9).
    *
    * The multiplier applies to whatever a *participant* would have paid for the

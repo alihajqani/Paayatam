@@ -1,6 +1,7 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { encodeDirectCallback, isPublicId } from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
+import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
   hostDecisionKeyboard,
@@ -55,6 +56,16 @@ export const TEMPLATES = {
   WAITLIST_PROMOTED_HOST: 'waitlist.promoted.host',
   EVENT_CANCELLED: 'event.cancelled',
   REVIEW_REVEALED: 'review.revealed',
+  /**
+   * «فردا» / «چند ساعت دیگر» — the two waves before an activity starts.
+   *
+   * The product's first reminder about an activity at all. Until migration 0050
+   * somebody accepted ten days out heard nothing until it began, and then lost
+   * 60 coins and 15 trust for not turning up.
+   */
+  EVENT_REMINDER_GUEST: 'event.reminder_guest',
+  /** The host's, once, a day out, with a head count. */
+  EVENT_REMINDER_HOST: 'event.reminder_host',
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
   CONTENT_HIDDEN: 'moderation.content_hidden',
@@ -329,6 +340,27 @@ function str(payload: Payload, key: string): string {
   return typeof value === 'string' ? escapeHtml(value) : '';
 }
 
+/**
+ * The activity's start, in Tehran and in Jalali, as its own line — or nothing.
+ *
+ * ADR-0008 stores UTC and converts once, at the edge, and this is that edge. A
+ * Gregorian date in a Persian reminder is the visible symptom of a conversion
+ * skipped somewhere upstream, which is why the template never touches the ISO
+ * string itself.
+ *
+ * Empty rather than the epoch when the payload has no usable `startsAt`. `new
+ * Date('')` is `Invalid Date` and `new Date(0)` is 1970, and both of those
+ * rendered into Jalali read as a real date somebody might act on — a reminder
+ * naming the wrong day is worse than one naming no day.
+ */
+function startsAtLine(payload: Payload): string {
+  const raw = payload['startsAt'];
+  if (typeof raw !== 'string') return '';
+
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? '' : `${formatTehran(date)}\n`;
+}
+
 function num(payload: Payload, key: string): string {
   const value = payload[key];
   return typeof value === 'number' ? toPersianDigits(value) : '۰';
@@ -508,6 +540,66 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `«${str(payload, 'eventTitle')}» توسط میزبان لغو شده است. ` +
           `اگر بابت شرکت در آن سکه‌ای پرداخت کرده بودید، به حساب شما بازگشته است.`,
       };
+
+    /**
+     * The guest's reminder, in whichever wave sent it.
+     *
+     * ── The time is Tehran's, and Jalali ───────────────────────────────────────
+     *
+     * `formatTehran` rather than anything derived from the ISO string, because
+     * ADR-0008 stores UTC and converts once, at the edge — and a Gregorian date
+     * in a Persian reminder is the visible symptom of a conversion that was
+     * skipped somewhere. It is also the thing this message is *for*: a reminder
+     * whose time is wrong is worse than no reminder.
+     *
+     * ── Why the second wave says something different ──────────────────────────
+     *
+     * Not for variety. Three hours is the hour `participation.min_hours_before_event`
+     * and the `cancellation.coins_lt_3h` step stand on, so it is the last moment
+     * at which cancelling is still the cheap option — and a guest who is not
+     * going needs to be told that they can still say so, not merely that the
+     * evening is approaching. The first wave is a plan; the second is a decision.
+     */
+    case TEMPLATES.EVENT_REMINDER_GUEST: {
+      const when = startsAtLine(payload);
+      const second = str(payload, 'wave') === 'SECOND';
+
+      return opened(
+        second
+          ? `<b>تا چند ساعت دیگر</b> ⏰\n\n` +
+              `«${str(payload, 'eventTitle')}»\n` +
+              `${when}\n` +
+              `اگر نمی‌توانید بیایید، همین حالا لغو کنید — بعد از این، لغو گران‌تر ` +
+              `می‌شود و نیامدن بدون خبر از همه گران‌تر.`
+          : `<b>فردا</b> 📅\n\n` +
+              `«${str(payload, 'eventTitle')}»\n` +
+              `${when}\n` +
+              `اگر برنامه‌تان عوض شده، تا پیش از چند ساعت مانده به شروع، لغو ارزان‌تر است.`,
+        `my-events`,
+      );
+    }
+
+    /**
+     * The host's, with the number of people coming.
+     *
+     * The head count is `accepted_count` — the column invariant 1 is enforced on
+     * — because that is the number the product is willing to be held to. Nobody
+     * accepted is still worth sending: a host who has to shop or book a table
+     * would rather learn it the day before than on the evening.
+     */
+    case TEMPLATES.EVENT_REMINDER_HOST: {
+      const when = startsAtLine(payload);
+      const count = num(payload, 'acceptedCount');
+
+      return opened(
+        `<b>فردا میزبانید</b> 📅\n\n` +
+          `«${str(payload, 'eventTitle')}»\n` +
+          `${when}` +
+          `${count} نفر پذیرفته‌شده\n\n` +
+          `اگر چیزی عوض شده، همین امروز به مهمان‌ها خبر بدهید.`,
+        `my-events`,
+      );
+    }
 
     case TEMPLATES.REVIEW_WINDOW_OPEN:
       return opened(
