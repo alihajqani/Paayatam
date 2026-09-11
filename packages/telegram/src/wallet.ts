@@ -51,6 +51,19 @@ export interface WalletLine {
  * testable with no Prisma client and no database. `labelFor` falls back to the
  * raw value, so a type added by a newer deploy renders as itself rather than
  * disappearing from somebody's ledger.
+ *
+ * ── "By hand" needed something holding it to it ─────────────────────────────
+ *
+ * That fallback is a rollout guard, and for three releases it doubled as cover
+ * for a gap: v0.11.0 added four ledger types and none got a label, so the
+ * friendliest screen in the product answered «+۳۰ — FOUNDING_REWARD» in English
+ * to a Persian reader — and nothing failed, because falling back is what this
+ * was designed to do.
+ *
+ * `ledger-labels.test.ts` in `packages/domain` now asserts the map is total
+ * against the real enum. It lives there because that package depends on both
+ * and this one still depends on neither, which keeps the property enforced
+ * without putting Prisma in the message catalogue.
  */
 const LEDGER_TYPE_FA: Record<string, string> = {
   ONBOARDING_REWARD: 'هدیهٔ خوش‌آمد',
@@ -68,6 +81,14 @@ const LEDGER_TYPE_FA: Record<string, string> = {
   HOST_CANCELLATION_REFUND: 'بازگشت وجه لغو میزبان',
   ADMIN_ADJUSTMENT: 'اصلاح توسط پشتیبانی',
   REVERSAL: 'برگشت تراکنش',
+  // The four the coin economy rebalance added (v0.11.0), which went three
+  // releases without a label — so a wallet showed «+۳۰ — FOUNDING_REWARD» to a
+  // Persian reader. `labelFor` falling back to the raw value is what kept that
+  // from being a crash, and it is also what kept it from being noticed.
+  FOUNDING_REWARD: 'پاداش بنیان‌گذاری',
+  EVENT_DEPOSIT_REFUND: 'بازگشت سپردهٔ فعالیت',
+  HOST_REWARD: 'پاداش میزبانی',
+  COMEBACK_GRANT: 'سکهٔ بازگشت',
 };
 
 export function ledgerLabelFa(type: string): string {

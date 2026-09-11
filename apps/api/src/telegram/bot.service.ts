@@ -592,7 +592,19 @@ export class BotService {
 
       case 'balance': {
         const balance = await this.coins.balanceOf(user.id);
-        return this.reply(updateId, user.id, TEMPLATES.BOT_BALANCE, { balance });
+        /**
+         * The same «خرید سکه» the wallet carries, on the same condition.
+         *
+         * `/balance` is where somebody asks how many coins they have, which is
+         * one thought away from needing more — and until v0.12.1 it answered
+         * with a number and no way forward. Offering it here and not there was
+         * the gap, not the design.
+         */
+        const keyboard = this.env.COIN_PURCHASE_CONTACT !== undefined ? buyCoinsRow() : [];
+        return this.reply(updateId, user.id, TEMPLATES.BOT_BALANCE, {
+          balance,
+          ...(keyboard.length > 0 ? { keyboard: JSON.stringify(keyboard) } : {}),
+        });
       }
 
       /**

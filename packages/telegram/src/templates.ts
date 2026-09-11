@@ -884,8 +884,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * no bot command. See the retirement plan's §3 — that is the outstanding
      * work, not this line.
      */
-    case TEMPLATES.BOT_BALANCE:
-      return opened(`<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`, `wallet`);
+    /**
+     * `/balance` — the number, and a way to change it (ADR-0019).
+     *
+     * It carried no keyboard at all until v0.12.1, which made it the product's
+     * cleanest dead end: the screen literally named «موجودی شما», shown to
+     * somebody who has just asked how many coins they have, with nothing to do
+     * about the answer. v0.12.0 put «خرید سکه» on `/wallet` alone — plan ۰۲ said
+     * "a button in /wallet" and that was read too literally. `/balance` is the
+     * screen somebody opens *first*, and the one they open when the answer
+     * matters.
+     */
+    case TEMPLATES.BOT_BALANCE: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: `<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`,
+        deepLink: `wallet`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
 
     /**
      * `/requests` — the digest, built by `formatMyRequests` and passed through.
