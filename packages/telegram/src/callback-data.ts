@@ -926,6 +926,39 @@ export function parseCodeCallback(data: string): CodeCallbackKind | null {
 }
 
 /**
+ * «خرید سکه», from the wallet: `by:x:x` (ADR-0019).
+ *
+ * ── Why it carries nothing ──────────────────────────────────────────────────
+ *
+ * Not even which package. The screen it opens is a price list, and choosing a
+ * tier is not a thing the product records — the person types the package name to
+ * a human being, transfers the money, and that human grants the coins from the
+ * panel after seeing the deposit. A button that carried a package id would imply
+ * an order exists, and no order exists: the only records of a sale are the bank's
+ * and the `coin_ledger` row that follows it.
+ *
+ * So the value slot spends `x` like `ad:list` and `cd:gift` do, because the
+ * three-part shape is what every parser in this file expects.
+ *
+ * Authorisation is not in the button, as everywhere else. Opening a price list
+ * grants nothing — there is nothing here to authorise, which is the clearest
+ * property this design has.
+ */
+const BUY_PREFIX = 'by';
+
+export function encodeBuyCallback(): string {
+  return `${BUY_PREFIX}:coins:${NO_ID}`;
+}
+
+export function parseBuyCallback(data: string): boolean {
+  const parts = data.split(':');
+  if (parts.length !== 3) return false;
+
+  const [prefix, kind, id] = parts;
+  return prefix === BUY_PREFIX && kind === 'coins' && id === NO_ID;
+}
+
+/**
  * One field of a profile, from the edit board (v0.9.1).
  *
  * `/edit_profile` used to open a seven-step walk, so changing a display name

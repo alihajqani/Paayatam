@@ -202,6 +202,14 @@ export const TEMPLATES = {
   BOT_TERMS_STANDING: 'bot.terms_standing',
   /** `/wallet` — the balance and the ledger behind it. */
   BOT_WALLET: 'bot.wallet',
+  /**
+   * The coin price list, from the foot of the wallet (ADR-0019).
+   *
+   * The economy's entrance. Every other way to a coin is capped and most are
+   * once per lifetime, so before this the answer to "I have run out" was a wall
+   * rather than an offer — which is the whole reason coin revenue was zero.
+   */
+  BOT_COIN_PACKAGES: 'bot.coin_packages',
   /** `/referral` — the caller's own invite code and what it has earned. */
   BOT_REFERRAL: 'bot.referral',
   /** A host's paid or irreversible action, stated with its cost and confirmed. */
@@ -1095,6 +1103,19 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * whose only possible answer is «شما قبلاً با کد دعوت دیگری ثبت شده‌اید».
      */
     case TEMPLATES.BOT_WALLET: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
+        deepLink: `wallet`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    /**
+     * The price list. `wallet` is the right deep link: it is where the button
+     * that opened this lives, and where the coins land once they are granted.
+     */
+    case TEMPLATES.BOT_COIN_PACKAGES: {
       const keyboard = parseKeyboard(payload);
       return {
         text: prerendered(payload),

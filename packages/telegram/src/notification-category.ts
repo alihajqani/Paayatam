@@ -89,6 +89,11 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.BOT_WIZARD]: 'essential',
   [TEMPLATES.BOT_EVENT_CREATED]: 'essential',
   [TEMPLATES.BOT_WALLET]: 'essential',
+  // The price list, drawn because somebody pressed «خرید سکه». An answer to a
+  // tap, so nothing may silence it — and it would be the worst thing in this map
+  // to lose to a preference about advertising, because it is the one screen a
+  // person opens with money in hand.
+  [TEMPLATES.BOT_COIN_PACKAGES]: 'essential',
   [TEMPLATES.BOT_REFERRAL]: 'essential',
   [TEMPLATES.BOT_CONFIRM_SPEND]: 'essential',
   [TEMPLATES.BOT_EVENT_DETAIL]: 'essential',

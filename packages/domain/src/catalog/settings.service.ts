@@ -369,8 +369,57 @@ export const SETTING_DEFAULTS = {
    * coin figure. Change it when the package prices are revised, and understand
    * that doing so re-prices **history** on that report: it is a conversion rate
    * applied at read time, not a rate anything was sold at.
+   *
+   * ── One thing charges nothing and still shows it (ADR-0019) ────────────────
+   *
+   * The purchase screen anchors on this number: «هر سکه حدود ۹۵۰ تومان» above a
+   * table whose cheapest tier is 1,000. That is the comparison plan §6 designed
+   * and it is still not a price — nothing is charged here, and the only toman
+   * figure the product ever quotes is the package price a person pays a human
+   * being by bank transfer. Everything the bot *sells* is priced in coins.
    */
   'economy.coin_reference_price_toman': 950,
+
+  /**
+   * The four packages somebody can buy, in coins and in toman (ADR-0019).
+   *
+   * ── Why eight numbers and not a table ───────────────────────────────────────
+   *
+   * `app_setting` holds numbers, one per row, and the alternative — a JSON blob
+   * or a `coin_package` table — would buy a variable number of packages at the
+   * cost of the only property that matters here: the economy plan requires a
+   * price revision to be **a settings change and nothing else**, «نه یک عدد داخل
+   * ربات، نه یک تست، نه یک دیپلوی». Four is the number the plan designed, and
+   * four fits on a phone screen; a fifth is a deploy, and it should be, because
+   * a fifth tier is a pricing decision rather than a price change.
+   *
+   * ── The ladder is a shape, not four independent numbers ────────────────────
+   *
+   * The small package is deliberately **above** the reference price. Its job is
+   * to make the medium one look cheap — that is the whole of its role in plan
+   * §6, and raising it is not a mistake to be corrected. The medium is the one
+   * meant to carry 40% of sales and is the only one marked on the screen.
+   *
+   * ── Zero hides a package ────────────────────────────────────────────────────
+   *
+   * Either number at zero takes that row off the screen, which is how a tier is
+   * retired or a promotion run without a release. All four at zero, or no
+   * purchase contact configured, and the screen is not offered at all.
+   *
+   * Inflation is applied **here**, quarterly, and never inside the bot: a coin
+   * costs what it costs in coins, and 950 becoming 1,200 changes this table and
+   * nothing a user sees priced. The useful side effect the plan names is that a
+   * coin already bought is immune to that — «قبل از گران‌شدن بخر» is an honest
+   * sales argument, and the only place inflation works in this product's favour.
+   */
+  'economy.package_small_coins': 45,
+  'economy.package_small_toman': 45_000,
+  'economy.package_medium_coins': 110,
+  'economy.package_medium_toman': 99_000,
+  'economy.package_large_coins': 250,
+  'economy.package_large_toman': 209_000,
+  'economy.package_season_coins': 600,
+  'economy.package_season_toman': 469_000,
   /**
    * How many people one paid invitation reaches (phase 11).
    *

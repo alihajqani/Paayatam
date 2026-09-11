@@ -35,6 +35,7 @@ export { formatEventDetail } from './event-detail';
 export { insufficientCoinsNotice } from './notices';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa, walletPageRow } from './wallet';
+export { buyCoinsRow, formatCoinPackages, type CoinPackage } from './coin-packages';
 export { capacityLabel, seatsLine, seatsLineFromRemaining } from './seats';
 export { formatDirectMessage } from './direct';
 export type { DirectMessageLine } from './direct';
@@ -56,6 +57,7 @@ export type { SettingCallback, SettingFieldLetter, SettingLetter } from './callb
 export { ADMIN_CALLBACK_ACTIONS, encodeAdminCallback, parseAdminCallback } from './callback-data';
 export type { AdminCallback, AdminCallbackAction } from './callback-data';
 export { CODE_CALLBACK_KINDS, encodeCodeCallback, parseCodeCallback } from './callback-data';
+export { encodeBuyCallback, parseBuyCallback } from './callback-data';
 export { encodeChannelRecheckCallback, isChannelRecheckCallback } from './callback-data';
 export {
   PROFILE_FIELD_KEYS,

@@ -24,6 +24,7 @@ one.** Superseding is done by writing a new record that says so.
 | [0016](0016-gift-code-campaigns-and-admin-panel.md) | A gift code is a bearer secret: `public_id` routing, masked reads, bulk minting, `per_user_limit = 1`; and the admin panel | — | — (amends 0015; bound by 2, 3, 7, 12) |
 | [0017](0017-conversation-wizards-and-bot-state.md) | Forms move into the chat: an explicit step machine in Postgres, not grammY `conversations`; consent and profile move first, the Mini App retires last | — | A step is reachable only by its owner; a redelivered update advances it once |
 | [0018](0018-admin-moderation-in-the-bot.md) | A moderator's Telegram identity: a granted, audited link that opens a moderation queue in the bot and nothing else | — | The bot's admin session is a role's permissions ∩ a hard-coded allowlist (amends 0010) |
+| [0019](0019-coin-purchase-by-bank-transfer.md) | Coins are bought from a person by bank transfer: the bot shows a price list and records no order; a gateway is deferred until 400 transactions a month | — | — (bound by 7, 10, 12; amends the "never toman in the product" position) |
 
 ## The twelve invariants
 
