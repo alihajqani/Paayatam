@@ -14,6 +14,34 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.12.1] — 2026-09-11
+
+Both of these were found by opening a real wallet in production minutes after
+v0.12.0 shipped. No migration.
+
+### Fixed
+
+- **`/balance` was a dead end.** v0.12.0 put «🪙 خرید سکه» on `/wallet` alone —
+  plan ۰۲ said "a button in /wallet" and that was read too literally. `/balance`
+  is the screen somebody opens *first* to ask how many coins they have, and it
+  carried no keyboard at all: a number, and nothing to do about it, which is the
+  exact complaint that plan opened with. Same button, same
+  `COIN_PURCHASE_CONTACT` condition.
+- **Four coin movements spoke English.** `LEDGER_TYPE_FA` held 15 of the 19
+  `CoinLedgerType` members — the four the v0.11.0 rebalance added
+  (`FOUNDING_REWARD`, `EVENT_DEPOSIT_REFUND`, `HOST_REWARD`, `COMEBACK_GRANT`)
+  never got Persian labels, so for three releases «کیف پول» answered
+  «+۳۰ — FOUNDING_REWARD» to a Persian reader. Three of those four are the very
+  movements v0.11.0 built to make the economy legible.
+
+  Nothing failed, because `ledgerLabelFa` falls back to the raw value on purpose
+  — a worker on an older build must not drop a row it cannot name. That fallback
+  is a rollout guard and it quietly doubled as cover for the gap, which is why
+  the fix is not only four strings but a test asserting the map is total against
+  the real enum. It lives in `packages/domain`, the package that already depends
+  on both `@payetam/db` and `@payetam/telegram`; the message catalogue stays
+  testable with no Prisma client, which is deliberate.
+
 ## [v0.12.0] — 2026-09-11
 
 Three things the product did not have: a way for a moderator to reach their
