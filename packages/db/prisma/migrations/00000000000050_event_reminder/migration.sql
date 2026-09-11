@@ -1,0 +1,75 @@
+-- Migration 0050: remembering that an event reminder was sent (v0.12.0).
+--
+-- ── What was missing ────────────────────────────────────────────────────────
+--
+-- Somebody accepted onto an activity ten days ago received **no further message
+-- until it started**. The only reminder in the whole product was the review
+-- window's (migration 0045), and `SCHEDULE`'s nearest job — `EVENT_LIFECYCLE` —
+-- only retires an event that has already begun. Nothing announced one that was
+-- about to.
+--
+-- That is not a missing nicety, because of what sits on the other side of it:
+-- `cancellation.coins_no_show` is 60 and `cancellation.trust_no_show` is 15 —
+-- three times the cost of joining and the heaviest number in the economy — and
+-- `cancellation.coins_lt_3h` is 40, which asks a guest to decide **three hours
+-- before** if they want it to cost less. Neither number is defensible while the
+-- product expects a timed action, never tells anybody the time, and then fines
+-- them for missing it. A reminder is the cheapest way to lower the no-show rate,
+-- cheaper than any change to the penalty.
+--
+-- ── Why columns and not a dedupe key ────────────────────────────────────────
+--
+-- The same reasoning migration 0045 wrote out, and it applies unchanged.
+-- `notification.dedupe_key` would absorb the repeat, but a quarter-hourly sweep
+-- would then write an outbox row per accepted guest per fifteen minutes purely
+-- to have it discarded downstream — the retention purge cleaning up after a job
+-- that should not have written anything. A nullable timestamp answers "has this
+-- been sent?" where the question is actually asked.
+--
+-- It is also the honest record: "was this person reminded, and when?" is a
+-- support question, and `notification` rows are purged on a retention schedule
+-- while `event_participant` lives as long as the participation does.
+--
+-- ── Two waves, so two columns ───────────────────────────────────────────────
+--
+-- One at `reminder.first_hours_before` (24) and one at
+-- `reminder.second_hours_before` (3). The second is not a round number chosen
+-- for symmetry: it is the hour `participation.min_hours_before_event` and the
+-- penalty step both stand on, so the reminder lands immediately before
+-- cancelling gets expensive — which is the only moment at which telling somebody
+-- can still change what they do.
+--
+-- A single column with a wave number would have made "was the first one sent?"
+-- unanswerable after the second overwrote it, and that is exactly the question
+-- asked when somebody says they were never told.
+--
+-- ── The host's is on the event, and there is only one ───────────────────────
+--
+-- A host is not an `event_participant` row, so their reminder cannot be claimed
+-- on one. `event.host_reminded_at` is the same mechanism one level up, and it is
+-- single because the host is told once, in the 24-hour wave, with a head count —
+-- the useful message for somebody who has to shop, book or turn up early. A
+-- three-hour nudge to the person who created the evening is noise.
+--
+-- ── No index, deliberately ──────────────────────────────────────────────────
+--
+-- Unlike 0045, which added one. The sweep is driven from the **event** side —
+-- events starting inside the window, then their accepted guests — so it reads
+-- `event_upcoming_idx` (`starts_at` where PUBLISHED and not deleted) and then
+-- `event_participant(event_id, status)`, both of which already exist. An index
+-- on these three columns would serve no query this product runs.
+--
+-- ── Additive, and inert on its own ──────────────────────────────────────────
+--
+-- Three nullable columns. Nothing is dropped, renamed or narrowed, and every
+-- existing row reads NULL — which the sweep treats as "not yet sent". The first
+-- run after deploy therefore reminds everybody whose activity is inside the
+-- window right now, which is the intended behaviour and not a migration side
+-- effect: those are exactly the people about to be fined for missing something
+-- nobody told them about.
+ALTER TABLE "event_participant"
+  ADD COLUMN IF NOT EXISTS "reminded_first_at" TIMESTAMPTZ(3),
+  ADD COLUMN IF NOT EXISTS "reminded_second_at" TIMESTAMPTZ(3);
+
+ALTER TABLE "event"
+  ADD COLUMN IF NOT EXISTS "host_reminded_at" TIMESTAMPTZ(3);

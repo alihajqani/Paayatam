@@ -139,6 +139,15 @@ export const JOBS = {
   PROMOTE_WAITLIST: 'promote-waitlist',
   OUTBOX_BACKSTOP: 'outbox-backstop',
   REVIEW_SWEEP: 'review-sweep',
+  /**
+   * The two reminders before an activity starts (migration 0050).
+   *
+   * Its own job rather than a third thing hanging off `EVENT_LIFECYCLE`, which
+   * runs every minute and looks at events that have **already begun**. This
+   * looks at ones that have not, and every minute is far more often than a
+   * question measured in hours needs asking.
+   */
+  EVENT_REMINDER: 'event-reminder',
   SETTLE_ATTENDANCE: 'settle-attendance',
   /**
    * Return the host's deposit and pay the per-guest bonus.
@@ -231,6 +240,20 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
   { name: JOBS.PROMOTE_WAITLIST, pattern: '*/5 * * * *' },
   { name: JOBS.OUTBOX_BACKSTOP, pattern: '*/5 * * * *' },
   { name: JOBS.REVIEW_SWEEP, pattern: '0 * * * *' },
+  /**
+   * Every quarter of an hour.
+   *
+   * The precision this owes anybody is «فردا» and «چند ساعت دیگر», not a minute
+   * — so a quarter is the coarsest cadence that still puts the three-hour
+   * reminder within fifteen minutes of three hours, which is well inside what
+   * the message itself claims. Hourly would let it drift to «۳ ساعت دیگر» sent
+   * two hours and five minutes out, on the one message whose whole value is
+   * landing before the penalty step.
+   *
+   * No timezone: unlike the daily jobs this is not about a person's day, it is a
+   * fixed offset from an instant that is already stored in UTC.
+   */
+  { name: JOBS.EVENT_REMINDER, pattern: '*/15 * * * *' },
   { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
   /**
    * Hourly, at twenty past.
