@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
+  AdminTelegramService,
   ChannelService,
   CoinService,
   ComebackService,
@@ -124,6 +125,15 @@ export class Processors implements OnModuleInit {
     private readonly hostRewards: HostRewardService,
     /** And the one-per-lifetime grant to somebody who has run out. */
     private readonly comeback: ComebackService,
+    /**
+     * For one question only: does this recipient's bottom keyboard carry the
+     * moderation button (ADR-0018)?
+     *
+     * The worker asks it because the worker is what draws the keyboard —
+     * invariant 11 puts every outbound Telegram call here, so this is the only
+     * process in a position to answer it at the moment it matters.
+     */
+    private readonly adminTelegram: AdminTelegramService,
   ) {}
 
   /**
@@ -235,6 +245,35 @@ export class Processors implements OnModuleInit {
    *    again. They are one case here: a single notification has no campaign to
    *    trip a breaker for, and the queue's backoff is the whole of the answer.
    */
+  /**
+   * Whether this send should draw the moderation button (ADR-0018).
+   *
+   * ── Why it takes the inline keyboard ────────────────────────────────────────
+   *
+   * `reply_markup` is one field, so a message with an inline keyboard of its own
+   * never sends a `ReplyKeyboardMarkup` at all — it cannot change what the client
+   * is holding, and there is nothing for this to answer. Passing the keyboard in
+   * rather than asking at each call site is what makes "only where a keyboard is
+   * actually drawn" a property of this function instead of a rule three callers
+   * have to remember.
+   *
+   * ── Why it is never cached ──────────────────────────────────────────────────
+   *
+   * ADR-0018 re-resolves a moderator's session on **every** update on purpose:
+   * the link is a capability grant, and a revoked one that kept drawing its
+   * button would be an authorisation decision served from stale state. `isLinked`
+   * exists for exactly this — a `count` on a unique column, deliberately not
+   * `sessionFor`, so a yes/no about a keyboard does not load roles and
+   * permissions to answer it.
+   */
+  private async drawsModerationButton(
+    telegramUserId: bigint,
+    keyboard: InlineKeyboard | undefined,
+  ): Promise<boolean> {
+    if (keyboard !== undefined) return false;
+    return this.adminTelegram.isLinked(telegramUserId);
+  }
+
   private async onSend(job: Job): Promise<void> {
     const notificationId = (job.data as { notificationId?: string }).notificationId;
     if (notificationId === undefined) return;
@@ -304,21 +343,28 @@ export class Processors implements OnModuleInit {
     }
 
     /**
-     * No persistent menu (v0.7.0).
+     * The persistent menu, and the moderator's second button (ADR-0018).
      *
-     * This used to attach one to every message that had no inline keyboard of
-     * its own, and to ask `adminTelegram.isLinked` first so a moderator's
-     * keyboard gained its extra button. Both are gone with the keyboard: the
-     * menu is `/menu` and the `☰` opener, which are inline and belong to the
-     * message they are on. `TelegramClient.send` now sends `remove_keyboard`
-     * instead, which is what actually takes the old one off a client that still
-     * has it.
+     * v0.7.0 took the bottom keyboard away entirely and v0.8.1 brought back one
+     * button — and the moderation row, which had been appended here, did not
+     * come back with it. `MODERATION_MENU_LABEL` has had a constant, a
+     * translation and a test ever since, and **nothing drew it**, which is why a
+     * linked moderator had no way into their queue but to know `/moderate` by
+     * heart.
+     *
+     * Resolved here rather than cached, exactly as ADR-0018 resolves a session
+     * on every update: a link revoked a minute ago must not still be drawing the
+     * button. `drawsModerationButton` is what keeps that from costing a query
+     * per message — it is only asked where a bottom keyboard is actually drawn.
      */
     const outcome = await this.telegram.send(
       notification.telegramUserId,
       message.text,
       message.keyboard,
-      { parseMode: 'HTML' },
+      {
+        parseMode: 'HTML',
+        moderator: await this.drawsModerationButton(notification.telegramUserId, message.keyboard),
+      },
     );
 
     switch (outcome.kind) {
@@ -415,7 +461,14 @@ export class Processors implements OnModuleInit {
     if (outcome.kind === 'EDITED') return;
 
     if (outcome.kind === 'GONE') {
-      const sent = await this.telegram.send(target.telegramUserId, data.text, data.keyboard);
+      const sent = await this.telegram.send(target.telegramUserId, data.text, data.keyboard, {
+        parseMode: 'HTML',
+        // A wizard almost always carries its own inline keyboard, in which case
+        // this resolves to `false` without a query. The exception is a wizard on
+        // its last step, which draws the bottom keyboard like any other message
+        // and must not take a moderator's button off on the way out.
+        moderator: await this.drawsModerationButton(target.telegramUserId, data.keyboard),
+      });
       if (sent.kind === 'SENT') {
         await this.conversations.rememberMessage(data.userId, sent.messageId);
       }
@@ -777,6 +830,10 @@ export class Processors implements OnModuleInit {
 
     const outcome = await this.telegram.send(target.telegramUserId, target.bodyText, undefined, {
       parseMode: target.parseMode,
+      // A campaign never carries an inline keyboard, so it always draws the
+      // bottom one — which makes it the most likely message to silently strip a
+      // moderator's button, since a broadcast reaches everybody at once.
+      moderator: await this.drawsModerationButton(target.telegramUserId, undefined),
     });
 
     switch (outcome.kind) {

@@ -33,6 +33,9 @@ let alerts: FakeAlerts;
 
 /** Only the two collaborators these paths touch; the rest never runs. */
 function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Processors {
+  // Never reached: this suite drives scheduled sweeps, which send nothing.
+  const adminTelegram = { isLinked: vi.fn().mockResolvedValue(false) };
+
   return new Processors(
     {} as never, // WorkerFactory
     {} as never, // QueueService
@@ -56,6 +59,7 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     {} as never, // ConversationService — this suite never reaches a wizard
     {} as never, // HostRewardService
     {} as never, // ComebackService
+    adminTelegram as never,
   );
 }
 

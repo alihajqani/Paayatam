@@ -165,7 +165,7 @@ export class TelegramClient {
     chatId: bigint,
     text: string,
     keyboard?: InlineKeyboard,
-    options: { parseMode?: 'HTML' | undefined } = { parseMode: 'HTML' },
+    options: { parseMode?: 'HTML' | undefined; moderator?: boolean } = { parseMode: 'HTML' },
   ): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 
@@ -188,11 +188,17 @@ export class TelegramClient {
      * A new `ReplyKeyboardMarkup` replaces whatever the client is holding, which
      * is what takes the old seven-label keyboard off anyone who still has one —
      * the job `remove_keyboard` was doing, done by the thing that replaces it.
+     *
+     * That same replacement is why `options.moderator` has to be answered on
+     * every send that reaches this branch rather than once when a link is
+     * granted: an ordinary notification sent with `false` would take a linked
+     * moderator's «🛡 داوری» button off the client that was holding it. The
+     * caller resolves it — this file knows the wire format, not the staff table.
      */
     const markup =
       keyboard !== undefined
         ? { reply_markup: toReplyMarkup(keyboard) }
-        : { reply_markup: toBottomMarkup() };
+        : { reply_markup: toBottomMarkup(options.moderator ?? false) };
 
     try {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
@@ -338,12 +344,12 @@ export class TelegramClient {
  * whole translation, and it belongs here for the same reason `toReplyMarkup`
  * does: this is the file that knows the wire format.
  */
-function toBottomMarkup(): {
+function toBottomMarkup(moderator: boolean): {
   keyboard: { text: string }[][];
   resize_keyboard: true;
   is_persistent: true;
 } {
-  const bottom = mainMenuReplyKeyboard();
+  const bottom = mainMenuReplyKeyboard({ moderator });
   return {
     keyboard: bottom.keyboard.map((row) => row.map((button) => ({ text: button.text }))),
     resize_keyboard: bottom.resize_keyboard,

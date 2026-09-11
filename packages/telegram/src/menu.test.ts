@@ -189,7 +189,7 @@ describe('the main-menu button', () => {
   });
 
   it('draws exactly one button, sized and pinned', () => {
-    const keyboard = mainMenuReplyKeyboard();
+    const keyboard = mainMenuReplyKeyboard({ moderator: false });
 
     expect(keyboard.keyboard).toEqual([[{ text: MAIN_MENU_LABEL }]]);
     // Without `resize_keyboard` one button takes a third of the screen; without
@@ -197,6 +197,37 @@ describe('the main-menu button', () => {
     // opposite of always being there.
     expect(keyboard.resize_keyboard).toBe(true);
     expect(keyboard.is_persistent).toBe(true);
+  });
+
+  /**
+   * The second row, and why it is a row rather than a button.
+   *
+   * A moderator is a user first: `/menu` is still the way to everything the
+   * product does, and «🛡 داوری» is a door beside it, not instead of it. Putting
+   * them on one row would make a staff tool look like half the main menu.
+   */
+  it('adds a second row for a linked moderator, and keeps the first', () => {
+    const keyboard = mainMenuReplyKeyboard({ moderator: true });
+
+    expect(keyboard.keyboard).toEqual([
+      [{ text: MAIN_MENU_LABEL }],
+      [{ text: MODERATION_MENU_LABEL }],
+    ]);
+  });
+
+  /**
+   * The regression this file did not catch (ADR-0018).
+   *
+   * `MODERATION_MENU_LABEL` had a constant, a translation and the test above it
+   * for three releases while **nothing drew it** — v0.8.1 cut the bottom keyboard
+   * to one button and the moderation row went with it. The test that existed
+   * asked what a tap *means*; this asks whether anybody sees the thing to tap,
+   * which is the question that was missing.
+   */
+  it('draws it for nobody else', () => {
+    expect(mainMenuReplyKeyboard({ moderator: false }).keyboard.flat()).not.toContainEqual({
+      text: MODERATION_MENU_LABEL,
+    });
   });
 
   /**
