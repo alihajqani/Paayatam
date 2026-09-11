@@ -124,6 +124,40 @@ export const envSchema = z
       )
       .optional(),
 
+    /**
+     * Who somebody talks to in order to buy coins (ADR-0019).
+     *
+     * ── Why this is the switch and not a feature flag ───────────────────────
+     *
+     * Purchase is a bank transfer to a person, confirmed by that person in their
+     * banking app before any coin is granted. There is no gateway and no
+     * automation, so the *only* thing that makes the feature real is somebody
+     * being on the other end of it — which makes "is there an account to send
+     * people to" and "is purchase open" the same question. Unset means the
+     * «خرید سکه» button is not drawn and the screen has no route to it, so a
+     * deploy never opens a payment channel that nobody is watching.
+     *
+     * ── Deliberately not `SUPPORT_CONTACT` ──────────────────────────────────
+     *
+     * The same handle may well answer both today, and they still must not be one
+     * key: `SUPPORT_CONTACT` is set on every environment that can ban an account,
+     * so reusing it would turn purchases on everywhere the moment this shipped.
+     * Opening a money channel should be a thing somebody did on purpose.
+     *
+     * An environment variable rather than an `app_setting` row for the reason
+     * `SUPPORT_CONTACT` is one: `app_setting` holds numbers. The package *prices*
+     * are numbers and do live there, so a price revision is still a settings
+     * change with no deploy.
+     */
+    COIN_PURCHASE_CONTACT: z
+      .string()
+      .trim()
+      .regex(
+        /^(@[A-Za-z0-9_]{4,32}|https:\/\/t\.me\/[A-Za-z0-9_]{4,32})$/,
+        'must be a Telegram @username or an https://t.me/ link',
+      )
+      .optional(),
+
     // ── Cryptography — required from M2/M8, and always in production ──────────
     CHAT_ENCRYPTION_KEY: base64Key(32).optional(),
     PII_HASH_PEPPER: base64Key(32).optional(),

@@ -128,6 +128,11 @@ import {
   formatTrust,
   formatWallet,
   walletPageRow,
+  encodeWalletCallback,
+  buyCoinsRow,
+  formatCoinPackages,
+  parseBuyCallback,
+  type CoinPackage,
   capacityLabel,
   menuCommandFor,
   formatTehran,
@@ -1840,6 +1845,19 @@ export class BotService {
     if (walletPage !== null) {
       await this.answer(callbackQueryId, '');
       return this.drawWallet(update.updateId, user, walletPage, messageId);
+    }
+
+    /**
+     * «خرید سکه», redrawn over the wallet it was tapped on (ADR-0019).
+     *
+     * A read like the pagings above it — a price list authorises nothing and
+     * takes nothing, so no `mayWrite` and no gate. `drawCoinPackages` checks the
+     * contact for itself rather than trusting that this button was only drawn
+     * when one was set: `callback_data` outlives the message it came on.
+     */
+    if (parseBuyCallback(data)) {
+      await this.answer(callbackQueryId, '');
+      return this.drawCoinPackages(update.updateId, user, messageId);
     }
 
     /** A page of the Trust Score's history. A read, like the wallet's. */
@@ -3834,6 +3852,21 @@ export class BotService {
 
     const keyboard = [
       ...walletPageRow(page, hasNext),
+      /**
+       * «خرید سکه», when there is somebody to buy from (ADR-0019).
+       *
+       * `COIN_PURCHASE_CONTACT` is the switch: purchase is a bank transfer a
+       * human being confirms before granting anything, so an unset handle means
+       * there is nobody on the other end and the button would open a screen that
+       * leads nowhere. Unlike the gift-code button it does **not** depend on the
+       * wizards — it opens a price list, not a form, and there is nothing to
+       * type.
+       *
+       * Above the gift code deliberately: somebody looking at a balance they
+       * cannot spend is more often out of coins than holding a code, and this is
+       * the screen where the product finally has an answer for them.
+       */
+      ...(this.env.COIN_PURCHASE_CONTACT !== undefined ? buyCoinsRow() : []),
       ...(this.env.ENABLE_CONVERSATION_WIZARD
         ? [[{ text: '🎁 کد هدیه دارم', callbackData: encodeCodeCallback('gift') }]]
         : []),
@@ -3846,6 +3879,122 @@ export class BotService {
     return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
       text,
       ...(keyboard.length > 0 ? { keyboard: JSON.stringify(keyboard) } : {}),
+    });
+  }
+
+  /**
+   * The four tiers, as the settings describe them at this moment (ADR-0019).
+   *
+   * Read per draw rather than cached, so a price revision is visible on the next
+   * tap — the economy plan's whole requirement for this table is that changing
+   * it is a settings change and not a deploy, and a cache would quietly put the
+   * deploy back.
+   *
+   * A tier with a zero on either side is dropped. That is the documented way to
+   * retire one or run a promotion without a release, and it is also what keeps
+   * the screen honest if somebody zeroes a price by accident: a package worth
+   * nothing is not offered, rather than offered for free.
+   */
+  private async coinPackages(): Promise<CoinPackage[]> {
+    const values = await this.settings.getNumbers([
+      'economy.package_small_coins',
+      'economy.package_small_toman',
+      'economy.package_medium_coins',
+      'economy.package_medium_toman',
+      'economy.package_large_coins',
+      'economy.package_large_toman',
+      'economy.package_season_coins',
+      'economy.package_season_toman',
+    ]);
+
+    const tiers: CoinPackage[] = [
+      {
+        name: 'کوچک',
+        coins: values['economy.package_small_coins'],
+        toman: values['economy.package_small_toman'],
+      },
+      {
+        name: 'میانه',
+        coins: values['economy.package_medium_coins'],
+        toman: values['economy.package_medium_toman'],
+        // The one tier that is marked, and exactly one: a mark on two of four
+        // recommends nothing.
+        featured: true,
+      },
+      {
+        name: 'بزرگ',
+        coins: values['economy.package_large_coins'],
+        toman: values['economy.package_large_toman'],
+      },
+      {
+        name: 'فصلی',
+        coins: values['economy.package_season_coins'],
+        toman: values['economy.package_season_toman'],
+      },
+    ];
+
+    return tiers.filter((tier) => tier.coins > 0 && tier.toman > 0);
+  }
+
+  /**
+   * «خرید سکه» — the price list, and the end of the dead end (ADR-0019).
+   *
+   * ── What this replaced ──────────────────────────────────────────────────────
+   *
+   * Nothing. Every route to a coin in this product is an *earning* — onboarding,
+   * referral, review, gift code, founding tier, comeback — and every one is
+   * capped, most once per lifetime. Somebody who spent their way to the end of
+   * that was never offered anything; they were shown a balance and no way to
+   * change it, which is why the coin economy had a spend side and no entrance.
+   *
+   * ── Redrawn over the wallet, not sent beside it ────────────────────────────
+   *
+   * The same mechanic the wallet's own paging uses. A person opens this to
+   * compare four numbers and then goes back to the balance they were looking at,
+   * and two messages would leave the balance above a price list that has scrolled
+   * it away.
+   *
+   * ── It takes no money and holds no order ───────────────────────────────────
+   *
+   * The screen ends at a handle. There is no gateway, no `coin_purchase` row and
+   * nothing to reconcile: the operator sees the deposit in their banking app and
+   * grants the coins from the panel, which is the one rule the economy plan
+   * writes without an exception — a forged receipt is the easiest thing in this
+   * flow, and the only defence against it is a human being looking.
+   */
+  private async drawCoinPackages(
+    updateId: number,
+    user: BotUser,
+    editMessageId?: number,
+  ): Promise<void> {
+    const contact = this.env.COIN_PURCHASE_CONTACT;
+    /**
+     * Unreachable through the button, which is not drawn without a contact —
+     * and checked anyway, because a `callback_data` string survives in the chat
+     * and in anybody's screenshot of it. Somebody tapping a button from before
+     * purchases were turned off must not reach a screen telling them to message
+     * nobody.
+     */
+    if (contact === undefined) {
+      return this.notice(updateId, user, 'خرید سکه فعلاً در دسترس نیست.');
+    }
+
+    const [balance, packages, referencePrice] = await Promise.all([
+      this.coins.balanceOf(user.id),
+      this.coinPackages(),
+      this.settings.getInt('economy.coin_reference_price_toman'),
+    ]);
+
+    const text = formatCoinPackages({ packages, referencePrice, contact, balance });
+    const keyboard = [[{ text: '‹ کیف پول', callbackData: encodeWalletCallback(0) }]];
+
+    if (editMessageId !== undefined) {
+      return this.repaint(updateId, user, editMessageId, text, keyboard);
+    }
+
+    return this.reply(updateId, user.id, TEMPLATES.BOT_COIN_PACKAGES, {
+      text,
+      keyboard: JSON.stringify(keyboard),
     });
   }
 

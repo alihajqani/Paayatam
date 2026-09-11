@@ -107,6 +107,12 @@ describe('no template emits injected markup', () => {
     TEMPLATES.BOT_REVIEWS,
     TEMPLATES.BOT_TERMS_STANDING,
     TEMPLATES.BOT_WALLET,
+    // The coin price list, built by `formatCoinPackages`, which escapes the one
+    // interpolated string it has — `coin-packages.test.ts` is the proof. The
+    // rest of that screen is numbers, and the support handle is an operator's
+    // env value that `env.ts` already refuses unless it matches a strict
+    // `@username`/`t.me` pattern.
+    TEMPLATES.BOT_COIN_PACKAGES,
     TEMPLATES.BOT_REFERRAL,
     TEMPLATES.BOT_CONFIRM_SPEND,
     TEMPLATES.BOT_EVENT_DETAIL,
@@ -161,6 +167,7 @@ describe('no template emits injected markup', () => {
         TEMPLATES.BOT_TERMS_STANDING,
         TEMPLATES.BOT_TRUST,
         TEMPLATES.BOT_WALLET,
+        TEMPLATES.BOT_COIN_PACKAGES,
         TEMPLATES.BOT_WIZARD,
       ].sort(),
     );
