@@ -141,6 +141,9 @@ function buildProcessors(): Processors {
     {} as never, // ConversationService — this suite never reaches a wizard
     {} as never, // HostRewardService
     {} as never, // ComebackService
+    // A campaign recipient is not a moderator here, so the bottom keyboard this
+    // suite's sends draw is the ordinary one.
+    { isLinked: vi.fn().mockResolvedValue(false) } as never,
   );
 }
 

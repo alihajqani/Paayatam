@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '@payetam/db';
 import {
+  AdminAccessModule,
   AuditModule,
   CatalogModule,
   ChannelModule,
@@ -52,6 +53,11 @@ import { TelegramClient } from './telegram/telegram.client';
     PiiHashModule,
     AuditModule,
     OutboxModule,
+    // For `AdminTelegramService.isLinked` alone: whether the bottom keyboard a
+    // notification draws carries the moderation button (ADR-0018). The worker
+    // draws every keyboard this product sends, so it is the only process that
+    // can answer it at the moment it is asked.
+    AdminAccessModule,
     CatalogModule,
     ChannelModule,
     ConversationModule,

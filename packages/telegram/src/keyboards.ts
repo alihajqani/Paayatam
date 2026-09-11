@@ -132,9 +132,26 @@ export interface ReplyKeyboard {
   is_persistent: true;
 }
 
-export function mainMenuReplyKeyboard(): ReplyKeyboard {
+/**
+ * The bottom keyboard, and the one row that is not drawn for everybody.
+ *
+ * `moderator` is a required argument rather than an optional flag on purpose:
+ * every caller has to decide, because the answer is not "add a button" but
+ * "which keyboard does this client end up holding". A reply keyboard lives on
+ * the *client* and a new one **replaces** whatever is there, so a send that
+ * passed `false` for a linked moderator would take their button away until the
+ * next message that happened to pass `true` — a button that flickers by sender
+ * is worse than one that was never drawn.
+ *
+ * Which is also why this takes the answer rather than computing it: resolving a
+ * Telegram id against the staff table is a database question, and this package
+ * does no I/O (ADR-0018 resolves it per update, in the worker).
+ */
+export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): ReplyKeyboard {
   return {
-    keyboard: [[{ text: MAIN_MENU_LABEL }]],
+    keyboard: moderator
+      ? [[{ text: MAIN_MENU_LABEL }], [{ text: MODERATION_MENU_LABEL }]]
+      : [[{ text: MAIN_MENU_LABEL }]],
     resize_keyboard: true,
     is_persistent: true,
   };
@@ -145,8 +162,9 @@ export function mainMenuReplyKeyboard(): ReplyKeyboard {
  *
  * ── Wider than what is drawn, deliberately ──────────────────────────────────
  *
- * v0.7.0 drew none of these and v0.8.1 draws exactly one, and the map still
- * carries all eight. That is the whole reason it was ever separate from the
+ * v0.7.0 drew none of these and v0.8.1 draws exactly one of them — two for a
+ * moderator, whose second button is deliberately not in this map — and the map
+ * still carries all eight. That is the whole reason it was ever separate from the
  * layout: a reply keyboard lives on the *client*, so until a user receives a
  * message from this build they are still holding whichever one they were given.
  * A label this build could not resolve would fall through `onText` to the
@@ -186,8 +204,9 @@ const QUICK_COMMANDS: readonly string[] = ['create_event', 'discover'];
  * The moderation label, and why it is not in the map above (ADR-0018).
  *
  * `menuCommandFor` resolves it for anybody — because resolving it is not
- * authorising it. It was appended to a moderator's keyboard while there was a
- * keyboard; a moderator still holding one must not have the tap relayed.
+ * authorising it. It is appended to a linked moderator's keyboard and to no
+ * other, and a moderator whose link was revoked is still holding one; neither
+ * they nor a stranger who guesses the label must have the tap relayed.
  *
  * That split matters. If the label were unresolvable for a non-moderator, a
  * stranger who typed it would have it **relayed into an anonymous chat** — the

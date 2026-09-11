@@ -21,10 +21,13 @@ function buildProcessors(options: {
   templateKey: string;
   notifyChat?: boolean;
   notifyEvents?: boolean;
+  /** Whether this recipient's Telegram account is linked to a staff member. */
+  linkedModerator?: boolean;
 }): {
   processors: Processors;
   send: ReturnType<typeof vi.fn>;
   markSuppressed: ReturnType<typeof vi.fn>;
+  isLinked: ReturnType<typeof vi.fn>;
 } {
   const send = vi.fn().mockResolvedValue({ kind: 'SENT', messageId: 1 });
   const markSuppressed = vi.fn().mockResolvedValue(undefined);
@@ -52,6 +55,9 @@ function buildProcessors(options: {
     }),
   };
 
+  const isLinked = vi.fn().mockResolvedValue(options.linkedModerator ?? false);
+  const adminTelegram = { isLinked };
+
   const processors = new Processors(
     {} as never, // WorkerFactory
     {} as never, // QueueService
@@ -75,9 +81,10 @@ function buildProcessors(options: {
     {} as never, // ConversationService
     {} as never, // HostRewardService
     {} as never, // ComebackService
+    adminTelegram as never,
   );
 
-  return { processors, send, markSuppressed };
+  return { processors, send, markSuppressed, isLinked };
 }
 
 /** `onSend` is private; the job is what the queue hands it. */
@@ -159,5 +166,75 @@ describe('notification preferences', () => {
     await runSend(processors);
 
     expect(send).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * The moderation button, and the bug that made it invisible (ADR-0018).
+ *
+ * ── What this is here to stop coming back ───────────────────────────────────
+ *
+ * `MODERATION_MENU_LABEL` was appended to a moderator's bottom keyboard until
+ * v0.8.1 cut that keyboard down to one button, and it was not put back. For
+ * three releases the constant, its translation and a test asserting the label
+ * resolves to `moderate` all existed, and **nothing drew it** — so the only way
+ * a linked moderator reached their queue was to know `/moderate` by heart, and
+ * `/moderate` is deliberately unadvertised.
+ *
+ * `menu.test.ts` did not catch it because it asked what a tap *means*. This asks
+ * the question that was missing: does anybody **see** it.
+ */
+describe('the moderation button on the bottom keyboard', () => {
+  it('draws it for a linked moderator', async () => {
+    const { processors, send } = buildProcessors({
+      templateKey: TEMPLATES.CONTENT_HIDDEN,
+      linkedModerator: true,
+    });
+
+    await runSend(processors);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ moderator: true }),
+    );
+  });
+
+  it('does not draw it for anybody else', async () => {
+    const { processors, send } = buildProcessors({
+      templateKey: TEMPLATES.CONTENT_HIDDEN,
+      linkedModerator: false,
+    });
+
+    await runSend(processors);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ moderator: false }),
+    );
+  });
+
+  /**
+   * The cheapness property, and the reason it is a test rather than a comment.
+   *
+   * `reply_markup` is one field: a message carrying its own inline keyboard
+   * sends no `ReplyKeyboardMarkup` at all and cannot change what the client is
+   * holding. Asking the database anyway would put a query on every wizard step
+   * — the highest-frequency send this product has — to decide something the
+   * send will not act on.
+   */
+  it('does not ask when the message carries its own inline keyboard', async () => {
+    const { processors, send, isLinked } = buildProcessors({
+      templateKey: TEMPLATES.BOT_NOTICE,
+      linkedModerator: true,
+    });
+
+    await runSend(processors);
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(isLinked).not.toHaveBeenCalled();
   });
 });
