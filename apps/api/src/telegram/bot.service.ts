@@ -92,6 +92,7 @@ import {
   formatEventDetail,
   insufficientCoinsNotice,
   formatParticipants,
+  foundingTierMedal,
   foundingTierName,
   parseProfileFieldCallback,
   commandGroupFor,
@@ -898,6 +899,9 @@ export class BotService {
                 founding:
                   `نفر ${toPersianDigits(String(member.rank))} از هزار نفر اول · ` +
                   foundingTierName(member.tier),
+                // The template draws the medal from this, so the card and the
+                // roster read one tier through one function.
+                foundingTier: member.tier,
               }
             : {}),
           ...(this.env.ENABLE_CONVERSATION_WIZARD
@@ -6248,7 +6252,7 @@ export function foundingLine(award: FoundingAward | null, max: number): string {
   // is capped at 500 is wrong on the one screen it is quoted from most.
   const total = toPersianDigits(String(max));
   return (
-    `🎟 شما نفر ${rank} از ${total} نفر اولِ پایه‌تم هستید.\n` +
+    `${foundingTierMedal(award.tier)} شما نفر ${rank} از ${total} نفر اولِ پایه‌تم هستید.\n` +
     `نشان «${foundingTierName(award.tier)}» برای همیشه روی نمایه شما می‌ماند.\n\n`
   );
 }

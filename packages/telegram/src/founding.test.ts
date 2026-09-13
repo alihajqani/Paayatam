@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foundingBadge, foundingTierName } from './founding';
+import { foundingBadge, foundingTierMedal, foundingTierName } from './founding';
 
 describe('foundingTierName', () => {
   it('names the three shipped tiers', () => {
@@ -20,14 +20,35 @@ describe('foundingTierName', () => {
   });
 });
 
+/**
+ * The three waves are a podium, so they wear Telegram's own medals.
+ *
+ * One ticket for all three said "member" and nothing about which wave; a medal
+ * says both at a glance, in a roster where the tier is all a stranger is shown.
+ */
+describe('foundingTierMedal', () => {
+  it('gives each shipped tier its own medal', () => {
+    expect(foundingTierMedal(1)).toBe('🥇');
+    expect(foundingTierMedal(2)).toBe('🥈');
+    expect(foundingTierMedal(3)).toBe('🥉');
+  });
+
+  /** The same fallback as the name, so a medal and its label never disagree. */
+  it('falls back to the medal of the name it falls back to', () => {
+    expect(foundingTierMedal(4)).toBe(foundingTierMedal(3));
+    expect(foundingTierMedal(0)).toBe(foundingTierMedal(3));
+  });
+});
+
 describe('foundingBadge', () => {
   it('is empty for somebody who is not a member', () => {
     expect(foundingBadge(null)).toBe('');
   });
 
   it('leads with a space so it concatenates onto a name', () => {
-    expect(foundingBadge(1)).toBe(' 🎟 بنیان‌گذار');
-    expect(`سارا${foundingBadge(2)}`).toBe('سارا 🎟 پیشگام');
+    expect(foundingBadge(1)).toBe(' 🥇 بنیان‌گذار');
+    expect(`سارا${foundingBadge(2)}`).toBe('سارا 🥈 پیشگام');
+    expect(foundingBadge(3)).toBe(' 🥉 همراه نخست');
   });
 
   /**
