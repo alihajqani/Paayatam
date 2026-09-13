@@ -3857,6 +3857,80 @@ describe('POST /telegram/:secret — moderating from the bot', () => {
   });
 
   /**
+   * Triage from the phone (plan 07): the same `triageCase` the panel calls, with
+   * the permission check in the service and the same audit row.
+   */
+  it('claims a case, and the queue then offers to release it', async () => {
+    const adminId = await seedModerator(GUEST_TELEGRAM_ID);
+    const { caseId } = await seedCase();
+
+    await tap(GUEST_TELEGRAM_ID, `ad:claim:${caseId}`);
+
+    const claimed = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(claimed.status).toBe('IN_REVIEW');
+    expect(claimed.assignedAdminId).toBe(adminId);
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'moderation.case_triaged' },
+    });
+    expect(entry.actorId).toBe(adminId);
+
+    await type(GUEST_TELEGRAM_ID, '🛡 داوری');
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_ADMIN_CASES },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const keyboard = String((row.payload as Record<string, unknown>)['keyboard']);
+    expect(keyboard).toContain(`ad:release:${caseId}`);
+    expect(keyboard).not.toContain(`ad:claim:${caseId}`);
+  });
+
+  it('releases a claimed case back to the queue', async () => {
+    await seedModerator(GUEST_TELEGRAM_ID);
+    const { caseId } = await seedCase();
+
+    await tap(GUEST_TELEGRAM_ID, `ad:claim:${caseId}`);
+    await tap(GUEST_TELEGRAM_ID, `ad:release:${caseId}`);
+
+    const released = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(released.status).toBe('OPEN');
+    expect(released.assignedAdminId).toBeNull();
+  });
+
+  it('escalates a case to the panel', async () => {
+    const adminId = await seedModerator(GUEST_TELEGRAM_ID);
+    const { caseId } = await seedCase();
+
+    await tap(GUEST_TELEGRAM_ID, `ad:escalate:${caseId}`);
+
+    const escalated = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(escalated.status).toBe('ESCALATED');
+    expect(escalated.assignedAdminId).toBe(adminId);
+  });
+
+  /** A linked account without `event.moderate` changes nothing — invariant 12. */
+  it('refuses triage from a linked account without the moderation permission', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID, 'تحلیل‌گر');
+    const analystId = await seedAdmin('analyst@payetam.test', 'ANALYST');
+    await prisma.adminTelegramLink.create({
+      data: {
+        adminUserId: analystId,
+        telegramUserId: BigInt(GUEST_TELEGRAM_ID),
+        grantedById: analystId,
+        reason: 'test fixture',
+      },
+    });
+    const { caseId } = await seedCase();
+
+    await tap(GUEST_TELEGRAM_ID, `ad:claim:${caseId}`);
+
+    const untouched = await prisma.moderationCase.findUniqueOrThrow({ where: { id: caseId } });
+    expect(untouched.status).toBe('OPEN');
+    expect(untouched.assignedAdminId).toBeNull();
+    expect(await prisma.auditLog.count({ where: { action: 'moderation.case_triaged' } })).toBe(0);
+  });
+
+  /**
    * `falsePositive` is what turns ADR-0012's tuning from an impression into a
    * number, and it is asked only where the automation is the thing being judged.
    */

@@ -854,13 +854,17 @@ export function parseSettingCallback(data: string): SettingCallback | null {
  *
  * `list` carries no id and spends the slot on `x`, because the three-part shape
  * is what every parser in this file expects.
+ *
+ * `claim`, `release` and `escalate` are triage (plan 07): `triageCase` with the
+ * same `event.moderate` the bot session already holds. Each carries a case id
+ * like `open`; `ad:escalate:<uuid>` is 48 bytes.
  */
-export const ADMIN_CALLBACK_ACTIONS = ['list', 'open'] as const;
+export const ADMIN_CALLBACK_ACTIONS = ['list', 'open', 'claim', 'release', 'escalate'] as const;
 export type AdminCallbackAction = (typeof ADMIN_CALLBACK_ACTIONS)[number];
 
 export interface AdminCallback {
   action: AdminCallbackAction;
-  /** A moderation case id for `open`; null for `list`. */
+  /** A moderation case id for every action but `list`, which carries null. */
   id: string | null;
 }
 
@@ -884,7 +888,7 @@ export function parseAdminCallback(data: string): AdminCallback | null {
   if (!ADMIN_CALLBACK_ACTIONS.some((candidate) => candidate === action)) return null;
 
   if (action === 'list') return id === NO_ID ? { action: 'list', id: null } : null;
-  return isPublicId(id) ? { action: 'open', id } : null;
+  return isPublicId(id) ? { action: action as AdminCallbackAction, id } : null;
 }
 
 /**

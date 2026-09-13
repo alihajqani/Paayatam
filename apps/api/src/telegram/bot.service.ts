@@ -2614,6 +2614,35 @@ export class BotService {
     }
 
     /**
+     * Triage (plan 07): claim, release, escalate.
+     *
+     * `triageCase` asserts `event.moderate` in the service and writes the audit
+     * row, exactly as it does for the panel. The session is the one `onCallback`
+     * resolved for **this** tap, not one carried from the queue, so a link revoked
+     * since the queue was drawn refuses here. The queue is then redrawn over
+     * itself, which is how the moderator sees the case move.
+     */
+    if (
+      callback.action === 'claim' ||
+      callback.action === 'release' ||
+      callback.action === 'escalate'
+    ) {
+      const action =
+        callback.action === 'claim'
+          ? 'CLAIM'
+          : callback.action === 'release'
+            ? 'RELEASE'
+            : 'ESCALATE';
+      try {
+        await this.admins.triageCase(session, callback.id, action);
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+        return this.refuse(updateId, user, error);
+      }
+      return this.drawModerationQueue(updateId, user, session, editMessageId);
+    }
+
+    /**
      * Opening a case **is** starting the decision form.
      *
      * There is no read-only case screen in between, because there is nothing a
@@ -2716,6 +2745,12 @@ export class BotService {
         reportCount: row.reportCount,
         createdAt: row.createdAt,
         eventTitle: titles.get(row.subjectId) ?? null,
+        assignment:
+          row.assignedAdminId === null
+            ? ('NONE' as const)
+            : row.assignedAdminId === session.adminUserId
+              ? ('ME' as const)
+              : ('OTHER' as const),
       }));
 
     const rows = adminQueueRows(lines);
