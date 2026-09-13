@@ -1,4 +1,4 @@
-import { PARTICIPANT_STATUS_GUEST_FA, type ParticipantStatus } from '@payetam/shared';
+import { PARTICIPANT_STATUS_HOST_FA, type ParticipantStatus } from '@payetam/shared';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { foundingBadge } from './founding';
@@ -51,7 +51,8 @@ export function formatParticipants(eventTitle: string, lines: readonly Participa
       `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.displayName)}</b>` +
       `${foundingBadge(line.foundingTier)}\n` +
       `  ⭐️ ${trust}\n` +
-      `  ${PARTICIPANT_STATUS_GUEST_FA[line.status]}${rank}`
+      // The host's map: this is the host's screen (review M3, `copy.ts`).
+      `  ${PARTICIPANT_STATUS_HOST_FA[line.status]}${rank}`
     );
   });
 

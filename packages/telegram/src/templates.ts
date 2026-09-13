@@ -4,6 +4,7 @@ import { commandGroupFor, helpCommandLines } from './commands';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
+  MAIN_MENU_LABEL,
   hostDecisionKeyboard,
   menuGroupKeyboard,
   menuGroupText,
@@ -653,8 +654,30 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       };
     }
 
-    /** M12: the owner is told, and never told by whom. */
+    /**
+     * M12: the owner is told, and never told by whom.
+     *
+     * By what was reported (review M4). `ReportService.escalate` emits this for a
+     * reported **user** and a reported **review** too, and hides only an activity
+     * — so the activity sentence told a reported host that something nobody had
+     * touched could no longer be joined. Nothing here promises a result for those
+     * two: only an activity has a `moderation.content_restored` to follow it.
+     */
     case TEMPLATES.CONTENT_HIDDEN:
+      if (str(payload, 'subjectType') === 'USER') {
+        return {
+          text:
+            `<b>گزارشی دربارهٔ حساب شما ثبت شد</b>\n\n` +
+            `چند نفر دربارهٔ حساب شما گزارش داده‌اند و تیم ما در حال بررسی آن است.`,
+        };
+      }
+      if (str(payload, 'subjectType') === 'REVIEW') {
+        return {
+          text:
+            `<b>گزارشی دربارهٔ یکی از نظرهای شما ثبت شد</b>\n\n` +
+            `چند نفر دربارهٔ نظری که نوشته‌اید گزارش داده‌اند و تیم ما در حال بررسی آن است.`,
+        };
+      }
       return {
         text:
           `<b>فعالیت شما موقتاً پنهان شد</b>\n\n` +
@@ -867,10 +890,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
           `لازم نیست چیزی را باز کنید.\n\n` +
           `<b>بقیهٔ کارها</b>\n` +
-          `لازم نیست چیزی تایپ کنید: دکمه‌های پایین صفحه — ` +
-          `«${menuPathFor('create_event') ?? 'ساختن فعالیت'}»، ` +
-          `«${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}»، ` +
-          `«${menuPathFor('settings') ?? 'حساب من'}» — همه‌چیز را باز می‌کنند. ` +
+          `لازم نیست چیزی تایپ کنید: دکمهٔ «${MAIN_MENU_LABEL}» زیر صفحهٔ نوشتن همه‌چیز ` +
+          `را باز می‌کند — ساختن و پیدا کردن فعالیت در «${menuPathFor('discover') ?? 'فعالیت‌ها'}»، ` +
+          `نمایه و تنظیمات در «${menuPathFor('settings') ?? 'حساب من'}». ` +
           `فرمان‌های بالا هم کار می‌کنند، برای وقتی که تایپ کردن سریع‌تر است.`,
         `home`,
       );
@@ -1098,16 +1120,17 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      *
      * **The buttons, by their own labels.** It used to name two commands, which
      * is the first thing a brand-new user reads and therefore the worst place to
-     * teach them that this product is typed at. `menuPathFor` reverse-looks-up
-     * the keyboard, so a renamed button cannot leave this sentence pointing at
-     * one that no longer says that.
+     * teach them that this product is typed at. `menuPathFor` reads the menu's
+     * own groups, so a renamed group cannot leave this sentence pointing at one
+     * that no longer says that — and it names the one button that is under the
+     * compose box, not the two that were until v0.8.1 (review M2).
      */
     case TEMPLATES.BOT_CONSENT_ACCEPTED:
       return opened(
         `<b>ثبت شد</b> ✅\n\n` +
-          `حالا می‌توانید از پایه‌تم استفاده کنید. از دکمه‌های پایین صفحه:\n` +
-          `<b>${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}</b> — فعالیت‌های نزدیک شما\n` +
-          `<b>${menuPathFor('create_event') ?? 'ساختن فعالیت'}</b> — ساختن فعالیت تازه`,
+          `حالا می‌توانید از پایه‌تم استفاده کنید. دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ ` +
+          `در «${menuPathFor('discover') ?? 'فعالیت‌ها'}» هم فعالیت‌های نزدیک شما هست ` +
+          `و هم ساختن فعالیت تازه.`,
         `home`,
       );
 
