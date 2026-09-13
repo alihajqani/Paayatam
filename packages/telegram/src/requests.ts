@@ -1,6 +1,7 @@
 import { PARTICIPANT_STATUS_GUEST_FA, type ParticipantStatus } from '@payetam/shared';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
+import { eventCommandFor } from './event-code';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 import { menuPathFor } from './keyboards';
 
@@ -11,7 +12,16 @@ export interface MyRequestLine {
   status: ParticipantStatus;
   /** 1-based place in the queue, present only while WAITLISTED. */
   waitlistRank: number | null;
+  /** The activity's public id, for the `/event_…` line that opens it. */
+  eventPublicId: string;
 }
+
+/**
+ * The statuses whose activity is still worth opening. A settled request's page
+ * answers «not found» once the activity is over, and a link that exists to be
+ * refused is worse than none — the same set `/requests` offers «لغو» on.
+ */
+const LINKED: ReadonlySet<ParticipantStatus> = new Set(['PENDING', 'WAITLISTED', 'ACCEPTED']);
 
 /**
  * `/requests` — what the sender has asked to join, newest first.
@@ -41,10 +51,15 @@ export function formatMyRequests(lines: readonly MyRequestLine[]): string {
         ? ` (نفر ${toPersianDigits(String(line.waitlistRank))})`
         : '';
 
+    // The way back to the activity, and to the host through it (review H2): an
+    // accepted guest had no tap anywhere that opened the page.
+    const command = LINKED.has(line.status) ? eventCommandFor(line.eventPublicId) : null;
+
     return (
       `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.title)}</b>\n` +
       `  🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)}\n` +
-      `  ${PARTICIPANT_STATUS_GUEST_FA[line.status]}${rank}`
+      `  ${PARTICIPANT_STATUS_GUEST_FA[line.status]}${rank}` +
+      (command === null ? '' : `\n  ${command}`)
     );
   });
 

@@ -3,8 +3,17 @@ import { formatMyRequests, type MyRequestLine } from './requests';
 
 const AT = new Date('2026-09-01T14:30:00.000Z');
 
+const EVENT = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+
 function line(over: Partial<MyRequestLine> = {}): MyRequestLine {
-  return { title: 'کوهنوردی', startsAt: AT, status: 'PENDING', waitlistRank: null, ...over };
+  return {
+    title: 'کوهنوردی',
+    startsAt: AT,
+    status: 'PENDING',
+    waitlistRank: null,
+    eventPublicId: EVENT,
+    ...over,
+  };
 }
 
 describe('formatMyRequests', () => {
@@ -39,6 +48,23 @@ describe('formatMyRequests', () => {
 
     expect(text).toContain('&lt;b&gt;پررنگ&lt;/b&gt; &amp; &lt;i&gt;کج&lt;/i&gt;');
     expect(text).not.toContain('<b>پررنگ');
+  });
+
+  /**
+   * The way back to the activity (review H2). A guest who was accepted had no
+   * tap anywhere that opened the page carrying «پیام مستقیم به میزبان».
+   */
+  it('links each live request to its activity', () => {
+    for (const status of ['PENDING', 'WAITLISTED', 'ACCEPTED'] as const) {
+      expect(formatMyRequests([line({ status })]), status).toContain('/event_0190a1b2c3');
+    }
+  });
+
+  /** The page answers «not found» once the activity is over — no dead link. */
+  it('does not link a request that is settled', () => {
+    for (const status of ['COMPLETED', 'REJECTED', 'CANCELLED_BY_PARTICIPANT'] as const) {
+      expect(formatMyRequests([line({ status })]), status).not.toContain('/event_');
+    }
   });
 
   it('renders every request it is given', () => {

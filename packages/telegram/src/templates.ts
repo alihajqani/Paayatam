@@ -5,6 +5,7 @@ import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
   hostDecisionKeyboard,
+  guestEventKeyboard,
   menuGroupKeyboard,
   menuGroupText,
   menuPathFor,
@@ -422,12 +423,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       };
     }
 
-    case TEMPLATES.PARTICIPATION_REQUESTED_GUEST:
-      return opened(
-        `درخواست شما برای «${str(payload, 'eventTitle')}» ثبت شد.\n` +
-          `اگر سؤالی دارید، از صفحهٔ همان فعالیت «پیام مستقیم به میزبان» را بزنید.`,
-        `my-requests`,
-      );
+    case TEMPLATES.PARTICIPATION_REQUESTED_GUEST: {
+      const event = id(payload, 'eventPublicId');
+      return {
+        text:
+          `درخواست شما برای «${str(payload, 'eventTitle')}» ثبت شد.` +
+          (event === null ? '' : `\nاگر سؤالی دارید، با دکمهٔ زیر به میزبان پیام بدهید.`),
+        deepLink: `my-requests`,
+        ...(event !== null ? { keyboard: guestEventKeyboard(event) } : {}),
+      };
+    }
 
     /**
      * The one notification where the disclaimer belongs (report 8).
@@ -437,14 +442,18 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * is the moment a real-world meeting with a stranger becomes real, which is
      * the moment «احتیاط کنید» is actually advice rather than boilerplate.
      */
-    case TEMPLATES.PARTICIPATION_ACCEPTED:
-      return opened(
-        `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
+    case TEMPLATES.PARTICIPATION_ACCEPTED: {
+      const event = id(payload, 'eventPublicId');
+      return {
+        text:
+          `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
-          `برای هماهنگی، از صفحهٔ فعالیت «پیام مستقیم به میزبان» را بزنید.\n\n` +
-          `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
-        `my-requests`,
-      );
+          (event === null ? '' : `برای هماهنگی، با دکمهٔ زیر به میزبان پیام بدهید.\n`) +
+          `\n<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
+        deepLink: `my-requests`,
+        ...(event !== null ? { keyboard: guestEventKeyboard(event) } : {}),
+      };
+    }
 
     /**
      * Turned down — and told what came back with it (v0.8.1).
@@ -512,13 +521,17 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     }
 
     /** D8: the promoted participant learns their status changed, immediately. */
-    case TEMPLATES.WAITLIST_PROMOTED_GUEST:
-      return opened(
-        `<b>یک جا باز شد</b>\n\n` +
+    case TEMPLATES.WAITLIST_PROMOTED_GUEST: {
+      const event = id(payload, 'eventPublicId');
+      return {
+        text:
+          `<b>یک جا باز شد</b>\n\n` +
           `درخواست شما برای «${str(payload, 'eventTitle')}» از لیست انتظار خارج شد و ` +
           `اکنون در انتظار تصمیم میزبان است.`,
-        `my-requests`,
-      );
+        deepLink: `my-requests`,
+        ...(event !== null ? { keyboard: guestEventKeyboard(event, false) } : {}),
+      };
+    }
 
     /** D8: and so does the host, in the same domain event — decision buttons included. */
     case TEMPLATES.WAITLIST_PROMOTED_HOST: {
