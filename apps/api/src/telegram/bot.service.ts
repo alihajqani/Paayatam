@@ -120,6 +120,7 @@ import {
   formatAdminQueue,
   isNotificationField,
   menuPathFor,
+  shareUrl,
   MAIN_MENU_LABEL,
   MODERATION_MENU_COMMAND,
   SETTING_FIELDS,
@@ -5264,6 +5265,8 @@ export class BotService {
         inviteCost: toPersianDigits(String(inviteCost)),
         inviteRecipients: toPersianDigits(String(inviteRecipients)),
         republishCost: toPersianDigits(String(republishCost)),
+        // Built here because `render` takes no bot username (plan 11).
+        shareUrl: shareUrl(this.env.TELEGRAM_BOT_USERNAME ?? 'paayatambot', created.publicId),
       });
     } catch (error) {
       if (!(error instanceof AppError)) throw error;

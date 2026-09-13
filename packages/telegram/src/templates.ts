@@ -7,6 +7,8 @@ import {
   isPublicId,
 } from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
+import { SHARE_URL_PREFIX } from './deep-link';
+import { myEventCommandFor } from './event-code';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 import { foundingBadge, foundingTierMedal } from './founding';
@@ -1321,11 +1323,22 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         keyboard: menuOpenerKeyboard(),
       };
 
-    case TEMPLATES.BOT_EVENT_CREATED:
+    /**
+     * Registered — and the way to the activity and to sharing it (plan 11).
+     *
+     * `/myevent_…` opens its console directly rather than naming a menu path,
+     * and the share sheet is drawn only for a url that is Telegram's own
+     * (`SHARE_URL_PREFIX`), because the value comes from a payload.
+     */
+    case TEMPLATES.BOT_EVENT_CREATED: {
+      const manage = myEventCommandFor(raw(payload, 'eventPublicId'));
+      const share = raw(payload, 'shareUrl');
       return opened(
         `<b>فعالیت ثبت شد</b> ✅\n\n` +
           `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n` +
-          `از دکمهٔ «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید ` +
+          (manage === null
+            ? `از دکمهٔ «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `
+            : `با ${manage} یا از «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `) +
           `درخواست‌ها را ببینید و پاسخ بدهید.\n\n` +
           `<b>اگر بخواهید بیشتر دیده شود:</b>\n` +
           `📨 <b>دعوت ویژه</b> — فعالیت شما با پیام اختصاصی برای حداکثر ` +
@@ -1335,7 +1348,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `(${str(payload, 'republishCost')} سکه).\n\n` +
           `<i>هر دو از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`,
         `my-events`,
+        share.startsWith(SHARE_URL_PREFIX)
+          ? [[{ text: '🔗 اشتراک‌گذاری', url: share }]]
+          : undefined,
       );
+    }
 
     /**
      * `/wallet` and `/referral` — both bodies built by this package's own

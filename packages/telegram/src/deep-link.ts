@@ -68,6 +68,22 @@ export function botStartUrl(botUsername: string, payload: string): string {
   return `https://t.me/${botUsername}?start=${payload}`;
 }
 
+/** Telegram's share sheet, which every share URL here must start with. */
+export const SHARE_URL_PREFIX = 'https://t.me/share/url?url=';
+
+/**
+ * Telegram's share sheet for one activity (plan 11).
+ *
+ * Opens the client's forward dialog with the bot's `?start=event_` link filled
+ * in, so a host can send their activity to a friend or a group in two taps. The
+ * inner link is percent-encoded, or its `?` would end the outer query string.
+ */
+export function shareUrl(botUsername: string, eventPublicId: string): string {
+  return `${SHARE_URL_PREFIX}${encodeURIComponent(
+    botStartUrl(botUsername, encodeStartPayload('event', eventPublicId)),
+  )}`;
+}
+
 /**
  * A `/start` payload, or null when it is not one of ours.
  *
