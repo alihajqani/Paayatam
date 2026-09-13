@@ -3,7 +3,7 @@ import { encodeDirectCallback, isPublicId } from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
-import { foundingTierMedal } from './founding';
+import { foundingBadge, foundingTierMedal } from './founding';
 import {
   MAIN_MENU_LABEL,
   hostDecisionKeyboard,
@@ -364,6 +364,24 @@ function startsAtLine(payload: Payload): string {
   return Number.isNaN(date.getTime()) ? '' : `${formatTehran(date)}\n`;
 }
 
+/**
+ * Who is asking, as the host's guest list already shows them (plan 11).
+ *
+ * Name, founding medal, Trust Score — the same three facts `formatParticipants`
+ * draws, so moving them into the notification discloses nothing new; it puts
+ * them where the accept/reject decision is taken. Null trust is «تازه‌وارد»,
+ * never zero. Null for a payload without a name, which renders the old
+ * «یک نفر» sentence rather than an empty one.
+ */
+function requesterLine(payload: Payload): string | null {
+  const name = str(payload, 'participantDisplayName');
+  if (name === '') return null;
+  const score = payload['participantTrustScore'];
+  const trust = typeof score === 'number' ? `${toPersianDigits(score)} از ۱۰۰` : 'تازه‌وارد';
+  const tier = payload['participantFoundingTier'];
+  return `<b>${name}</b>${typeof tier === 'number' ? foundingBadge(tier) : ''} · ⭐️ ${trust}`;
+}
+
 function num(payload: Payload, key: string): string {
   const value = payload[key];
   return typeof value === 'number' ? toPersianDigits(value) : '۰';
@@ -417,9 +435,13 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.PARTICIPATION_REQUESTED_HOST: {
       const participant = id(payload, 'participantPublicId');
       const deepLink = HOST_DECISION_SCREEN;
+      const requester = requesterLine(payload);
       return {
         text:
-          `<b>درخواست تازه</b>\n\n` + `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`,
+          `<b>درخواست تازه</b>\n\n` +
+          (requester === null
+            ? `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`
+            : `${requester}\nمی‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`),
         deepLink,
         ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };
@@ -539,10 +561,12 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.WAITLIST_PROMOTED_HOST: {
       const participant = id(payload, 'participantPublicId');
       const deepLink = HOST_DECISION_SCREEN;
+      const requester = requesterLine(payload);
       return {
         text:
           `یک درخواست از لیست انتظار به «${str(payload, 'eventTitle')}» منتقل شد و ` +
-          `منتظر تصمیم شماست.`,
+          `منتظر تصمیم شماست.` +
+          (requester === null ? '' : `\n\n${requester}`),
         deepLink,
         ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };

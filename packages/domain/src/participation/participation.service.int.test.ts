@@ -1086,6 +1086,31 @@ describe('the notification a real acceptance produces', () => {
     expect(text).toContain('دورهمی');
   });
 
+  /**
+   * The host decides from this message, so it says who is asking (plan 11) —
+   * from the producer, so the payload under test is the one `join` writes.
+   */
+  it('tells the host who is asking, with their trust and founding tier', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    await prisma.foundingMember.create({ data: { userId: joiner, rank: 42, tier: 2, coins: 20 } });
+    await participation.join(joiner, eventPublicId);
+
+    const row = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'participation.requested' },
+      select: { payload: true },
+    });
+    const payload = row.payload as Record<string, unknown>;
+    expect(payload['participantDisplayName']).toBe('شرکت‌کننده');
+    expect(payload['participantTrustScore']).toBeNull();
+    expect(payload['participantFoundingTier']).toBe(2);
+    expect(JSON.stringify(payload)).not.toContain(joiner);
+
+    const [hostText] = await renderedFor('participation.requested');
+    expect(hostText).toContain('شرکت‌کننده');
+    expect(hostText).toContain('🥈');
+  });
+
   it('names the event in both halves of the join notification', async () => {
     const eventPublicId = await createEvent();
     const joiner = await createJoiner();
