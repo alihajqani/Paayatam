@@ -43,6 +43,8 @@ export interface CaseSummary {
   trigger: string;
   reportCount: number;
   createdAt: Date;
+  /** Who claimed it, so a queue can tell a moderator which cases are theirs. */
+  assignedAdminId: string | null;
 }
 
 /**
@@ -166,6 +168,7 @@ export class AdminOperationsService {
         trigger: true,
         reportCount: true,
         createdAt: true,
+        assignedAdminId: true,
       },
     });
 

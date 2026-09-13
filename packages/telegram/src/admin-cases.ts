@@ -36,6 +36,11 @@ export interface AdminCaseLine {
   reportCount: number;
   createdAt: Date;
   eventTitle: string | null;
+  /**
+   * Who holds the case, from the reader's point of view (plan 07). Absent reads
+   * as unclaimed, which is what every case was before triage reached the bot.
+   */
+  assignment?: 'NONE' | 'ME' | 'OTHER';
 }
 
 export const CASE_SUBJECT_FA: Record<string, string> = {
@@ -75,10 +80,18 @@ export function formatAdminQueue(lines: readonly AdminCaseLine[]): string {
     const reports =
       line.reportCount === 0 ? '' : ` · ${toPersianDigits(String(line.reportCount))} گزارش`;
 
+    const holder =
+      line.assignment === 'ME'
+        ? `\n  ✋ دست خودتان است`
+        : line.assignment === 'OTHER'
+          ? `\n  ✋ دست داور دیگری است`
+          : '';
+    const escalated = line.status === 'ESCALATED' ? ` · ${CASE_STATUS_FA['ESCALATED']}` : '';
+
     return (
       `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(subject)}</b>${title}\n` +
-      `  ${escapeHtml(trigger)}${reports}\n` +
-      `  ${escapeHtml(formatTehran(line.createdAt))}`
+      `  ${escapeHtml(trigger)}${reports}${escalated}\n` +
+      `  ${escapeHtml(formatTehran(line.createdAt))}${holder}`
     );
   });
 
@@ -89,19 +102,37 @@ export function formatAdminQueue(lines: readonly AdminCaseLine[]): string {
   });
 
   if (entries.length === 0) return digest;
-  return `${digest}\n\n<i>برای تصمیم‌گیری، دکمهٔ هم‌شمارهٔ زیر را بزنید.</i>`;
+  return (
+    `${digest}\n\n<i>برای تصمیم‌گیری، دکمهٔ هم‌شمارهٔ زیر را بزنید؛ «✋ برداشتم» یعنی ` +
+    `روی آن کار می‌کنید و «⬆️ ارجاع» آن را به پنل می‌سپارد.</i>\n` +
+    // The one sentence whose absence started «کارهای ادمینی از تلگرام انجام
+    // نمی‌شود» (plan 07): this surface is the queue by design (ADR-0018).
+    `<i>اینجا فقط صف داوری است؛ بقیهٔ کارهای ادمین در پنل انجام می‌شود.</i>`
+  );
 }
 
 /** One button per case, numbered to match the body above it. */
 export function adminQueueRows(
   lines: readonly AdminCaseLine[],
 ): { text: string; callbackData: string }[][] {
-  return lines.map((line, index) => [
-    {
-      text: `${toPersianDigits(String(index + 1))} ⚖️ بررسی`,
-      callbackData: encodeAdminCallback('open', line.id),
-    },
-  ]);
+  return lines.map((line, index) => {
+    const number = toPersianDigits(String(index + 1));
+    const assignment = line.assignment ?? 'NONE';
+    return [
+      { text: `${number} ⚖️ بررسی`, callbackData: encodeAdminCallback('open', line.id) },
+      // Claim only what nobody holds, release only what the reader holds: a
+      // button the service would refuse is worse than no button.
+      ...(assignment === 'NONE'
+        ? [{ text: `${number} ✋ برداشتم`, callbackData: encodeAdminCallback('claim', line.id) }]
+        : []),
+      ...(assignment === 'ME'
+        ? [{ text: `${number} ↩️ رها`, callbackData: encodeAdminCallback('release', line.id) }]
+        : []),
+      ...(line.status !== 'ESCALATED'
+        ? [{ text: `${number} ⬆️ ارجاع`, callbackData: encodeAdminCallback('escalate', line.id) }]
+        : []),
+    ];
+  });
 }
 
 export interface AdminCaseDetailLine extends AdminCaseLine {

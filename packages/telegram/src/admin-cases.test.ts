@@ -136,3 +136,60 @@ describe('one case, as the wizard asks about it', () => {
     expect(prompt.endsWith('تصمیم شما چیست؟')).toBe(true);
   });
 });
+
+/**
+ * Triage from the phone (plan 07).
+ *
+ * `triageCase` existed with the bot's own permission and nothing called it, so a
+ * moderator could decide or walk away and nothing in between — two of them could
+ * work one case at once without knowing, and one out of their depth had no way to
+ * hand it to the panel.
+ */
+describe('triage on the queue', () => {
+  function actions(
+    assignment: NonNullable<AdminCaseLine['assignment']>,
+    status = 'OPEN',
+  ): string[] {
+    return (adminQueueRows([{ ...line, status, assignment }])[0] ?? []).map((button) =>
+      String(parseAdminCallback(button.callbackData)?.action),
+    );
+  }
+
+  it('offers to claim an unclaimed case, and to hand it to the panel', () => {
+    expect(actions('NONE')).toEqual(['open', 'claim', 'escalate']);
+  });
+
+  it('offers to release a case only to the moderator holding it', () => {
+    expect(actions('ME', 'IN_REVIEW')).toEqual(['open', 'release', 'escalate']);
+  });
+
+  /** Somebody else has it: no claim to fight over, and no release that is not ours. */
+  it('offers neither claim nor release on a case somebody else holds', () => {
+    expect(actions('OTHER', 'IN_REVIEW')).toEqual(['open', 'escalate']);
+  });
+
+  it('does not offer to escalate what is already escalated', () => {
+    expect(actions('ME', 'ESCALATED')).toEqual(['open', 'release']);
+  });
+
+  it('carries the case id on every triage button', () => {
+    const rows = adminQueueRows([{ ...line, assignment: 'NONE' }]);
+    for (const button of rows[0] ?? []) {
+      expect(parseAdminCallback(button.callbackData)?.id).toBe(CASE_ID);
+    }
+  });
+
+  it('says who holds a claimed case', () => {
+    expect(formatAdminQueue([{ ...line, status: 'IN_REVIEW', assignment: 'ME' }])).toContain(
+      'دست خودتان',
+    );
+    expect(formatAdminQueue([{ ...line, status: 'IN_REVIEW', assignment: 'OTHER' }])).toContain(
+      'داور دیگری',
+    );
+  });
+
+  /** The question this review started from: «کارهای ادمینی از تلگرام انجام نمی‌شود». */
+  it('says the rest of the admin work is in the panel', () => {
+    expect(formatAdminQueue([line])).toContain('پنل');
+  });
+});
