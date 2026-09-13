@@ -4,6 +4,7 @@ import { commandGroupFor, helpCommandLines } from './commands';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 import {
+  MAIN_MENU_LABEL,
   hostDecisionKeyboard,
   menuGroupKeyboard,
   menuGroupText,
@@ -617,12 +618,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         `reviews/pending`,
       );
 
-    case TEMPLATES.NO_SHOW_RECORDED:
+    /**
+     * The heaviest penalty in the economy, so it says what it cost (review H1).
+     *
+     * «بخش پشتیبانی» named nothing on screen; the menu group is where `/bug` lives
+     * and is one tap from the button this message leaves under the compose box.
+     */
+    case TEMPLATES.NO_SHOW_RECORDED: {
+      const charged = payload['coinsCharged'];
+      const cost =
+        typeof charged === 'number' && charged > 0
+          ? `\n<b>${toPersianDigits(charged)} سکه</b> بابت غیبت از حساب شما کم شد.`
+          : '';
       return {
         text:
-          `میزبان اعلام کرده که شما در «${str(payload, 'eventTitle')}» حاضر نشده‌اید.\n` +
-          `اگر این درست نیست، از بخش پشتیبانی به ما اطلاع دهید.`,
+          `میزبان اعلام کرده که شما در «${str(payload, 'eventTitle')}» حاضر نشده‌اید.${cost}\n\n` +
+          `اگر این درست نیست، از «${MAIN_MENU_LABEL}» ← ` +
+          `«${menuPathFor('bug') ?? 'راهنما و پشتیبانی'}» برای ما بنویسید.`,
       };
+    }
 
     /**
      * The final message, and the only one a blocked account gets.

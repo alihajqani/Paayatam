@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '@payetam/config';
 import type { PrismaClient, PrismaService } from '@payetam/db';
 import { FakeClock, MetricsRegistry } from '@payetam/platform';
+import { TEMPLATES } from '@payetam/telegram';
 import {
   createTestPrisma,
   createUser,
@@ -22,6 +23,7 @@ import { ModerationService } from '../moderation/moderation.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { ParticipationService } from '../participation/participation.service';
 import { ReviewService } from '../reviews/review.service';
+import { planNotifications } from '../notifications/fanout';
 import { EventLifecycleService } from './lifecycle.service';
 
 /**
@@ -458,6 +460,37 @@ describe('reporting a no-show', () => {
 
     await expect(coins.balanceOf(person.userId)).resolves.toBe(JOIN_BUDGET - JOIN_COST + 500 - 60);
     await expect(trust.scoreOf(person.userId)).resolves.toBe(before - 15);
+  });
+
+  /**
+   * From the real producer to the recipient (review H1, plan 08 item 0).
+   *
+   * `fanout.test.ts` was green throughout because it built this payload itself and
+   * put `participantUserPublicId` in it. `markNoShow` never did, so the heaviest
+   * penalty in the economy was applied and nobody was told. This starts from
+   * `markNoShow` so the payload under test is the one production writes.
+   */
+  it('tells the person it was recorded against', async () => {
+    const person = await finishedEventWithAttendee();
+    await lifecycle.markNoShow(hostId, person.publicId);
+
+    const row = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'participation.no_show' },
+      select: { id: true, eventType: true, aggregateId: true, payload: true },
+    });
+    const { publicId: userPublicId } = await prisma.user.findUniqueOrThrow({
+      where: { id: person.userId },
+      select: { publicId: true },
+    });
+
+    const planned = planNotifications({
+      ...row,
+      payload: row.payload as Record<string, unknown>,
+    });
+    expect(planned.map((p) => [p.userPublicId, p.templateKey])).toEqual([
+      [userPublicId, TEMPLATES.NO_SHOW_RECORDED],
+    ]);
+    expect(planned[0]?.payload['coinsCharged']).toBe(60);
   });
 
   it('cannot be claimed before the event has finished', async () => {
