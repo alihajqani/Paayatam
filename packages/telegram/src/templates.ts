@@ -1,5 +1,5 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { encodeDirectCallback, isPublicId } from './callback-data';
+import { encodeDirectCallback, encodeEventCallback, isPublicId } from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
@@ -602,6 +602,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.EVENT_REMINDER_GUEST: {
       const when = startsAtLine(payload);
       const second = str(payload, 'wave') === 'SECOND';
+      const participant = id(payload, 'participantPublicId');
+      const event = id(payload, 'eventPublicId');
 
       return opened(
         second
@@ -615,6 +617,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
               `${when}\n` +
               `اگر برنامه‌تان عوض شده، تا پیش از چند ساعت مانده به شروع، لغو ارزان‌تر است.`,
         `my-events`,
+        // The cancellation the text asks for, and the page (plan 11). `ev:cancel`
+        // asks and quotes the price; `cancelyes` does it — so this is safe to tap.
+        participant !== null && event !== null
+          ? [
+              [
+                { text: '✖️ لغو شرکت', callbackData: encodeEventCallback('cancel', participant) },
+                { text: '📄 صفحهٔ فعالیت', callbackData: encodeEventCallback('show', event) },
+              ],
+            ]
+          : undefined,
       );
     }
 
@@ -629,14 +641,19 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.EVENT_REMINDER_HOST: {
       const when = startsAtLine(payload);
       const count = num(payload, 'acceptedCount');
+      const host = id(payload, 'eventPublicId');
 
       return opened(
         `<b>فردا میزبانید</b> 📅\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
           `${when}` +
           `${count} نفر پذیرفته‌شده\n\n` +
-          `اگر چیزی عوض شده، همین امروز به مهمان‌ها خبر بدهید.`,
+          `اگر چیزی عوض شده، همین امروز از «👥 مهمان‌ها» به هر کدام پیام بدهید.`,
         `my-events`,
+        // The guest list, where «✉️ پیام» now reaches each guest (plan 13).
+        host !== null
+          ? [[{ text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', host) }]]
+          : undefined,
       );
     }
 
@@ -1536,8 +1553,8 @@ function parseKeyboard(payload: Payload): InlineKeyboard | undefined {
  * every one of them is on the Mini App's allowlist. That check is worth keeping
  * whether or not a button spends it today.
  */
-function opened(text: string, deepLink: string): RenderedMessage {
-  return { text, deepLink };
+function opened(text: string, deepLink: string, keyboard?: InlineKeyboard): RenderedMessage {
+  return keyboard === undefined ? { text, deepLink } : { text, deepLink, keyboard };
 }
 
 /**
