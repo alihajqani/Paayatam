@@ -796,6 +796,7 @@ export class BotService {
             startsAt: row.event.startsAt,
             status: row.status,
             waitlistRank: row.waitlistRank,
+            eventPublicId: row.event.publicId,
           })),
         );
         /**

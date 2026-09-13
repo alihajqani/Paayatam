@@ -1,5 +1,7 @@
 import {
   encodeChatCallback,
+  encodeDirectCallback,
+  encodeEventCallback,
   encodeMenuCommand,
   encodeMenuGroup,
   encodeMenuRoot,
@@ -81,6 +83,33 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
       { text: '✖️ رد', callbackData: encodeChatCallback('reject', participantPublicId) },
     ],
   ];
+}
+
+/**
+ * Under a message that puts a guest on an activity: the host, and the activity.
+ *
+ * The acceptance used to say «از صفحهٔ فعالیت پیام بدهید» and carry nothing, and
+ * nothing else a guest holds opens that screen — `/requests` lists titles and
+ * `/discover` shows only their own city. So agreeing where to meet, which is the
+ * step the whole product leads up to, began with a hunt (review H2).
+ *
+ * `withHost` is false for the waiting-list promotion: that guest has not been
+ * accepted yet, and the page itself carries the message button for anybody who
+ * wants it.
+ */
+export function guestEventKeyboard(eventPublicId: string, withHost = true): InlineKeyboard {
+  const page = {
+    text: '📄 صفحهٔ فعالیت',
+    callbackData: encodeEventCallback('show', eventPublicId),
+  };
+  return withHost
+    ? [
+        [
+          { text: '✉️ پیام به میزبان', callbackData: encodeDirectCallback('write', eventPublicId) },
+          page,
+        ],
+      ]
+    : [[page]];
 }
 
 /**
