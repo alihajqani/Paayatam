@@ -159,6 +159,26 @@ describe('only PUBLISHED and approved events publish', () => {
     await expect(channel.claimPending()).resolves.toEqual([]);
   });
 
+  /**
+   * …including a post somebody paid for (review H4.2).
+   *
+   * `channel.enabled` was read only by `claimPending`, and the worker sends
+   * `findUnpostedPaid()` first on every pass — so the switch whose guide says
+   * «خاموش یعنی هیچ پستی منتشر نمی‌شود» stopped the free posts and let every
+   * registration through. The claim is kept, not released: it is the record that
+   * somebody paid, and it posts when the channel is switched back on.
+   */
+  it('publishes no paid post either while switched off, and keeps the claim', async () => {
+    const event = await createEvent({});
+    await prisma.channelPost.create({ data: { eventId: event.id, kind: 'PAID', createdAt: NOW } });
+
+    await prisma.appSetting.create({ data: { key: 'channel.enabled', value: 0 } });
+    await expect(channel.findUnpostedPaid()).resolves.toEqual([]);
+
+    await prisma.appSetting.update({ where: { key: 'channel.enabled' }, data: { value: 1 } });
+    await expect(channel.findUnpostedPaid()).resolves.toHaveLength(1);
+  });
+
   async function resetAndSeed(): Promise<void> {
     await resetDatabase(prisma);
     fixture = await seedCatalog(prisma);
@@ -192,6 +212,51 @@ describe('no duplicate post per event per kind', () => {
 
     expect(claimed.map((post) => post.kind)).toEqual(['TRENDING']);
     await expect(channel.claimPending()).resolves.toEqual([]);
+  });
+
+  /**
+   * One activity, one post — whichever kind got there first (review H4.1).
+   *
+   * Every registration claims a PAID post, and the trending sweep claimed its own
+   * TRENDING one for the same activity once it reached ten requests. The post
+   * text does not show the kind, so the channel carried two identical posts, and
+   * «انتشار دوباره» replaced only one of them. Unposted counts: the paid post is
+   * on its way, and a trending one would race it.
+   */
+  it.each([
+    ['already in the channel', NOW],
+    ['still waiting to be sent', null],
+  ])('does not trend an activity whose paid post is %s', async (_label, postedAt) => {
+    const event = await createEvent({ requestCount: 10 });
+    await prisma.channelPost.create({
+      data: {
+        eventId: event.id,
+        kind: 'PAID',
+        createdAt: NOW,
+        postedAt,
+        telegramMessageId: postedAt === null ? null : 7,
+      },
+    });
+
+    await expect(channel.claimPending()).resolves.toEqual([]);
+    await expect(prisma.channelPost.count({ where: { kind: 'TRENDING' } })).resolves.toBe(0);
+  });
+
+  /** A paid post Telegram confirmed is gone no longer stands in for one. */
+  it('trends an activity whose paid post was taken down', async () => {
+    const event = await createEvent({ requestCount: 10 });
+    await prisma.channelPost.create({
+      data: {
+        eventId: event.id,
+        kind: 'PAID',
+        createdAt: NOW,
+        postedAt: NOW,
+        telegramMessageId: 7,
+        deletedAt: NOW,
+      },
+    });
+
+    await expect(channel.claimPending()).resolves.toHaveLength(1);
   });
 
   it('is enforced by the database, not only by the claim path', async () => {
