@@ -101,6 +101,32 @@ describe('the profile card', () => {
     expect(render(TEMPLATES.BOT_PROFILE, payload)?.text).toContain('هنوز چیزی انتخاب نکرده‌اید');
   });
 
+  /** The founding line wears its tier's medal, not a ticket shared by all three. */
+  it('marks a founding member with the medal of their tier', () => {
+    for (const [foundingTier, medal] of [
+      [1, '🥇'],
+      [2, '🥈'],
+      [3, '🥉'],
+    ] as const) {
+      const text = String(
+        render(TEMPLATES.BOT_PROFILE, {
+          ...payload,
+          interests: '',
+          founding: 'نفر ۱۲ از هزار نفر اول · بنیان‌گذار',
+          foundingTier,
+        })?.text,
+      );
+      expect(text).toContain(`${medal} نفر ۱۲`);
+      expect(text).not.toContain('🎟');
+    }
+  });
+
+  /** Somebody who is not a member gets no medal line at all. */
+  it('draws no medal for somebody who is not a member', () => {
+    const text = String(render(TEMPLATES.BOT_PROFILE, { ...payload, interests: '' })?.text);
+    expect(text).not.toMatch(/🥇|🥈|🥉/u);
+  });
+
   /** A display name is a stranger's own words under `parse_mode: 'HTML'` (T9). */
   it('escapes the display name', () => {
     const message = render(TEMPLATES.BOT_PROFILE, {

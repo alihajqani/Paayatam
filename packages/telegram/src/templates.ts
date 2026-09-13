@@ -3,6 +3,7 @@ import { encodeDirectCallback, isPublicId } from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
+import { foundingTierMedal } from './founding';
 import {
   hostDecisionKeyboard,
   menuGroupKeyboard,
@@ -1060,6 +1061,15 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
        * was before this shipped.
        */
       const founding = str(payload, 'founding');
+      /**
+       * The tier's medal, from the tier itself rather than baked into the line.
+       *
+       * A payload queued before `foundingTier` existed has the line and no tier;
+       * it renders the line bare rather than guessing a medal, because a 🥉 on a
+       * 🥇 member's own profile is worse than no medal for one message.
+       */
+      const tier = payload['foundingTier'];
+      const medal = typeof tier === 'number' ? `${foundingTierMedal(tier)} ` : '';
       return {
         text:
           `<b>نمایه شما</b>\n\n` +
@@ -1067,7 +1077,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `📍 ${str(payload, 'cityName')}\n` +
           `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰\n` +
           `🏷 علاقه‌مندی‌ها: ${interests === '' ? 'هنوز چیزی انتخاب نکرده‌اید' : interests}` +
-          (founding === '' ? '' : `\n🎟 ${founding}`),
+          (founding === '' ? '' : `\n${medal}${founding}`),
         deepLink: `profile/edit`,
         ...(keyboard !== undefined ? { keyboard } : {}),
       };

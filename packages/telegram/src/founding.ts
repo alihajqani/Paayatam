@@ -25,6 +25,25 @@ export function foundingTierName(tier: number): string {
 }
 
 /**
+ * The tier's medal — Telegram's own 🥇🥈🥉, because three waves are a podium.
+ *
+ * It used to be one 🎟 for all three, which said "member" and nothing about
+ * which wave; in a roster where the tier is all a stranger is shown, that was
+ * the one fact the badge existed to carry. Falls back exactly as the name does,
+ * so a tier this copy does not know gets «همراه نخست» *and* its medal, never a
+ * medal from one wave beside the name of another.
+ */
+const TIER_MEDALS: Record<number, string> = {
+  1: '🥇',
+  2: '🥈',
+  3: '🥉',
+};
+
+export function foundingTierMedal(tier: number): string {
+  return TIER_MEDALS[tier] ?? '🥉';
+}
+
+/**
  * The badge as it appears next to somebody's name in a list.
  *
  * **The tier, never the rank.** The number belongs on the member's own profile
@@ -38,5 +57,5 @@ export function foundingTierName(tier: number): string {
  * Empty string for a non-member, so a caller concatenates rather than branches.
  */
 export function foundingBadge(tier: number | null): string {
-  return tier === null ? '' : ` 🎟 ${foundingTierName(tier)}`;
+  return tier === null ? '' : ` ${foundingTierMedal(tier)} ${foundingTierName(tier)}`;
 }

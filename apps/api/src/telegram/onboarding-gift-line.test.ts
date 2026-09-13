@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { onboardingGiftLine } from './bot.service';
+import { foundingLine, onboardingGiftLine } from './bot.service';
 
 /**
  * «۳۵ سکه هدیه گرفتید — تقریباً دو بار شرکت در فعالیت.»
@@ -60,5 +60,29 @@ describe('onboardingGiftLine', () => {
     // once, months ago, and saying so again would be the product congratulating
     // itself for something that did not just happen.
     expect(onboardingGiftLine(0, 20, 5)).toBe('');
+  });
+});
+
+/**
+ * «🥇 شما نفر ۴۲ از ۱۰۰۰ نفر اولِ پایه‌تم هستید.»
+ *
+ * The one moment a rank is announced, so it leads with the medal of the tier it
+ * landed in — the same medal the roster and the profile card show afterwards.
+ */
+describe('foundingLine', () => {
+  it('leads with the medal of the tier the rank landed in', () => {
+    expect(foundingLine({ rank: 42, tier: 1, coins: 150 }, 1000)).toMatch(/^🥇 /u);
+    expect(foundingLine({ rank: 250, tier: 2, coins: 80 }, 1000)).toMatch(/^🥈 /u);
+    expect(foundingLine({ rank: 900, tier: 3, coins: 40 }, 1000)).toMatch(/^🥉 /u);
+  });
+
+  it('keeps the rank and the cap, and drops the old ticket', () => {
+    const line = foundingLine({ rank: 42, tier: 1, coins: 150 }, 1000);
+    expect(line).toContain('نفر ۴۲ از ۱۰۰۰');
+    expect(line).not.toContain('🎟');
+  });
+
+  it('renders nothing for somebody the campaign did not rank', () => {
+    expect(foundingLine(null, 1000)).toBe('');
   });
 });

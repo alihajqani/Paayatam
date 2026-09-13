@@ -97,7 +97,7 @@ export { formatSettings, settingsRows } from './settings';
 export type { SettingsState } from './settings';
 export type { NotificationCategory } from './notification-category';
 export { formatParticipants } from './participants';
-export { foundingBadge, foundingTierName } from './founding';
+export { foundingBadge, foundingTierMedal, foundingTierName } from './founding';
 export type { ParticipantLine } from './participants';
 export { formatReceivedReviews } from './received-reviews';
 export type { ReceivedReviewLine } from './received-reviews';
