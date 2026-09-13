@@ -1048,6 +1048,13 @@ export class BotService {
          */
         if (await this.quotaBlocked(updateId, user)) return;
         /**
+         * And the channel requirement, for the same reason (review M8).
+         *
+         * `EventService.create` checks `EVENT_CREATE` membership and stays the
+         * authority; asked only there, the refusal arrived after eleven answers.
+         */
+        if (await this.channelsBlock(updateId, user, 'EVENT_CREATE')) return;
+        /**
          * And the price, for the same reason and at the same moment.
          *
          * Registration costs `create + channel publish` and the host is told one
@@ -1679,6 +1686,25 @@ export class BotService {
      * that branch, so it is applied here as well rather than being the one entry
      * point the requirement does not cover.
      */
+    /**
+     * Except the menu's way to `/help` and `/bug` (review L2).
+     *
+     * Typed, those two are exempt from this gate (`UNGATED_COMMANDS`); tapped
+     * from the menu they were refused here, before the menu branch below ever
+     * ran — so somebody stuck behind the wall could not reach the two screens
+     * written for them. Only those two: a menu tap on any other command is
+     * dispatched by `onCommand` directly, which does not pass through `route`,
+     * so this is the only gate it meets.
+     */
+    const ungatedMenuTap = decodeMenuCallback(data);
+    if (
+      ungatedMenuTap?.kind === 'command' &&
+      BotService.UNGATED_COMMANDS.has(ungatedMenuTap.command)
+    ) {
+      await this.answer(callbackQueryId, '');
+      return this.onMenuCallback(update, user, ungatedMenuTap);
+    }
+
     if (await this.channelsBlock(update.updateId, user, 'APP_ACCESS')) {
       await this.answer(callbackQueryId, 'برای ادامه باید در کانال‌های اعلام‌شده عضو شوید.');
       return;
