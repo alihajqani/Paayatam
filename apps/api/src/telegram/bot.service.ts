@@ -4535,23 +4535,22 @@ export class BotService {
    * one.
    */
   private async registrationNote(): Promise<string> {
-    const [cost, refund, minAttendees] = await Promise.all([
+    const [cost, refund] = await Promise.all([
       this.registrationCost(),
       this.settings.getInt('economy.host_deposit_refund_coins'),
-      this.settings.getInt('economy.host_reward_min_attendees'),
     ]);
 
     const price = `ثبت فعالیت ${toPersianDigits(String(cost))} سکه است.`;
     if (refund <= 0) return price;
 
-    // All three conditions `HostRewardService.assess` checks, including the one
-    // it used to keep to itself: a review for **every** guest who attended. A
-    // host who wrote none never got the deposit back and was never told why
-    // (review H5).
+    // The conditions `HostRewardService.assess` checks for the deposit, including
+    // the one it used to keep to itself: a review for every guest who came
+    // (review H5). The attendee threshold gates only the bonus since plan 10, so
+    // it is not a condition here.
     return (
-      `${price} این مبلغ سپرده است: اگر فعالیت برگزار شود، دست‌کم ` +
-      `${toPersianDigits(String(minAttendees))} مهمان حاضر شوند و شما برای همهٔ مهمان‌های ` +
-      `حاضر نظر بنویسید، ${toPersianDigits(String(Math.min(refund, cost)))} سکه به شما برمی‌گردد.`
+      `${price} این مبلغ سپرده است: اگر فعالیت برگزار شود، دست‌کم یک مهمان پذیرفته‌شده ` +
+      `داشته باشد و شما برای همهٔ مهمان‌هایی که آمدند نظر بنویسید، ` +
+      `${toPersianDigits(String(Math.min(refund, cost)))} سکه به شما برمی‌گردد.`
     );
   }
 
