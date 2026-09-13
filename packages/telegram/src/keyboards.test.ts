@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseChatCallback } from './callback-data';
-import { hostDecisionKeyboard, openAppButton } from './keyboards';
+import { hostDecisionKeyboard } from './keyboards';
 
 const CHAT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const BOT = 'payetam_bot';
 
 /**
  * The host's two decisions, and the only keyboard left under the `chat:` prefix.
@@ -37,30 +36,5 @@ describe('the host decision keyboard', () => {
     for (const button of hostDecisionKeyboard(CHAT_ID).flat()) {
       expect(button.url).toBeUndefined();
     }
-  });
-});
-
-describe('the open-app button', () => {
-  it('carries a deep link Telegram will accept', () => {
-    expect(openAppButton('x', BOT, `event_${CHAT_ID}`).url).toBe(
-      `https://t.me/${BOT}?startapp=event_${CHAT_ID}`,
-    );
-  });
-
-  /**
-   * A payload outside Telegram's `[A-Za-z0-9_-]` charset degrades to the bot's own
-   * link rather than being sent broken: a button that lands somewhere wrong is
-   * worse than one that only opens the app.
-   */
-  it('falls back to the bot when the payload will not fit', () => {
-    expect(openAppButton('x', BOT, 'چیزی که نمی‌شود').url).toBe(`https://t.me/${BOT}`);
-    expect(openAppButton('x', BOT).url).toBe(`https://t.me/${BOT}`);
-  });
-
-  /** A button with both a URL and callback data is a Telegram 400. */
-  it('never carries both a url and callback data', () => {
-    const button = openAppButton('x', BOT, `event_${CHAT_ID}`);
-
-    expect(button.callbackData).toBeUndefined();
   });
 });

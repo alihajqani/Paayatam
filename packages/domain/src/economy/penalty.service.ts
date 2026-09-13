@@ -351,14 +351,12 @@ export class PenaltyService {
    * (ADR-0011, D9 and D9a).
    *
    * Written generically — reverse every `coin_ledger` row whose subject is this
-   * participant — rather than against a known charge, because **there is no
-   * participant-side charge in the MVP**. Joining is free, so today this reverses
-   * an empty set and returns zero.
-   *
-   * That is D9a, and it is stated rather than hidden: the "100% automatic refund"
-   * in the policy currently refunds nothing, because nothing was taken. The code
-   * becomes live the moment any participant-side cost is introduced, and it is
-   * tested with a synthetic charge so it is known to work rather than assumed to.
+   * participant — rather than against a known charge. It was written when joining
+   * was free and reversed an empty set; it is live now, because asking to join
+   * charges `economy.event_join_coins` as an `EVENT_JOIN_SPEND` against this
+   * participant, and that is what comes back when a host cancels. The docblock
+   * on that setting in `settings.service.ts` is the authority on what is refunded
+   * and when.
    *
    * The one thing deliberately *not* reversed is the cancellation penalty itself:
    * `refunded` filters on the ledger types a participant pays to take part, so a

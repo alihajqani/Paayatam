@@ -36,35 +36,6 @@ export interface InlineButton {
 export type InlineKeyboard = readonly (readonly InlineButton[])[];
 
 /**
- * A link that opens the Mini App.
- *
- * `https://t.me/<bot>?startapp=<payload>` rather than a `web_app` button, for the
- * same reason M14's channel post uses it: the product has no configured Mini App
- * URL in its environment, and this form works from a plain `url` button with
- * nothing but the bot's username. The payload charset Telegram accepts is
- * `[A-Za-z0-9_-]`, so a template's `chats/<id>` becomes `chats_<id>`; anything that
- * still does not fit is dropped rather than sent broken, because a button that
- * lands somewhere wrong is worse than a button that only opens the app.
- *
- * **One caller left: the channel post** (`channel.ts`). Every open-app button on
- * a message the bot *sends somebody* is gone — it was under almost all of them,
- * which is what made it noise, and `reply_markup` holds one thing, so it was
- * also what kept the persistent menu off nearly every message. A channel post is
- * read by people who may never have started the bot, and it is the only action
- * on the post, so it keeps its button.
- */
-export function openAppButton(text: string, botUsername: string, deepLink?: string): InlineButton {
-  const payload = deepLink === undefined ? undefined : deepLink.replaceAll('/', '_');
-  const usable = payload !== undefined && /^[A-Za-z0-9_-]{1,512}$/.test(payload);
-  return {
-    text,
-    url: usable
-      ? `https://t.me/${botUsername}?startapp=${String(payload)}`
-      : `https://t.me/${botUsername}`,
-  };
-}
-
-/**
  * The host's decision, in the notification that tells them about it.
  *
  * Two taps rather than "open the app, find the request, decide": the request
