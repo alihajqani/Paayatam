@@ -1749,6 +1749,40 @@ describe('POST /telegram/:secret — acting on your own events', () => {
   });
 
   /**
+   * A host can start the conversation (plan 13).
+   *
+   * The console is where a host sees who is coming, so it is where «write to
+   * this one» belongs — on an accepted guest and nobody else, because the service
+   * refuses the rest. From the button to the row: the tap opens the form, the
+   * typed text becomes a message addressed to the guest.
+   */
+  it('lets a host write to an accepted guest from the guest list', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان یکم');
+    const pendingId = await seedGuest(SECOND_GUEST_TELEGRAM_ID, 'میهمان دوم');
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.accept(hostId, joined.publicId);
+    const pending = await participation.join(pendingId, eventPublicId);
+
+    await tap(HOST_TELEGRAM_ID, `ev:who:${eventPublicId}`);
+
+    const console = await latest(TEMPLATES.BOT_PARTICIPANTS);
+    const data = (JSON.parse(String(console['keyboard'])) as { callbackData?: string }[][])
+      .flat()
+      .map((button) => button.callbackData);
+    expect(data).toContain(`dm:guest:${joined.publicId}`);
+    expect(data).not.toContain(`dm:guest:${pending.publicId}`);
+
+    await tap(HOST_TELEGRAM_ID, `dm:guest:${joined.publicId}`);
+    await type(HOST_TELEGRAM_ID, 'ساعت ۶ جلوی در کافه می‌بینمتان');
+
+    const row = await prisma.directMessage.findFirstOrThrow({
+      select: { senderUserId: true, recipientUserId: true },
+    });
+    expect(row).toEqual({ senderUserId: hostId, recipientUserId: guestId });
+  });
+
+  /**
    * Deciding from the console redraws the console (v0.8.1).
    *
    * The row moves to «پذیرفته‌شده» and its two buttons go with it, so the same

@@ -630,13 +630,21 @@ export function parseMyEventsCallback(data: string): number | null {
  * worst a tamperer achieves is a 404.
  *
  * `dm:reply:<uuid>` is 45 bytes, well inside the 64 Telegram allows.
+ *
+ * `guest` is a host starting a thread with a guest they accepted (plan 13). It
+ * carries a **participant** public id, and `DirectMessageService.sendToGuest`
+ * resolves the addressee from it — only for the host of that activity and only
+ * for a seat that was accepted.
  */
-export const DIRECT_CALLBACK_ACTIONS = ['write', 'view', 'reply'] as const;
+export const DIRECT_CALLBACK_ACTIONS = ['write', 'view', 'reply', 'guest'] as const;
 export type DirectCallbackAction = (typeof DIRECT_CALLBACK_ACTIONS)[number];
 
 export interface DirectCallback {
   action: DirectCallbackAction;
-  /** An event public id for `write`; a direct-message public id for the rest. */
+  /**
+   * An event public id for `write`, a participant public id for `guest`, and a
+   * direct-message public id for `view` and `reply`.
+   */
   id: string;
 }
 

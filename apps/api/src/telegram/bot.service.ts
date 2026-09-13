@@ -3245,14 +3245,25 @@ export class BotService {
             { text: `${number} ✖️ رد`, callbackData: encodeEventCallback('rej', row.publicId) },
           ];
         }
+        /**
+         * «✉️» on anybody with a seat, so a host can start the conversation
+         * (plan 13) — to say where to meet before, or thank them after.
+         * `sendToGuest` refuses every other status, so no button is drawn for one.
+         */
+        const write = {
+          text: `${number} ✉️ پیام`,
+          callbackData: encodeDirectCallback('guest', row.publicId),
+        };
         if (row.status === 'ACCEPTED' && ended) {
           return [
             {
               text: `${number} 🚫 غایب بود`,
               callbackData: encodeEventCallback('noshow', row.publicId),
             },
+            write,
           ];
         }
+        if (row.status === 'ACCEPTED' || row.status === 'COMPLETED') return [write];
         return [];
       })
       .filter((row) => row.length > 0);
@@ -3766,6 +3777,27 @@ export class BotService {
           });
         }
 
+        /**
+         * A host writing to a guest they accepted (plan 13).
+         *
+         * Seeded with the participation, not the user: the service resolves who
+         * that is, and refuses anybody who is not the host of that activity.
+         */
+        case 'guest': {
+          await this.answer(callbackQueryId, '');
+          if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
+          if (!(await this.mayWrite(updateId, user))) return;
+
+          const outcome = await this.conversations.start(
+            user.id,
+            'DIRECT_MESSAGE',
+            updateId,
+            callback.id,
+            { mode: 'guest' },
+          );
+          return this.drawWizard(updateId, user, outcome);
+        }
+
         /** Answer one, seeded with the message being answered. */
         case 'reply': {
           await this.answer(callbackQueryId, '');
@@ -3793,8 +3825,9 @@ export class BotService {
    *
    * `mode` decides which service call this is, and it was **seeded by the button
    * that opened the form** rather than asked: `targetPublicId` carries an event
-   * public id for a new thread and a message public id for a reply, both UUIDs,
-   * and nothing downstream could tell them apart by looking.
+   * public id for a new thread, a participant public id for a host writing to a
+   * guest, and a message public id for a reply — all UUIDs, and nothing
+   * downstream could tell them apart by looking.
    */
   private async submitDirectMessage(
     updateId: number,
@@ -3834,6 +3867,8 @@ export class BotService {
     try {
       if (form.mode === 'reply') {
         await this.directs.reply(user.id, targetPublicId, form.body);
+      } else if (form.mode === 'guest') {
+        await this.directs.sendToGuest(user.id, targetPublicId, form.body);
       } else {
         await this.directs.send(user.id, targetPublicId, form.body);
       }
