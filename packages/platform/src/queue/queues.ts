@@ -148,6 +148,14 @@ export const JOBS = {
    * question measured in hours needs asking.
    */
   EVENT_REMINDER: 'event-reminder',
+  /**
+   * Tell linked moderators the queue has work (plan 06).
+   *
+   * Sent from the scheduled job itself rather than as notifications: a
+   * moderator is not a `user`, and the address is read from
+   * `admin_telegram_link` at delivery, so no job payload carries a Telegram id.
+   */
+  MODERATION_DIGEST: 'moderation-digest',
   SETTLE_ATTENDANCE: 'settle-attendance',
   /**
    * Return the host's deposit and pay the per-guest bonus.
@@ -254,6 +262,14 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    * fixed offset from an instant that is already stored in UTC.
    */
   { name: JOBS.EVENT_REMINDER, pattern: '*/15 * * * *' },
+  /**
+   * Every quarter hour, with no timezone (plan 06).
+   *
+   * The job decides for itself whether it is a waking hour in Tehran, so a
+   * cron `tz` would only move the ticks. A quarter is as fine as the digest's
+   * own fifteen-minute delay; most passes find a quiet period and send nothing.
+   */
+  { name: JOBS.MODERATION_DIGEST, pattern: '*/15 * * * *' },
   { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
   /**
    * Hourly, at twenty past.

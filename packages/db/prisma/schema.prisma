@@ -2324,6 +2324,10 @@ model AdminTelegramLink {
   /// is not reviewable later.
   reason      String
 
+  /// When this moderator was last sent the queue digest (plan 06, migration 0051).
+  /// Null means never. `ModerationDigestService` reads it for the quiet period.
+  lastDigestAt DateTime? @map("last_digest_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

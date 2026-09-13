@@ -82,6 +82,7 @@ function buildProcessors(options: {
     {} as never, // HostRewardService
     {} as never, // ComebackService
     adminTelegram as never,
+    {} as never, // ModerationDigestService
   );
 
   return { processors, send, markSuppressed, isLinked };

@@ -743,6 +743,21 @@ export const SETTING_DEFAULTS = {
    * people rather than three clicks.
    */
   'moderation.report_threshold': 3,
+  /**
+   * How old the oldest unclaimed case must be before moderators are told (plan 06).
+   *
+   * Fifteen minutes, so a moderator who has just emptied the queue is not pinged
+   * about a case that arrived while they were looking at it.
+   */
+  'moderation.digest_delay_minutes': 15,
+  /**
+   * The least time between two digests to the same moderator (plan 06).
+   *
+   * Three hours. The digest is a nudge that the queue has work, not a feed; a
+   * shorter period turns it into a message every quarter hour, which is how a
+   * moderator mutes the bot and stops hearing about the queue at all.
+   */
+  'moderation.digest_quiet_minutes': 180,
   /** How long a break-glass chat grant lasts (ADR-0010, T14: fifteen minutes). */
   'moderation.unseal_window_minutes': 15,
 

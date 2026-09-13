@@ -242,3 +242,53 @@ export function formatAdminCasePrompt(detail: AdminCaseDetailLine): string {
 
   return `${clip(lines.join('\n'), budget)}\n\n${question}`;
 }
+
+/** The counts a moderator digest carries — see `ModerationDigestService` (plan 06). */
+export interface ModerationDigestSummary {
+  openCount: number;
+  unclaimedCount: number;
+  oldestUnclaimedAt: Date | null;
+  bySubject: Readonly<Record<string, number>>;
+}
+
+function waitedFor(since: Date, now: Date): string {
+  const minutes = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
+  if (minutes < 60) return `${toPersianDigits(String(minutes))} دقیقه`;
+  return `${toPersianDigits(String(Math.floor(minutes / 60)))} ساعت`;
+}
+
+/**
+ * «۳ پرونده منتظر داوری است» — the nudge a linked moderator gets (plan 06).
+ *
+ * **Counts, never content.** No title, no report text, nothing about who: a
+ * Telegram message can be forwarded out of the chat it was sent to, and a digest
+ * is more likely to be than the queue screen itself — the same rule the queue is
+ * rendered by, «counted, not quoted».
+ */
+export function formatModerationDigest(summary: ModerationDigestSummary, now: Date): string {
+  const subjects = Object.entries(summary.bySubject)
+    .filter(([, count]) => count > 0)
+    .map(
+      ([subject, count]) =>
+        `${CASE_SUBJECT_FA[subject] ?? subject} ${toPersianDigits(String(count))}`,
+    )
+    .join(' · ');
+  const oldest =
+    summary.oldestUnclaimedAt === null
+      ? ''
+      : `\nقدیمی‌ترین‌شان ${waitedFor(summary.oldestUnclaimedAt, now)} است که منتظر است.`;
+  const claimed = summary.openCount - summary.unclaimedCount;
+
+  return (
+    `<b>🛡 صف داوری</b>\n\n` +
+    `${toPersianDigits(String(summary.unclaimedCount))} پرونده منتظر است که کسی برش دارد.` +
+    oldest +
+    (subjects === '' ? '' : `\n${escapeHtml(subjects)}`) +
+    (claimed > 0 ? `\n<i>${toPersianDigits(String(claimed))} پروندهٔ دیگر دست داورهاست.</i>` : '')
+  );
+}
+
+/** The digest's one button: the queue itself (`ad:list`, handled since v0.6.3). */
+export function moderationDigestKeyboard(): { text: string; callbackData: string }[][] {
+  return [[{ text: '🛡 باز کردن صف', callbackData: encodeAdminCallback('list', null) }]];
+}

@@ -91,6 +91,9 @@ export {
   adminQueueRows,
   formatAdminCasePrompt,
   formatAdminQueue,
+  formatModerationDigest,
+  moderationDigestKeyboard,
+  type ModerationDigestSummary,
 } from './admin-cases';
 export type { AdminCaseDetailLine, AdminCaseLine } from './admin-cases';
 export { formatSettings, settingsRows } from './settings';
