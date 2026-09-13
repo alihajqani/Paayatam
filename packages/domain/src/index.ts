@@ -324,6 +324,11 @@ export { AdminOperationsService, adminAdjustmentKey } from './adminaccess/admin-
 export type { CaseDetail, CaseSummary } from './adminaccess/admin-operations.service';
 export { AdminTelegramService, BOT_PERMISSIONS } from './adminaccess/admin-telegram.service';
 export {
+  ModerationDigestService,
+  type DigestDue,
+  type DigestSummary,
+} from './adminaccess/moderation-digest.service';
+export {
   GiftCodeAdminService,
   GIFT_CODE_DEFAULT_LENGTH,
   GIFT_CODE_MIN_LENGTH,

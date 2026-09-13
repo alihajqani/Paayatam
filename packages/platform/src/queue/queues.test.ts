@@ -64,6 +64,15 @@ describe('the queue catalogue', () => {
     }
   });
 
+  /**
+   * The moderation digest (plan 06) asks every quarter hour and decides the
+   * waking hours itself, in Tehran — a cron `tz` would only move the ticks.
+   */
+  it('asks about the moderation digest every quarter hour, with no timezone', () => {
+    const entry = SCHEDULE.find((candidate) => candidate.name === JOBS.MODERATION_DIGEST);
+    expect(entry).toEqual({ name: 'moderation-digest', pattern: '*/15 * * * *' });
+  });
+
   /** One schedule per job. A duplicate would run the same sweep twice a tick. */
   it('schedules each job once', () => {
     const scheduled = SCHEDULE.map((entry) => entry.name);

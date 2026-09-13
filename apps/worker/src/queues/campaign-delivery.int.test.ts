@@ -144,6 +144,7 @@ function buildProcessors(): Processors {
     // A campaign recipient is not a moderator here, so the bottom keyboard this
     // suite's sends draw is the ordinary one.
     { isLinked: vi.fn().mockResolvedValue(false) } as never,
+    {} as never, // ModerationDigestService — this suite sends no digest
   );
 }
 

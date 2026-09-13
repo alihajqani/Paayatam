@@ -3,6 +3,8 @@ import {
   adminQueueRows,
   formatAdminCasePrompt,
   formatAdminQueue,
+  formatModerationDigest,
+  moderationDigestKeyboard,
   type AdminCaseDetailLine,
   type AdminCaseLine,
 } from './admin-cases';
@@ -191,5 +193,46 @@ describe('triage on the queue', () => {
   /** The question this review started from: «کارهای ادمینی از تلگرام انجام نمی‌شود». */
   it('says the rest of the admin work is in the panel', () => {
     expect(formatAdminQueue([line])).toContain('پنل');
+  });
+});
+
+/**
+ * The digest a linked moderator receives (plan 06).
+ *
+ * Counts only: a Telegram message leaves the chat it was sent to, and a digest is
+ * more likely to be forwarded than the queue itself — so no title, no report
+ * text, nothing about who.
+ */
+describe('the moderation digest', () => {
+  const NOW = new Date('2026-09-14T08:30:00.000Z');
+  const summary = {
+    openCount: 4,
+    unclaimedCount: 3,
+    oldestUnclaimedAt: new Date(NOW.getTime() - 150 * 60_000),
+    bySubject: { EVENT: 2, USER: 1 },
+  };
+
+  it('says how many are waiting, how long, and what about', () => {
+    const text = formatModerationDigest(summary, NOW);
+    expect(text).toContain('۳ پرونده');
+    expect(text).toContain('۲ ساعت');
+    expect(text).toContain('فعالیت ۲');
+    expect(text).toContain('کاربر ۱');
+  });
+
+  it('counts a fresh wait in minutes', () => {
+    const text = formatModerationDigest(
+      { ...summary, oldestUnclaimedAt: new Date(NOW.getTime() - 40 * 60_000) },
+      NOW,
+    );
+    expect(text).toContain('۴۰ دقیقه');
+  });
+
+  it('opens the queue with its one button', () => {
+    expect(
+      moderationDigestKeyboard()
+        .flat()
+        .map((b) => b.callbackData),
+    ).toEqual(['ad:list:x']);
   });
 });

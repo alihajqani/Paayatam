@@ -60,6 +60,7 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     {} as never, // HostRewardService
     {} as never, // ComebackService
     adminTelegram as never,
+    {} as never, // ModerationDigestService
   );
 }
 

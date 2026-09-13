@@ -10,6 +10,7 @@ import {
   HostRewardService,
   InvitationService,
   MessagingService,
+  ModerationDigestService,
   NotificationService,
   UserSettingsService,
   OutboxRelayService,
@@ -22,6 +23,8 @@ import {
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
 import {
   TEMPLATES,
+  formatModerationDigest,
+  moderationDigestKeyboard,
   notificationCategory,
   preferenceKeyFor,
   render,
@@ -134,6 +137,8 @@ export class Processors implements OnModuleInit {
      * process in a position to answer it at the moment it matters.
      */
     private readonly adminTelegram: AdminTelegramService,
+    /** Who is due the moderation digest, and when they were last sent it (plan 06). */
+    private readonly moderationDigests: ModerationDigestService,
   ) {}
 
   /**
@@ -704,6 +709,39 @@ export class Processors implements OnModuleInit {
             `Event reminders: ${String(reminded.guests)} guest(s), ${String(reminded.hosts)} host(s)`,
           );
         }
+        return;
+      }
+
+      case JOBS.MODERATION_DIGEST: {
+        /**
+         * «پرونده منتظر است» to each moderator it is due (plan 06).
+         *
+         * Sent straight from here: the recipient is staff, not a `user`, so there
+         * is no notification row to write, and the Telegram id is read from the
+         * link by `due()` at this moment rather than carried in any payload.
+         *
+         * A blocked bot starts the quiet period too, so it is logged once per
+         * period instead of every quarter hour — and without the id. A retryable
+         * failure leaves the period unstarted, so the next pass tries again.
+         */
+        const now = new Date();
+        let sent = 0;
+        for (const digest of await this.moderationDigests.due()) {
+          const outcome = await this.telegram.send(
+            digest.telegramUserId,
+            formatModerationDigest(digest.summary, now),
+            moderationDigestKeyboard(),
+            { parseMode: 'HTML' },
+          );
+          if (outcome.kind === 'SENT') {
+            await this.moderationDigests.markSent(digest.adminUserId);
+            sent += 1;
+          } else if (outcome.kind === 'BLOCKED') {
+            await this.moderationDigests.markSent(digest.adminUserId);
+            this.logger.log('A moderation digest could not be delivered: the bot is blocked');
+          }
+        }
+        if (sent > 0) this.logger.log(`Moderation digest sent to ${String(sent)} moderator(s)`);
         return;
       }
 
