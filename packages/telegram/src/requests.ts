@@ -3,7 +3,7 @@ import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { eventCommandFor } from './event-code';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
-import { menuPathFor } from './keyboards';
+import { MAIN_MENU_LABEL, menuPathFor } from './keyboards';
 
 /** One line of the digest: the event, when it is, and where the request stands. */
 export interface MyRequestLine {
@@ -65,7 +65,7 @@ export function formatMyRequests(lines: readonly MyRequestLine[]): string {
 
   return buildDigest({
     title: 'درخواست‌های شما',
-    empty: `هنوز درخواستی نداده‌اید. از دکمهٔ «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» شروع کنید.`,
+    empty: `هنوز درخواستی نداده‌اید. از «${MAIN_MENU_LABEL}» ← «${menuPathFor('discover') ?? 'فعالیت‌ها'}» شروع کنید.`,
     entries,
   });
 }

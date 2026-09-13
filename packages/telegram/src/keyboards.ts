@@ -221,15 +221,6 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * The two commands copy names directly rather than by their category.
- *
- * They are the verbs somebody opens the bot intending to do, so «با دکمهٔ «🔎
- * دیدن فعالیت‌ها» …» is more use than naming the group it lives in. Everything
- * else is named by its category, which is one tap inside `/menu`.
- */
-const QUICK_COMMANDS: readonly string[] = ['create_event', 'discover'];
-
-/**
  * The moderation label, and why it is not in the map above (ADR-0018).
  *
  * `menuCommandFor` resolves it for anybody — because resolving it is not
@@ -303,21 +294,19 @@ export function menuLabelFor(command: string): string | null {
  * built from — «فهرست گفتگوها زیر دکمهٔ «💬 گفتگوها» است» names a button that is
  * no longer under anybody's compose box.
  *
- * This answers the question copy actually asks: **where do I tap?** For the two
- * verbs that keep a button of their own, that is the button. For everything
- * else it is the category the command lives in, which is one tap from the same
- * keyboard and is where the reader will find it.
+ * This answers the question copy actually asks: **where do I tap?** It is the
+ * category the command lives in, which is one tap inside «☰ منوی اصلی».
  *
- * Null for a command in no group and on no button — `/start` — so the copy can
- * fall back to naming a command, which is what somebody types when nothing else
- * has worked.
+ * It used to return «➕ ساختن فعالیت» and «🔎 دیدن فعالیت‌ها» for the two verbs,
+ * on the grounds that they kept buttons of their own. They stopped being drawn
+ * in v0.8.1 and the copy kept naming them (review M2).
+ *
+ * Null for a command in no group, so the copy can fall back to naming a
+ * command, which is what somebody types when nothing else has worked.
  */
 export function menuPathFor(command: string): string | null {
-  const own = menuLabelFor(command);
-  if (own !== null && QUICK_COMMANDS.includes(command)) return own;
-
   const group = COMMAND_GROUPS.find((candidate) => candidate.commands.includes(command));
-  return group?.label ?? own;
+  return group?.label ?? null;
 }
 
 export function menuCommandFor(text: string): string | null {

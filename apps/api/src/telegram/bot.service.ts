@@ -120,6 +120,7 @@ import {
   formatAdminQueue,
   isNotificationField,
   menuPathFor,
+  MAIN_MENU_LABEL,
   MODERATION_MENU_COMMAND,
   SETTING_FIELDS,
   SETTING_LANGUAGE,
@@ -1559,7 +1560,7 @@ export class BotService {
       user,
       `پیام شما را دریافت کردم، ولی همین‌طوری جایی فرستاده نمی‌شود.\n\n` +
         `برای نوشتن به میزبان، صفحهٔ همان فعالیت را باز کنید و «پیام مستقیم به میزبان» را بزنید. ` +
-        `برای بقیهٔ کارها «${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» یا /menu.`,
+        `برای بقیهٔ کارها دکمهٔ «${MAIN_MENU_LABEL}» را بزنید.`,
     );
   }
 
@@ -4513,10 +4514,14 @@ export class BotService {
     const price = `ثبت فعالیت ${toPersianDigits(String(cost))} سکه است.`;
     if (refund <= 0) return price;
 
+    // All three conditions `HostRewardService.assess` checks, including the one
+    // it used to keep to itself: a review for **every** guest who attended. A
+    // host who wrote none never got the deposit back and was never told why
+    // (review H5).
     return (
-      `${price} این مبلغ سپرده است: اگر فعالیت برگزار شود و دست‌کم ` +
-      `${toPersianDigits(String(minAttendees))} مهمان حاضر شوند، ` +
-      `${toPersianDigits(String(Math.min(refund, cost)))} سکه به شما برمی‌گردد.`
+      `${price} این مبلغ سپرده است: اگر فعالیت برگزار شود، دست‌کم ` +
+      `${toPersianDigits(String(minAttendees))} مهمان حاضر شوند و شما برای همهٔ مهمان‌های ` +
+      `حاضر نظر بنویسید، ${toPersianDigits(String(Math.min(refund, cost)))} سکه به شما برمی‌گردد.`
     );
   }
 
@@ -4609,7 +4614,7 @@ export class BotService {
         return this.notice(
           updateId,
           user,
-          `فرم بسته شد. هر وقت خواستید دکمهٔ «${menuPathFor('create_event') ?? 'ساختن فعالیت'}» را بزنید.`,
+          `فرم بسته شد. هر وقت خواستید، از «${MAIN_MENU_LABEL}» ادامه دهید.`,
         );
 
       case 'submit':
@@ -5400,9 +5405,8 @@ export class BotService {
            * that was already complete.
            */
           onboardingGiftLine(completion.rewardCoins, completion.joinCost, completion.reviewReward) +
-          'حالا از دکمه‌های پایین صفحه، ' +
-          `«${menuPathFor('discover') ?? 'دیدن فعالیت‌ها'}» فعالیت‌های نزدیک را نشان می‌دهد ` +
-          `و «${menuPathFor('create_event') ?? 'ساختن فعالیت'}» یکی می‌سازد.`,
+          `حالا دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ در «${menuPathFor('discover') ?? 'فعالیت‌ها'}» ` +
+          `هم فعالیت‌های نزدیک هست و هم ساختن فعالیت تازه.`,
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;

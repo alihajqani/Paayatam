@@ -92,10 +92,15 @@ describe('menuPathFor', () => {
   /** Every label the inline menu actually shows: the five group buttons. */
   const inlineMenuLabels = new Set(COMMAND_GROUPS.map((group) => group.label));
 
-  it('names the command itself for the two verbs', () => {
-    for (const command of ['create_event', 'discover']) {
-      expect(menuPathFor(command)).toBe(menuLabelFor(command));
-    }
+  /**
+   * «➕ ساختن فعالیت» and «🔎 دیدن فعالیت‌ها» have not been drawn anywhere since
+   * v0.8.1 — the bottom keyboard is one button and the menu names these two by
+   * their descriptions (review M2). A sentence built from those labels sent a new
+   * user looking for buttons that do not exist, on the first screen they read.
+   */
+  it('names the category for the two verbs too, because their buttons are gone', () => {
+    expect(menuPathFor('create_event')).toBe('🎟 فعالیت‌ها');
+    expect(menuPathFor('discover')).toBe('🎟 فعالیت‌ها');
   });
 
   /**
@@ -112,17 +117,41 @@ describe('menuPathFor', () => {
     }
   });
 
+  /**
+   * This test used to count the two retired labels as findable, which is how it
+   * stayed green for as long as the bug existed (§7.18). Findable is what is
+   * drawn today: the five group buttons, and nothing else.
+   */
   it('never names something the reader cannot find', () => {
-    const findable = new Set([
-      ...inlineMenuLabels,
-      menuLabelFor('create_event') ?? '',
-      menuLabelFor('discover') ?? '',
-    ]);
-
     for (const { command } of BOT_COMMANDS) {
       const path = menuPathFor(command);
       if (path === null) continue;
-      expect(findable.has(path), `${command} → ${path}`).toBe(true);
+      expect(inlineMenuLabels.has(path), `${command} → ${path}`).toBe(true);
+    }
+  });
+});
+
+/**
+ * No message points at a button under the compose box other than the one there is.
+ *
+ * Rendered with an empty payload, which every template tolerates, so a template
+ * added later is covered without anybody remembering to list it.
+ */
+describe('the copy names only buttons that are drawn', () => {
+  const retired = ['➕ ساختن فعالیت', '🔎 دیدن فعالیت‌ها', 'دکمه‌های پایین صفحه'];
+
+  it('in every template', () => {
+    for (const key of Object.values(TEMPLATES)) {
+      const text = render(key, {})?.text ?? '';
+      for (const phrase of retired) {
+        expect(text.includes(phrase), `${key} names «${phrase}»`).toBe(false);
+      }
+    }
+  });
+
+  it('sends a new user to the menu button that is actually there', () => {
+    for (const key of [TEMPLATES.BOT_CONSENT_ACCEPTED, TEMPLATES.BOT_HELP]) {
+      expect(render(key, {})?.text, key).toContain('☰ منوی اصلی');
     }
   });
 });
