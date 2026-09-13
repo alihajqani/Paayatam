@@ -314,7 +314,11 @@ export const SETTING_DEFAULTS = {
   /** On top of the deposit, per guest who actually turned up. */
   'economy.host_reward_per_attendee_coins': 2,
   /**
-   * How many guests must have attended before any of it is paid.
+   * How many guests must have attended before the per-attendee bonus is paid.
+   *
+   * The bonus only, since plan 10: the deposit needs one guest who held a seat,
+   * because gating a refund of the host's own coins on this threshold made
+   * reporting a no-show forfeit it.
    *
    * Two, not one: one guest is a coffee with a friend, and a bonus that pays at
    * one is a bonus two people can trade back and forth all month. It is also the

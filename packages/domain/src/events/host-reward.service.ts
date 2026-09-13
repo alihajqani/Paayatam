@@ -282,8 +282,28 @@ export class HostRewardService {
   /**
    * Does this event qualify, and for how much — all reads, no writes.
    *
-   * Null means "not this one", for any of five reasons, and the order is cheapest
-   * first: already paid, too few attendees, reviews outstanding.
+   * ── Two halves, two conditions (plan 10) ───────────────────────────────────
+   *
+   * The deposit and the bonus used to share one gate — at least
+   * `economy.host_reward_min_attendees` guests `COMPLETED` and attended — and
+   * that made honesty expensive. A no-show is `NO_SHOW`, so reporting one dropped
+   * the count below the threshold and forfeited the deposit, while a guest nobody
+   * reported was settled as attended: two guests with one absent paid 0 to the
+   * host who said so and 29 to the one who stayed quiet, and the quiet one had to
+   * review somebody who was not there.
+   *
+   * - **The deposit** is what the host paid, so returning it is not earning. It
+   *   needs an activity that happened with somebody in a seat: at least one
+   *   participation settled as `COMPLETED` or `NO_SHOW`.
+   * - **The bonus** is earning, and keeps the anti-collusion threshold on the
+   *   guests who actually came.
+   * - **Reviews** are owed for the guests who came — a no-show gets no review
+   *   pair, so there is nothing to write for them.
+   *
+   * A fabricated no-show cannot mint the deposit either: the partner pays the
+   * join deposit and a 60-coin penalty to return 25 to the host.
+   *
+   * Null means "not this one", cheapest refusal first.
    */
   private async assess(
     eventId: string,
@@ -293,7 +313,7 @@ export class HostRewardService {
   ): Promise<Settlement | null> {
     const minAttendees = Math.max(policy['economy.host_reward_min_attendees'] ?? 0, 1);
 
-    const [alreadyRefunded, alreadyPaid, attendees] = await Promise.all([
+    const [alreadyRefunded, alreadyPaid, seated, attended] = await Promise.all([
       this.prisma.coinLedger.findUnique({
         where: { idempotencyKey: hostDepositRefundKey(eventId) },
         select: { id: true },
@@ -303,12 +323,18 @@ export class HostRewardService {
         select: { id: true },
       }),
       this.prisma.eventParticipant.count({
+        where: { eventId, status: { in: ['COMPLETED', 'NO_SHOW'] } },
+      }),
+      this.prisma.eventParticipant.count({
         where: { eventId, status: 'COMPLETED', attended: true },
       }),
     ]);
 
     if (alreadyRefunded !== null && alreadyPaid !== null) return null;
-    if (attendees < minAttendees) return null;
+
+    const depositDue = alreadyRefunded === null && seated >= 1;
+    const bonusDue = alreadyPaid === null && attended >= minAttendees;
+    if (!depositDue && !bonusDue) return null;
 
     /**
      * The host has written a review for everybody who turned up.
@@ -322,15 +348,15 @@ export class HostRewardService {
     const written = await this.prisma.review.count({
       where: { eventId, reviewerUserId: hostUserId },
     });
-    if (written < attendees) return null;
+    if (written < attended) return null;
 
-    const refund =
-      alreadyRefunded === null ? await this.refundFor(eventId, policy) : /* already paid */ 0;
-    const bonus =
-      alreadyPaid === null ? await this.bonusFor(hostUserId, attendees, policy, now) : 0;
+    const refund = depositDue ? await this.refundFor(eventId, policy) : 0;
+    const bonus = bonusDue ? await this.bonusFor(hostUserId, attended, policy, now) : 0;
     if (refund <= 0 && bonus <= 0) return null;
 
-    return { eventId, hostUserId, attendees, refund, bonus };
+    // `attendees` goes into the host's message and the ledger metadata, so it is
+    // the number who came — not the number of seats.
+    return { eventId, hostUserId, attendees: attended, refund, bonus };
   }
 
   /**

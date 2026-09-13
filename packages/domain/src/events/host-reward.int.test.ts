@@ -176,22 +176,33 @@ async function publishPaidEvent(charged = REFUND): Promise<{ id: string; publicI
   return event;
 }
 
-/** Puts `count` guests through join → accept → attendance settlement. */
+/**
+ * Puts `count` guests through join → accept → attendance settlement.
+ *
+ * The first `noShows` of them are reported absent by the host after the end and
+ * before settlement — the order a real host acts in.
+ */
 async function heldWith(
   count: number,
   charged = REFUND,
+  noShows = 0,
 ): Promise<{ id: string; guests: string[] }> {
   const event = await publishPaidEvent(charged);
   const guests: string[] = [];
+  const seats: string[] = [];
   for (let index = 0; index < count; index += 1) {
     const userId = await createProfiledUser();
     const request = await participation.join(userId, event.publicId);
     await participation.accept(hostId, request.publicId);
     guests.push(userId);
+    seats.push(request.publicId);
   }
 
   clock.set(AFTER_SETTLEMENT);
   await lifecycle.retireStarted();
+  for (const seat of seats.slice(0, noShows)) {
+    await lifecycle.markNoShow(hostId, seat);
+  }
   await lifecycle.settleAttendance();
 
   return { id: event.id, guests };
@@ -257,13 +268,79 @@ describe('the hosting settlement', () => {
     await expect(hostRewards.settle()).resolves.toMatchObject({ events: 1 });
   });
 
-  it('pays nothing when too few guests turned up', async () => {
-    // One attendee is a coffee with a friend, and a bonus that pays at one is a
-    // bonus two people can trade back and forth all month.
+  /**
+   * Changed on purpose by plan 10: this used to expect **nothing** at all.
+   *
+   * One attendee is still a coffee with a friend, so the per-guest bonus — which
+   * is earning, and which two people could trade back and forth — stays behind
+   * its threshold. The deposit is not earning; it is what the host paid, and the
+   * activity took place.
+   */
+  it('returns the deposit but pays no bonus when too few guests turned up', async () => {
     const { id } = await heldWith(1);
     await hostReviewsEveryone(id);
 
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 1, coins: REFUND });
+  });
+
+  /**
+   * Plan 10 — the honest host is no longer the one who loses.
+   *
+   * Two guests, one does not come. Reporting it used to drop the count below the
+   * threshold and forfeit the deposit, while staying silent paid 29 coins and
+   * required writing a review for somebody who was not there.
+   */
+  it('returns the deposit to a host who reported a no-show honestly', async () => {
+    const { id } = await heldWith(2, REFUND, 1);
+    await hostReviewsEveryone(id);
+    const before = await coins.balanceOf(hostId);
+
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 1, coins: REFUND });
+    await expect(coins.balanceOf(hostId)).resolves.toBe(before + REFUND);
+  });
+
+  /** Reviews are owed for the guests who came — there is no pair for an absentee. */
+  it('asks for a review of every guest who came, and none of the one who did not', async () => {
+    const { id } = await heldWith(2, REFUND, 1);
+    const pairs = await prisma.reviewPair.count({ where: { eventId: id } });
+    expect(pairs).toBe(1);
+
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 0 });
+    await hostReviewsEveryone(id);
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 1 });
+  });
+
+  /** The only guest did not come: the deposit comes back, with nothing to review. */
+  it('returns the deposit when the only guest was absent', async () => {
+    await heldWith(1, REFUND, 1);
+
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 1, coins: REFUND });
+  });
+
+  /**
+   * Nobody ever held a seat: the deposit is kept, so registering activities that
+   * never happen still costs what it was meant to.
+   */
+  it('keeps the deposit for an activity nobody was accepted to', async () => {
+    await heldWith(0);
+
     await expect(hostRewards.settle()).resolves.toMatchObject({ events: 0, coins: 0 });
+  });
+
+  /** The host is told how many came, not how many seats there were. */
+  it('tells the host the number who actually came', async () => {
+    const { id } = await heldWith(3, REFUND, 1);
+    await hostReviewsEveryone(id);
+
+    await hostRewards.settle();
+
+    const row = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'host.settled' },
+      select: { payload: true },
+    });
+    const payload = row.payload as Record<string, unknown>;
+    expect(payload['attendees']).toBe(2);
+    expect(payload['bonus']).toBe(2 * PER_ATTENDEE);
   });
 
   /**
