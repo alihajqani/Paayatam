@@ -203,7 +203,7 @@ export {
 export type { DiscoverFilters, DiscoverWhen, DiscoverCost } from './callback-data';
 export type { ReviewCallback, ReviewRating } from './callback-data';
 
-export { hostDecisionKeyboard, openAppButton } from './keyboards';
+export { hostDecisionKeyboard } from './keyboards';
 export { MAIN_MENU_LABEL, mainMenuReplyKeyboard } from './keyboards';
 export type { ReplyKeyboard } from './keyboards';
 export type { InlineButton, InlineKeyboard } from './keyboards';

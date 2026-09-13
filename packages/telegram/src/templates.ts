@@ -987,10 +987,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * any more — see `opened()` — which makes those filters app-only in
      * practice, and is the open question in the retirement plan's §7.
      *
-     * **The keyboard is what makes the list actionable.** One «پیوستن» per
-     * numbered event, built by the caller because only it holds the public ids;
-     * a digest with no buttons was a catalogue you could read and not act on,
-     * which is what discovery had been since the open-app button went.
+     * **What makes the list actionable is the `/event_…` line** under each
+     * activity (`formatDiscovered`), which opens its page and the «پایتم» on it.
+     * The keyboard is the caller's and carries the paging and filters.
      */
     case TEMPLATES.BOT_DISCOVER: {
       const keyboard = parseKeyboard(payload);

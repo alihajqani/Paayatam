@@ -526,15 +526,10 @@ export class BotService {
   /**
    * A recognised `/command`.
    *
-   * **Read-only and single-turn, and that is the boundary rather than a stage.**
-   * The bot answers a question whose answer is one number or one paragraph; a
-   * command that needed several turns would need per-user conversation state,
-   * and this handler deliberately holds none — there is nowhere for a half-typed
-   * event to live, which is what keeps a redelivered update idempotent.
-   *
-   * Everything with a form in it stays in the Mini App. `/help` says so plainly,
-   * because a bot that silently cannot do something is worse than one that says
-   * where the thing is done.
+   * It was read-only and single-turn, with every form in the Mini App. That
+   * boundary is gone (ADR-0017): a command may now open a conversation wizard,
+   * whose state lives in `conversation_state` and whose redelivery guard is
+   * `last_update_id` (§7.8 of `PROJECT_MEMORY.md`), not in this handler.
    *
    * An unknown command now points at `/help` rather than at `/start`. Sending
    * somebody back to the welcome message told them nothing they had not already
