@@ -1,6 +1,8 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { formatTehran } from './datetime';
+import { botStartUrl, encodeStartPayload } from './deep-link';
 import { escapeHtml } from './escape';
+import { MAIN_MENU_LABEL, menuPathFor } from './keyboards';
 import { capacityLabel } from './seats';
 
 /**
@@ -54,13 +56,19 @@ export function renderEventInvitation(content: EventInvitationContent): string {
     `👥 ظرفیت ${capacityLabel(content.capacity)}`,
     '',
     // The deep link is built from the **public** id, the only identifier that ever
-    // leaves the backend (invariant 7).
-    `<a href="https://t.me/${escapeHtml(content.botUsername)}?startapp=event_${escapeHtml(
-      content.eventPublicId,
+    // leaves the backend (invariant 7). `?start=` opens the activity in the bot,
+    // as the channel post does; it was `?startapp=`, which opened the Mini App a
+    // host was paying to send strangers to (review H3). `encodeStartPayload`
+    // throws on an id Telegram would refuse, which is at purchase, not at a reader.
+    `<a href="${escapeHtml(
+      botStartUrl(content.botUsername, encodeStartPayload('event', content.eventPublicId)),
     )}">دیدن جزئیات و پایتم گفتن</a>`,
     '',
     // Said in the message rather than only in a settings screen: somebody who does
-    // not want these should not have to go looking for how to stop them.
-    '<i>اگر نمی‌خواهید دعوت‌نامه دریافت کنید، از بخش ویرایش پروفایل آن را خاموش کنید.</i>',
+    // not want these should not have to go looking for how to stop them. The
+    // switch is on the settings board, not the profile-edit one it used to name.
+    `<i>اگر نمی‌خواهید دعوت‌نامه دریافت کنید، از «${MAIN_MENU_LABEL}» ← ` +
+      `«${menuPathFor('settings') ?? 'حساب من'}» ← تنظیمات، «دریافت دعوت از میزبان‌ها» ` +
+      `را خاموش کنید.</i>`,
   ].join('\n');
 }
