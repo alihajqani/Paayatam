@@ -10,8 +10,8 @@ import {
   normalize,
 } from '@payetam/domain';
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { TEMPLATES, render } from '@payetam/telegram';
-import { JOBS, QUEUES, QueueService, jobId } from '@payetam/platform';
+import { TEMPLATES, encodeMenuCommand, render } from '@payetam/telegram';
+import { JOBS, QUEUES, QueueService, RedisService, jobId } from '@payetam/platform';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
   createTestPrisma,
@@ -4089,5 +4089,113 @@ describe('sealing the request notification (v0.8.1)', () => {
     // …and nothing was queued to edit a message nobody identified.
     const queued = await sendQueue().getJobs(['waiting', 'delayed', 'prioritized']);
     expect(queued.filter((job) => job.name === JOBS.BOT_EDIT_MESSAGE)).toHaveLength(0);
+  });
+});
+
+/**
+ * The channel requirement, as the chat meets it.
+ *
+ * The suite has no network, so what Telegram would say is put where the probe
+ * reads it first — its own cache. Everything downstream of that read is real.
+ */
+describe('POST /telegram/:secret — the channel requirement', () => {
+  const CHAT = '@payetam_required_test';
+  let sequence = 9_000;
+
+  async function requireChannel(
+    actions: string[],
+    telegramUserId: number,
+  ): Promise<() => Promise<void>> {
+    const data = { membershipRequired: true, requiredActions: actions, verifyViaTelegram: true };
+    await prisma.eventChannelConfig.upsert({
+      where: { id: 'default' },
+      create: { id: 'default', ...data },
+      update: data,
+    });
+    await prisma.requiredChannel.create({
+      data: {
+        title: 'کانال پایه‌تم',
+        chatIdentifier: CHAT,
+        inviteUrl: 'https://t.me/payetam_required_test',
+      },
+    });
+    const key = `channel-member:${CHAT}:${String(telegramUserId)}`;
+    const redis = app.get(RedisService).client;
+    await redis.set(key, 'NOT_MEMBER', 'EX', 120);
+    return async () => {
+      await redis.del(key);
+    };
+  }
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          data,
+        },
+      }),
+    );
+  }
+
+  /**
+   * Review M8. The quota and the price were already asked before the form; the
+   * channel was asked only at «ثبت فعالیت», eleven answers later, by
+   * `EventService.create`. That refusal is still the authority — this only moves
+   * the answer to where a host can act on it.
+   */
+  it('stops a host at the channel before the form, not after it', async () => {
+    const hostId = await seedFundedHost(HOST_TELEGRAM_ID);
+    const release = await requireChannel(['EVENT_CREATE'], HOST_TELEGRAM_ID);
+    try {
+      await type(HOST_TELEGRAM_ID, '/create_event');
+
+      const replies = await replyTo(HOST_TELEGRAM_ID);
+      expect(replies.map((reply) => reply.templateKey)).toEqual([TEMPLATES.BOT_CHANNEL_GATE]);
+      await expect(prisma.conversationState.count({ where: { userId: hostId } })).resolves.toBe(0);
+    } finally {
+      await release();
+    }
+  });
+
+  /**
+   * Review L2. `/help` and `/bug` are exempt from `APP_ACCESS` when typed, and
+   * the same two from the menu were refused with a toast, because the gate on
+   * taps ran before the menu branch. Somebody stuck behind the wall could not
+   * reach the two things written for them.
+   */
+  it('lets «راهنما» through from the menu for somebody behind the wall', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const release = await requireChannel(['APP_ACCESS'], GUEST_TELEGRAM_ID);
+    try {
+      await tap(GUEST_TELEGRAM_ID, encodeMenuCommand('help'));
+
+      const replies = await replyTo(GUEST_TELEGRAM_ID);
+      expect(replies.map((reply) => reply.templateKey)).toEqual([TEMPLATES.BOT_HELP]);
+    } finally {
+      await release();
+    }
+  });
+
+  /** And only those two: the menu is not a way around the wall. */
+  it('still stops a gated command run from the menu', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const release = await requireChannel(['APP_ACCESS'], GUEST_TELEGRAM_ID);
+    try {
+      await tap(GUEST_TELEGRAM_ID, encodeMenuCommand('discover'));
+
+      const replies = await replyTo(GUEST_TELEGRAM_ID);
+      expect(replies.map((reply) => reply.templateKey)).not.toContain(TEMPLATES.BOT_DISCOVER);
+    } finally {
+      await release();
+    }
   });
 });
