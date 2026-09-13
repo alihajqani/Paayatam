@@ -81,6 +81,11 @@ export class ChannelService {
         // ADR-0012 on a public surface: FLAG publishes, BLOCK does not.
         moderationStatus: { in: ['APPROVED', 'FLAGGED'] },
         requestCount: { gte: trendingThreshold },
+        // One activity, one post (review H4.1). Every registration claims a PAID
+        // post, and its text does not show the kind — so a TRENDING claim on top
+        // of it put two identical posts in the channel, and «انتشار دوباره»
+        // replaced only one. Unposted counts: the paid post is on its way.
+        channelPosts: { none: { kind: 'PAID', deletedAt: null } },
       },
       orderBy: { publishedAt: 'asc' },
       take: limit,
@@ -259,6 +264,12 @@ export class ChannelService {
    * Telegram accepts it.
    */
   async findUnpostedPaid(limit = 20): Promise<PublishablePost[]> {
+    // The kill switch reaches paid posts too (review H4.2). It was read only by
+    // `claimPending`, so switching the channel off stopped the free posts and let
+    // every registration through. Nothing is released: the claims wait here and
+    // post when the channel is switched back on.
+    if ((await this.settings.getInt('channel.enabled')) !== 1) return [];
+
     const rows = await this.prisma.channelPost.findMany({
       where: { kind: 'PAID', postedAt: null, deletedAt: null },
       orderBy: { createdAt: 'asc' },
