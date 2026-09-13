@@ -63,11 +63,13 @@ export interface DirectMessageDetail {
  *
  * ── Who may write to whom ──────────────────────────────────────────────────
  *
- * Two rules, and both are checked here rather than assumed from a button:
+ * Three rules, all checked here rather than assumed from a button:
  *
  *  * **Starting a thread** is addressed to the *host* of the activity, by
  *    anybody who is not the host. There is no other addressee — the recipient is
  *    derived from the event, never taken from the caller.
+ *  * **A host starting one** is addressed to a guest they accepted, named by the
+ *    participation — see `sendToGuest` (plan 13).
  *  * **Replying** is addressed to the sender of the message being answered, and
  *    only the account that *received* it may do so. So a thread stays between the
  *    two people it started between, and a stranger holding a public id can
@@ -107,6 +109,54 @@ export class DirectMessageService {
       eventId: event.id,
       eventPublicId: event.publicId,
       eventTitle: event.title,
+      body: text,
+      parentId: null,
+    });
+  }
+
+  /**
+   * Start a thread the other way: a host to a guest they accepted (plan 13).
+   *
+   * `send` addresses the host and `reply` needs a received message, so a host
+   * whose guest never wrote first had no way to say where to meet — while the
+   * reminder told them to «به مهمان‌ها خبر بدهید». The addressee is still never
+   * taken from the caller: it is the user behind a participation on an activity
+   * the caller hosts, in a status that means they have a seat (ACCEPTED) or had
+   * one (COMPLETED). Every other case — not the host, not accepted, no such
+   * participation, a deleted activity — is the same `NOT_FOUND` (T3.3).
+   */
+  async sendToGuest(
+    hostUserId: string,
+    participantPublicId: string,
+    body: string,
+  ): Promise<string> {
+    const text = normalizeBody(body);
+
+    const participant = await this.prisma.eventParticipant.findUnique({
+      where: { publicId: participantPublicId },
+      select: {
+        userId: true,
+        status: true,
+        event: {
+          select: { id: true, publicId: true, title: true, hostUserId: true, deletedAt: true },
+        },
+      },
+    });
+    if (
+      !participant ||
+      participant.event.deletedAt !== null ||
+      participant.event.hostUserId !== hostUserId ||
+      (participant.status !== 'ACCEPTED' && participant.status !== 'COMPLETED')
+    ) {
+      throw new AppError(ErrorCode.NOT_FOUND);
+    }
+
+    return this.write({
+      senderUserId: hostUserId,
+      recipientUserId: participant.userId,
+      eventId: participant.event.id,
+      eventPublicId: participant.event.publicId,
+      eventTitle: participant.event.title,
       body: text,
       parentId: null,
     });

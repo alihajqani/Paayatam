@@ -13,6 +13,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { MessageCipher } from '../crypto/message-cipher';
 import { normalize } from '../moderation/persian-normalizer';
+import { planNotifications } from '../notifications/fanout';
 import { OutboxService } from '../outbox/outbox.service';
 import { DirectMessageService } from './direct-message.service';
 
@@ -286,5 +287,120 @@ describe('answering one', () => {
     const read = await directs.view(hostId, c);
     expect(read.body).toBe('سه');
     await expect(prisma.directMessage.count()).resolves.toBe(3);
+  });
+});
+
+/**
+ * A host writing to a guest they accepted (plan 13, review H2).
+ *
+ * Until this existed a host could only *answer*: `send` addresses the host and
+ * `reply` needs a received message, so a host whose guest never wrote first had
+ * no way to say where to meet. The addressee is still never taken from the
+ * caller — it is the user behind a participation the host's own activity holds.
+ */
+describe('a host writing to a guest', () => {
+  let participantPublicId: string;
+
+  beforeEach(async () => {
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { id: true },
+    });
+    const participant = await prisma.eventParticipant.create({
+      data: { eventId: event.id, userId: guestId, status: 'ACCEPTED', acceptedAt: NOW },
+      select: { publicId: true },
+    });
+    participantPublicId = participant.publicId;
+  });
+
+  it('delivers to an accepted guest of their own activity', async () => {
+    const publicId = await directs.sendToGuest(hostId, participantPublicId, 'ساعت ۶ جلوی کافه');
+
+    const row = await prisma.directMessage.findUniqueOrThrow({
+      where: { publicId },
+      select: { senderUserId: true, recipientUserId: true, parentId: true },
+    });
+    expect(row).toEqual({ senderUserId: hostId, recipientUserId: guestId, parentId: null });
+    await expect(directs.view(guestId, publicId)).resolves.toMatchObject({
+      body: 'ساعت ۶ جلوی کافه',
+      senderDisplayName: 'میزبان',
+    });
+  });
+
+  it('writes to a guest after the activity, once they attended', async () => {
+    await prisma.eventParticipant.update({
+      where: { publicId: participantPublicId },
+      data: { status: 'COMPLETED' },
+    });
+    await expect(
+      directs.sendToGuest(hostId, participantPublicId, 'ممنون که آمدید'),
+    ).resolves.toEqual(expect.any(String));
+  });
+
+  it.each(['PENDING', 'WAITLISTED', 'REJECTED', 'CANCELLED_BY_PARTICIPANT', 'NO_SHOW'] as const)(
+    'refuses a guest who is %s',
+    async (status) => {
+      // `accepted_at` must be null for the statuses that never held a seat
+      // (CHECK `event_participant_accepted_at_matches_status`).
+      const neverSeated = status === 'PENDING' || status === 'WAITLISTED' || status === 'REJECTED';
+      await prisma.eventParticipant.update({
+        where: { publicId: participantPublicId },
+        data: {
+          status,
+          ...(neverSeated ? { acceptedAt: null } : {}),
+          // …and a withdrawal needs its timestamp (`event_participant_cancelled_at_present`).
+          ...(status === 'CANCELLED_BY_PARTICIPANT' ? { cancelledAt: NOW } : {}),
+        },
+      });
+      await expect(
+        directs.sendToGuest(hostId, participantPublicId, 'سلام سلام'),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    },
+  );
+
+  /** Not the host: the same answer as a participation that does not exist. */
+  it('refuses anybody but the host, with the same answer', async () => {
+    const stranger = await profiledUser('غریبه');
+    await expect(
+      directs.sendToGuest(stranger, participantPublicId, 'سلام سلام'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(
+      directs.sendToGuest(hostId, '00000000-0000-4000-8000-000000000000', 'سلام سلام'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('refuses a deleted activity', async () => {
+    await prisma.event.update({ where: { publicId: eventPublicId }, data: { deletedAt: NOW } });
+    await expect(
+      directs.sendToGuest(hostId, participantPublicId, 'سلام سلام'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('lets the guest answer it with the reply that already exists', async () => {
+    const publicId = await directs.sendToGuest(hostId, participantPublicId, 'ساعت ۶');
+    const answer = await directs.reply(guestId, publicId, 'باشه، می‌آیم');
+
+    const row = await prisma.directMessage.findUniqueOrThrow({
+      where: { publicId: answer },
+      select: { recipientUserId: true },
+    });
+    expect(row.recipientUserId).toBe(hostId);
+  });
+
+  /** From the producer: the notification is addressed to the guest. */
+  it('tells the guest, and nobody else', async () => {
+    await directs.sendToGuest(hostId, participantPublicId, 'ساعت ۶');
+
+    const row = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'direct.message_sent' },
+      select: { id: true, eventType: true, aggregateId: true, payload: true },
+    });
+    const { publicId: guestPublicId } = await prisma.user.findUniqueOrThrow({
+      where: { id: guestId },
+      select: { publicId: true },
+    });
+    const planned = planNotifications({ ...row, payload: row.payload as Record<string, unknown> });
+    expect(planned.map((p) => p.userPublicId)).toEqual([guestPublicId]);
+    expect(planned[0]?.payload['senderDisplayName']).toBe('میزبان');
   });
 });

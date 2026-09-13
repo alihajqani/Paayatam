@@ -30,11 +30,11 @@ import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
  * a message half-written to a stranger is the clearest case for one.
  */
 
-export const DIRECT_MESSAGE_MODES = ['new', 'reply'] as const;
+export const DIRECT_MESSAGE_MODES = ['new', 'reply', 'guest'] as const;
 export type DirectMessageMode = (typeof DIRECT_MESSAGE_MODES)[number];
 
 export interface DirectMessageForm {
-  /** `new` or `reply` — seeded by the button that opened the form. Never asked. */
+  /** `new`, `reply` or `guest` — seeded by the button that opened the form. Never asked. */
   mode?: DirectMessageMode;
   body?: string;
 }
@@ -58,7 +58,9 @@ const steps: WizardStep<DirectMessageForm>[] = [
     prompt: (form) =>
       (form.mode === 'reply'
         ? 'پاسخ خود را بنویسید.'
-        : 'پیامتان را برای میزبان این فعالیت بنویسید.') +
+        : form.mode === 'guest'
+          ? 'پیامتان را برای این مهمان بنویسید.'
+          : 'پیامتان را برای میزبان این فعالیت بنویسید.') +
       '\n\n' +
       'می‌توانید برای هماهنگی شمارهٔ تماس یا شناسهٔ تلگرامتان را بفرستید — ' +
       'اما این کار با مسئولیت خودتان است و پایه‌تَم در این میان هیچ نقشی ندارد. ' +
@@ -93,7 +95,7 @@ export const directMessageWizard: WizardDefinition<DirectMessageForm> = {
   empty: () => ({}),
 };
 
-/** Whether a value carried in a form is one of the two modes. */
+/** Whether a value carried in a form is one of the three modes. */
 export function isDirectMessageMode(value: unknown): value is DirectMessageMode {
   return DIRECT_MESSAGE_MODES.some((candidate) => candidate === value);
 }

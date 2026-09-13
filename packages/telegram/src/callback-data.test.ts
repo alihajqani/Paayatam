@@ -4,9 +4,11 @@ import {
   CODE_CALLBACK_KINDS,
   encodeChatCallback,
   encodeCodeCallback,
+  encodeDirectCallback,
   isPublicId,
   parseChatCallback,
   parseCodeCallback,
+  parseDirectCallback,
   PROFILE_FIELD_KEYS,
   encodeProfileFieldCallback,
   parseProfileFieldCallback,
@@ -141,5 +143,15 @@ describe('the profile-edit board callbacks (v0.9.1)', () => {
     for (const data of ['pf:nope:-', 'pf:name', 'pf:name:1', 'cd:gift:-', '', 'pf::-']) {
       expect(parseProfileFieldCallback(data)).toBeNull();
     }
+  });
+});
+
+/** A host writing to one of their guests names the participation (plan 13). */
+describe('the direct message protocol', () => {
+  const P = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+
+  it('round-trips a host writing to a guest', () => {
+    expect(encodeDirectCallback('guest', P)).toBe(`dm:guest:${P}`);
+    expect(parseDirectCallback(`dm:guest:${P}`)).toEqual({ action: 'guest', id: P });
   });
 });
