@@ -782,9 +782,15 @@ export class ReviewService {
             participant: {
               select: {
                 publicId: true,
-                user: { select: { publicId: true } },
+                user: { select: { publicId: true, profile: { select: { displayName: true } } } },
                 event: {
-                  select: { publicId: true, title: true, host: { select: { publicId: true } } },
+                  select: {
+                    publicId: true,
+                    title: true,
+                    host: {
+                      select: { publicId: true, profile: { select: { displayName: true } } },
+                    },
+                  },
                 },
               },
             },
@@ -804,6 +810,10 @@ export class ReviewService {
               eventTitle: pair.participant.event.title,
               hostUserPublicId: pair.participant.event.host.publicId,
               guestUserPublicId: pair.participant.user.publicId,
+              // Who each side is reviewing, so the stars under the message name
+              // somebody (plan 11). Display names, as the direct message carries.
+              hostDisplayName: pair.participant.event.host.profile?.displayName ?? 'کاربر پایه‌تَم',
+              guestDisplayName: pair.participant.user.profile?.displayName ?? 'کاربر پایه‌تَم',
               /**
                * How long is left, rounded **up**.
                *

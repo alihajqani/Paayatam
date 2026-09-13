@@ -117,6 +117,26 @@ describe('two-recipient events', () => {
   });
 
   /**
+   * Each side is told which side they are (plan 11): the host's copy names the
+   * guest and the deposit condition, the guest's names the host. One payload
+   * would give both readers the same sentence about the wrong person.
+   */
+  it('review.window_open tells each side which side they are', () => {
+    const planned = planNotifications(
+      row('review.window_open', {
+        hostUserPublicId: HOST,
+        guestUserPublicId: GUEST,
+        eventTitle: 'قهوه و بازی',
+        daysLeft: 7,
+      }),
+    );
+    expect(planned.map((plan) => [plan.userPublicId, plan.payload['recipientRole']])).toEqual([
+      [HOST, 'HOST'],
+      [GUEST, 'GUEST'],
+    ]);
+  });
+
+  /**
    * The referral payout (v0.7.0). Two people, two different sentences, one row —
    * so two keys, or the shared one would deliver only to the first.
    */

@@ -1,5 +1,11 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { encodeDirectCallback, encodeEventCallback, isPublicId } from './callback-data';
+import {
+  REVIEW_RATINGS,
+  encodeDirectCallback,
+  encodeEventCallback,
+  encodeReviewCallback,
+  isPublicId,
+} from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
@@ -657,13 +663,45 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       );
     }
 
-    case TEMPLATES.REVIEW_WINDOW_OPEN:
+    /**
+     * «چطور بود؟», with the rating it asks for (plan 11).
+     *
+     * The stars are the `/reviews` callback, named by the participation, which
+     * is the same pair from either side. The fan-out tells each reader which
+     * side they are: a host with five guests gets five of these, and the other
+     * person's name is what tells them apart — and only the host is told that
+     * the deposit waits for these reviews (review H5).
+     */
+    case TEMPLATES.REVIEW_WINDOW_OPEN: {
+      const participant = id(payload, 'participantPublicId');
+      const role = str(payload, 'recipientRole');
+      const other =
+        role === 'HOST'
+          ? str(payload, 'guestDisplayName')
+          : role === 'GUEST'
+            ? str(payload, 'hostDisplayName')
+            : '';
       return opened(
         `چطور بود؟\n\n` +
-          `می‌توانید تا ${num(payload, 'daysLeft')} روز آینده بازخورد خود را درباره ` +
-          `«${str(payload, 'eventTitle')}» ثبت کنید.`,
+          (other === ''
+            ? `می‌توانید تا ${num(payload, 'daysLeft')} روز آینده بازخورد خود را درباره ` +
+              `«${str(payload, 'eventTitle')}» ثبت کنید.`
+            : `نظرتان دربارهٔ <b>${other}</b> در «${str(payload, 'eventTitle')}» چیست؟ ` +
+              `تا ${num(payload, 'daysLeft')} روز آینده می‌توانید با ستاره‌های زیر ثبتش کنید.`) +
+          (role === 'HOST'
+            ? `\n\n<i>سپردهٔ ثبت فعالیت وقتی برمی‌گردد که برای همهٔ مهمان‌هایی که آمدند نظر نوشته باشید.</i>`
+            : ''),
         `reviews/pending`,
+        participant === null
+          ? undefined
+          : [
+              REVIEW_RATINGS.map((rating) => ({
+                text: `${toPersianDigits(rating)}⭐`,
+                callbackData: encodeReviewCallback(rating, participant),
+              })),
+            ],
       );
+    }
 
     /** D7: both sides learn at the same instant, which is why one event fans out. */
     case TEMPLATES.REVIEW_REVEALED:
