@@ -619,7 +619,7 @@ export class EventLifecycleService {
 
         const participant = await tx.eventParticipant.findUniqueOrThrow({
           where: { publicId: participantPublicId },
-          select: { id: true, userId: true, status: true },
+          select: { id: true, userId: true, status: true, user: { select: { publicId: true } } },
         });
 
         assertParticipantTransition(participant.status, 'NO_SHOW', participant.id);
@@ -679,6 +679,10 @@ export class EventLifecycleService {
               eventPublicId: event.publicId,
               eventTitle: event.title,
               coinsCharged: penalty.coinsCharged,
+              // The recipient. `fanout.ts` reads this key and sends nothing without
+              // it — which is what it did from the day this was written until
+              // review H1, while charging sixty coins in silence.
+              participantUserPublicId: participant.user.publicId,
             },
           },
           tx,
