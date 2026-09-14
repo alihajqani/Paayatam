@@ -419,6 +419,11 @@ export {
   announcementText,
   releaseAnnouncementKey,
 } from './messaging/release-announcement.service';
+export {
+  CityLaunchAnnouncementService,
+  cityLaunchKey,
+} from './messaging/city-launch-announcement.service';
+export type { CityLaunchAnnounced } from './messaging/city-launch-announcement.service';
 export { MessagingAdminService } from './adminaccess/messaging-admin.service';
 export type { AudiencePreview, TelegramIdentity } from './adminaccess/messaging-admin.service';
 export { ChannelAdminService } from './adminaccess/channel-admin.service';

@@ -6611,6 +6611,11 @@ function missingFields(form: CreateEventForm): string[] {
  *
  * Empty string when the city is open, which is every completion in Tehran and
  * Mashhad — so the common path renders exactly what it rendered before.
+ *
+ * «آمادهٔ باز شدن», not «باز می‌شود» (plan 17): reaching the threshold opens
+ * nothing — an operator does, from the panel — and the line said otherwise.
+ * «همین‌جا خبرتان می‌کنیم» after it is true since the same plan: opening a city
+ * sends its people one message (`CityLaunchAnnouncementService`).
  */
 export function cityQueueLine(status: CityLaunchStatus | null): string {
   if (status === null || status.launched) return '';
@@ -6619,7 +6624,7 @@ export function cityQueueLine(status: CityLaunchStatus | null): string {
   return (
     `📍 پایه‌تَم هنوز در ${status.cityNameFa} فعالیت ندارد.\n` +
     `شما نفر ${position} از ${status.cityNameFa} هستید — با ${threshold} نفر، ` +
-    `${status.cityNameFa} باز می‌شود.\n` +
+    `${status.cityNameFa} آمادهٔ باز شدن می‌شود.\n` +
     `هر هم‌شهری که دعوت کنید، این عدد را جلو می‌برد.\n\n`
   );
 }

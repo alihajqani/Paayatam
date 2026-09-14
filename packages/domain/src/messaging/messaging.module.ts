@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
+import { CityLaunchAnnouncementService } from './city-launch-announcement.service';
 import { MessagingService } from './messaging.service';
 import { ReleaseAnnouncementService } from './release-announcement.service';
 
@@ -19,7 +20,7 @@ import { ReleaseAnnouncementService } from './release-announcement.service';
  */
 @Module({
   imports: [CatalogModule],
-  providers: [MessagingService, ReleaseAnnouncementService],
-  exports: [MessagingService, ReleaseAnnouncementService],
+  providers: [MessagingService, ReleaseAnnouncementService, CityLaunchAnnouncementService],
+  exports: [MessagingService, ReleaseAnnouncementService, CityLaunchAnnouncementService],
 })
 export class MessagingModule {}

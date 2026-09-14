@@ -39,6 +39,7 @@ function build(prompted: number) {
     {} as never, // AdminTelegramService
     {} as never, // ModerationDigestService
     {} as never, // AuditService
+    {} as never, // CityLaunchAnnouncementService
   );
 
   return { processors, lifecycle, relay };

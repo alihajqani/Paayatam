@@ -164,6 +164,13 @@ export const JOBS = {
    * settlement closes it, `participation.settlement_delay_hours` later.
    */
   ATTENDANCE_PROMPT: 'attendance-prompt',
+  /**
+   * «پایه‌تَم در … باز شد» to the people of a city an operator just opened (plan 17).
+   *
+   * A job rather than part of the panel request: the worker drains the campaign,
+   * so the worker creates it — `CityLaunchAnnouncementService` says why.
+   */
+  CITY_LAUNCH_ANNOUNCE: 'city-launch-announce',
   SETTLE_ATTENDANCE: 'settle-attendance',
   /**
    * Return the host's deposit and pay the per-guest bonus.
@@ -320,6 +327,9 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    */
   { name: JOBS.GRANT_COMEBACK_COINS, pattern: '0 10 * * *', tz: 'Asia/Tehran' },
   { name: JOBS.CHANNEL_SYNC, pattern: '*/5 * * * *' },
+  // Every five minutes, no timezone: an opening is an instant, and a message
+  // that lands a few minutes after the operator's click is on time (plan 17).
+  { name: JOBS.CITY_LAUNCH_ANNOUNCE, pattern: '*/5 * * * *' },
   // Every minute. The API nudges this queue on confirmation, so the schedule is
   // the backstop rather than the mechanism — a campaign confirmed while the worker
   // was restarting is picked up within a minute instead of never.

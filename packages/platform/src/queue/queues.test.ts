@@ -82,6 +82,12 @@ describe('the queue catalogue', () => {
     expect(entry).toEqual({ name: 'attendance-prompt', pattern: '*/15 * * * *' });
   });
 
+  /** A city's people hear it opened within five minutes of the click (plan 17). */
+  it('announces opened cities every five minutes, with no timezone', () => {
+    const entry = SCHEDULE.find((candidate) => candidate.name === JOBS.CITY_LAUNCH_ANNOUNCE);
+    expect(entry).toEqual({ name: 'city-launch-announce', pattern: '*/5 * * * *' });
+  });
+
   /**
    * Settlement is hourly now, not at 03:00 Tehran (plan 15): the window a host
    * has is `participation.settlement_delay_hours` itself, whatever hour the

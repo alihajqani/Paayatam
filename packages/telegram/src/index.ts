@@ -12,6 +12,7 @@ export {
 export type { StartAction, StartLink } from './deep-link';
 export type { ChannelPostContent, RenderedChannelPost } from './channel';
 export { renderEventInvitation } from './invitation';
+export { cityLaunchAnnouncement } from './city-launch';
 export { formatMyRequests } from './requests';
 export type { MyRequestLine } from './requests';
 export { formatMyEvents, formatOwnedEvent, myEventsPageRow } from './events-digest';

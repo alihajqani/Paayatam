@@ -120,23 +120,62 @@ const pendingDeactivation = ref<{
 /**
  * Open or close a city (v0.10.0).
  *
- * Separate from `setActive`, and with no confirmation step, because the two
- * answer different questions and only one of them orphans anything. Closing a
- * city leaves every profile naming it — that *is* the waiting list — and lets
- * the events already published there run out; it only stops new ones and turns
- * discovery into the queue screen.
+ * Separate from `setActive`, because the two answer different questions and
+ * only one of them orphans anything. Closing a city leaves every profile naming
+ * it — that *is* the waiting list — and lets the events already published there
+ * run out; it only stops new ones and turns discovery into the queue screen.
+ *
+ * ── The one opening that asks first (plan 17) ───────────────────────────────
+ *
+ * The **first** opening sends everybody who named the city «پایه‌تَم در … باز
+ * شد». That message cannot be taken back, so it is confirmed with the number of
+ * people it reaches — the city's profile count, which is the audience the worker
+ * selects. Reopening a city that was open before sends nothing and asks nothing.
  */
+const pendingLaunch = ref<AdminCityView | null>(null);
+
+function askLaunched(city: AdminCityView, isLaunched: boolean): void {
+  if (isLaunched && !city.everLaunched) {
+    pendingLaunch.value = city;
+    return;
+  }
+  void setLaunched(city, isLaunched);
+}
+
+const launchBody = computed(() => {
+  const city = pendingLaunch.value;
+  if (city === null) return '';
+  return (
+    `این اولین باری است که «${city.nameFa}» باز می‌شود. چند دقیقه پس از تأیید، یک پیام ` +
+    `«پایه‌تَم در ${city.nameFa} باز شد» برای ${formatNumber(city.profileCount)} نفری ` +
+    'فرستاده می‌شود که این شهر را در نمایه‌شان دارند. این پیام برای هر شهر فقط یک بار ' +
+    'فرستاده می‌شود و پس گرفتنی نیست؛ بستن و باز کردن دوبارهٔ شهر پیامی نمی‌فرستد.'
+  );
+});
+
+function confirmLaunch(): void {
+  const city = pendingLaunch.value;
+  if (city === null) return;
+  void setLaunched(city, true);
+}
+
 async function setLaunched(city: AdminCityView, isLaunched: boolean): Promise<void> {
   busyId.value = city.id;
   error.value = null;
   try {
-    await request<AdminCityView>(`/cities/${city.id}`, {
+    const updated = await request<AdminCityView>(`/cities/${city.id}`, {
       method: 'PATCH',
       body: { isLaunched },
     });
-    notice.value = isLaunched
-      ? `«${city.nameFa}» باز شد — از این پس می‌توان اینجا فعالیت ساخت.`
-      : `«${city.nameFa}» بسته شد. نمایه‌ها دست‌نخورده می‌مانند و در فهرست انتظار شمرده می‌شوند.`;
+    pendingLaunch.value = null;
+    // Read back rather than assumed: the endpoint dropped `isLaunched` for four
+    // releases and this said «باز شد» every time.
+    notice.value =
+      updated.isLaunched !== isLaunched
+        ? `وضعیت «${city.nameFa}» تغییر نکرد.`
+        : isLaunched
+          ? `«${city.nameFa}» باز شد — از این پس می‌توان اینجا فعالیت ساخت.`
+          : `«${city.nameFa}» بسته شد. نمایه‌ها دست‌نخورده می‌مانند و در فهرست انتظار شمرده می‌شوند.`;
     await loadCities();
   } catch (cause) {
     error.value = messageOf(cause, 'باز یا بسته کردن شهر انجام نشد.');
@@ -493,7 +532,7 @@ onMounted(load);
                       type="button"
                       class="min-h-9 rounded-lg border border-line px-3 text-xs disabled:opacity-40"
                       :disabled="!session.canMutate || busyId === city.id"
-                      @click="setLaunched(city, !city.isLaunched)"
+                      @click="askLaunched(city, !city.isLaunched)"
                     >
                       {{ city.isLaunched ? 'بستن' : 'باز کردن' }}
                     </button>
@@ -575,6 +614,17 @@ onMounted(load);
         :busy="busyId !== null"
         @cancel="pendingDeactivation = null"
         @confirm="confirmDeactivation"
+      />
+
+      <!-- ── Opening a city for the first time (plan 17) ──────────────── -->
+      <ConfirmDialog
+        :open="pendingLaunch !== null"
+        title="باز کردن شهر، و پیامی که به مردمش می‌رسد"
+        :body="launchBody"
+        confirm-label="بله، باز شود و پیام برود"
+        :busy="busyId !== null"
+        @cancel="pendingLaunch = null"
+        @confirm="confirmLaunch"
       />
     </div>
   </StateBlock>
