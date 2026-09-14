@@ -1,4 +1,8 @@
-import { EVENT_DISCLAIMER_FA } from '@payetam/shared';
+import {
+  EVENT_DISCLAIMER_FA,
+  PARTICIPANT_STATUS_GUEST_FA,
+  type ParticipantStatus,
+} from '@payetam/shared';
 import { seatsLine } from './seats';
 import { escapeHtml, toPersianDigits } from './escape';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
@@ -42,6 +46,11 @@ export interface EventDetailLine {
   hostDisplayName: string;
   /** Null when the host has never been judged. Never rendered as zero. */
   hostTrustScore: number | null;
+  /**
+   * The reader's own live request on this activity, when they have one
+   * (plan 12). Absent for somebody who has not asked, and for the host.
+   */
+  viewer?: { status: ParticipantStatus; waitlistRank: number | null };
 }
 
 const COST_TYPE_FA: Record<string, string> = {
@@ -117,6 +126,13 @@ export function formatEventDetail(line: EventDetailLine): string {
     (age === null ? '' : `${age}\n`) +
     `\n👤 میزبان: ${escapeHtml(line.hostDisplayName)}\n` +
     `⭐️ امتیاز اعتماد: ${trust}\n\n` +
+    (line.viewer === undefined
+      ? ''
+      : `<b>وضعیت شما: ${PARTICIPANT_STATUS_GUEST_FA[line.viewer.status]}</b>` +
+        (line.viewer.status === 'WAITLISTED' && line.viewer.waitlistRank !== null
+          ? ` (نفر ${toPersianDigits(String(line.viewer.waitlistRank))})`
+          : '') +
+        `\n\n`) +
     `<i>${escapeHtml(EVENT_DISCLAIMER_FA)}</i>`
   );
 }

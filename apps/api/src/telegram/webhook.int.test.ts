@@ -1811,6 +1811,34 @@ describe('POST /telegram/:secret — acting on your own events', () => {
   });
 
   /**
+   * The page knows who is reading it (plan 12, review M7). An accepted guest
+   * arriving from the acceptance's «📄 صفحهٔ فعالیت» sees their seat and the way
+   * to give it up, not «پایتم» again.
+   */
+  it('shows an accepted guest their seat and «لغو», not «پایتم»', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان یکم');
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.accept(hostId, joined.publicId);
+
+    await tap(GUEST_TELEGRAM_ID, `ev:show:${eventPublicId}`);
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { userId: guestId, templateKey: TEMPLATES.BOT_EVENT_DETAIL },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const payload = row.payload as Record<string, unknown>;
+    const data = (JSON.parse(String(payload['keyboard'])) as { callbackData?: string }[][])
+      .flat()
+      .map((button) => button.callbackData);
+    expect(data).toContain(`ev:cancel:${joined.publicId}`);
+    expect(data).not.toContain(`ev:join:${eventPublicId}`);
+    expect(data).toContain(`dm:write:${eventPublicId}`);
+    expect(String(payload['text'])).toContain('وضعیت شما: پذیرفته شد');
+  });
+
+  /**
    * Deciding from the console redraws the console (v0.8.1).
    *
    * The row moves to «پذیرفته‌شده» and its two buttons go with it, so the same

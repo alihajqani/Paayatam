@@ -424,6 +424,46 @@ describe('joining', () => {
   });
 });
 
+/**
+ * The reader's own live request on one activity (plan 12), for the page that
+ * used to offer «پایتم» to somebody who already had a seat.
+ */
+describe('findMineForEvent', () => {
+  it('returns the live request the caller holds on that activity', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    await expect(participation.findMineForEvent(joiner, eventPublicId)).resolves.toMatchObject({
+      publicId: request.publicId,
+      status: 'PENDING',
+      waitlistRank: null,
+    });
+
+    await participation.accept(hostId, request.publicId);
+    await expect(participation.findMineForEvent(joiner, eventPublicId)).resolves.toMatchObject({
+      status: 'ACCEPTED',
+    });
+  });
+
+  it('is null for somebody who never asked, and for the host', async () => {
+    const eventPublicId = await createEvent();
+    const stranger = await createJoiner();
+    await expect(participation.findMineForEvent(stranger, eventPublicId)).resolves.toBeNull();
+    await expect(participation.findMineForEvent(hostId, eventPublicId)).resolves.toBeNull();
+  });
+
+  /** A request that is over is not a status to show on the page. */
+  it('is null once the request is no longer live', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+    await participation.reject(hostId, request.publicId);
+
+    await expect(participation.findMineForEvent(joiner, eventPublicId)).resolves.toBeNull();
+  });
+});
+
 describe('eligibility, judged against the server’s copy of the profile', () => {
   it('honours a gendered restriction', async () => {
     const eventPublicId = await createEvent({ genderPreference: 'FEMALE_ONLY' });
