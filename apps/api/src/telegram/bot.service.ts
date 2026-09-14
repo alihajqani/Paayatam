@@ -867,9 +867,12 @@ export class BotService {
           return this.drawWizard(updateId, user, outcome);
         }
 
-        const [trustScore, member] = await Promise.all([
+        const [trustScore, member, campaign] = await Promise.all([
           this.trust.scoreOf(user.id),
           this.founding.memberOf(user.id),
+          // The cap the completion message already reads, so the two cannot name
+          // different numbers once a campaign closes early (plan 18, review L1).
+          this.founding.progress(),
         ]);
         /**
          * The edit is a button on the card, not a command under it.
@@ -895,7 +898,8 @@ export class BotService {
           ...(member !== null
             ? {
                 founding:
-                  `نفر ${toPersianDigits(String(member.rank))} از هزار نفر اول · ` +
+                  `نفر ${toPersianDigits(String(member.rank))} از ` +
+                  `${toPersianDigits(String(campaign.max))} نفر اول · ` +
                   foundingTierName(member.tier),
                 // The template draws the medal from this, so the card and the
                 // roster read one tier through one function.
