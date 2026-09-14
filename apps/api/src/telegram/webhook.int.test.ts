@@ -3148,7 +3148,8 @@ describe('POST /telegram/:secret — direct messages', () => {
 
     await tap(GUEST_TELEGRAM_ID, `dm:view:${message.publicId}`);
     const ownView = await latest(TEMPLATES.BOT_DIRECT_MESSAGE);
-    expect(String(ownView['keyboard'] ?? '')).not.toContain('rp:ask');
+    const ownKeyboard = ownView['keyboard'];
+    expect(typeof ownKeyboard === 'string' ? ownKeyboard : '').not.toContain('rp:ask');
   });
 
   it('carries a message from a guest to the host and a reply back', async () => {
