@@ -442,6 +442,7 @@ export { ChannelService } from './channel/channel.service';
 export {
   ChannelConfigService,
   CHANNEL_CONFIG_ID,
+  CHANNEL_POST_UNDELETABLE_ACTION,
   GATED_ACTIONS,
   normalizeChatIdentifier,
   normalizeInviteUrl,
@@ -452,6 +453,7 @@ export type {
   ChannelConfig,
   ChannelConfigStatus,
   ChannelConfigWarning,
+  ChannelPublishingWarning,
   GatedAction,
   RequiredChannelRecord,
 } from './channel/channel-config.service';
@@ -462,7 +464,7 @@ export type {
   MembershipProbeResult,
   MembershipState,
 } from './channel/membership.service';
-export type { PublishablePost, TakedownTarget } from './channel/channel.service';
+export type { PublishablePost, StaleCapacityPost, TakedownTarget } from './channel/channel.service';
 export { ChannelModule } from './channel/channel.module';
 
 export { AnonymizationService, ANONYMOUS_DISPLAY_NAME } from './privacy/anonymization.service';

@@ -1373,6 +1373,9 @@ export const requiredChannelView = z.object({
 });
 export type RequiredChannelView = z.infer<typeof requiredChannelView>;
 
+export const channelPublishingWarning = z.enum(['BOT_CANNOT_DELETE']);
+export type ChannelPublishingWarningView = z.infer<typeof channelPublishingWarning>;
+
 export const channelConfigView = z.object({
   membershipRequired: z.boolean(),
   requiredActions: z.array(gatedAction),
@@ -1395,6 +1398,13 @@ export const channelConfigView = z.object({
   warnings: z.array(
     z.enum(['NO_CHANNELS', 'NO_JOIN_LINK', 'NO_CHAT_IDENTIFIER', 'NO_ACTIONS_SELECTED']),
   ),
+  /**
+   * What is wrong with the channel the bot posts to (plan 14).
+   *
+   * `BOT_CANNOT_DELETE`: in the last day Telegram refused to take a post down, so
+   * something the product meant to remove is still in the channel.
+   */
+  publishingWarnings: z.array(channelPublishingWarning),
 });
 export type ChannelConfigView = z.infer<typeof channelConfigView>;
 

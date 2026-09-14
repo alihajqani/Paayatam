@@ -37,7 +37,12 @@ const service = prisma as unknown as PrismaService;
 
 const NOW = new Date('2026-08-15T09:00:00.000Z');
 const clock = new FakeClock(NOW);
-const env = { APP_TIMEZONE: 'Asia/Tehran' } as unknown as Env;
+/**
+ * A channel is configured, as in production: registration charges for a post only
+ * when there is somewhere to put it (plan 14). The suite that asserts the other
+ * case builds its own service without one.
+ */
+const env = { APP_TIMEZONE: 'Asia/Tehran', TELEGRAM_CHANNEL_ID: '@payetam_test' } as unknown as Env;
 
 const settings = new SettingsService(service);
 /**
@@ -877,6 +882,97 @@ describe('EventService.create — the creation charge (M22 phase 5)', () => {
     // setting and still costs what it costs — which is the point of pricing the
     // two apart even though the host is quoted their sum.
     await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CHANNEL_PUBLISH_COST);
+  });
+});
+
+/**
+ * No channel, no charge for one (plan 14, item 1).
+ *
+ * Registration claimed and charged a paid post whatever the channel's state. With
+ * `channel.enabled` off the claim waited until it came back on; with no
+ * `TELEGRAM_CHANNEL_ID` the worker retried it forever. Either way the host paid
+ * fifteen coins for a post, and was told «در کانال پایه‌تَم منتشر می‌شود».
+ */
+describe('EventService.create — only a channel that can publish is paid for', () => {
+  async function switchChannelOff(): Promise<void> {
+    await prisma.appSetting.upsert({
+      where: { key: 'channel.enabled' },
+      create: { key: 'channel.enabled', value: 0 },
+      update: { value: 0 },
+    });
+  }
+
+  it('charges nothing for the channel while the channel is switched off', async () => {
+    await switchChannelOff();
+
+    const created = await events.create(hostId, validInput());
+
+    await expect(
+      prisma.channelPost.count({ where: { event: { publicId: created.publicId } } }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.coinLedger.count({ where: { userId: hostId, type: 'CHANNEL_POST_SPEND' } }),
+    ).resolves.toBe(0);
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - CREATE_COST);
+    // The status the bot reads to decide whether to promise a post.
+    expect(created.channelStatus).toBe('NONE');
+    await expect(events.channelPublishable()).resolves.toBe(false);
+  });
+
+  it('charges nothing for the channel when no channel is configured', async () => {
+    const unconfigured = new EventService(
+      service,
+      clock,
+      { APP_TIMEZONE: 'Asia/Tehran', TELEGRAM_CHANNEL_ID: '' } as unknown as Env,
+      catalog,
+      settings,
+      moderation,
+      channel,
+      membership,
+      coins,
+      penalties,
+      outbox,
+      audit,
+    );
+
+    const created = await unconfigured.create(hostId, validInput());
+
+    await expect(
+      prisma.coinLedger.count({ where: { userId: hostId, type: 'CHANNEL_POST_SPEND' } }),
+    ).resolves.toBe(0);
+    await expect(prisma.channelPost.count()).resolves.toBe(0);
+    expect(created.channelStatus).toBe('NONE');
+    await expect(unconfigured.channelPublishable()).resolves.toBe(false);
+  });
+
+  it('still charges for the post when the channel can publish', async () => {
+    await expect(events.channelPublishable()).resolves.toBe(true);
+
+    const created = await events.create(hostId, validInput());
+
+    expect(created.channelStatus).toBe('QUEUED');
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - REGISTER_COST);
+  });
+
+  /** A renewal is the same purchase, and it would also take the live post down. */
+  it('refuses a renewal while the channel is switched off, and charges nothing', async () => {
+    const created = await events.create(hostId, validInput());
+    await prisma.channelPost.updateMany({
+      where: { event: { publicId: created.publicId } },
+      data: { postedAt: NOW, telegramMessageId: 4242 },
+    });
+    await switchChannelOff();
+
+    await expect(events.publishToChannel(hostId, created.publicId)).rejects.toMatchObject({
+      code: 'CHANNEL_UNAVAILABLE',
+    });
+
+    await expect(coins.balanceOf(hostId)).resolves.toBe(HOST_ENDOWMENT - REGISTER_COST);
+    const posts = await prisma.channelPost.findMany({
+      where: { event: { publicId: created.publicId } },
+    });
+    // The live post was not superseded: nothing would have replaced it.
+    expect(posts.map((post) => [post.republishSeq, post.supersededAt])).toEqual([[0, null]]);
   });
 });
 

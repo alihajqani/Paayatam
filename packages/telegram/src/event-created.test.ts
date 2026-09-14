@@ -25,6 +25,32 @@ describe('the activity-created message', () => {
     expect(urls).toEqual([SHARE]);
   });
 
+  /**
+   * The channel is promised only when a post was bought (plan 14).
+   *
+   * With the channel switched off or unconfigured, registration no longer claims
+   * a post — so «در کانال پایه‌تَم منتشر می‌شود» would be a promise nothing keeps,
+   * and «انتشار دوباره» an offer the service refuses.
+   */
+  it('promises the channel, and offers to renew it, only when a post was bought', () => {
+    const inChannel = render(TEMPLATES.BOT_EVENT_CREATED, {
+      ...payload,
+      publishedToChannel: true,
+      republishCost: '۸',
+    })?.text;
+    expect(inChannel).toContain('در کانال پایه‌تَم منتشر می‌شود');
+    expect(inChannel).toContain('انتشار دوباره');
+
+    const notInChannel = render(TEMPLATES.BOT_EVENT_CREATED, {
+      ...payload,
+      publishedToChannel: false,
+      republishCost: '۸',
+    })?.text;
+    expect(notInChannel).not.toContain('در کانال');
+    expect(notInChannel).not.toContain('انتشار دوباره');
+    expect(notInChannel).toContain('دعوت ویژه');
+  });
+
   /** A url is only drawn when it is the share sheet — never an arbitrary link. */
   it('draws no button for a url that is not the share sheet', () => {
     const message = render(TEMPLATES.BOT_EVENT_CREATED, {

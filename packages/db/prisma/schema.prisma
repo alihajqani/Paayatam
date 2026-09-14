@@ -2564,6 +2564,11 @@ model ChannelPost {
   /// a taken-down post still blocks a free re-post at its own sequence (0036).
   republishSeq Int @default(0) @map("republish_seq")
 
+  /// Whether the text in the channel says «ظرفیت تکمیل». The sweep edits a post only
+  /// when this disagrees with the event, so a busy activity is not an edit per
+  /// acceptance (0052, plan 14).
+  renderedFull Boolean @default(false) @map("rendered_full")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)

@@ -129,25 +129,45 @@ export class TelegramClient {
   /**
    * Take a channel post down.
    *
-   * A message that is already gone counts as success: the goal is "this is not in
-   * the channel", and something else having removed it first satisfies that. Any
-   * other reading would retry forever against a message that does not exist.
+   * Not a boolean any more (plan 14, item 2): «already gone» and «Telegram will
+   * not delete it» both stop the retries, and only the second leaves a post in
+   * the channel that somebody has to hear about. See `deleteOutcome`.
    */
-  async deleteChannelPost(messageId: number): Promise<boolean> {
-    if (!this.bot || this.channelId === undefined || this.channelId === '') return false;
+  async deleteChannelPost(messageId: number): Promise<ChannelDeleteOutcome> {
+    if (!this.bot || this.channelId === undefined || this.channelId === '') return 'RETRY';
 
     try {
       await this.bot.api.deleteMessage(this.channelId, messageId);
-      return true;
+      return 'DELETED';
     } catch (error) {
-      const outcome = classify(error);
-      if (outcome.kind === 'SENT') return true;
-      if (outcome.kind === 'BLOCKED') return true;
-      if (outcome.kind === 'RATE_LIMITED') return false;
-      // Telegram refuses to delete anything older than 48 hours in some chats.
-      // Treated as done for the same reason a missing message is: retrying cannot
-      // change it, and the row must stop being reconsidered on every sweep.
-      return /message to delete not found|message can't be deleted/i.test(outcome.reason);
+      return deleteOutcome(error);
+    }
+  }
+
+  /**
+   * Rewrite a channel post in place — its capacity line (plan 14, item 3).
+   *
+   * The keyboard is sent again because `editMessageText` without `reply_markup`
+   * **removes** the buttons, and a post without «🤝 پایتم» is a post nobody can
+   * act on. Same parse mode and preview rule as `postToChannel`, for the same
+   * reasons.
+   */
+  async editChannelPost(
+    messageId: number,
+    text: string,
+    keyboard?: InlineKeyboard,
+  ): Promise<ChannelEditOutcome> {
+    if (!this.bot || this.channelId === undefined || this.channelId === '') return 'RETRY';
+
+    try {
+      await this.bot.api.editMessageText(this.channelId, messageId, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
+      });
+      return 'EDITED';
+    } catch (error) {
+      return editOutcome(error);
     }
   }
 
@@ -409,6 +429,48 @@ export function classify(error: unknown): SendOutcome {
   if (error instanceof HttpError)
     return { kind: 'RETRY', reason: 'network error reaching Telegram' };
   return { kind: 'RETRY', reason: error instanceof Error ? error.message : 'unknown error' };
+}
+
+/**
+ * What happened to a channel post the sweep tried to take down.
+ *
+ * `DELETED` and `GONE` are both "not in the channel". `UNDELETABLE` is "still in
+ * the channel, and retrying will not change that" — no `can_delete_messages`
+ * for a post past Telegram's 48 hours, or the bot has lost the channel. The row
+ * stops being retried either way; only this one is a warning.
+ */
+export type ChannelDeleteOutcome = 'DELETED' | 'GONE' | 'UNDELETABLE' | 'RETRY';
+
+/** A failed `deleteMessage`, read. Exported so the reading is testable as a rule. */
+export function deleteOutcome(error: unknown): ChannelDeleteOutcome {
+  const outcome = classify(error);
+  // 403, or «chat not found»: the bot is no longer in the channel, so the post
+  // stays and nothing this process does can remove it.
+  if (outcome.kind === 'BLOCKED') return 'UNDELETABLE';
+  if (outcome.kind !== 'RETRY') return 'RETRY';
+  if (/message to delete not found/i.test(outcome.reason)) return 'GONE';
+  if (/message can't be deleted/i.test(outcome.reason)) return 'UNDELETABLE';
+  return 'RETRY';
+}
+
+/**
+ * What happened to a channel post the sweep tried to edit.
+ *
+ * `EDITED` includes «message is not modified»: the text already says what the
+ * edit would, and treating that as a failure would retry it on every pass.
+ * `GONE` and `UNEDITABLE` cannot be fixed by retrying either.
+ */
+export type ChannelEditOutcome = 'EDITED' | 'GONE' | 'UNEDITABLE' | 'RETRY';
+
+/** A failed `editMessageText` on the channel, read. */
+export function editOutcome(error: unknown): ChannelEditOutcome {
+  const outcome = classify(error);
+  if (outcome.kind === 'BLOCKED') return 'UNEDITABLE';
+  if (outcome.kind !== 'RETRY') return 'RETRY';
+  if (/message is not modified/i.test(outcome.reason)) return 'EDITED';
+  if (/message to edit not found/i.test(outcome.reason)) return 'GONE';
+  if (/message can't be edited/i.test(outcome.reason)) return 'UNEDITABLE';
+  return 'RETRY';
 }
 
 /**

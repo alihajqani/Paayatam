@@ -6,6 +6,7 @@ import {
   CoinService,
   ParticipationService,
   OutboxRelayService,
+  SETTING_DEFAULTS,
   TrustService,
   normalize,
 } from '@payetam/domain';
@@ -56,6 +57,9 @@ process.env['TELEGRAM_BOT_TOKEN'] ??= '1234567890:LOCAL-DEV-ONLY-NOT-A-REAL-TOKE
 process.env['CHAT_ENCRYPTION_KEY'] ??= TEST_CHAT_ENCRYPTION_KEY;
 process.env['JWT_ACCESS_SECRET'] ??= 'a'.repeat(48);
 process.env['JWT_REFRESH_SECRET'] ??= 'b'.repeat(48);
+// A channel to publish to, so registration is priced as production prices it
+// (plan 14). `||=`, because `.env.example` ships the key blank.
+process.env['TELEGRAM_CHANNEL_ID'] ||= '@payetam_test';
 
 const prisma: PrismaClient = createTestPrisma();
 
@@ -1222,6 +1226,48 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
     expect(data).toContain('cd:gift:x');
     expect(data).toContain('mn:c:referral');
     expect(await prisma.conversationState.count({ where: { userId: hostId } })).toBe(0);
+  });
+
+  /**
+   * The price before the form is the price the service will charge (plan 14).
+   *
+   * With the channel switched off, registration no longer buys a post, so a host
+   * holding exactly the creation price can register — and was stopped here,
+   * asked for fifteen coins nobody was going to take.
+   */
+  describe('the price quoted before the form follows the channel', () => {
+    const CREATE = SETTING_DEFAULTS['economy.event_create_coins'];
+
+    async function hostWithCreationPriceOnly(): Promise<string> {
+      const hostId = await seedFundedHost(HOST_TELEGRAM_ID);
+      await prisma.coinAccount.update({ where: { userId: hostId }, data: { balance: CREATE } });
+      return hostId;
+    }
+
+    it('asks for the channel post too while the channel publishes', async () => {
+      const hostId = await hostWithCreationPriceOnly();
+
+      await type(HOST_TELEGRAM_ID, '/create_event');
+
+      const replies = await replyTo(HOST_TELEGRAM_ID);
+      expect(replies.map((reply) => reply.templateKey)).toEqual([TEMPLATES.BOT_COINS_SHORT]);
+      await expect(prisma.conversationState.count({ where: { userId: hostId } })).resolves.toBe(0);
+    });
+
+    it('asks only for creation while the channel is switched off', async () => {
+      const hostId = await hostWithCreationPriceOnly();
+      await prisma.appSetting.upsert({
+        where: { key: 'channel.enabled' },
+        create: { key: 'channel.enabled', value: 0 },
+        update: { value: 0 },
+      });
+
+      await type(HOST_TELEGRAM_ID, '/create_event');
+
+      const replies = await replyTo(HOST_TELEGRAM_ID);
+      expect(replies.map((reply) => reply.templateKey)).not.toContain(TEMPLATES.BOT_COINS_SHORT);
+      await expect(prisma.conversationState.count({ where: { userId: hostId } })).resolves.toBe(1);
+    });
   });
 
   /** A refusal holds the step; it does not advance past the question. */

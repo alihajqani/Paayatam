@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { ChannelConfigView, GatedActionView, RequiredChannelView } from '@payetam/shared';
+import type {
+  ChannelConfigView,
+  ChannelPublishingWarningView,
+  GatedActionView,
+  RequiredChannelView,
+} from '@payetam/shared';
 import { messageOf, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
@@ -86,6 +91,17 @@ const WARNING_LABELS: Record<string, string> = {
   NO_CHAT_IDENTIFIER:
     'دست‌کم یکی از کانال‌ها شناسه ندارد، پس عضویت در آن قابل بررسی نیست و همه اجازهٔ عبور می‌گیرند.',
   NO_ACTIONS_SELECTED: 'هیچ عملیاتی برای اجبار انتخاب نشده است، پس این تنظیم اثری ندارد.',
+};
+
+/**
+ * The channel the bot posts to (plan 14). Typed over the contract's enum, so a
+ * warning the API learns to send cannot reach this screen without a sentence.
+ */
+const PUBLISHING_WARNING_LABELS: Record<ChannelPublishingWarningView, string> = {
+  BOT_CANNOT_DELETE:
+    'در شبانه‌روز گذشته ربات نتوانست پستی را از کانال بردارد، پس آگهی‌ای که باید برداشته می‌شد ' +
+    'هنوز در کانال است. در تنظیمات مدیرهای کانال به ربات حق «حذف پیام‌ها» بدهید و آن پست را ' +
+    'دستی بردارید.',
 };
 
 function hydrate(next: ChannelConfigView): void {
@@ -263,6 +279,20 @@ onMounted(load);
         <ul class="mt-1 list-disc space-y-1 ps-5 text-sm text-warn">
           <li v-for="warning in config.warnings" :key="warning">
             {{ WARNING_LABELS[warning] ?? warning }}
+          </li>
+        </ul>
+      </section>
+
+      <!-- ── The channel the bot posts to ─────────────────────────────── -->
+      <section
+        v-if="config.publishingWarnings.length > 0"
+        class="rounded-xl border border-warn bg-warn-soft p-4"
+        role="alert"
+      >
+        <h2 class="text-sm font-semibold text-warn">انتشار در کانال</h2>
+        <ul class="mt-1 list-disc space-y-1 ps-5 text-sm text-warn">
+          <li v-for="warning in config.publishingWarnings" :key="warning">
+            {{ PUBLISHING_WARNING_LABELS[warning] }}
           </li>
         </ul>
       </section>

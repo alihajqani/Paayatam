@@ -2,6 +2,8 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
   AdminTelegramService,
+  AuditService,
+  CHANNEL_POST_UNDELETABLE_ACTION,
   ChannelService,
   CoinService,
   ComebackService,
@@ -19,6 +21,7 @@ import {
   ReleaseAnnouncementService,
   RetentionService,
   ReviewService,
+  type PublishablePost,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
 import {
@@ -30,6 +33,7 @@ import {
   render,
   renderChannelPost,
   type InlineKeyboard,
+  type RenderedChannelPost,
 } from '@payetam/telegram';
 import { TelegramLoggerService } from '../monitoring/telegram-logger.service';
 import { TelegramClient } from '../telegram/telegram.client';
@@ -139,6 +143,13 @@ export class Processors implements OnModuleInit {
     private readonly adminTelegram: AdminTelegramService,
     /** Who is due the moderation digest, and when they were last sent it (plan 06). */
     private readonly moderationDigests: ModerationDigestService,
+    /**
+     * For one record only: a channel post Telegram would not take down (plan 14).
+     *
+     * The metric says it to `/metrics`; the panel is served by the API and cannot
+     * read the worker's memory, so the warning it shows is read off this row.
+     */
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -992,9 +1003,41 @@ export class Processors implements OnModuleInit {
     let failed = 0;
     let lastReason: string | null = null;
 
+    /**
+     * Takedowns, and the ones Telegram refuses (plan 14, item 2).
+     *
+     * An undeletable post is marked taken down like a gone one — retrying cannot
+     * change the answer, and the row must stop being reconsidered every pass —
+     * but it is still in the channel, so it is also counted, logged by message
+     * id (never the post's text), and recorded once per pass for the panel.
+     */
+    let undeletableRecorded = false;
     for (const target of await this.channel.findTakedowns()) {
-      const removed = await this.telegram.deleteChannelPost(target.telegramMessageId);
-      if (removed) await this.channel.markTakenDown(target.postId);
+      const outcome = await this.telegram.deleteChannelPost(target.telegramMessageId);
+      if (outcome === 'RETRY') continue;
+
+      if (outcome === 'UNDELETABLE') {
+        this.metrics.counter(
+          'payetam_channel_post_total',
+          'Channel publication attempts by outcome.',
+          { outcome: 'undeletable' },
+        );
+        this.logger.warn(
+          `Channel message ${String(target.telegramMessageId)} could not be deleted and stays ` +
+            'in the channel. Check that the bot has «Delete messages» there.',
+        );
+        if (!undeletableRecorded) {
+          await this.audit.record({
+            actorType: 'SYSTEM',
+            action: CHANNEL_POST_UNDELETABLE_ACTION,
+            targetType: 'channel_post',
+            targetId: target.postId,
+          });
+          undeletableRecorded = true;
+        }
+      }
+
+      await this.channel.markTakenDown(target.postId);
     }
 
     /**
@@ -1010,26 +1053,11 @@ export class Processors implements OnModuleInit {
     const paid = await this.channel.findUnpostedPaid();
 
     for (const post of [...paid, ...(await this.channel.claimPending())]) {
-      // Text and keyboard together, from one renderer: a post whose button linked
-      // to a different event than its body is the failure two call sites invite.
-      const rendered = renderChannelPost({
-        kind: post.kind,
-        title: post.title,
-        categoryName: post.categoryName,
-        cityName: post.cityName,
-        districtName: post.districtName,
-        startsAt: post.startsAt,
-        capacity: post.capacity,
-        acceptedCount: post.acceptedCount,
-        costType: post.costType,
-        costAmount: post.costAmount,
-        eventPublicId: post.eventPublicId,
-        botUsername: this.telegram.botUsername,
-      });
+      const rendered = this.renderPost(post);
       const outcome = await this.telegram.postToChannel(rendered.text, rendered.keyboard);
 
       if (outcome.kind === 'SENT') {
-        await this.channel.markPosted(post.postId, outcome.messageId);
+        await this.channel.markPosted(post.postId, outcome.messageId, post.full);
         this.metrics.counter(
           'payetam_channel_post_total',
           'Channel publication attempts by outcome.',
@@ -1051,6 +1079,59 @@ export class Processors implements OnModuleInit {
     }
 
     this.reportChannelHealth(sent, failed, lastReason);
+
+    /**
+     * Capacity lines that crossed a boundary (plan 14, item 3).
+     *
+     * Last, and budgeted by `findStaleCapacity`'s limit: a new post matters more
+     * than a corrected one, and an edit per acceptance would spend the channel's
+     * rate limit on digits. Only «filled» and «a seat opened again» are edited.
+     *
+     * A post that is gone or uneditable is recorded as rendered anyway — retrying
+     * cannot change the answer, and the row must stop coming back every pass.
+     * Not counted in the channel's health: that is about publishing.
+     */
+    for (const post of await this.channel.findStaleCapacity()) {
+      const rendered = this.renderPost(post);
+      const outcome = await this.telegram.editChannelPost(
+        post.telegramMessageId,
+        rendered.text,
+        rendered.keyboard,
+      );
+      if (outcome === 'RETRY') continue;
+
+      if (outcome === 'UNEDITABLE') {
+        this.logger.warn(
+          `Channel message ${String(post.telegramMessageId)} could not be edited; ` +
+            'its capacity line stays as it was.',
+        );
+      }
+      await this.channel.markCapacityRendered(post.postId, post.full);
+    }
+  }
+
+  /**
+   * Text and keyboard together, from one renderer, for a post and for its edit.
+   *
+   * A post whose button linked to a different event than its body is the failure
+   * two call sites invite — and an edit rendered differently from the post would
+   * rewrite more than the capacity line.
+   */
+  private renderPost(post: PublishablePost): RenderedChannelPost {
+    return renderChannelPost({
+      kind: post.kind,
+      title: post.title,
+      categoryName: post.categoryName,
+      cityName: post.cityName,
+      districtName: post.districtName,
+      startsAt: post.startsAt,
+      capacity: post.capacity,
+      acceptedCount: post.acceptedCount,
+      costType: post.costType,
+      costAmount: post.costAmount,
+      eventPublicId: post.eventPublicId,
+      botUsername: this.telegram.botUsername,
+    });
   }
 
   /**

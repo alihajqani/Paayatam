@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { ChannelPostKind, Prisma } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
+import { UNLIMITED_CAPACITY, isUnlimitedCapacity } from '@payetam/shared';
 import { SettingsService } from '../catalog/settings.service';
 import { isUniqueViolation } from '../identity/user.service';
 
@@ -19,6 +20,25 @@ export interface PublishablePost {
   acceptedCount: number;
   costType: string;
   costAmount: number | null;
+  /**
+   * Whether these numbers render as «ظرفیت تکمیل» — what `markPosted` and
+   * `markCapacityRendered` record, so the sweep knows which side of full the
+   * text in the channel is on (plan 14, item 3).
+   */
+  full: boolean;
+}
+
+/** A live post whose capacity line no longer matches the activity. */
+export interface StaleCapacityPost extends PublishablePost {
+  telegramMessageId: number;
+}
+
+/**
+ * «ظرفیت تکمیل», by the rule `seatsLine` renders: nothing left, and a limit to
+ * have run out of. Unlimited is never full, however many have joined.
+ */
+function showsFull(capacity: number, acceptedCount: number): boolean {
+  return !isUnlimitedCapacity(capacity) && acceptedCount >= capacity;
 }
 
 /** A post that should come down, and the message id needed to take it down. */
@@ -142,6 +162,7 @@ export class ChannelService {
           acceptedCount: event.acceptedCount,
           costType: event.costType,
           costAmount: event.costAmount,
+          full: showsFull(event.capacity, event.acceptedCount),
         });
       }
     }
@@ -307,14 +328,121 @@ export class ChannelService {
       acceptedCount: row.event.acceptedCount,
       costType: row.event.costType,
       costAmount: row.event.costAmount,
+      full: showsFull(row.event.capacity, row.event.acceptedCount),
     }));
   }
 
-  /** Telegram confirmed it. Now the row can be taken down later. */
-  async markPosted(postId: string, telegramMessageId: number): Promise<void> {
+  /**
+   * Telegram confirmed it. Now the row can be taken down later.
+   *
+   * `renderedFull` is the `full` of the post that was sent: without it, a post
+   * that went out already full would read as stale and be edited to what it
+   * already says.
+   */
+  async markPosted(
+    postId: string,
+    telegramMessageId: number,
+    renderedFull: boolean,
+  ): Promise<void> {
     await this.prisma.channelPost.update({
       where: { id: postId },
-      data: { telegramMessageId, postedAt: this.clock.now() },
+      data: { telegramMessageId, postedAt: this.clock.now(), renderedFull },
+    });
+  }
+
+  /**
+   * Live posts that say the wrong side of full (plan 14, item 3).
+   *
+   * A post is rendered once. Editing it on every acceptance would put a busy
+   * channel against Telegram's rate limit, so only the two boundaries count: it
+   * filled while the text still offers seats, or a seat opened on one that says
+   * «ظرفیت تکمیل». The number between them is allowed to lag.
+   *
+   * Live means what `findTakedowns` does not want: posted, not taken down, not
+   * superseded, for a published activity that has not started. Unlimited
+   * activities are never full and never returned. `limit` is the edit budget
+   * for one pass.
+   *
+   * Nothing while `channel.enabled` is off: an edit is a write to the public
+   * surface the switch exists to stop. Takedowns still run — removing is what an
+   * incident wants — and the flag stays stale, so the edit lands once it is on.
+   */
+  async findStaleCapacity(limit = 10): Promise<StaleCapacityPost[]> {
+    if ((await this.settings.getInt('channel.enabled')) !== 1) return [];
+    const now = this.clock.now();
+    // A column compared with a column, which a plain filter cannot express.
+    const capacity = this.prisma.event.fields.capacity;
+
+    const rows = await this.prisma.channelPost.findMany({
+      where: {
+        deletedAt: null,
+        postedAt: { not: null },
+        supersededAt: null,
+        telegramMessageId: { not: null },
+        event: {
+          status: 'PUBLISHED',
+          deletedAt: null,
+          startsAt: { gt: now },
+          capacity: { lt: UNLIMITED_CAPACITY },
+        },
+        OR: [
+          { renderedFull: false, event: { acceptedCount: { gte: capacity } } },
+          { renderedFull: true, event: { acceptedCount: { lt: capacity } } },
+        ],
+      },
+      orderBy: { postedAt: 'asc' },
+      take: limit,
+      select: {
+        id: true,
+        kind: true,
+        telegramMessageId: true,
+        event: {
+          select: {
+            publicId: true,
+            title: true,
+            startsAt: true,
+            capacity: true,
+            acceptedCount: true,
+            costType: true,
+            costAmount: true,
+            category: { select: { nameFa: true } },
+            city: { select: { nameFa: true } },
+            district: { select: { nameFa: true } },
+            districtLabel: true,
+          },
+        },
+      },
+    });
+
+    return rows.flatMap((row) =>
+      row.telegramMessageId === null
+        ? []
+        : [
+            {
+              postId: row.id,
+              telegramMessageId: row.telegramMessageId,
+              eventPublicId: row.event.publicId,
+              kind: row.kind,
+              title: row.event.title,
+              categoryName: row.event.category.nameFa,
+              cityName: row.event.city.nameFa,
+              districtName: row.event.district?.nameFa ?? row.event.districtLabel,
+              startsAt: row.event.startsAt,
+              capacity: row.event.capacity,
+              acceptedCount: row.event.acceptedCount,
+              costType: row.event.costType,
+              costAmount: row.event.costAmount,
+              full: showsFull(row.event.capacity, row.event.acceptedCount),
+            },
+          ],
+    );
+  }
+
+  /** The edit landed, or can never land: either way the channel now says `full`. */
+  async markCapacityRendered(postId: string, full: boolean): Promise<void> {
+    await this.prisma.channelPost.update({
+      where: { id: postId },
+      data: { renderedFull: full },
     });
   }
 
