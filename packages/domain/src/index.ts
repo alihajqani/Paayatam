@@ -464,7 +464,7 @@ export type {
   MembershipProbeResult,
   MembershipState,
 } from './channel/membership.service';
-export type { PublishablePost, TakedownTarget } from './channel/channel.service';
+export type { PublishablePost, StaleCapacityPost, TakedownTarget } from './channel/channel.service';
 export { ChannelModule } from './channel/channel.module';
 
 export { AnonymizationService, ANONYMOUS_DISPLAY_NAME } from './privacy/anonymization.service';

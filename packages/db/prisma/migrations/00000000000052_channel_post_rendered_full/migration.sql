@@ -1,0 +1,33 @@
+-- Migration 0052: whether a channel post says the activity is full (plan 14, item 3).
+--
+-- ── What was missing ────────────────────────────────────────────────────────
+--
+-- A channel post is rendered once, with the `accepted_count` of the moment it
+-- was sent, and nothing ever edited it. A post that said «۳ جای خالی از ۶» said
+-- it after the sixth guest was accepted too, so the channel advertised seats
+-- that did not exist.
+--
+-- ── Why a flag and not the number ───────────────────────────────────────────
+--
+-- Editing on every acceptance would put a busy channel against Telegram's rate
+-- limit, so the sweep edits only when a post crosses a boundary: it becomes
+-- «ظرفیت تکمیل», or a seat opens again on one that said so. That needs to know
+-- which side of the boundary the text in the channel is on — one boolean — and
+-- not the count it last showed, which would make every acceptance look stale.
+--
+-- ── NOT NULL DEFAULT false, and additive ────────────────────────────────────
+--
+-- Existing rows read "rendered as not full", which is how nearly every post
+-- starts. A live post on an activity that is already full is therefore edited
+-- once on the first sweep after deploy — that is the fix arriving, not a side
+-- effect. Adding a column with a constant default is metadata-only on Postgres
+-- 11+, so no table rewrite; an older build ignores the column and its inserts
+-- take the default.
+--
+-- ── No index ────────────────────────────────────────────────────────────────
+--
+-- The sweep reads live posts — `deleted_at IS NULL AND posted_at IS NOT NULL`,
+-- already `channel_post_deleted_at_posted_at_idx` — and live posts are the
+-- handful for activities that have not started.
+ALTER TABLE "channel_post"
+  ADD COLUMN IF NOT EXISTS "rendered_full" BOOLEAN NOT NULL DEFAULT false;

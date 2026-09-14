@@ -145,6 +145,33 @@ export class TelegramClient {
   }
 
   /**
+   * Rewrite a channel post in place — its capacity line (plan 14, item 3).
+   *
+   * The keyboard is sent again because `editMessageText` without `reply_markup`
+   * **removes** the buttons, and a post without «🤝 پایتم» is a post nobody can
+   * act on. Same parse mode and preview rule as `postToChannel`, for the same
+   * reasons.
+   */
+  async editChannelPost(
+    messageId: number,
+    text: string,
+    keyboard?: InlineKeyboard,
+  ): Promise<ChannelEditOutcome> {
+    if (!this.bot || this.channelId === undefined || this.channelId === '') return 'RETRY';
+
+    try {
+      await this.bot.api.editMessageText(this.channelId, messageId, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        ...(keyboard !== undefined ? { reply_markup: toReplyMarkup(keyboard) } : {}),
+      });
+      return 'EDITED';
+    } catch (error) {
+      return editOutcome(error);
+    }
+  }
+
+  /**
    * Send one message to one person.
    *
    * `parseMode` defaults to `'HTML'`, which is what every template in
@@ -423,6 +450,26 @@ export function deleteOutcome(error: unknown): ChannelDeleteOutcome {
   if (outcome.kind !== 'RETRY') return 'RETRY';
   if (/message to delete not found/i.test(outcome.reason)) return 'GONE';
   if (/message can't be deleted/i.test(outcome.reason)) return 'UNDELETABLE';
+  return 'RETRY';
+}
+
+/**
+ * What happened to a channel post the sweep tried to edit.
+ *
+ * `EDITED` includes «message is not modified»: the text already says what the
+ * edit would, and treating that as a failure would retry it on every pass.
+ * `GONE` and `UNEDITABLE` cannot be fixed by retrying either.
+ */
+export type ChannelEditOutcome = 'EDITED' | 'GONE' | 'UNEDITABLE' | 'RETRY';
+
+/** A failed `editMessageText` on the channel, read. */
+export function editOutcome(error: unknown): ChannelEditOutcome {
+  const outcome = classify(error);
+  if (outcome.kind === 'BLOCKED') return 'UNEDITABLE';
+  if (outcome.kind !== 'RETRY') return 'RETRY';
+  if (/message is not modified/i.test(outcome.reason)) return 'EDITED';
+  if (/message to edit not found/i.test(outcome.reason)) return 'GONE';
+  if (/message can't be edited/i.test(outcome.reason)) return 'UNEDITABLE';
   return 'RETRY';
 }
 

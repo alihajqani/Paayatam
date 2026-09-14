@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { EventStatus, PrismaClient, PrismaService } from '@payetam/db';
 import { FakeClock } from '@payetam/platform';
-import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
+import { EVENT_DISCLAIMER_SHORT_FA, UNLIMITED_CAPACITY } from '@payetam/shared';
 import { renderChannelPost, type RenderedChannelPost } from '@payetam/telegram';
 import {
   createTestPrisma,
@@ -47,6 +47,8 @@ interface EventOptions {
   startsAt?: Date;
   deletedAt?: Date | null;
   title?: string;
+  capacity?: number;
+  acceptedCount?: number;
 }
 
 async function createEvent(options: EventOptions = {}): Promise<{ id: string; publicId: string }> {
@@ -63,8 +65,8 @@ async function createEvent(options: EventOptions = {}): Promise<{ id: string; pu
       districtId: fixture.tehranDistrictId,
       startsAt: options.startsAt ?? STARTS_AT,
       endsAt: new Date((options.startsAt ?? STARTS_AT).getTime() + 3 * 3_600_000),
-      capacity: 6,
-      acceptedCount: 2,
+      capacity: options.capacity ?? 6,
+      acceptedCount: options.acceptedCount ?? 2,
       costType: 'FREE',
       status,
       moderationStatus: options.moderationStatus ?? 'APPROVED',
@@ -286,7 +288,7 @@ describe('no duplicate post per event per kind', () => {
     await createEvent({ requestCount: 10 });
     const claimed = await channel.claimPending();
     const postId = claimed[0]?.postId ?? '';
-    await channel.markPosted(postId, 42);
+    await channel.markPosted(postId, 42, false);
 
     await channel.releaseClaim(postId);
 
@@ -300,7 +302,7 @@ describe('a stale post comes down', () => {
     const event = await createEvent({ requestCount: 10, ...options });
     const claimed = await channel.claimPending();
     const postId = claimed[0]?.postId ?? '';
-    await channel.markPosted(postId, 4242);
+    await channel.markPosted(postId, 4242, false);
     return { id: event.id, postId };
   }
 
@@ -544,5 +546,120 @@ describe('the post body carries no host identity', () => {
     // The button carries the id now, so the assertion has to look at both halves.
     expect(wholePost(body)).toContain(event.publicId);
     expect(wholePost(body)).not.toContain(event.id);
+  });
+});
+
+/**
+ * A post that still says there are seats (plan 14, item 3).
+ *
+ * The post is rendered once, and nothing edited it: «۳ جای خالی» stayed after the
+ * activity filled. Editing on every acceptance would put a busy channel against
+ * Telegram's rate limit, so only the two boundaries are edited — it filled, or a
+ * seat opened again on a post that said it was full.
+ */
+describe('a post whose capacity line has gone stale', () => {
+  async function livePost(
+    options: EventOptions,
+    renderedFull = false,
+  ): Promise<{ eventId: string; postId: string }> {
+    const event = await createEvent(options);
+    const post = await prisma.channelPost.create({
+      data: {
+        eventId: event.id,
+        kind: 'PAID',
+        createdAt: NOW,
+        postedAt: NOW,
+        telegramMessageId: 4242,
+        renderedFull,
+      },
+      select: { id: true },
+    });
+    return { eventId: event.id, postId: post.id };
+  }
+
+  it('finds a post that says there are seats on an activity that has filled', async () => {
+    const { postId } = await livePost({ capacity: 6, acceptedCount: 6 });
+
+    const stale = await channel.findStaleCapacity();
+
+    expect(stale.map((post) => [post.postId, post.full, post.telegramMessageId])).toEqual([
+      [postId, true, 4242],
+    ]);
+  });
+
+  it('stops finding it once the full line has been rendered', async () => {
+    const { postId } = await livePost({ capacity: 6, acceptedCount: 6 });
+
+    await channel.markCapacityRendered(postId, true);
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  it('finds a post that says full once a seat opens again', async () => {
+    const { postId } = await livePost({ capacity: 6, acceptedCount: 5 }, true);
+
+    const stale = await channel.findStaleCapacity();
+
+    expect(stale.map((post) => [post.postId, post.full])).toEqual([[postId, false]]);
+  });
+
+  /** A seat taken is not a boundary crossed — the number is allowed to lag. */
+  it('leaves a post alone while the activity is on the same side of full', async () => {
+    await livePost({ capacity: 6, acceptedCount: 5, title: 'یکی مانده' });
+    await livePost({ capacity: 6, acceptedCount: 6, title: 'فعالیت پرشده' }, true);
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  it('never edits an activity with no limit', async () => {
+    await livePost({ capacity: UNLIMITED_CAPACITY, acceptedCount: UNLIMITED_CAPACITY });
+    await livePost(
+      { capacity: UNLIMITED_CAPACITY, acceptedCount: 3, title: 'فعالیت بی‌سقف' },
+      true,
+    );
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  it('only looks at posts that are live in the channel', async () => {
+    await livePost({
+      capacity: 6,
+      acceptedCount: 6,
+      title: 'شروع‌شده',
+      startsAt: new Date(NOW.getTime() - 3_600_000),
+    });
+    const takenDown = await livePost({ capacity: 6, acceptedCount: 6, title: 'برداشته' });
+    await channel.markTakenDown(takenDown.postId);
+    const replaced = await livePost({ capacity: 6, acceptedCount: 6, title: 'جایگزین' });
+    await prisma.channelPost.update({
+      where: { id: replaced.postId },
+      data: { supersededAt: NOW },
+    });
+    const unposted = await createEvent({ capacity: 6, acceptedCount: 6, title: 'در صف' });
+    await prisma.channelPost.create({
+      data: { eventId: unposted.id, kind: 'PAID', createdAt: NOW },
+    });
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  /** The first render is recorded too, or a post sent full is edited to full. */
+  it('records whether the post went out full when it is posted', async () => {
+    const event = await createEvent({ capacity: 6, acceptedCount: 6 });
+    await prisma.channelPost.create({ data: { eventId: event.id, kind: 'PAID', createdAt: NOW } });
+
+    const [post] = await channel.findUnpostedPaid();
+    expect(post?.full).toBe(true);
+    await channel.markPosted(post?.postId ?? '', 4242, post?.full ?? false);
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  it('edits at most a bounded number per pass', async () => {
+    for (const title of ['فعالیت اول', 'فعالیت دوم', 'فعالیت سوم']) {
+      await livePost({ capacity: 6, acceptedCount: 6, title });
+    }
+
+    await expect(channel.findStaleCapacity(2)).resolves.toHaveLength(2);
   });
 });

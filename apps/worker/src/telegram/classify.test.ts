@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GrammyError, HttpError } from 'grammy';
-import { classify, deleteOutcome } from './telegram.client';
+import { classify, deleteOutcome, editOutcome } from './telegram.client';
 
 /**
  * Which Telegram failures are worth another attempt (ADR-0005).
@@ -154,5 +154,43 @@ describe('a channel post that will not come down', () => {
     expect(deleteOutcome(new HttpError('network request failed', new Error('reset')))).toBe(
       'RETRY',
     );
+  });
+});
+
+/**
+ * Bringing a channel post's capacity line up to date (plan 14, item 3).
+ *
+ * «message is not modified» is the edit already being true — counted as done,
+ * or the sweep would retry it forever. A message that is gone, or that Telegram
+ * will not let the bot edit, cannot be fixed by retrying either.
+ */
+describe('a channel post that is edited', () => {
+  it('reads «not modified» as EDITED: the text already says it', () => {
+    expect(
+      editOutcome(
+        telegramError(
+          400,
+          'Bad Request: message is not modified: specified new message content and reply markup are exactly the same',
+        ),
+      ),
+    ).toBe('EDITED');
+  });
+
+  it('reads a message that is gone as GONE', () => {
+    expect(editOutcome(telegramError(400, 'Bad Request: message to edit not found'))).toBe('GONE');
+  });
+
+  it('reads a refusal to edit, or a lost channel, as UNEDITABLE', () => {
+    expect(editOutcome(telegramError(400, "Bad Request: message can't be edited"))).toBe(
+      'UNEDITABLE',
+    );
+    expect(
+      editOutcome(telegramError(403, 'Forbidden: bot is not a member of the channel chat')),
+    ).toBe('UNEDITABLE');
+  });
+
+  it('retries a rate limit and anything it does not recognise', () => {
+    expect(editOutcome(telegramError(429, 'Too Many Requests: retry after 5'))).toBe('RETRY');
+    expect(editOutcome(telegramError(500, 'Internal Server Error'))).toBe('RETRY');
   });
 });
