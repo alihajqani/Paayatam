@@ -14,6 +14,62 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.14.0] — 2026-09-14
+
+Plans 14 and 15 of the bot review: the channel stops taking money for posts it
+cannot make and keeps its posts honest, and a host is finally asked who came
+before every guest is settled as having come.
+
+**Three migrations.** 0052 and 0053 are additive columns
+(`channel_post.rendered_full` NOT NULL DEFAULT false,
+`event.attendance_prompted_at` nullable). **0054 changes data:** it sets the
+stored `participation.settlement_delay_hours` to **18** (production held 2) and
+writes a `SYSTEM` `setting.changed` audit row. `rollback.sh` does not undo it;
+v0.13.0 with 18 stored settles at 03:00 whatever ended 18 hours earlier.
+
+### ⚠️ What a deploy changes for people
+
+- **Guests are settled as attended 18 hours after an activity ends**, not at the
+  next 03:00. So a host's «🚫 غایب بود» window is 18 hours whatever the hour, and
+  **reviews and the host's deposit open 18 hours after the end** — later than
+  before for an activity ending in the afternoon.
+- **Hosts receive «همه آمدند؟»** within a quarter hour of their activity ending,
+  when anyone was accepted. The first run asks about every activity that ended
+  inside the window and has not settled.
+- **Registering costs only the creation fee while the channel cannot publish**
+  (`channel.enabled` off or no `TELEGRAM_CHANNEL_ID`). Production's channel is
+  on and configured, so today nothing changes in price.
+- The usual release broadcast goes to every user.
+
+### Added
+
+- **«همه آمدند؟»** (`ATTENDANCE_PROMPT`, every quarter hour): the head count,
+  the deadline in Tehran time, and «👥 مهمان‌ها», where «🚫 غایب بود» is.
+- **A channel post is edited when its activity fills, or a seat opens again** —
+  only at that boundary, at most ten edits per pass, never while the channel is
+  switched off, and never for an unlimited activity.
+- **The channel screen warns `BOT_CANNOT_DELETE`** for a day after Telegram
+  refused to take a post down (production's bot has the right today).
+
+### Changed
+
+- `SETTLE_ATTENDANCE` runs hourly at :40 (UTC) instead of 03:00 Tehran, and the
+  default settlement delay is 18 hours, up from 2.
+- «فعالیت ثبت شد» mentions the channel, and offers «انتشار دوباره», only when a
+  post was actually bought; the console hides «🔄 انتشار دوباره» while the
+  channel cannot publish.
+
+### Fixed
+
+- **Registering charged 15 coins for a channel post that would not appear** when
+  the channel was switched off or unconfigured, and the success message promised
+  it. A renewal is refused with `CHANNEL_UNAVAILABLE` in the same case, before
+  anything is charged.
+- **«message can't be deleted» counted as a successful takedown**, so a post
+  could stay in the channel with nothing recorded. It is counted
+  (`payetam_channel_post_total{outcome="undeletable"}`), logged and audited.
+- **A channel post's «N جای خالی» stayed after the activity filled.**
+
 ## [v0.13.0] — 2026-09-14
 
 The code-based review of the bot (`docs/telegram-bot-review-fa.md`) found that
