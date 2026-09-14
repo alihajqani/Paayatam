@@ -14,6 +14,76 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.13.0] — 2026-09-14
+
+The code-based review of the bot (`docs/telegram-bot-review-fa.md`) found that
+almost every capability existed and the steps between them did not connect: a
+message would say «از صفحهٔ فعالیت X را بزنید» and nothing reached that page, or
+ask for something the code made impossible. This release connects them, and
+fixes two defects that were silent in production.
+
+**One migration, additive only** — `admin_telegram_link.last_digest_at`, a
+nullable timestamp. No backfill.
+
+### ⚠️ What a deploy changes for people
+
+- **A host with one attendee, or whose only guest did not come, now gets the
+  25-coin registration deposit back.** The per-guest bonus still needs two who
+  came. Before, reporting a no-show honestly could forfeit the deposit.
+- **Moderators are messaged** when the queue has unclaimed cases — at most once
+  every three hours each, 08:00–23:00 Tehran. No Telegram link exists in
+  production today, so this sends nothing until a moderator is linked.
+- The usual release broadcast goes to every user.
+
+### Fixed
+
+- **The no-show notice was never sent.** `markNoShow` wrote its event without
+  the recipient key `fanout.ts` reads, so 60 coins and 15 trust were taken in
+  silence. It is sent now, and says what it cost.
+- **Reporting a no-show honestly cost the host their deposit.** The deposit and
+  the bonus shared one attendance threshold; they are separate conditions now,
+  and reviews are owed only for guests who came.
+- **The paid invitation opened the Mini App** (`?startapp=`) instead of the
+  activity in the bot, and pointed its opt-out at the wrong screen.
+- **The channel carried two identical posts** for a popular activity (paid and
+  trending), and **the channel off switch did not stop paid posts.**
+- **The channel requirement was checked after the eleven-step create form**, and
+  «راهنما» / «گزارش مشکل» from the menu were refused for exactly the user stuck
+  behind the channel gate.
+- Copy that named things that were not there: two retired bottom-keyboard
+  buttons, guest-perspective labels on the host's guest list, «فعالیت شما پنهان
+  شد» sent about a reported user or review, a hard-coded «هزار» on the profile
+  card, and the deposit's review condition, which nothing ever stated.
+
+### Added
+
+- **A host can write to a guest they accepted** — «✉️ پیام» on each accepted
+  guest in the guest list. Before, only the guest could start a conversation.
+- **Buttons where messages ask for an action:** «✉️ پیام به میزبان» and
+  «📄 صفحهٔ فعالیت» under an acceptance; «✖️ لغو شرکت» under the guest's
+  reminder and «👥 مهمان‌ها» under the host's; five stars under «چطور بود؟»;
+  `/myevent_…` and «🔗 اشتراک‌گذاری» under «فعالیت ثبت شد»; «🪙 خرید سکه»,
+  «🎁 کد هدیه دارم» and «👥 دعوت دوستان» when coins run short.
+- **The host's request notification names who is asking** — display name,
+  Trust Score and founding medal, the three facts the guest list already shows.
+- **The activity page knows who is reading it:** a guest with a request sees
+  their status and «✖️ لغو» instead of «پایتم».
+- **`/requests` links each live request** to its activity page.
+- **Reporting from messages:** «🚩 گزارش فرستنده» on an opened direct message,
+  and «🚩» on every guest in the host's list.
+- **Moderation triage from Telegram:** «✋ برداشتم», «↩️ رها» and «⬆️ ارجاع» on
+  each case in the queue, through the same `triageCase` and audit row as the
+  panel. No new permission.
+- **The moderation digest** (`MODERATION_DIGEST`, every quarter hour): counts
+  only, one button to the queue. Settings `moderation.digest_delay_minutes` (15)
+  and `moderation.digest_quiet_minutes` (180).
+- Founding tiers show 🥇 🥈 🥉 instead of one 🎟.
+
+### Removed
+
+- `openAppButton`, which had no callers, and four comments that described the
+  opposite of the code.
+
 ## [v0.12.1] — 2026-09-11
 
 Both of these were found by opening a real wallet in production minutes after
