@@ -799,6 +799,28 @@ export class ParticipationService {
     return new Map(rows.map((row) => [row.userId, row.score]));
   }
 
+  /**
+   * The caller's live request on one activity, or null (plan 12).
+   *
+   * For the activity page, which offered «پایتم» to everybody who was not the
+   * host — including a guest with a seat, whose tap was then refused as a
+   * duplicate. Live means PENDING, WAITLISTED or ACCEPTED, the statuses
+   * `/requests` offers «لغو» on; a settled request has nothing to act on.
+   */
+  async findMineForEvent(
+    userId: string,
+    eventPublicId: string,
+  ): Promise<ParticipationDetail | null> {
+    const row = await this.prisma.eventParticipant.findFirst({
+      where: {
+        userId,
+        event: { publicId: eventPublicId },
+        status: { in: ['PENDING', 'WAITLISTED', 'ACCEPTED'] },
+      },
+    });
+    return row === null ? null : this.toDetail(row, eventPublicId, this.prisma);
+  }
+
   /** Everything this user has asked to join, each naming the event it is for. */
   async listMine(userId: string): Promise<MyParticipation[]> {
     const rows = await this.prisma.eventParticipant.findMany({

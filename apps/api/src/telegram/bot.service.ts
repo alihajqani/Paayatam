@@ -2965,6 +2965,15 @@ export class BotService {
               },
             ],
           ];
+    /**
+     * Where this reader stands, when they are not the host (plan 12). A guest
+     * with a seat was offered «پایتم» again; they now see their status and
+     * «✖️ لغو», which asks and quotes the price before anything happens.
+     */
+    const mine =
+      event.hostPublicId === user.publicId
+        ? null
+        : await this.participation.findMineForEvent(user.id, eventPublicId);
     return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
       text: formatEventDetail({
         title: event.title,
@@ -2982,6 +2991,9 @@ export class BotService {
         maxAge: event.maxAge,
         hostDisplayName: event.hostDisplayName,
         hostTrustScore: event.hostTrustScore,
+        ...(mine !== null
+          ? { viewer: { status: mine.status, waitlistRank: mine.waitlistRank } }
+          : {}),
       }),
       keyboard: JSON.stringify(
         event.hostPublicId === user.publicId
@@ -2995,25 +3007,29 @@ export class BotService {
               ...backRow,
             ]
           : [
-              [
-                {
-                  /**
-                   * The button says which of the two things it does.
-                   *
-                   * A full activity is listed since v0.7.0, and `join` admits
-                   * past capacity as WAITLISTED — so «پایتم» on something with
-                   * no seats left is a promise the tap does not keep. The label
-                   * names the waiting list instead, and the body above it
-                   * already says «ظرفیت تکمیل».
-                   */
-                  text: isUnlimitedCapacity(event.capacity)
-                    ? JOIN_BUTTON_FA
-                    : event.acceptedCount >= event.capacity
-                      ? WAITLIST_BUTTON_FA
-                      : JOIN_BUTTON_FA,
-                  callbackData: encodeEventCallback('join', eventPublicId),
-                },
-              ],
+              ...(mine !== null && isPublicId(mine.publicId)
+                ? [[{ text: '✖️ لغو', callbackData: encodeEventCallback('cancel', mine.publicId) }]]
+                : [
+                    [
+                      {
+                        /**
+                         * The button says which of the two things it does.
+                         *
+                         * A full activity is listed since v0.7.0, and `join` admits
+                         * past capacity as WAITLISTED — so «پایتم» on something with
+                         * no seats left is a promise the tap does not keep. The label
+                         * names the waiting list instead, and the body above it
+                         * already says «ظرفیت تکمیل».
+                         */
+                        text: isUnlimitedCapacity(event.capacity)
+                          ? JOIN_BUTTON_FA
+                          : event.acceptedCount >= event.capacity
+                            ? WAITLIST_BUTTON_FA
+                            : JOIN_BUTTON_FA,
+                        callbackData: encodeEventCallback('join', eventPublicId),
+                      },
+                    ],
+                  ]),
               /**
                * «دایرکت» — write to the host, without joining anything (v0.7.0).
                *
