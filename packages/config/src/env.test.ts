@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EnvValidationError, loadEnv } from './env';
+import { DEFAULT_BOT_USERNAME, EnvValidationError, loadEnv } from './env';
 
 /** A base64 key of exactly 32 bytes. Test-only value; never used outside tests. */
 const KEY_32 = Buffer.alloc(32, 7).toString('base64');
@@ -21,6 +21,7 @@ const productionEnv = {
   PII_HASH_PEPPER: KEY_32,
   JWT_ACCESS_SECRET: SECRET_32,
   JWT_REFRESH_SECRET: SECRET_32,
+  TELEGRAM_BOT_USERNAME: 'paayatambot',
 } satisfies NodeJS.ProcessEnv;
 
 describe('loadEnv', () => {
@@ -109,6 +110,27 @@ describe('loadEnv', () => {
     expect(problems.join('\n')).toMatch(
       /CHAT_ENCRYPTION_KEY: is required when NODE_ENV=production/,
     );
+  });
+
+  /**
+   * Plan 18 item 2. Every deep link the product hands out — a channel post, a
+   * share button, an invitation — is built from this name, and the fallbacks
+   * used to be three different spellings. In production a missing value is a
+   * refusal to start rather than links to somebody else's bot.
+   */
+  it('requires the bot username in production', () => {
+    const { TELEGRAM_BOT_USERNAME: _omitted, ...withoutName } = productionEnv;
+    expect(() => loadEnv(withoutName)).toThrow(
+      /TELEGRAM_BOT_USERNAME: is required when NODE_ENV=production/,
+    );
+  });
+
+  it('keeps the bot username optional in development', () => {
+    expect(loadEnv(minimalEnv).TELEGRAM_BOT_USERNAME).toBeUndefined();
+  });
+
+  it('names one default bot, the production one', () => {
+    expect(DEFAULT_BOT_USERNAME).toBe('paayatambot');
   });
 
   it('accepts a complete production environment', () => {

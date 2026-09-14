@@ -303,7 +303,21 @@ const requireInProduction = [
   'PII_HASH_PEPPER',
   'JWT_ACCESS_SECRET',
   'JWT_REFRESH_SECRET',
+  // Every deep link is built from it (plan 18 item 2). Missing, the fallbacks
+  // below would send a production channel post to whichever bot they name.
+  'TELEGRAM_BOT_USERNAME',
 ] as const satisfies readonly (keyof z.infer<typeof envSchema>)[];
+
+/**
+ * The bot a link names when `TELEGRAM_BOT_USERNAME` is unset — which production
+ * refuses, so this is for development and tests only.
+ *
+ * One constant because there used to be three spellings: `paayatambot` in the
+ * bot, `payetam_bot` in the worker and the invitation service, and `paayatam_bot`
+ * in `.env.production.example`. Only the first is the real bot, read from the
+ * production `.env` on 2026-09-14.
+ */
+export const DEFAULT_BOT_USERNAME = 'paayatambot';
 
 export type Env = z.infer<typeof envSchema>;
 
