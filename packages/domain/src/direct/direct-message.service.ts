@@ -17,6 +17,8 @@ export interface DirectMessageDetail {
   eventTitle: string;
   /** Who wrote it, by display name. Never a Telegram identifier (invariant 7). */
   senderDisplayName: string;
+  /** Who wrote it, by public id — for «🚩 گزارش فرستنده» (plan 16). */
+  senderPublicId: string;
   body: string;
   seenAt: Date | null;
   createdAt: Date;
@@ -264,6 +266,7 @@ export class DirectMessageService {
         eventPublicId: row.event.publicId,
         eventTitle: row.event.title,
         senderDisplayName: row.sender.profile?.displayName ?? 'کاربر پایه‌تَم',
+        senderPublicId: row.sender.publicId,
         // `Buffer.from` because Prisma hands back a `Uint8Array` and the cipher
         // wants a `Buffer` — the same conversion `ChatService.readMessages` makes,
         // and it copies nothing that matters at these sizes.
