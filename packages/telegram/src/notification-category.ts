@@ -111,6 +111,8 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.BOT_COIN_PACKAGES]: 'essential',
   [TEMPLATES.BOT_REFERRAL]: 'essential',
   [TEMPLATES.BOT_CONFIRM_SPEND]: 'essential',
+  // A refusal to something the user just tried, with the way out under it.
+  [TEMPLATES.BOT_COINS_SHORT]: 'essential',
   [TEMPLATES.BOT_EVENT_DETAIL]: 'essential',
   [TEMPLATES.BOT_TRUST]: 'essential',
   [TEMPLATES.BOT_REPORT_REASONS]: 'essential',

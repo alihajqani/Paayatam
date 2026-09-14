@@ -236,6 +236,13 @@ export const TEMPLATES = {
   BOT_REFERRAL: 'bot.referral',
   /** A host's paid or irreversible action, stated with its cost and confirmed. */
   BOT_CONFIRM_SPEND: 'bot.confirm_spend',
+  /**
+   * Not enough coins, with the ways to get more under it (plan 11, review M6).
+   *
+   * Not `BOT_NOTICE`, which discards any keyboard in its payload for the menu
+   * opener — the buttons are the whole point of this one.
+   */
+  BOT_COINS_SHORT: 'bot.coins_short',
   /** One activity in full, with the button that joins it. */
   BOT_EVENT_DETAIL: 'bot.event_detail',
   /** `/trust` — the score, and every movement behind it. */
@@ -1496,6 +1503,15 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         // allowlist, and `deep-links.test.ts` checks every target against it.
         // Nothing renders this as a button any more; the check is what it is for.
         deepLink: `discover`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    /** Escaped like a notice — the sentence is built by `insufficientCoinsNotice`. */
+    case TEMPLATES.BOT_COINS_SHORT: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: str(payload, 'text'),
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
     }
