@@ -100,6 +100,13 @@ export const ErrorCode = {
   /** This event has already been bought a place in the channel (M22 phase 5). */
   EVENT_ALREADY_IN_CHANNEL: 'EVENT_ALREADY_IN_CHANNEL',
   /**
+   * The channel is not publishing: switched off, or no `TELEGRAM_CHANNEL_ID` (plan 14).
+   *
+   * Refused before anything is charged. A renewal bought while the channel is off
+   * would take the live post down and put nothing in its place.
+   */
+  CHANNEL_UNAVAILABLE: 'CHANNEL_UNAVAILABLE',
+  /**
    * Gift codes (M18). Four codes rather than one, because the four are things a
    * user can act on differently: retype it, ask for a new one, stop trying, or
    * find out they already have the coins. A single «کد معتبر نیست» would be an
@@ -274,6 +281,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   EVENT_NOT_INVITABLE:
     'برای این فعالیت نمی‌توان دعوت‌نامه فرستاد. فعالیت باید منتشر شده و هنوز شروع نشده باشد.',
   EVENT_ALREADY_IN_CHANNEL: 'این فعالیت پیش‌تر برای انتشار در کانال ثبت شده است.',
+  CHANNEL_UNAVAILABLE: 'انتشار در کانال پایه‌تَم در حال حاضر ممکن نیست. سکه‌ای از شما کم نشد.',
   GIFT_CODE_INVALID: 'این کد هدیه معتبر نیست.',
   GIFT_CODE_EXPIRED: 'مهلت استفاده از این کد هدیه به پایان رسیده است.',
   GIFT_CODE_ALREADY_REDEEMED: 'شما پیش‌تر از این کد هدیه استفاده کرده‌اید.',
@@ -385,6 +393,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   POLICY_IS_CURRENT: 409,
   EVENT_ALREADY_STARTED: 409,
   EVENT_ALREADY_IN_CHANNEL: 409,
+  CHANNEL_UNAVAILABLE: 409,
   INVALID_STATE_TRANSITION: 409,
   REVIEW_NOT_EDITABLE: 409,
   RATE_LIMITED: 429,

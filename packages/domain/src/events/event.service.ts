@@ -275,6 +275,24 @@ export class EventService {
   ) {}
 
   /**
+   * Whether a channel post bought now would actually be posted (plan 14).
+   *
+   * Two conditions, because the channel can be missing in two ways: no
+   * `TELEGRAM_CHANNEL_ID`, where the worker has nowhere to send and retries a
+   * paid claim forever, and `channel.enabled` off, where `findUnpostedPaid`
+   * holds every claim until it is switched back on.
+   *
+   * Public, and the one place the question is answered: registration charges by
+   * it, and the bot quotes the price and promises the post by it. Two copies of
+   * the condition would be a price that disagrees with the charge.
+   */
+  async channelPublishable(): Promise<boolean> {
+    const channelId = this.env.TELEGRAM_CHANNEL_ID;
+    if (channelId === undefined || channelId.trim() === '') return false;
+    return (await this.settings.getInt('channel.enabled')) === 1;
+  }
+
+  /**
    * Creates an event and runs it through auto-moderation, in one transaction.
    *
    * The verdict decides the initial status:
@@ -312,9 +330,10 @@ export class EventService {
     // Read before the transaction: it is one indexed lookup, and taking a
     // connection for it while holding the outer one is what `SettingsService`
     // warns about (pool exhaustion under concurrency).
-    const [createCost, channelCost] = await Promise.all([
+    const [createCost, channelCost, channelPublishable] = await Promise.all([
       this.settings.getInt('economy.event_create_coins'),
       this.settings.getInt('economy.event_channel_publish_coins'),
+      this.channelPublishable(),
     ]);
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -459,9 +478,14 @@ export class EventService {
        * pending-moderation activity has nothing to put in the channel, and the
        * claim's own sweep would skip it anyway; charging for it would be selling
        * a placement that cannot exist.
+       *
+       * And only while the channel can publish (plan 14). With the channel
+       * switched off, the claim waited for it to come back on; with no channel
+       * configured, the worker retried it forever — both times fifteen coins
+       * for a post the host was told was on its way.
        */
       const publishedToChannel =
-        outcome.status === 'PUBLISHED'
+        outcome.status === 'PUBLISHED' && channelPublishable
           ? await this.channel.claimPaidPublication(tx, event.id)
           : false;
 
@@ -762,6 +786,9 @@ export class EventService {
   async publishToChannel(hostUserId: string, publicId: string): Promise<EventDetail> {
     const now = this.clock.now();
     await this.membership.assertAllowed(hostUserId, 'EVENT_CHANNEL_SEND');
+    // Before the transaction, like the price: a renewal the channel cannot post
+    // would supersede the live post and leave nothing in its place (plan 14).
+    if (!(await this.channelPublishable())) throw new AppError(ErrorCode.CHANNEL_UNAVAILABLE);
     const cost = await this.settings.getInt('economy.event_channel_send_coins');
 
     const id = await this.prisma.$transaction(

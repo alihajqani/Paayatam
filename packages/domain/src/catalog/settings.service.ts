@@ -725,6 +725,11 @@ export const SETTING_DEFAULTS = {
    * product cannot stop writing to is a public surface that keeps posting through
    * an incident. `1` is on, `0` is off, and it is read on every pass.
    *
+   * Registration reads it too (plan 14): while it is off, no post is claimed or
+   * charged for, so an activity registered in that interval stays out of the
+   * channel after it comes back on. That is the price of not charging for a post
+   * that might never be made.
+   *
    * The trending threshold is deliberately a *request* count rather than a view
    * count — asking to join is a real signal a person produced, while a view is
    * mostly a measure of how often something was already shown.

@@ -1336,13 +1336,20 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * `/myevent_…` opens its console directly rather than naming a menu path,
      * and the share sheet is drawn only for a url that is Telegram's own
      * (`SHARE_URL_PREFIX`), because the value comes from a payload.
+     *
+     * The channel is named only when `publishedToChannel` is true — a post was
+     * bought with the registration (plan 14). Absent reads as false: a message
+     * that promises a post nobody claimed is what this flag exists to stop.
      */
     case TEMPLATES.BOT_EVENT_CREATED: {
       const manage = myEventCommandFor(raw(payload, 'eventPublicId'));
       const share = raw(payload, 'shareUrl');
+      const inChannel = bool(payload, 'publishedToChannel');
       return opened(
         `<b>فعالیت ثبت شد</b> ✅\n\n` +
-          `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n` +
+          (inChannel
+            ? `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n`
+            : `«${str(payload, 'title')}» ساخته شد.\n`) +
           (manage === null
             ? `از دکمهٔ «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `
             : `با ${manage} یا از «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `) +
@@ -1351,9 +1358,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `📨 <b>دعوت ویژه</b> — فعالیت شما با پیام اختصاصی برای حداکثر ` +
           `${str(payload, 'inviteRecipients')} نفر از مناسب‌ترین کاربران فرستاده می‌شود ` +
           `(${str(payload, 'inviteCost')} سکه).\n` +
-          `🔄 <b>انتشار دوباره</b> — فعالیت دوباره در کانال منتشر می‌شود تا از نو دیده شود ` +
-          `(${str(payload, 'republishCost')} سکه).\n\n` +
-          `<i>هر دو از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`,
+          (inChannel
+            ? `🔄 <b>انتشار دوباره</b> — فعالیت دوباره در کانال منتشر می‌شود تا از نو دیده شود ` +
+              `(${str(payload, 'republishCost')} سکه).\n\n` +
+              `<i>هر دو از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`
+            : `\n<i>از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`),
         `my-events`,
         share.startsWith(SHARE_URL_PREFIX)
           ? [[{ text: '🔗 اشتراک‌گذاری', url: share }]]

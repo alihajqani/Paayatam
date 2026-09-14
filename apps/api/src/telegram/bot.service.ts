@@ -1058,7 +1058,8 @@ export class BotService {
         /**
          * And the price, for the same reason and at the same moment.
          *
-         * Registration costs `create + channel publish` and the host is told one
+         * Registration costs `create + channel publish` — the second half only
+         * while the channel can publish (plan 14) — and the host is told one
          * number for the pair — the split is how the product is built, not a
          * choice they are being offered, so quoting it would be describing an
          * internal boundary.
@@ -2239,6 +2240,11 @@ export class BotService {
          * worse than one naming none.
          */
         case 'post': {
+          // A console drawn before the channel was switched off still carries the
+          // button. Refused here as a toast, not after «بله» (plan 14).
+          if (!(await this.events.channelPublishable())) {
+            throw new AppError(ErrorCode.CHANNEL_UNAVAILABLE);
+          }
           const cost = await this.settings.getInt('economy.event_channel_send_coins');
           await this.answer(callbackQueryId, '');
           // Affordability first, so «بله» is never the moment somebody learns
@@ -3180,10 +3186,11 @@ export class BotService {
      * turns a screen a host is glancing at into one they act on. Bounded by
      * capacity plus the waitlist, and host-scoped by the service.
      */
-    const [republishCost, inviteCost, participants] = await Promise.all([
+    const [republishCost, inviteCost, participants, channelPublishable] = await Promise.all([
       this.settings.getInt('economy.event_channel_send_coins'),
       this.settings.getInt('economy.event_top_invite_coins'),
       this.participation.listForEvent(user.id, event.publicId),
+      this.events.channelPublishable(),
     ]);
     const pendingCount = participants.filter((row) => row.status === 'PENDING').length;
 
@@ -3226,10 +3233,16 @@ export class BotService {
     ];
     if (open) {
       rows.push([
-        {
-          text: `🔄 انتشار دوباره (${toPersianDigits(String(republishCost))})`,
-          callbackData: encodeEventCallback('post', event.publicId),
-        },
+        // Not offered while the channel cannot publish: the service refuses a
+        // renewal then, rather than charge for a post it cannot make (plan 14).
+        ...(channelPublishable
+          ? [
+              {
+                text: `🔄 انتشار دوباره (${toPersianDigits(String(republishCost))})`,
+                callbackData: encodeEventCallback('post', event.publicId),
+              },
+            ]
+          : []),
         {
           text: `📨 دعوت ویژه (${toPersianDigits(String(inviteCost))})`,
           callbackData: encodeEventCallback('invite', event.publicId),
@@ -4648,12 +4661,20 @@ export class BotService {
     );
   }
 
+  /**
+   * What registering will be charged, now.
+   *
+   * The channel half only while the channel can publish (plan 14), asked of
+   * `EventService.channelPublishable` — the same answer `create` charges by, so
+   * the quote cannot include a post the service will not buy.
+   */
   private async registrationCost(): Promise<number> {
-    const [create, channel] = await Promise.all([
+    const [create, channel, publishable] = await Promise.all([
       this.settings.getInt('economy.event_create_coins'),
       this.settings.getInt('economy.event_channel_publish_coins'),
+      this.events.channelPublishable(),
     ]);
-    return create + channel;
+    return create + (publishable ? channel : 0);
   }
 
   /**
@@ -5353,6 +5374,9 @@ export class BotService {
         inviteCost: toPersianDigits(String(inviteCost)),
         inviteRecipients: toPersianDigits(String(inviteRecipients)),
         republishCost: toPersianDigits(String(republishCost)),
+        // Read off what `create` did, not asked again: a post was claimed with the
+        // registration or it was not (plan 14).
+        publishedToChannel: created.channelStatus !== 'NONE',
         // Built here because `render` takes no bot username (plan 11).
         shareUrl: shareUrl(this.env.TELEGRAM_BOT_USERNAME ?? 'paayatambot', created.publicId),
       });
