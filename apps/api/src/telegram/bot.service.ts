@@ -3280,43 +3280,7 @@ export class BotService {
       .filter((row) => isPublicId(row.publicId))
       .map((row, index) => {
         const number = toPersianDigits(String(index + 1));
-        if (row.status === 'PENDING' || row.status === 'WAITLISTED') {
-          /**
-           * `ev:acc`/`ev:rej`, not `chat:accept`/`chat:reject` (v0.8.1).
-           *
-           * The same two decisions, and a different thing has to happen to the
-           * message afterwards: this one is a *list*, so it is redrawn and the
-           * decided row loses its buttons by moving status. The notification's
-           * copies stay on the `chat:` prefix — see `EVENT_CALLBACK_ACTIONS`.
-           */
-          return [
-            {
-              text: `${number} ✅ پذیرش`,
-              callbackData: encodeEventCallback('acc', row.publicId),
-            },
-            { text: `${number} ✖️ رد`, callbackData: encodeEventCallback('rej', row.publicId) },
-          ];
-        }
-        /**
-         * «✉️» on anybody with a seat, so a host can start the conversation
-         * (plan 13) — to say where to meet before, or thank them after.
-         * `sendToGuest` refuses every other status, so no button is drawn for one.
-         */
-        const write = {
-          text: `${number} ✉️ پیام`,
-          callbackData: encodeDirectCallback('guest', row.publicId),
-        };
-        if (row.status === 'ACCEPTED' && ended) {
-          return [
-            {
-              text: `${number} 🚫 غایب بود`,
-              callbackData: encodeEventCallback('noshow', row.publicId),
-            },
-            write,
-          ];
-        }
-        if (row.status === 'ACCEPTED' || row.status === 'COMPLETED') return [write];
-        return [];
+        return [...this.guestActions(row, number, ended), ...this.guestReport(row, number)];
       })
       .filter((row) => row.length > 0);
 
@@ -3328,6 +3292,65 @@ export class BotService {
       text,
       ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
     });
+  }
+
+  /** The host's decisions on one guest, by status — the console's first buttons. */
+  private guestActions(
+    row: { publicId: string; status: string },
+    number: string,
+    ended: boolean,
+  ): { text: string; callbackData: string }[] {
+    if (row.status === 'PENDING' || row.status === 'WAITLISTED') {
+      /**
+       * `ev:acc`/`ev:rej`, not `chat:accept`/`chat:reject` (v0.8.1).
+       *
+       * The same two decisions, and a different thing has to happen to the
+       * message afterwards: this one is a *list*, so it is redrawn and the
+       * decided row loses its buttons by moving status. The notification's
+       * copies stay on the `chat:` prefix — see `EVENT_CALLBACK_ACTIONS`.
+       */
+      return [
+        {
+          text: `${number} ✅ پذیرش`,
+          callbackData: encodeEventCallback('acc', row.publicId),
+        },
+        { text: `${number} ✖️ رد`, callbackData: encodeEventCallback('rej', row.publicId) },
+      ];
+    }
+    /**
+     * «✉️» on anybody with a seat, so a host can start the conversation
+     * (plan 13) — to say where to meet before, or thank them after.
+     * `sendToGuest` refuses every other status, so no button is drawn for one.
+     */
+    const write = {
+      text: `${number} ✉️ پیام`,
+      callbackData: encodeDirectCallback('guest', row.publicId),
+    };
+    if (row.status === 'ACCEPTED' && ended) {
+      return [
+        {
+          text: `${number} 🚫 غایب بود`,
+          callbackData: encodeEventCallback('noshow', row.publicId),
+        },
+        write,
+      ];
+    }
+    if (row.status === 'ACCEPTED' || row.status === 'COMPLETED') return [write];
+    return [];
+  }
+
+  /**
+   * «🚩» on every guest (plan 16, review M5): a host can report somebody from
+   * the list they see them in. A report on a user carries the **user** public
+   * id, not the participation's; the service refuses reporting yourself.
+   */
+  private guestReport(
+    row: { userPublicId: string },
+    number: string,
+  ): { text: string; callbackData: string }[] {
+    return isPublicId(row.userPublicId)
+      ? [{ text: `${number} 🚩`, callbackData: encodeReportAsk('u', row.userPublicId) }]
+      : [];
   }
 
   /**
@@ -3815,6 +3838,21 @@ export class BotService {
                     callbackData: encodeDirectCallback('reply', message.publicId),
                   },
                 ],
+                /**
+                 * The only channel whose contact details are not masked, so the
+                 * reader can report who sent it (plan 16, review M5). The service
+                 * refuses reporting yourself; this is drawn for the recipient only.
+                 */
+                ...(isPublicId(message.senderPublicId)
+                  ? [
+                      [
+                        {
+                          text: '🚩 گزارش فرستنده',
+                          callbackData: encodeReportAsk('u', message.senderPublicId),
+                        },
+                      ],
+                    ]
+                  : []),
               ]
             : [];
 

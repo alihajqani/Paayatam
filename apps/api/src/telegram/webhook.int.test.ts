@@ -1770,9 +1770,15 @@ describe('POST /telegram/:secret — acting on your own events', () => {
      * could do either and would be wrong on one of the two screens.
      */
     const rows = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
+    const guest = await prisma.user.findUniqueOrThrow({
+      where: { id: guestId },
+      select: { publicId: true },
+    });
+    // …and «🚩» last on the row since plan 16, naming the user rather than the seat.
     expect(rows[0]?.map((button) => button.callbackData)).toEqual([
       `ev:acc:${participant.publicId}`,
       `ev:rej:${participant.publicId}`,
+      `rp:asku:${guest.publicId}`,
     ]);
   });
 
@@ -1836,6 +1842,22 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     expect(data).not.toContain(`ev:join:${eventPublicId}`);
     expect(data).toContain(`dm:write:${eventPublicId}`);
     expect(String(payload['text'])).toContain('وضعیت شما: پذیرفته شد');
+  });
+
+  /** Each guest can be reported from the host's own list (plan 16, review M5). */
+  it('offers the host a report on each guest', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان یکم');
+    await participation.join(guestId, eventPublicId);
+    const guest = await prisma.user.findUniqueOrThrow({
+      where: { id: guestId },
+      select: { publicId: true },
+    });
+
+    await tap(HOST_TELEGRAM_ID, `ev:who:${eventPublicId}`);
+
+    const payload = await latest(TEMPLATES.BOT_PARTICIPANTS);
+    expect(String(payload['keyboard'])).toContain(`rp:asku:${guest.publicId}`);
   });
 
   /**
@@ -3104,6 +3126,30 @@ describe('POST /telegram/:secret — direct messages', () => {
     });
     return row.payload as Record<string, unknown>;
   }
+
+  /**
+   * A direct message is the one channel whose contact details are not masked,
+   * so the reader must be able to report who sent it (plan 16, review M5).
+   */
+  it('lets the recipient report the sender, and not the sender themselves', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان');
+    await tap(GUEST_TELEGRAM_ID, `dm:write:${eventPublicId}`);
+    await type(GUEST_TELEGRAM_ID, 'سلام، ساعت دقیق چند است؟');
+    const message = await prisma.directMessage.findFirstOrThrow({ select: { publicId: true } });
+    const guest = await prisma.user.findUniqueOrThrow({
+      where: { id: guestId },
+      select: { publicId: true },
+    });
+
+    await tap(HOST_TELEGRAM_ID, `dm:view:${message.publicId}`);
+    const hostView = await latest(TEMPLATES.BOT_DIRECT_MESSAGE);
+    expect(String(hostView['keyboard'])).toContain(`rp:asku:${guest.publicId}`);
+
+    await tap(GUEST_TELEGRAM_ID, `dm:view:${message.publicId}`);
+    const ownView = await latest(TEMPLATES.BOT_DIRECT_MESSAGE);
+    expect(String(ownView['keyboard'] ?? '')).not.toContain('rp:ask');
+  });
 
   it('carries a message from a guest to the host and a reply back', async () => {
     const { eventPublicId } = await seedHostAndEvent();

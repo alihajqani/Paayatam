@@ -106,6 +106,14 @@ describe('writing to the host of an activity', () => {
     expect(read.body).toBe('سلام، ماشین دارید؟');
     expect(read.senderDisplayName).toBe('مهمان');
     expect(read.eventTitle).toBe('شب بازی رومیزی');
+    // The sender by public id, for «🚩 گزارش فرستنده» (plan 16) — never a
+    // Telegram or internal id (invariant 7).
+    const guest = await prisma.user.findUniqueOrThrow({
+      where: { id: guestId },
+      select: { publicId: true },
+    });
+    expect(read.senderPublicId).toBe(guest.publicId);
+    expect(JSON.stringify(read)).not.toContain(guestId);
   });
 
   /**
