@@ -539,6 +539,114 @@ describe('reporting a no-show', () => {
   });
 });
 
+/**
+ * «همه آمدند؟» (plan 15).
+ *
+ * A no-show could be reported only from a guest list nobody was sent to, and
+ * the window closed at the next 03:00 whenever the activity ended. So a host who
+ * said nothing had every guest settled as attended, and was never asked.
+ */
+describe('asking the host who came', () => {
+  const DELAY_HOURS = SETTING_DEFAULTS['participation.settlement_delay_hours'];
+
+  it('asks once, after the end, when somebody was accepted', async () => {
+    const eventPublicId = await publishEvent();
+    await accepted(eventPublicId);
+    clock.set(new Date(ENDS_AT.getTime() + 60_000));
+
+    await expect(lifecycle.promptAttendance()).resolves.toBe(1);
+    await expect(lifecycle.promptAttendance()).resolves.toBe(0);
+
+    const row = await prisma.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'event.attendance_prompt' },
+      select: { id: true, eventType: true, aggregateId: true, payload: true },
+    });
+    const { publicId: hostPublicId } = await prisma.user.findUniqueOrThrow({
+      where: { id: hostId },
+      select: { publicId: true },
+    });
+
+    // From the real producer to the recipient — the lesson of review H1.
+    const planned = planNotifications({ ...row, payload: row.payload as Record<string, unknown> });
+    expect(planned.map((p) => [p.userPublicId, p.templateKey])).toEqual([
+      [hostPublicId, TEMPLATES.EVENT_ATTENDANCE_PROMPT],
+    ]);
+    expect(planned[0]?.payload).toMatchObject({
+      eventPublicId,
+      acceptedCount: 1,
+      // The deadline the message names is when settlement may run, no earlier.
+      settlesAt: new Date(ENDS_AT.getTime() + DELAY_HOURS * 3_600_000).toISOString(),
+    });
+  });
+
+  it('does not ask before the end', async () => {
+    const eventPublicId = await publishEvent();
+    await accepted(eventPublicId);
+    clock.set(new Date(ENDS_AT.getTime() - 60_000));
+
+    await expect(lifecycle.promptAttendance()).resolves.toBe(0);
+  });
+
+  it('does not ask about an activity nobody was accepted to', async () => {
+    await publishEvent();
+    clock.set(new Date(ENDS_AT.getTime() + 60_000));
+
+    await expect(lifecycle.promptAttendance()).resolves.toBe(0);
+  });
+
+  /** Once settlement may have run, «🚫 غایب بود» is gone and the question is a lie. */
+  it('does not ask once the window to answer has closed', async () => {
+    const eventPublicId = await publishEvent();
+    await accepted(eventPublicId);
+    clock.set(new Date(ENDS_AT.getTime() + DELAY_HOURS * 3_600_000 + 60_000));
+
+    await expect(lifecycle.promptAttendance()).resolves.toBe(0);
+  });
+
+  it('asks whether or not the lifecycle sweep has retired the activity yet', async () => {
+    const eventPublicId = await publishEvent();
+    await accepted(eventPublicId);
+    clock.set(new Date(ENDS_AT.getTime() + 60_000));
+    await lifecycle.retireStarted();
+    await expect(statusOf(eventPublicId)).resolves.toBe('COMPLETED');
+
+    await expect(lifecycle.promptAttendance()).resolves.toBe(1);
+  });
+});
+
+/**
+ * How long a host has to say somebody did not come (plan 15, option A).
+ *
+ * The sweep ran at 03:00 Tehran with a two-hour delay, so the window depended on
+ * the hour an activity ended: five hours for one ending at 22:00. It runs hourly
+ * now, and the delay is eighteen hours, so every activity gets the same window.
+ */
+describe('the window before attendance is settled', () => {
+  it('leaves an activity that ended seventeen hours ago unsettled', async () => {
+    const eventPublicId = await publishEvent();
+    const person = await accepted(eventPublicId);
+
+    clock.set(new Date(ENDS_AT.getTime() + 17 * 3_600_000));
+    await sweep();
+
+    await expect(
+      prisma.eventParticipant.findUniqueOrThrow({ where: { publicId: person.publicId } }),
+    ).resolves.toMatchObject({ status: 'ACCEPTED' });
+  });
+
+  it('settles an activity that ended nineteen hours ago', async () => {
+    const eventPublicId = await publishEvent();
+    const person = await accepted(eventPublicId);
+
+    clock.set(new Date(ENDS_AT.getTime() + 19 * 3_600_000));
+    await sweep();
+
+    await expect(
+      prisma.eventParticipant.findUniqueOrThrow({ where: { publicId: person.publicId } }),
+    ).resolves.toMatchObject({ status: 'COMPLETED' });
+  });
+});
+
 async function statusOf(publicId: string): Promise<string> {
   const row = await prisma.event.findUniqueOrThrow({
     where: { publicId },

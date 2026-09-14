@@ -432,6 +432,105 @@ export class EventLifecycleService {
   }
 
   /**
+   * Ask the host «همه آمدند؟», once, as soon as the activity is over (plan 15).
+   *
+   * ── Why it has to be asked ──────────────────────────────────────────────────
+   *
+   * `settleAttendance` treats a guest nobody reported as a guest who came, and
+   * the kind default is only fair if the host was given the chance to say
+   * otherwise. They were not: «🚫 غایب بود» lives four taps deep in a guest list
+   * no message pointed at. This message is that pointer, and it names the
+   * deadline — the moment settlement may run.
+   *
+   * ── Which activities ────────────────────────────────────────────────────────
+   *
+   * Ended, and still inside `participation.settlement_delay_hours`: past it,
+   * settlement may already have run and the question would be a lie. With a
+   * guest still ACCEPTED, because those are the only ones «غایب بود» is drawn
+   * for — an evening whose guests all cancelled has nobody to ask about.
+   *
+   * `PUBLISHED` and `ONGOING` as well as `COMPLETED`, so the question does not
+   * wait on the lifecycle sweep's timing: `markNoShow` needs only the end to have
+   * passed. `HIDDEN` is left out because a hidden activity is never retired, so
+   * never settled — «بعد از آن همه حاضر ثبت می‌شوند» would not be true of it.
+   *
+   * ── The claim ───────────────────────────────────────────────────────────────
+   *
+   * `remindHost`'s shape, one message later: `updateMany` where the column is
+   * NULL is the claim, and the outbox row commits with it. Two sweeps at once
+   * send one message.
+   */
+  async promptAttendance(limit = 100): Promise<number> {
+    const now = this.clock.now();
+    const delayHours = await this.settings.getInt('participation.settlement_delay_hours');
+    const delayMs = delayHours * 3_600_000;
+
+    const candidates = await this.prisma.event.findMany({
+      where: {
+        status: { in: ['PUBLISHED', 'ONGOING', 'COMPLETED'] },
+        deletedAt: null,
+        attendancePromptedAt: null,
+        // Implied by the end, and what lets `(status, starts_at)` narrow the scan.
+        startsAt: { lte: now },
+        endsAt: { lte: now, gt: new Date(now.getTime() - delayMs) },
+        participants: { some: { status: 'ACCEPTED' } },
+      },
+      select: { id: true },
+      orderBy: { endsAt: 'asc' },
+      take: limit,
+    });
+
+    let prompted = 0;
+    for (const { id } of candidates) {
+      if (await this.promptOne(id, delayMs, now)) prompted += 1;
+    }
+    return prompted;
+  }
+
+  private async promptOne(eventId: string, delayMs: number, now: Date): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.event.updateMany({
+        where: { id: eventId, attendancePromptedAt: null },
+        data: { attendancePromptedAt: now },
+      });
+      if (claimed.count === 0) return false;
+
+      const event = await tx.event.findUniqueOrThrow({
+        where: { id: eventId },
+        select: {
+          publicId: true,
+          title: true,
+          endsAt: true,
+          acceptedCount: true,
+          host: { select: { publicId: true } },
+        },
+      });
+
+      await this.outbox.emit(
+        {
+          aggregateType: 'event',
+          aggregateId: eventId,
+          eventType: 'event.attendance_prompt',
+          // Public ids and the title only — this becomes a Telegram message
+          // (ADR-0009, invariant 7).
+          payload: {
+            eventPublicId: event.publicId,
+            eventTitle: event.title,
+            hostUserPublicId: event.host.publicId,
+            acceptedCount: event.acceptedCount,
+            // The earliest settlement may run, which is the latest the host can
+            // be told to answer by. The hourly sweep may run up to an hour later.
+            settlesAt: new Date(event.endsAt.getTime() + delayMs).toISOString(),
+          },
+        },
+        tx,
+      );
+
+      return true;
+    });
+  }
+
+  /**
    * Settle who attended, once the host has had time to say otherwise.
    *
    * Everyone still ACCEPTED on a COMPLETED event is treated as having turned up.

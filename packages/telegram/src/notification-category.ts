@@ -57,6 +57,13 @@ const CATEGORY: Record<string, NotificationCategory> = {
    */
   [TEMPLATES.EVENT_REMINDER_GUEST]: 'events',
   [TEMPLATES.EVENT_REMINDER_HOST]: 'events',
+  /**
+   * «همه آمدند؟» (plan 15) — `events`, like the reminders, for the same reason:
+   * it is a question about a plan, and nothing is decided about the host by it.
+   * A host who has switched activity messages off is settled by the default,
+   * which is the one outcome that costs nobody anything.
+   */
+  [TEMPLATES.EVENT_ATTENDANCE_PROMPT]: 'events',
   [TEMPLATES.REVIEW_WINDOW_OPEN]: 'events',
   [TEMPLATES.REVIEW_REVEALED]: 'events',
 

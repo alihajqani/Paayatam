@@ -223,3 +223,41 @@ describe('a referral that qualified at the monthly cap', () => {
     expect(message?.text).not.toContain('اضافه شد');
   });
 });
+
+/**
+ * «همه آمدند؟» (plan 15).
+ *
+ * The one message that sends a host to «🚫 غایب بود» before every guest is
+ * settled as having come — so it has to say until when, and open the list.
+ */
+describe('asking the host who came', () => {
+  const E = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+
+  it('asks who came, says until when, and opens the guest list', () => {
+    const message = render(TEMPLATES.EVENT_ATTENDANCE_PROMPT, {
+      eventTitle: 'قهوه',
+      eventPublicId: E,
+      acceptedCount: 3,
+      settlesAt: '2026-09-21T14:30:00.000Z',
+    });
+
+    expect(message?.text).toContain('همه آمدند');
+    expect(message?.text).toContain('۳');
+    expect(message?.text).toContain('غایب بود');
+    // 14:30 UTC is 18:00 in Tehran: the deadline is a Tehran wall clock.
+    expect(message?.text).toContain('۱۸:۰۰');
+    expect((message?.keyboard ?? []).flat().map((b) => b.callbackData)).toEqual([`ev:who:${E}`]);
+  });
+
+  it('names no deadline it was not given', () => {
+    const message = render(TEMPLATES.EVENT_ATTENDANCE_PROMPT, {
+      eventTitle: 'قهوه',
+      eventPublicId: E,
+      acceptedCount: 3,
+    });
+
+    expect(message?.text).toContain('همه آمدند');
+    expect(message?.text).not.toContain('۱۸:۰۰');
+    expect(message?.text).toContain('غایب بود');
+  });
+});

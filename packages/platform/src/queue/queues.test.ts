@@ -73,6 +73,25 @@ describe('the queue catalogue', () => {
     expect(entry).toEqual({ name: 'moderation-digest', pattern: '*/15 * * * *' });
   });
 
+  /**
+   * «همه آمدند؟» (plan 15) is asked within a quarter hour of the end, and the
+   * end is an instant, not a Tehran day — so no timezone.
+   */
+  it('asks hosts who came every quarter hour, with no timezone', () => {
+    const entry = SCHEDULE.find((candidate) => candidate.name === JOBS.ATTENDANCE_PROMPT);
+    expect(entry).toEqual({ name: 'attendance-prompt', pattern: '*/15 * * * *' });
+  });
+
+  /**
+   * Settlement is hourly now, not at 03:00 Tehran (plan 15): the window a host
+   * has is `participation.settlement_delay_hours` itself, whatever hour the
+   * activity ended. A nightly run made it anything from two hours to a day.
+   */
+  it('settles attendance hourly, with no timezone', () => {
+    const entry = SCHEDULE.find((candidate) => candidate.name === JOBS.SETTLE_ATTENDANCE);
+    expect(entry).toEqual({ name: 'settle-attendance', pattern: '40 * * * *' });
+  });
+
   /** One schedule per job. A duplicate would run the same sweep twice a tick. */
   it('schedules each job once', () => {
     const scheduled = SCHEDULE.map((entry) => entry.name);

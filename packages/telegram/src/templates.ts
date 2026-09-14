@@ -77,6 +77,13 @@ export const TEMPLATES = {
   EVENT_REMINDER_GUEST: 'event.reminder_guest',
   /** The host's, once, a day out, with a head count. */
   EVENT_REMINDER_HOST: 'event.reminder_host',
+  /**
+   * «همه آمدند؟» — the host's, once, as soon as the activity is over (plan 15).
+   *
+   * Until migration 0053 nothing sent a host to «🚫 غایب بود», and every guest
+   * nobody reported was settled as having come.
+   */
+  EVENT_ATTENDANCE_PROMPT: 'event.attendance_prompt',
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
   CONTENT_HIDDEN: 'moderation.content_hidden',
@@ -668,6 +675,35 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         // The guest list, where «✉️ پیام» now reaches each guest (plan 13).
         host !== null
           ? [[{ text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', host) }]]
+          : undefined,
+      );
+    }
+
+    /**
+     * «همه آمدند؟», with the deadline and the list the answer is given from (plan 15).
+     *
+     * The deadline is `settlesAt` — the earliest settlement may run — in Tehran's
+     * wall clock, and it is left out rather than guessed when the payload has
+     * none: a wrong deadline on the one message about a deadline is worse than
+     * none. The button is the guest list because that is where «🚫 غایب بود» is
+     * drawn; there is no second way to record a no-show to send somebody to.
+     */
+    case TEMPLATES.EVENT_ATTENDANCE_PROMPT: {
+      const event = id(payload, 'eventPublicId');
+      const settles = new Date(raw(payload, 'settlesAt'));
+      const deadline = Number.isNaN(settles.getTime())
+        ? `از «👥 مهمان‌ها» «🚫 غایب بود» را بزنید؛ `
+        : `تا <b>${formatTehran(settles)}</b> از «👥 مهمان‌ها» «🚫 غایب بود» را بزنید؛ `;
+
+      return opened(
+        `<b>«${str(payload, 'eventTitle')}» تمام شد</b> — همه آمدند؟\n\n` +
+          `${num(payload, 'acceptedCount')} نفر پذیرفته شده بودند.\n` +
+          `اگر کسی نیامد، ${deadline}` +
+          `بعد از آن همه حاضر ثبت می‌شوند.\n\n` +
+          `<i>اگر همه آمدند، کاری لازم نیست.</i>`,
+        `my-events`,
+        event !== null
+          ? [[{ text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event) }]]
           : undefined,
       );
     }

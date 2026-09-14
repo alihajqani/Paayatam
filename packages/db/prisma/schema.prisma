@@ -1132,6 +1132,9 @@ model Event {
   /// arrive early is a head count a day out, and a three-hour nudge to whoever
   /// created the evening is noise.
   hostRemindedAt DateTime? @map("host_reminded_at") @db.Timestamptz(3)
+  /// When the host was asked «همه آمدند؟», once, after the end (migration 0053,
+  /// plan 15). NULL is "not yet"; the sweep claims the event by writing it.
+  attendancePromptedAt DateTime? @map("attendance_prompted_at") @db.Timestamptz(3)
 
   capacity      Int
   /// Invariant 1. Only ever changed under `SELECT … FOR UPDATE` on this row (M6).
