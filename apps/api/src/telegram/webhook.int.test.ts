@@ -730,6 +730,28 @@ describe('commands', () => {
   });
 
   /**
+   * The founding line reads the campaign's real cap (plan 18 item 1, review L1).
+   * It said «از هزار نفر اول» in words, while the profile-completion message read
+   * `founding_campaign.max_rank` — so a campaign closed at 500 told a member two
+   * different numbers.
+   */
+  it('names the founding campaign’s real cap on the profile card', async () => {
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await prisma.foundingCampaign.update({ where: { id: 1 }, data: { maxRank: 500 } });
+    await prisma.foundingMember.create({ data: { userId: guestId, rank: 42, tier: 2, coins: 20 } });
+
+    await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/profile') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { userId: guestId, templateKey: TEMPLATES.BOT_PROFILE },
+      select: { payload: true },
+    });
+    const founding = String((row.payload as Record<string, unknown>)['founding']);
+    expect(founding).toContain('از ۵۰۰ نفر اول');
+    expect(founding).not.toContain('هزار');
+  });
+
+  /**
    * The product's core question, answered without opening anything. The city is
    * the sender's own, which is what makes the command single-turn.
    */
