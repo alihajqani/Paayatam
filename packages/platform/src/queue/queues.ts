@@ -156,6 +156,14 @@ export const JOBS = {
    * `admin_telegram_link` at delivery, so no job payload carries a Telegram id.
    */
   MODERATION_DIGEST: 'moderation-digest',
+  /**
+   * Ask a host «همه آمدند؟» once their activity is over (plan 15).
+   *
+   * Its own job rather than part of `SETTLE_ATTENDANCE`, because the two answer
+   * opposite ends of one window: this opens it, the moment the activity ends;
+   * settlement closes it, `participation.settlement_delay_hours` later.
+   */
+  ATTENDANCE_PROMPT: 'attendance-prompt',
   SETTLE_ATTENDANCE: 'settle-attendance',
   /**
    * Return the host's deposit and pay the per-guest bonus.
@@ -239,8 +247,9 @@ export function jobId(...parts: readonly string[]): string {
  * Every one of these is idempotent, and every one reads the server clock rather
  * than accepting a timestamp — which is what makes "run it twice" a no-op rather
  * than a double charge. The daily jobs are pinned to Tehran because they are about
- * a *person's* day: an attendance settled at 03:00 UTC would settle in the middle
- * of somebody's evening.
+ * a *person's* day: a gift sent at 10:00 UTC lands in the middle of somebody's
+ * afternoon. A job measured from an instant — a reminder, a settlement window —
+ * has no day to be about, and carries no timezone.
  */
 export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: string }> = [
   { name: JOBS.EVENT_LIFECYCLE, pattern: '* * * * *' },
@@ -270,7 +279,24 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    * own fifteen-minute delay; most passes find a quiet period and send nothing.
    */
   { name: JOBS.MODERATION_DIGEST, pattern: '*/15 * * * *' },
-  { name: JOBS.SETTLE_ATTENDANCE, pattern: '0 3 * * *', tz: 'Asia/Tehran' },
+  /**
+   * «همه آمدند؟», every quarter hour with no timezone (plan 15) — the same cadence
+   * and the same reasoning as `EVENT_REMINDER`: it is a fixed offset from an
+   * instant, and a quarter hour after the end is soon enough to find a host
+   * still thinking about the evening.
+   */
+  { name: JOBS.ATTENDANCE_PROMPT, pattern: '*/15 * * * *' },
+  /**
+   * Hourly, at forty past, with no timezone (plan 15).
+   *
+   * It was 03:00 Tehran, which made the window a host had to report a no-show
+   * depend on when the activity ended — five hours for one ending at 22:00. Run
+   * hourly, `participation.settlement_delay_hours` *is* the window. Forty past
+   * (in the worker's clock, which is UTC) keeps it off the top of the hour, where
+   * `REVIEW_SWEEP` starts, and away from `SETTLE_HOST_REWARDS` at twenty past,
+   * which reads what this writes.
+   */
+  { name: JOBS.SETTLE_ATTENDANCE, pattern: '40 * * * *' },
   /**
    * Hourly, at twenty past.
    *
@@ -303,9 +329,14 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    *
    * A privacy commitment measured in days does not need to be honoured to the
    * minute, and the purge takes locks on tables the product reads all day. 04:00
-   * local is after the attendance settlement at 03:00, so the two never contend,
-   * and it is far enough from either end of the evening that a purge running long
+   * local is far enough from either end of the evening that a purge running long
    * costs nobody anything.
+   *
+   * It no longer has the night to itself. Attendance settles hourly since plan
+   * 15, at forty past in the worker's clock — UTC, so ten past in Tehran, ten
+   * minutes into this. The two do not contend for rows: settlement writes this
+   * week's participations and audit entries, and the purge deletes what is
+   * months old.
    */
   { name: JOBS.RETENTION_PURGE, pattern: '0 4 * * *', tz: 'Asia/Tehran' },
   /**

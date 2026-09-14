@@ -658,9 +658,10 @@ export const SETTING_DEFAULTS = {
    * broken.
    *
    * Zero means "as soon as attendance is settled", and the settlement delay —
-   * two hours — is the only wait left. It is the one that earns its keep: it is
-   * what gives a host time to report a no-show before the product decides
-   * everybody turned up.
+   * eighteen hours since plan 15 — is the only wait left. It is the one that
+   * earns its keep: it is what gives a host time to report a no-show before the
+   * product decides everybody turned up. Stacking another delay on top of it is
+   * what made the section read as broken.
    *
    * Seven days to write one, and one hour to change your mind about what you
    * wrote.
@@ -772,14 +773,24 @@ export const SETTING_DEFAULTS = {
    * A window rather than "immediately at the end": the host has to be able to
    * report a no-show, and nobody does that from the pavement outside the café.
    *
-   * **Two hours since v0.7.0**, down from twenty-four. It used to match
-   * `review.window_opens_hours`, and the two then stacked into a two-day wait
-   * before anybody could review anything — the report that «بخش نوشتن نظر هیچ
-   * چیزی نشان نمی‌داد». The review window is zero now, so this is the only delay
-   * left: an evening ends, the host has the rest of it to say somebody did not
-   * turn up, and by the next morning both sides can write.
+   * **Eighteen hours since plan 15**, up from two. Two hours was never the real
+   * window: `SETTLE_ATTENDANCE` ran once a night at 03:00 Tehran, so the wait was
+   * whatever lay between the end plus two hours and the next 03:00 — five hours
+   * for an activity ending at 22:00, twenty-five and a half for one ending at
+   * 01:30, and just over two for one ending at 00:55. The
+   * sweep is hourly now, so this number *is* the window, and eighteen covers the
+   * rest of an evening and the next morning wherever the activity ended. The
+   * host is asked «همه آمدند؟» the moment it is over, with this deadline in it.
+   *
+   * The cost is stated rather than hidden: the review window and the host's
+   * deposit wait for settlement, so both open eighteen hours after the end. It
+   * was two days before v0.7.0 and read as broken; eighteen hours with the
+   * question asked up front is the deliberate middle (plan 15, option A).
+   *
+   * A deployment that already has a row for this key keeps its value — check it
+   * in the panel after upgrading.
    */
-  'participation.settlement_delay_hours': 2,
+  'participation.settlement_delay_hours': 18,
 
   // Ranking weights (plan §11). Fractions, not integers — read with `getNumber`.
   // Trust is capped at 0.10 deliberately: §12 resolves "Trust Score in ranking"

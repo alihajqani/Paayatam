@@ -723,6 +723,22 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      case JOBS.ATTENDANCE_PROMPT: {
+        /**
+         * «همه آمدند؟» to each host whose activity just ended (plan 15).
+         *
+         * Logged only when it asked somebody, like the reminders. The outbox is
+         * drained at once, as settlement does: the question is only worth asking
+         * while the evening is fresh, and the backstop is five minutes away.
+         */
+        const prompted = await this.lifecycle.promptAttendance();
+        if (prompted > 0) {
+          this.logger.log(`Asked ${String(prompted)} host(s) who came`);
+          await this.onDomainEvent(job);
+        }
+        return;
+      }
+
       case JOBS.MODERATION_DIGEST: {
         /**
          * «پرونده منتظر است» to each moderator it is due (plan 06).

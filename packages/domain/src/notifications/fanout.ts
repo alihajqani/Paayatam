@@ -202,6 +202,11 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     case 'event.reminder_host':
       return recipient(row, 'hostUserPublicId', TEMPLATES.EVENT_REMINDER_HOST);
 
+    // «همه آمدند؟», to the host (plan 15). The key is asserted from the producer
+    // in `lifecycle.int.test.ts`, not from a payload built here.
+    case 'event.attendance_prompt':
+      return recipient(row, 'hostUserPublicId', TEMPLATES.EVENT_ATTENDANCE_PROMPT);
+
     /**
      * The window is open, and both sides are told (v0.8.1).
      *

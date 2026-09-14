@@ -1,0 +1,33 @@
+-- Migration 0053: remembering that the host was asked «همه آمدند؟» (plan 15).
+--
+-- ── What was missing ────────────────────────────────────────────────────────
+--
+-- A no-show could be reported from exactly one place — «فعالیت‌های من» → the
+-- activity → «👥 مهمان‌ها» → «🚫 غایب بود» — and no message ever sent a host
+-- there. Meanwhile `SETTLE_ATTENDANCE` settled every guest still ACCEPTED as
+-- attended. So a host who said nothing was not a host who had nothing to say; it
+-- was a host nobody had asked.
+--
+-- ── Why a column ────────────────────────────────────────────────────────────
+--
+-- The same reasoning as migration 0050's `host_reminded_at`, one message later
+-- in the same activity's life. A quarter-hourly sweep claims the event by
+-- writing this column where it is NULL — two workers resolve to one write — and
+-- emits the outbox row in the same transaction. It is also the answer to "was I
+-- ever asked?", which `notification` rows stop being able to give once the
+-- retention purge has run.
+--
+-- ── No index ────────────────────────────────────────────────────────────────
+--
+-- There is no index on `ends_at`, and this does not add one. The sweep narrows by
+-- status and a start already in the past — `event_status_starts_at_idx` — then
+-- by `ends_at` inside the settlement window, and asks
+-- `event_participant(event_id, status)` for an accepted guest. The same shape
+-- `settleAttendance` has always read.
+--
+-- ── Additive, and what the first run does ───────────────────────────────────
+--
+-- One nullable column; every existing row reads NULL. The first sweep after
+-- deploy asks the host of every activity that ended inside the window and has
+-- not been settled — the people who can still act on the question.
+ALTER TABLE "event" ADD COLUMN IF NOT EXISTS "attendance_prompted_at" TIMESTAMPTZ(3);
