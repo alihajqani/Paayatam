@@ -119,3 +119,39 @@ describe('the host reminder', () => {
     expect(host()?.text).toContain('میزبانید');
   });
 });
+
+/**
+ * A reminder that asks for an action carries it (plan 11).
+ *
+ * «همین حالا لغو کنید» with no button sent a guest through the menu to find the
+ * request; «به مهمان‌ها خبر بدهید» sent a host looking for the guest list.
+ */
+describe('the buttons under a reminder', () => {
+  const EVENT = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c';
+  const PARTICIPANT = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+
+  function data(message: ReturnType<typeof render>): string[] {
+    return (message?.keyboard ?? []).flat().map((button) => String(button.callbackData));
+  }
+
+  it('offers the guest the cancellation it tells them to make, and the activity', () => {
+    expect(
+      data(guest({ wave: 'SECOND', participantPublicId: PARTICIPANT, eventPublicId: EVENT })),
+    ).toEqual([`ev:cancel:${PARTICIPANT}`, `ev:show:${EVENT}`]);
+  });
+
+  /** A reminder queued before the participation id was carried still sends. */
+  it('draws no guest button that names nothing', () => {
+    expect(guest({ eventPublicId: EVENT })?.keyboard).toBeUndefined();
+  });
+
+  it('offers the host the guest list', () => {
+    const message = render(TEMPLATES.EVENT_REMINDER_HOST, {
+      eventTitle: 'شب شعر',
+      startsAt: STARTS_AT,
+      acceptedCount: 4,
+      eventPublicId: EVENT,
+    });
+    expect(data(message)).toEqual([`ev:who:${EVENT}`]);
+  });
+});

@@ -28,10 +28,22 @@ import { toPersianDigits } from './escape';
  * Emphasis is typography, not markup: the amounts are in Persian digits with
  * «سکه» after each of them, which is as much as one sentence needs.
  */
-export function insufficientCoinsNotice(what: string, cost: number, balance: number): string {
+export function insufficientCoinsNotice(
+  what: string,
+  cost: number,
+  balance: number,
+  /**
+   * Whether the message carries the buttons that get coins (plan 11). The
+   * sentence used to name `/referral` and `/gift` to type; with buttons under it,
+   * it points at them instead.
+   */
+  withButtons = false,
+): string {
   return (
     `${what} ${toPersianDigits(String(cost))} سکه هزینه دارد و ` +
     `موجودی شما ${toPersianDigits(String(balance))} سکه است.\n\n` +
-    `می‌توانید با دعوت دوستان یا کد هدیه سکه به دست بیاورید — /referral و /gift.`
+    (withButtons
+      ? `با دکمه‌های زیر می‌توانید سکه به دست بیاورید.`
+      : `می‌توانید با دعوت دوستان یا کد هدیه سکه به دست بیاورید — /referral و /gift.`)
   );
 }

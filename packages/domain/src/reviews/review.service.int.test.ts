@@ -324,6 +324,9 @@ describe('the window-open reminder', () => {
       hostUserPublicId: hostPublicId,
       guestUserPublicId: guestPublicId,
       eventTitle: 'شب بازی رومیزی',
+      // Who each side is reviewing, for the stars under the message (plan 11).
+      hostDisplayName: expect.any(String),
+      guestDisplayName: 'کاربر',
     });
   });
 

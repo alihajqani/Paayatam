@@ -349,6 +349,8 @@ describe('what the reminder carries', () => {
     expect(payload['eventTitle']).toBe('شب بازی رومیزی');
     expect(payload['wave']).toBe('FIRST');
     expect(typeof payload['startsAt']).toBe('string');
+    // The participation, so «✖️ لغو شرکت» can name it (plan 11).
+    expect(payload['participantPublicId']).toBe(guest.publicId);
     expect(JSON.stringify(payload)).not.toContain(guest.userId);
   });
 

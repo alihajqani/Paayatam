@@ -447,6 +447,10 @@ describe('both parties are notified (D8)', () => {
     expect(payload['hostUserPublicId']).toBe(hostUser.publicId);
     expect(payload['promotedUserPublicId']).toBe(promotedUser.publicId);
     expect(payload['participantPublicId']).toBe(rows[1]!.publicId);
+    // Who the host is now deciding about (plan 11): the promoted guest.
+    expect(payload['participantDisplayName']).toEqual(expect.any(String));
+    expect(payload).toHaveProperty('participantTrustScore');
+    expect(payload).toHaveProperty('participantFoundingTier', null);
     expect(payload['hostDeadlineAt']).toBe('2026-08-15T21:00:00.000Z');
 
     /**

@@ -280,6 +280,9 @@ export class ParticipationService {
               hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
               participantUserPublicId: await this.publicIdOf(tx, userId),
               status,
+              // Who is asking, for the host who decides from the notification
+              // (plan 11). The guest list already shows the same three facts.
+              ...(await this.requesterIdentity(tx, userId)),
             },
           },
           tx,
@@ -756,6 +759,35 @@ export class ParticipationService {
   }
 
   /** `user_id → score` for the users that have one. Absent means never judged. */
+  /**
+   * The name, Trust Score and founding tier of somebody asking to join, for the
+   * host's notification (plan 11).
+   *
+   * Scalars only — the payload becomes message text (invariant 7). The same three
+   * facts `listForEvent` gives the host's guest list, with the same fallbacks: a
+   * missing profile name reads as «کاربر پایه‌تَم» and a missing score as null,
+   * which the template renders «تازه‌وارد».
+   */
+  private async requesterIdentity(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<{
+    participantDisplayName: string;
+    participantTrustScore: number | null;
+    participantFoundingTier: number | null;
+  }> {
+    const [profile, trust, founding] = await Promise.all([
+      tx.userProfile.findUnique({ where: { userId }, select: { displayName: true } }),
+      tx.trustScore.findUnique({ where: { userId }, select: { score: true } }),
+      tx.foundingMember.findUnique({ where: { userId }, select: { tier: true } }),
+    ]);
+    return {
+      participantDisplayName: profile?.displayName ?? 'کاربر پایه‌تَم',
+      participantTrustScore: trust?.score ?? null,
+      participantFoundingTier: founding?.tier ?? null,
+    };
+  }
+
   private async trustScoresFor(userIds: string[]): Promise<Map<string, number>> {
     if (userIds.length === 0) return new Map();
 
@@ -906,6 +938,7 @@ export class ParticipationService {
             hostUserPublicId: await this.publicIdOf(tx, event.hostUserId),
             promotedUserPublicId: await this.publicIdOf(tx, next.userId),
             hostDeadlineAt: hostDeadlineAt.toISOString(),
+            ...(await this.requesterIdentity(tx, next.userId)),
           },
         },
         tx,

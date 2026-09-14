@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { botStartUrl, encodeStartPayload, parseStartPayload } from './deep-link';
+import { botStartUrl, encodeStartPayload, parseStartPayload, shareUrl } from './deep-link';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 
@@ -42,6 +42,22 @@ describe('the bot deep-link protocol', () => {
   it('builds the link a channel post button carries', () => {
     expect(botStartUrl('payetam_bot', encodeStartPayload('event', ID))).toBe(
       `https://t.me/payetam_bot?start=event_${ID}`,
+    );
+  });
+});
+
+/**
+ * Telegram's own share sheet for an activity (plan 11).
+ *
+ * `t.me/share/url` opens the client's forward dialog with the link pre-filled, so
+ * a host can pass their activity to a friend or a group in two taps. The inner
+ * link is the bot's `?start=event_`, the same one the channel post carries, and
+ * it has to be percent-encoded or its `?` would end the outer query string.
+ */
+describe('shareUrl', () => {
+  it('wraps the activity link for the share sheet', () => {
+    expect(shareUrl('payetam_bot', ID)).toBe(
+      `https://t.me/share/url?url=https%3A%2F%2Ft.me%2Fpayetam_bot%3Fstart%3Devent_${ID}`,
     );
   });
 });

@@ -1174,6 +1174,34 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
     expect(await prisma.conversationState.count({ where: { userId: hostId } })).toBe(0);
   });
 
+  /**
+   * Out of coins, and the message carries the ways to get more (plan 11, M6).
+   *
+   * It said «/referral و /gift» — commands to type, at the one moment the coin
+   * screens were built for.
+   */
+  it('answers a host who cannot afford it with the buttons that get coins', async () => {
+    const hostId = await seedFundedHost(HOST_TELEGRAM_ID);
+    await prisma.coinAccount.update({ where: { userId: hostId }, data: { balance: 0 } });
+
+    await type(HOST_TELEGRAM_ID, '/create_event');
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { userId: hostId },
+      orderBy: { createdAt: 'desc' },
+      select: { templateKey: true, payload: true },
+    });
+    expect(row.templateKey).toBe(TEMPLATES.BOT_COINS_SHORT);
+    const payload = row.payload as Record<string, unknown>;
+    expect(String(payload['text'])).not.toContain('/gift');
+    const data = (JSON.parse(String(payload['keyboard'])) as { callbackData?: string }[][])
+      .flat()
+      .map((button) => button.callbackData);
+    expect(data).toContain('cd:gift:x');
+    expect(data).toContain('mn:c:referral');
+    expect(await prisma.conversationState.count({ where: { userId: hostId } })).toBe(0);
+  });
+
   /** A refusal holds the step; it does not advance past the question. */
   it('refuses a title that is too short and stays on the step', async () => {
     await seedFundedHost(HOST_TELEGRAM_ID);

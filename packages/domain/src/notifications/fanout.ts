@@ -212,14 +212,19 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
      */
     case 'review.window_open': {
       const planned: PlannedNotification[] = [];
-      for (const key of ['hostUserPublicId', 'guestUserPublicId']) {
+      for (const [key, role] of [
+        ['hostUserPublicId', 'HOST'],
+        ['guestUserPublicId', 'GUEST'],
+      ] as const) {
         const userPublicId = text(payload, key);
         if (userPublicId === '') continue;
         planned.push({
           userPublicId,
           templateKey: TEMPLATES.REVIEW_WINDOW_OPEN,
           dedupeKey: `${row.id}:${key}`,
-          payload,
+          // Which side this reader is (plan 11): the template names the other
+          // person, and tells only the host about the deposit.
+          payload: { ...payload, recipientRole: role },
         });
       }
       return planned;

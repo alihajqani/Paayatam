@@ -120,6 +120,7 @@ import {
   formatAdminQueue,
   isNotificationField,
   menuPathFor,
+  shareUrl,
   MAIN_MENU_LABEL,
   MODERATION_MENU_COMMAND,
   SETTING_FIELDS,
@@ -4632,8 +4633,38 @@ export class BotService {
     const balance = await this.coins.balanceOf(user.id);
     if (balance >= cost) return false;
 
-    await this.notice(updateId, user, insufficientCoinsNotice(what, cost, balance));
+    await this.coinsShort(updateId, user, what, cost, balance);
     return true;
+  }
+
+  /**
+   * «not enough coins», with the ways to get more as buttons (plan 11, M6).
+   *
+   * «🪙 خرید سکه» only when there is somebody to buy from
+   * (`COIN_PURCHASE_CONTACT`, as on the wallet); «🎁 کد هدیه دارم» only when
+   * forms are on, since it opens one; «👥 دعوت دوستان» runs `/referral` through
+   * the menu's own command callback, so it meets every gate a typed one does.
+   */
+  private async coinsShort(
+    updateId: number,
+    user: BotUser,
+    what: string,
+    cost: number,
+    balance: number,
+  ): Promise<void> {
+    const rows = [
+      ...(this.env.COIN_PURCHASE_CONTACT !== undefined ? buyCoinsRow() : []),
+      [
+        ...(this.env.ENABLE_CONVERSATION_WIZARD
+          ? [{ text: '🎁 کد هدیه دارم', callbackData: encodeCodeCallback('gift') }]
+          : []),
+        { text: '👥 دعوت دوستان', callbackData: encodeMenuCommand('referral') },
+      ],
+    ];
+    await this.reply(updateId, user.id, TEMPLATES.BOT_COINS_SHORT, {
+      text: insufficientCoinsNotice(what, cost, balance, true),
+      keyboard: JSON.stringify(rows),
+    });
   }
 
   // ── conversation wizards (ADR-0017) ─────────────────────────────────────────
@@ -5264,6 +5295,8 @@ export class BotService {
         inviteCost: toPersianDigits(String(inviteCost)),
         inviteRecipients: toPersianDigits(String(inviteRecipients)),
         republishCost: toPersianDigits(String(republishCost)),
+        // Built here because `render` takes no bot username (plan 11).
+        shareUrl: shareUrl(this.env.TELEGRAM_BOT_USERNAME ?? 'paayatambot', created.publicId),
       });
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -5794,6 +5827,18 @@ export class BotService {
    */
   private async refuse(updateId: number, user: BotUser, error: AppError): Promise<void> {
     if (await this.handledChannelRefusal(updateId, user, error)) return;
+
+    /**
+     * The service's own «not enough coins» — the balance moved between the
+     * bot's check and the spend — answered like the check is (plan 11). The
+     * details are what `CoinService.apply` puts on the error.
+     */
+    if (error.code === ErrorCode.INSUFFICIENT_COINS) {
+      const details = error.details as { balance?: unknown; required?: unknown } | undefined;
+      if (typeof details?.balance === 'number' && typeof details.required === 'number') {
+        return this.coinsShort(updateId, user, 'این کار', details.required, details.balance);
+      }
+    }
 
     if (
       error.code === ErrorCode.EVENT_QUOTA_EXCEEDED ||

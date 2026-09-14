@@ -351,6 +351,7 @@ export class EventLifecycleService {
       const participant = await tx.eventParticipant.findUniqueOrThrow({
         where: { id: participantId },
         select: {
+          publicId: true,
           user: { select: { publicId: true } },
           event: { select: { publicId: true, title: true, startsAt: true } },
         },
@@ -369,6 +370,8 @@ export class EventLifecycleService {
             startsAt: participant.event.startsAt.toISOString(),
             wave,
             participantUserPublicId: participant.user.publicId,
+            // So «✖️ لغو شرکت» can name the participation (plan 11).
+            participantPublicId: participant.publicId,
           },
         },
         tx,

@@ -1,9 +1,17 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { encodeDirectCallback, isPublicId } from './callback-data';
+import {
+  REVIEW_RATINGS,
+  encodeDirectCallback,
+  encodeEventCallback,
+  encodeReviewCallback,
+  isPublicId,
+} from './callback-data';
 import { commandGroupFor, helpCommandLines } from './commands';
+import { SHARE_URL_PREFIX } from './deep-link';
+import { myEventCommandFor } from './event-code';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
-import { foundingTierMedal } from './founding';
+import { foundingBadge, foundingTierMedal } from './founding';
 import {
   MAIN_MENU_LABEL,
   hostDecisionKeyboard,
@@ -228,6 +236,13 @@ export const TEMPLATES = {
   BOT_REFERRAL: 'bot.referral',
   /** A host's paid or irreversible action, stated with its cost and confirmed. */
   BOT_CONFIRM_SPEND: 'bot.confirm_spend',
+  /**
+   * Not enough coins, with the ways to get more under it (plan 11, review M6).
+   *
+   * Not `BOT_NOTICE`, which discards any keyboard in its payload for the menu
+   * opener — the buttons are the whole point of this one.
+   */
+  BOT_COINS_SHORT: 'bot.coins_short',
   /** One activity in full, with the button that joins it. */
   BOT_EVENT_DETAIL: 'bot.event_detail',
   /** `/trust` — the score, and every movement behind it. */
@@ -364,6 +379,24 @@ function startsAtLine(payload: Payload): string {
   return Number.isNaN(date.getTime()) ? '' : `${formatTehran(date)}\n`;
 }
 
+/**
+ * Who is asking, as the host's guest list already shows them (plan 11).
+ *
+ * Name, founding medal, Trust Score — the same three facts `formatParticipants`
+ * draws, so moving them into the notification discloses nothing new; it puts
+ * them where the accept/reject decision is taken. Null trust is «تازه‌وارد»,
+ * never zero. Null for a payload without a name, which renders the old
+ * «یک نفر» sentence rather than an empty one.
+ */
+function requesterLine(payload: Payload): string | null {
+  const name = str(payload, 'participantDisplayName');
+  if (name === '') return null;
+  const score = payload['participantTrustScore'];
+  const trust = typeof score === 'number' ? `${toPersianDigits(score)} از ۱۰۰` : 'تازه‌وارد';
+  const tier = payload['participantFoundingTier'];
+  return `<b>${name}</b>${typeof tier === 'number' ? foundingBadge(tier) : ''} · ⭐️ ${trust}`;
+}
+
 function num(payload: Payload, key: string): string {
   const value = payload[key];
   return typeof value === 'number' ? toPersianDigits(value) : '۰';
@@ -417,9 +450,13 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.PARTICIPATION_REQUESTED_HOST: {
       const participant = id(payload, 'participantPublicId');
       const deepLink = HOST_DECISION_SCREEN;
+      const requester = requesterLine(payload);
       return {
         text:
-          `<b>درخواست تازه</b>\n\n` + `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`,
+          `<b>درخواست تازه</b>\n\n` +
+          (requester === null
+            ? `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`
+            : `${requester}\nمی‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`),
         deepLink,
         ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };
@@ -539,10 +576,12 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.WAITLIST_PROMOTED_HOST: {
       const participant = id(payload, 'participantPublicId');
       const deepLink = HOST_DECISION_SCREEN;
+      const requester = requesterLine(payload);
       return {
         text:
           `یک درخواست از لیست انتظار به «${str(payload, 'eventTitle')}» منتقل شد و ` +
-          `منتظر تصمیم شماست.`,
+          `منتظر تصمیم شماست.` +
+          (requester === null ? '' : `\n\n${requester}`),
         deepLink,
         ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };
@@ -578,6 +617,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.EVENT_REMINDER_GUEST: {
       const when = startsAtLine(payload);
       const second = str(payload, 'wave') === 'SECOND';
+      const participant = id(payload, 'participantPublicId');
+      const event = id(payload, 'eventPublicId');
 
       return opened(
         second
@@ -591,6 +632,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
               `${when}\n` +
               `اگر برنامه‌تان عوض شده، تا پیش از چند ساعت مانده به شروع، لغو ارزان‌تر است.`,
         `my-events`,
+        // The cancellation the text asks for, and the page (plan 11). `ev:cancel`
+        // asks and quotes the price; `cancelyes` does it — so this is safe to tap.
+        participant !== null && event !== null
+          ? [
+              [
+                { text: '✖️ لغو شرکت', callbackData: encodeEventCallback('cancel', participant) },
+                { text: '📄 صفحهٔ فعالیت', callbackData: encodeEventCallback('show', event) },
+              ],
+            ]
+          : undefined,
       );
     }
 
@@ -605,24 +656,61 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.EVENT_REMINDER_HOST: {
       const when = startsAtLine(payload);
       const count = num(payload, 'acceptedCount');
+      const host = id(payload, 'eventPublicId');
 
       return opened(
         `<b>فردا میزبانید</b> 📅\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
           `${when}` +
           `${count} نفر پذیرفته‌شده\n\n` +
-          `اگر چیزی عوض شده، همین امروز به مهمان‌ها خبر بدهید.`,
+          `اگر چیزی عوض شده، همین امروز از «👥 مهمان‌ها» به هر کدام پیام بدهید.`,
         `my-events`,
+        // The guest list, where «✉️ پیام» now reaches each guest (plan 13).
+        host !== null
+          ? [[{ text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', host) }]]
+          : undefined,
       );
     }
 
-    case TEMPLATES.REVIEW_WINDOW_OPEN:
+    /**
+     * «چطور بود؟», with the rating it asks for (plan 11).
+     *
+     * The stars are the `/reviews` callback, named by the participation, which
+     * is the same pair from either side. The fan-out tells each reader which
+     * side they are: a host with five guests gets five of these, and the other
+     * person's name is what tells them apart — and only the host is told that
+     * the deposit waits for these reviews (review H5).
+     */
+    case TEMPLATES.REVIEW_WINDOW_OPEN: {
+      const participant = id(payload, 'participantPublicId');
+      const role = str(payload, 'recipientRole');
+      const other =
+        role === 'HOST'
+          ? str(payload, 'guestDisplayName')
+          : role === 'GUEST'
+            ? str(payload, 'hostDisplayName')
+            : '';
       return opened(
         `چطور بود؟\n\n` +
-          `می‌توانید تا ${num(payload, 'daysLeft')} روز آینده بازخورد خود را درباره ` +
-          `«${str(payload, 'eventTitle')}» ثبت کنید.`,
+          (other === ''
+            ? `می‌توانید تا ${num(payload, 'daysLeft')} روز آینده بازخورد خود را درباره ` +
+              `«${str(payload, 'eventTitle')}» ثبت کنید.`
+            : `نظرتان دربارهٔ <b>${other}</b> در «${str(payload, 'eventTitle')}» چیست؟ ` +
+              `تا ${num(payload, 'daysLeft')} روز آینده می‌توانید با ستاره‌های زیر ثبتش کنید.`) +
+          (role === 'HOST'
+            ? `\n\n<i>سپردهٔ ثبت فعالیت وقتی برمی‌گردد که برای همهٔ مهمان‌هایی که آمدند نظر نوشته باشید.</i>`
+            : ''),
         `reviews/pending`,
+        participant === null
+          ? undefined
+          : [
+              REVIEW_RATINGS.map((rating) => ({
+                text: `${toPersianDigits(rating)}⭐`,
+                callbackData: encodeReviewCallback(rating, participant),
+              })),
+            ],
       );
+    }
 
     /** D7: both sides learn at the same instant, which is why one event fans out. */
     case TEMPLATES.REVIEW_REVEALED:
@@ -1242,11 +1330,22 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         keyboard: menuOpenerKeyboard(),
       };
 
-    case TEMPLATES.BOT_EVENT_CREATED:
+    /**
+     * Registered — and the way to the activity and to sharing it (plan 11).
+     *
+     * `/myevent_…` opens its console directly rather than naming a menu path,
+     * and the share sheet is drawn only for a url that is Telegram's own
+     * (`SHARE_URL_PREFIX`), because the value comes from a payload.
+     */
+    case TEMPLATES.BOT_EVENT_CREATED: {
+      const manage = myEventCommandFor(raw(payload, 'eventPublicId'));
+      const share = raw(payload, 'shareUrl');
       return opened(
         `<b>فعالیت ثبت شد</b> ✅\n\n` +
           `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n` +
-          `از دکمهٔ «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید ` +
+          (manage === null
+            ? `از دکمهٔ «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `
+            : `با ${manage} یا از «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `) +
           `درخواست‌ها را ببینید و پاسخ بدهید.\n\n` +
           `<b>اگر بخواهید بیشتر دیده شود:</b>\n` +
           `📨 <b>دعوت ویژه</b> — فعالیت شما با پیام اختصاصی برای حداکثر ` +
@@ -1256,7 +1355,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `(${str(payload, 'republishCost')} سکه).\n\n` +
           `<i>هر دو از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`,
         `my-events`,
+        share.startsWith(SHARE_URL_PREFIX)
+          ? [[{ text: '🔗 اشتراک‌گذاری', url: share }]]
+          : undefined,
       );
+    }
 
     /**
      * `/wallet` and `/referral` — both bodies built by this package's own
@@ -1404,6 +1507,15 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       };
     }
 
+    /** Escaped like a notice — the sentence is built by `insufficientCoinsNotice`. */
+    case TEMPLATES.BOT_COINS_SHORT: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: str(payload, 'text'),
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
     case TEMPLATES.BOT_CONFIRM_SPEND: {
       const keyboard = parseKeyboard(payload);
       return {
@@ -1512,8 +1624,8 @@ function parseKeyboard(payload: Payload): InlineKeyboard | undefined {
  * every one of them is on the Mini App's allowlist. That check is worth keeping
  * whether or not a button spends it today.
  */
-function opened(text: string, deepLink: string): RenderedMessage {
-  return { text, deepLink };
+function opened(text: string, deepLink: string, keyboard?: InlineKeyboard): RenderedMessage {
+  return keyboard === undefined ? { text, deepLink } : { text, deepLink, keyboard };
 }
 
 /**
