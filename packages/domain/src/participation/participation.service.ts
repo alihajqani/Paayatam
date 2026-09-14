@@ -800,6 +800,24 @@ export class ParticipationService {
   }
 
   /**
+   * How many requests are waiting on this host to answer (plan 18 item 3) — the
+   * first number on the menu's status line.
+   *
+   * `PUBLISHED` activities only: a request on a hidden, cancelled or finished one
+   * is not something the host can act on from anywhere, and counting it would
+   * send them looking for a decision that no screen offers. A count, not a list,
+   * because the menu is opened constantly and shows only the number.
+   */
+  async countPendingForHost(hostUserId: string): Promise<number> {
+    return this.prisma.eventParticipant.count({
+      where: {
+        status: 'PENDING',
+        event: { hostUserId, status: 'PUBLISHED', deletedAt: null },
+      },
+    });
+  }
+
+  /**
    * The caller's live request on one activity, or null (plan 12).
    *
    * For the activity page, which offered «پایتم» to everybody who was not the

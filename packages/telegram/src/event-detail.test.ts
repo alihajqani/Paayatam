@@ -42,3 +42,23 @@ describe('the viewer’s own status on the activity page', () => {
     expect(formatEventDetail(line)).not.toContain('وضعیت شما');
   });
 });
+
+/**
+ * What guests have said about the host, in numbers (plan 18 item 6) — the
+ * texts are one tap further, behind «نظرها دربارهٔ میزبان».
+ */
+describe('the host’s reviews on the activity page', () => {
+  it('gives the mean rating and how many reviews it is over', () => {
+    const text = formatEventDetail({ ...line, hostReviews: { count: 12, average: 4.583 } });
+    expect(text).toContain('۴٫۶ از ۵');
+    expect(text).toContain('۱۲ نظر');
+  });
+
+  /** «۰ نظر» next to a new host reads as a verdict; «تازه‌وارد» already says it. */
+  it('says nothing for a host nobody has reviewed yet', () => {
+    expect(formatEventDetail({ ...line, hostReviews: { count: 0, average: null } })).not.toContain(
+      'نظر',
+    );
+    expect(formatEventDetail(line)).not.toContain('از ۵');
+  });
+});

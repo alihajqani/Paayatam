@@ -18,7 +18,7 @@ export { formatMyEvents, formatOwnedEvent, myEventsPageRow } from './events-dige
 export type { MyEventLine, OwnedEventLine } from './events-digest';
 export { ENTRY_SEPARATOR, formatDiscovered } from './discover-digest';
 export type { DiscoverLine } from './discover-digest';
-export { formatPendingReviews } from './reviews-digest';
+export { formatEditableReviews, formatPendingReviews } from './reviews-digest';
 export type { PendingReviewLine } from './reviews-digest';
 export {
   MENU_COMMANDS,
@@ -108,7 +108,7 @@ export type { NotificationCategory } from './notification-category';
 export { formatParticipants } from './participants';
 export { foundingBadge, foundingTierMedal, foundingTierName } from './founding';
 export type { ParticipantLine } from './participants';
-export { formatReceivedReviews } from './received-reviews';
+export { formatHostReviews, formatReceivedReviews, reviewSummaryLine } from './received-reviews';
 export type { ReceivedReviewLine } from './received-reviews';
 export type { TrustLine } from './trust';
 export { formatReferral } from './referral';
@@ -190,7 +190,13 @@ export {
 export type { ChatCallback, ChatCallbackAction } from './callback-data';
 export { EVENT_CALLBACK_ACTIONS, encodeEventCallback, parseEventCallback } from './callback-data';
 export type { EventCallback, EventCallbackAction } from './callback-data';
-export { REVIEW_RATINGS, encodeReviewCallback, parseReviewCallback } from './callback-data';
+export {
+  REVIEW_RATINGS,
+  encodeReviewCallback,
+  encodeReviewEditCallback,
+  parseReviewCallback,
+  parseReviewEditCallback,
+} from './callback-data';
 export {
   REPORT_REASONS,
   REPORT_TARGETS,
@@ -213,6 +219,7 @@ export type { DiscoverFilters, DiscoverWhen, DiscoverCost } from './callback-dat
 export type { ReviewCallback, ReviewRating } from './callback-data';
 
 export { hostDecisionKeyboard } from './keyboards';
+export type { MenuStatus } from './keyboards';
 export { MAIN_MENU_LABEL, mainMenuReplyKeyboard } from './keyboards';
 export type { ReplyKeyboard } from './keyboards';
 export type { InlineButton, InlineKeyboard } from './keyboards';

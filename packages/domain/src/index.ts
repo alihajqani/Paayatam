@@ -282,6 +282,7 @@ export {
   reviewTrustKey,
 } from './reviews/review.service';
 export type {
+  EditableReview,
   OwnReview,
   PendingReview,
   RevealedReview,

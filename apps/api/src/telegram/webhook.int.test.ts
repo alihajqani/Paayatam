@@ -1791,6 +1791,28 @@ describe('POST /telegram/:secret — acting on your own events', () => {
   });
 
   /**
+   * Plan 18 item 4. «فعالیت ثبت شد» carried the share sheet and the console did
+   * not, so a host who wanted to share an activity a day later had nothing to
+   * tap.
+   */
+  it('offers Telegram’s share sheet for an open activity', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    await type(HOST_TELEGRAM_ID, `/myevent_${code}`);
+
+    const rows = JSON.parse(String((await latest(TEMPLATES.BOT_EVENT_DETAIL))['keyboard'])) as {
+      text: string;
+      url?: string;
+    }[][];
+    const urls = rows.flat().flatMap((button) => (button.url === undefined ? [] : [button.url]));
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toMatch(/^https:\/\/t\.me\/share\/url\?url=/);
+    expect(urls[0]).toContain(`start%3Devent_${eventPublicId}`);
+  });
+
+  /**
    * A code naming somebody else's activity is not in `listOwned`, so it answers
    * the same «پیدا نشد» a code naming nothing gets — which is what stops the
    * link being an existence oracle (T3.3).
@@ -2168,6 +2190,19 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
     const text = await bodyOf(TEMPLATES.BOT_REFERRAL);
     expect(text).toContain('https://t.me/');
     expect(text).toContain('?start=');
+  });
+
+  /** Plan 18 item 9 — read from the campaign row, not from a literal. */
+  it('says how much of the founding campaign is taken', async () => {
+    await seedGuest(GUEST_TELEGRAM_ID);
+    await prisma.foundingCampaign.update({
+      where: { id: 1 },
+      data: { nextRank: 613, maxRank: 1000 },
+    });
+
+    await type(GUEST_TELEGRAM_ID, '/referral');
+
+    expect(await bodyOf(TEMPLATES.BOT_REFERRAL)).toContain('۶۱۲ از ۱۰۰۰');
   });
 
   /**
@@ -2667,6 +2702,77 @@ describe('POST /telegram/:secret — rating somebody', () => {
     expect(review.comment).toBeNull();
   });
 
+  /**
+   * Plan 18 item 7. The hour `review.edit_window_minutes` allows was reachable
+   * only from the form that opens straight after the stars; `/reviews` now
+   * offers it for as long as `edit` would accept it.
+   */
+  describe('changing a review inside its hour', () => {
+    async function reviewsKeyboard(): Promise<{ text: string; callbackData: string }[][]> {
+      const row = await prisma.notification.findFirstOrThrow({
+        where: { templateKey: TEMPLATES.BOT_REVIEWS },
+        orderBy: { createdAt: 'desc' },
+        select: { payload: true },
+      });
+      const raw = (row.payload as Record<string, unknown>)['keyboard'];
+      return typeof raw === 'string'
+        ? (JSON.parse(raw) as { text: string; callbackData: string }[][])
+        : [];
+    }
+
+    it('offers «✏️ ویرایش», and a new star keeps the tags and the comment', async () => {
+      const { guestId, participantPublicId } = await seedPending();
+      await tap(GUEST_TELEGRAM_ID, `rv:rate2:${participantPublicId}`);
+      await tap(GUEST_TELEGRAM_ID, 'wz:tag:FRIENDLY');
+      await tap(GUEST_TELEGRAM_ID, 'wz:done:');
+      await type(GUEST_TELEGRAM_ID, 'خوب بود');
+      await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+      await type(GUEST_TELEGRAM_ID, '/reviews');
+      const edit = (await reviewsKeyboard())
+        .flat()
+        .find((b) => b.callbackData.startsWith('rv:edit:'));
+      expect(edit?.callbackData).toBe(`rv:edit:${participantPublicId}`);
+
+      await tap(GUEST_TELEGRAM_ID, `rv:edit:${participantPublicId}`);
+      const stars = (await reviewsKeyboard()).flat().map((b) => b.callbackData);
+      expect(stars).toContain(`rv:rate5:${participantPublicId}`);
+
+      await tap(GUEST_TELEGRAM_ID, `rv:rate5:${participantPublicId}`);
+      // The form opens again; leaving it untouched must not erase anything.
+      await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+      await tap(GUEST_TELEGRAM_ID, 'wz:skip:');
+      await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+      const review = await prisma.review.findFirstOrThrow({
+        where: { reviewerUserId: guestId },
+        select: { rating: true, tags: true, comment: true },
+      });
+      expect(review).toEqual({ rating: 5, tags: ['FRIENDLY'], comment: 'خوب بود' });
+    });
+
+    it('offers nothing once the hour has passed', async () => {
+      const { guestId, participantPublicId } = await seedPending();
+      await tap(GUEST_TELEGRAM_ID, `rv:rate2:${participantPublicId}`);
+      await prisma.review.updateMany({
+        where: { reviewerUserId: guestId },
+        data: { editDeadlineAt: new Date(Date.now() - 60_000) },
+      });
+
+      await type(GUEST_TELEGRAM_ID, '/reviews');
+      const data = (await reviewsKeyboard()).flat().map((b) => b.callbackData);
+      expect(data.some((entry) => entry.startsWith('rv:edit:'))).toBe(false);
+
+      // And an old button, still in the chat, changes nothing.
+      await tap(GUEST_TELEGRAM_ID, `rv:rate5:${participantPublicId}`);
+      const review = await prisma.review.findFirstOrThrow({
+        where: { reviewerUserId: guestId },
+        select: { rating: true },
+      });
+      expect(review.rating).toBe(2);
+    });
+  });
+
   /** A tampered participation is one the service declines. Authorisation is not in the button. */
   it("writes nothing for a participation that is not the caller's", async () => {
     await seedPending();
@@ -2858,8 +2964,8 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     const all = keyboardOf(digest.payload).flat();
 
     // One control, carrying the whole query plus «show me the panel».
-    // `dc:<when><cost><page><view>:<category>` (v0.6.7).
-    expect(all.some((button) => button.callbackData === 'dc:aa0f:all')).toBe(true);
+    // `dc:<when><cost><page><view><age>:<category>` (v0.6.7, age from plan 18).
+    expect(all.some((button) => button.callbackData === 'dc:aa0fn:all')).toBe(true);
     // Six filter rows and five activities do not fit on a phone together.
     expect(all.filter((button) => button.callbackData.startsWith('dc:'))).toHaveLength(1);
   });
@@ -4476,5 +4582,249 @@ describe('POST /telegram/:secret — the channel requirement', () => {
     } finally {
       await release();
     }
+  });
+});
+
+/**
+ * «مناسب سن من» in `/discover` (plan 18 item 5).
+ *
+ * A filter tap repaints the list, so what the search returned is read back from
+ * the `BOT_EDIT_MESSAGE` job — the pattern «sealing the request notification»
+ * uses, for the same reason.
+ */
+describe('POST /telegram/:secret — the age filter in discovery', () => {
+  const sendQueue = (): ReturnType<QueueService['queue']> =>
+    app.get(QueueService).queue(QUEUES.TELEGRAM_SEND);
+
+  beforeEach(async () => {
+    await sendQueue().obliterate({ force: true });
+  });
+
+  async function listAfterTap(data: string): Promise<{ text: string; keyboard: unknown }> {
+    telegramMessageSequence += 1;
+    const messageId = telegramMessageSequence;
+    const payload = update({
+      callback_query: {
+        id: `cb-age-${String(messageId)}`,
+        from: sender(GUEST_TELEGRAM_ID),
+        message: { message_id: messageId, chat: { id: GUEST_TELEGRAM_ID, type: 'private' } },
+        data,
+      },
+    });
+    await post(payload);
+
+    const job = await sendQueue().getJob(
+      jobId('repaint', String(payload['update_id']), String(messageId)),
+    );
+    const jobData = (job?.data ?? {}) as { text?: string; keyboard?: unknown };
+    return { text: jobData.text ?? '', keyboard: jobData.keyboard };
+  }
+
+  /** The guest `seedGuest` makes is born in 1995; nobody that age fits sixty and over. */
+  async function seedOlderOnly(): Promise<void> {
+    const { hostId } = await seedHostAndEvent();
+    const title = 'پیاده‌روی بازنشسته‌ها';
+    const startsAt = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    await prisma.event.create({
+      data: {
+        hostUserId: hostId,
+        title,
+        description: 'یک پیاده‌روی آرام صبحگاهی در پارک.',
+        titleNormalized: normalize(title),
+        descriptionNormalized: normalize('یک پیاده‌روی آرام صبحگاهی در پارک.'),
+        categoryId: fixture.categoryId,
+        cityId: fixture.tehranId,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 2 * 60 * 60 * 1000),
+        capacity: 5,
+        minAge: 60,
+        costType: 'FREE',
+        status: 'PUBLISHED',
+        moderationStatus: 'APPROVED',
+        publishedAt: new Date(),
+      },
+    });
+  }
+
+  it('hides what the reader is too young for, and only while it is on', async () => {
+    await seedOlderOnly();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    const on = await listAfterTap('dc:aa0ly:all');
+    expect(on.text).toContain('دورهمی بازی رومیزی');
+    expect(on.text).not.toContain('پیاده‌روی بازنشسته‌ها');
+
+    const off = await listAfterTap('dc:aa0ln:all');
+    expect(off.text).toContain('پیاده‌روی بازنشسته‌ها');
+  });
+
+  it('offers the toggle in the panel to a reader with a birth year', async () => {
+    await seedHostAndEvent();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    const panel = await listAfterTap('dc:aa0fn:all');
+    const labels = (panel.keyboard as { text: string }[][]).flat().map((b) => b.text);
+    expect(labels).toContain('🎂 مناسب سن من');
+  });
+});
+
+/**
+ * What guests have said about a host, before joining (plan 18 item 6).
+ *
+ * The summary is on the activity page and the texts are one tap further. Both
+ * go through `ReviewService`'s one visibility filter, so an unrevealed review
+ * moves neither — asserted here from the page a guest actually opens.
+ */
+describe('POST /telegram/:secret — the host’s reviews on an activity', () => {
+  let sequence = 12_400;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function latest(templateKey: string): Promise<Record<string, unknown>> {
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    return row.payload as Record<string, unknown>;
+  }
+
+  /** A past evening the host held, and one review about them — revealed or not. */
+  async function reviewAboutHost(hostId: string, revealed: boolean): Promise<void> {
+    const reviewerId = await seedGuest(SECOND_GUEST_TELEGRAM_ID, 'مهمان قبلی');
+    const startsAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    const past = await prisma.event.create({
+      data: {
+        hostUserId: hostId,
+        title: 'شب گذشته',
+        description: 'یک دورهمی که تمام شده.',
+        titleNormalized: normalize('شب گذشته'),
+        descriptionNormalized: normalize('یک دورهمی که تمام شده.'),
+        categoryId: fixture.categoryId,
+        cityId: fixture.tehranId,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 2 * 60 * 60 * 1000),
+        capacity: 5,
+        costType: 'FREE',
+        status: 'COMPLETED',
+        moderationStatus: 'APPROVED',
+        publishedAt: startsAt,
+      },
+      select: { id: true },
+    });
+    const participant = await prisma.eventParticipant.create({
+      data: {
+        eventId: past.id,
+        userId: reviewerId,
+        status: 'COMPLETED',
+        attended: true,
+        acceptedAt: startsAt,
+      },
+      select: { id: true },
+    });
+    const review = await prisma.review.create({
+      data: {
+        eventId: past.id,
+        participantId: participant.id,
+        reviewerUserId: reviewerId,
+        revieweeUserId: hostId,
+        rating: 4,
+        tags: ['FRIENDLY'],
+        comment: 'میزبان خوش‌برخوردی بود',
+        status: revealed ? 'REVEALED' : 'SUBMITTED',
+        ...(revealed ? { revealedAt: new Date() } : {}),
+        editDeadlineAt: startsAt,
+      },
+      select: { id: true },
+    });
+    await prisma.reviewPair.create({
+      data: {
+        participantId: participant.id,
+        eventId: past.id,
+        opensAt: startsAt,
+        deadlineAt: new Date(startsAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+        status: revealed ? 'EXPIRED_PARTIAL' : 'PARTIAL',
+        guestReviewId: review.id,
+        ...(revealed ? { revealedAt: new Date() } : {}),
+      },
+    });
+  }
+
+  it('shows the host’s rating on the page, and the words behind a button', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    await reviewAboutHost(hostId, true);
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    await type(GUEST_TELEGRAM_ID, `/event_${code}`);
+
+    const page = await latest(TEMPLATES.BOT_EVENT_DETAIL);
+    expect(String(page['text'])).toContain('۴٫۰ از ۵ (۱ نظر)');
+    const buttons = (JSON.parse(String(page['keyboard'])) as { callbackData?: string }[][]).flat();
+    expect(buttons.some((b) => b.callbackData === `ev:hrev:${eventPublicId}`)).toBe(true);
+
+    await tap(GUEST_TELEGRAM_ID, `ev:hrev:${eventPublicId}`);
+
+    const reviews = String((await latest(TEMPLATES.BOT_RECEIVED_REVIEWS))['text']);
+    expect(reviews).toContain('میزبان خوش‌برخوردی بود');
+    // Never who wrote it.
+    expect(reviews).not.toContain('مهمان قبلی');
+  });
+
+  it('moves nothing for a review that has not been revealed', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    await reviewAboutHost(hostId, false);
+    await seedGuest(GUEST_TELEGRAM_ID);
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+
+    await type(GUEST_TELEGRAM_ID, `/event_${code}`);
+
+    const page = await latest(TEMPLATES.BOT_EVENT_DETAIL);
+    expect(String(page['text'])).not.toContain('نظر مهمان‌ها');
+    expect(String(page['keyboard'])).not.toContain('ev:hrev:');
+
+    await tap(GUEST_TELEGRAM_ID, `ev:hrev:${eventPublicId}`);
+    expect(String((await latest(TEMPLATES.BOT_RECEIVED_REVIEWS))['text'])).not.toContain(
+      'خوش‌برخوردی',
+    );
+  });
+});
+
+/** The menu's status line, read from the database when `/menu` is sent (plan 18 item 3). */
+describe('POST /telegram/:secret — the menu’s status line', () => {
+  it('carries what is waiting on the host, and the balance', async () => {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    await participation.join(guestId, eventPublicId);
+
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/menu') }));
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_MENU, userId: hostId },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const payload = row.payload as Record<string, unknown>;
+    expect(payload['pendingForMe']).toBe(1);
+    expect(payload['reviewsOwed']).toBe(0);
+    expect(payload['balance']).toBe(1_000);
   });
 });

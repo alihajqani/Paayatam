@@ -29,13 +29,27 @@ function mark(active: boolean, label: string): string {
   return active ? `✅ ${label}` : label;
 }
 
+/** What the filter panel needs to know about the reader. */
+export interface DiscoverReader {
+  /**
+   * Whether a birth year is on file. «مناسب سن من» is drawn only then: the
+   * service refuses `ageFits` without an age rather than silently returning
+   * everything, and a toggle that exists to be refused is worse than none.
+   */
+  ageKnown: boolean;
+}
+
 /**
- * Two rows: when, and how much.
+ * Two rows: when, and how much — and a third, «مناسب سن من», for a reader whose
+ * age is known (plan 18 item 5).
  *
  * The category is not here — it is a list of fourteen and belongs on its own
  * screen, reached by the last button.
  */
-export function discoverFilterRows(current: DiscoverFilters): FilterButton[][] {
+export function discoverFilterRows(
+  current: DiscoverFilters,
+  reader: DiscoverReader = { ageKnown: false },
+): FilterButton[][] {
   /**
    * Every filter change goes back to the first page.
    *
@@ -59,6 +73,16 @@ export function discoverFilterRows(current: DiscoverFilters): FilterButton[][] {
       { text: mark(current.cost === 'a', '💵 هر هزینه'), callbackData: withCost('a') },
       { text: mark(current.cost === 'f', '🆓 رایگان'), callbackData: withCost('f') },
     ],
+    ...(reader.ageKnown
+      ? [
+          [
+            {
+              text: mark(current.age, '🎂 مناسب سن من'),
+              callbackData: encodeDiscoverCallback({ ...current, age: !current.age, page: 0 }),
+            },
+          ],
+        ]
+      : []),
   ];
 }
 
@@ -137,9 +161,10 @@ export function discoverListRows(
 export function discoverFilterPanelRows(
   current: DiscoverFilters,
   categories: readonly { id: string; label: string }[],
+  reader: DiscoverReader = { ageKnown: false },
 ): FilterButton[][] {
   return [
-    ...discoverFilterRows(current),
+    ...discoverFilterRows(current, reader),
     ...discoverCategoryRows(current, categories),
     [
       {
@@ -150,12 +175,13 @@ export function discoverFilterPanelRows(
   ];
 }
 
-/** How many of the three filters are narrowing the search, for the panel's label. */
+/** How many of the four filters are narrowing the search, for the panel's label. */
 export function activeFilterCount(current: DiscoverFilters): number {
   return (
     (current.when === 'a' ? 0 : 1) +
     (current.cost === 'a' ? 0 : 1) +
-    (current.categoryId === null ? 0 : 1)
+    (current.categoryId === null ? 0 : 1) +
+    (current.age ? 1 : 0)
   );
 }
 
@@ -208,6 +234,7 @@ export function describeFilters(current: DiscoverFilters, categoryLabel: string 
   if (current.when === 't') parts.push('امروز');
   if (current.when === 'w') parts.push('این هفته');
   if (current.cost === 'f') parts.push('رایگان');
+  if (current.age) parts.push('مناسب سن من');
   if (categoryLabel !== null) parts.push(categoryLabel);
   if (current.page > 0) parts.push(`صفحهٔ ${toPersianDigits(String(current.page + 1))}`);
 

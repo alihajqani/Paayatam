@@ -10,7 +10,7 @@ import { activeFilterCount, discoverFilterPanelRows, discoverListRows } from './
 const CATEGORY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
 function filters(overrides: Partial<DiscoverFilters> = {}): DiscoverFilters {
-  return { when: 'a', cost: 'a', categoryId: null, page: 0, view: 'l', ...overrides };
+  return { when: 'a', cost: 'a', categoryId: null, page: 0, view: 'l', age: false, ...overrides };
 }
 
 const labels = (rows: { text: string }[][]): string[] => rows.flat().map((b) => b.text);

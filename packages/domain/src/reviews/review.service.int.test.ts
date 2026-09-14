@@ -442,6 +442,23 @@ describe('a review is unreadable before reveal (D7, invariant 8)', () => {
     await expect(prisma.review.count()).resolves.toBe(1);
   });
 
+  /**
+   * The same leak one step removed (plan 18 item 6): the summary a guest reads on
+   * an activity page must move only when `listForUser` would show the review.
+   */
+  it('keeps an unrevealed rating out of the summary too', async () => {
+    const { participantPublicId, guestId } = await reviewableParticipation();
+    await reviews.submit(guestId, participantPublicId, { rating: 1 });
+
+    await expect(reviews.summaryForUser(hostPublicId)).resolves.toEqual({
+      count: 0,
+      average: null,
+    });
+
+    await reviews.submit(hostId, participantPublicId, { rating: 4 });
+    await expect(reviews.summaryForUser(hostPublicId)).resolves.toEqual({ count: 1, average: 1 });
+  });
+
   it('reveals both the moment the second one lands', async () => {
     const { participantPublicId, guestId, guestPublicId } = await reviewableParticipation();
 
@@ -709,6 +726,35 @@ describe('editing (plan §11: one hour, never after reveal)', () => {
     await expect(reviews.edit(hostId, participantPublicId, { rating: 5 })).rejects.toMatchObject({
       code: 'REVIEW_NOT_EDITABLE',
     });
+  });
+
+  /**
+   * What `/reviews` offers «✏️ ویرایش» on (plan 18 item 7): the reviews
+   * `edit` would still accept, and nothing it would refuse — a button that
+   * exists to be refused is worse than none.
+   */
+  it('lists the reviews still inside their hour, and only those', async () => {
+    const { participantPublicId } = await reviewableParticipation();
+    await reviews.submit(hostId, participantPublicId, { rating: 3 });
+
+    clock.set(new Date(IN_WINDOW.getTime() + 30 * 60_000));
+    const editable = await reviews.listEditable(hostId);
+    expect(editable).toHaveLength(1);
+    expect(editable[0]).toMatchObject({ participantPublicId, rating: 3 });
+    expect(editable[0]?.revieweeDisplayName).toBe('کاربر');
+    expect(editable[0]?.eventTitle).toBe('شب بازی رومیزی');
+
+    clock.set(new Date(IN_WINDOW.getTime() + 61 * 60_000));
+    await expect(reviews.listEditable(hostId)).resolves.toEqual([]);
+  });
+
+  it('does not list a review once its pair has revealed', async () => {
+    const { participantPublicId, guestId } = await reviewableParticipation();
+    await reviews.submit(hostId, participantPublicId, { rating: 2 });
+    await reviews.submit(guestId, participantPublicId, { rating: 5 });
+
+    await expect(reviews.listEditable(hostId)).resolves.toEqual([]);
+    await expect(reviews.listEditable(guestId)).resolves.toEqual([]);
   });
 
   it('refuses to edit a review that was never written', async () => {

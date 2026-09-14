@@ -1121,7 +1121,22 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      */
     case TEMPLATES.BOT_MENU: {
       const group = commandGroupFor(str(payload, 'groupKey'));
-      if (group === null) return { text: menuRootText(), keyboard: menuRootKeyboard() };
+      if (group === null) {
+        // The status line's three numbers, when the bot read them (plan 18 item 3).
+        const count = (key: string): number => {
+          const value = payload[key];
+          return typeof value === 'number' ? value : 0;
+        };
+        const status =
+          typeof payload['balance'] === 'number'
+            ? {
+                pendingForMe: count('pendingForMe'),
+                reviewsOwed: count('reviewsOwed'),
+                balance: count('balance'),
+              }
+            : undefined;
+        return { text: menuRootText(status), keyboard: menuRootKeyboard() };
+      }
       return { text: menuGroupText(group), keyboard: menuGroupKeyboard(group) };
     }
 

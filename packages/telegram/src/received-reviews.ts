@@ -46,6 +46,63 @@ function stars(rating: number): string {
   return '⭐️'.repeat(filled) + '☆'.repeat(5 - filled);
 }
 
+/** `ReviewService.summaryForUser`: published reviews about one person. */
+export interface ReviewSummaryLine {
+  count: number;
+  average: number | null;
+}
+
+/**
+ * «۴٫۶ از ۵ (۱۲ نظر)», or null when there is nothing to average.
+ *
+ * One decimal with the Persian separator, because «۴.۶» is a Latin decimal in
+ * Persian digits. Null rather than «۰ نظر»: next to a new host a zero reads as a
+ * verdict, and «تازه‌وارد» on the trust line already says the truth.
+ */
+export function reviewSummaryLine(summary: ReviewSummaryLine): string | null {
+  if (summary.count <= 0 || summary.average === null) return null;
+  const average = toPersianDigits(summary.average.toFixed(1)).replace('.', '٫');
+  return `${average} از ۵ (${toPersianDigits(String(summary.count))} نظر)`;
+}
+
+/**
+ * «⭐️ نظرها دربارهٔ میزبان» — the latest few published reviews about a host,
+ * for a guest deciding whether to join (plan 18 item 6).
+ *
+ * The same entries as `formatReceivedReviews` minus the numbering (nothing here
+ * is reportable by row) and with the same absence of an author: `RevealedReview`
+ * carries none. What the caller passes is `listForUser`, so invariant 8 is held
+ * there and not here.
+ */
+export function formatHostReviews(
+  hostDisplayName: string,
+  summary: ReviewSummaryLine,
+  lines: readonly ReceivedReviewLine[],
+  tagLabel: (tag: string) => string,
+): string {
+  const title = `<b>نظرها دربارهٔ ${escapeHtml(hostDisplayName)}</b>`;
+  const overall = reviewSummaryLine(summary);
+  if (overall === null || lines.length === 0) {
+    return `${title}\n\nهنوز نظری دربارهٔ این میزبان منتشر نشده است.`;
+  }
+
+  const entries = lines.map((line) => {
+    const tags =
+      line.tags.length === 0
+        ? ''
+        : `\n  ${line.tags.map((tag) => escapeHtml(tagLabel(tag))).join(' · ')}`;
+    const comment = line.comment === null ? '' : `\n  «${escapeHtml(line.comment)}»`;
+    return `${stars(line.rating)}${tags}${comment}\n  🗓 ${formatJalali(line.submittedAt)}`;
+  });
+
+  return (
+    `${title}\n\n⭐️ ${overall}\n\n` +
+    `${entries.join('\n\n')}\n\n` +
+    `<i>${toPersianDigits(String(lines.length))} نظر آخر از ` +
+    `${toPersianDigits(String(summary.count))} نظر. نام نویسنده‌ها نمایش داده نمی‌شود.</i>`
+  );
+}
+
 export function formatReceivedReviews(
   lines: readonly ReceivedReviewLine[],
   tagLabel: (tag: string) => string,

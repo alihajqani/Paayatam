@@ -8,6 +8,7 @@ import {
   menuGroupKeyFor,
   menuLabelFor,
   menuPathFor,
+  menuRootText,
 } from './keyboards';
 import { TEMPLATES, render } from './templates';
 import { BOT_COMMANDS, COMMAND_GROUPS, commandGroupFor } from './commands';
@@ -268,5 +269,28 @@ describe('the main-menu button', () => {
    */
   it('names a command the bot publishes', () => {
     expect(BOT_COMMANDS.map((entry) => entry.command)).toContain('menu');
+  });
+});
+
+/**
+ * A status line at the top of «فهرست دستورها» (plan 18 item 3): what is waiting
+ * on the reader, so the menu is a place to act and not only a place to look.
+ */
+describe('the menu root’s status line', () => {
+  it('names what is waiting, and leaves out what is zero', () => {
+    const text = menuRootText({ pendingForMe: 2, reviewsOwed: 0, balance: 45 });
+    expect(text).toContain('۲ درخواست منتظر پاسخ شما');
+    expect(text).toContain('۴۵ سکه');
+    expect(text).not.toContain('نظر مانده');
+  });
+
+  it('renders exactly as before without a status, or with nothing to say', () => {
+    expect(menuRootText({ pendingForMe: 0, reviewsOwed: 0, balance: 0 })).toBe(menuRootText());
+  });
+
+  it('reaches the rendered menu from the payload', () => {
+    const message = render(TEMPLATES.BOT_MENU, { pendingForMe: 0, reviewsOwed: 1, balance: 3 });
+    expect(message?.text).toContain('۱ نظر مانده');
+    expect(message?.text).toContain('۳ سکه');
   });
 });
