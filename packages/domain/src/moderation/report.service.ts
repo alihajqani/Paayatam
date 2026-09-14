@@ -17,6 +17,12 @@ export interface FileReportInput {
   description?: string;
 }
 
+/**
+ * The reasons that reach a moderator on a single report about a person, and are
+ * never announced to the accused (plan 16 item 2).
+ */
+export const SAFETY_REASONS: ReadonlySet<ReportReason> = new Set(['SAFETY', 'HARASSMENT']);
+
 export interface FiledReport {
   publicId: string;
   status: 'OPEN';
@@ -64,7 +70,10 @@ export class ReportService {
    */
   async file(reporterUserId: string, input: FileReportInput): Promise<FiledReport> {
     const now = this.clock.now();
-    const threshold = await this.settings.getInt('moderation.report_threshold');
+    const [threshold, safetyThreshold] = await Promise.all([
+      this.settings.getInt('moderation.report_threshold'),
+      this.settings.getInt('moderation.safety_report_threshold'),
+    ]);
 
     return this.prisma.$transaction(
       async (tx) => {
@@ -129,7 +138,35 @@ export class ReportService {
           },
         });
 
-        const triggered = distinctReporters >= threshold;
+        /**
+         * Safety and harassment reports about a **person** (plan 16 item 2).
+         *
+         * Counted on their own threshold, `moderation.safety_report_threshold`
+         * (one): a threat made to one person in a direct message has one witness,
+         * and «two more people must say so» meant no moderator ever read it. Only
+         * for `USER` — one report hiding an *activity* would be a weapon against a
+         * rival, so activities keep the ordinary threshold whatever the reason.
+         *
+         * And while any such report stands, the accused is **not told** — at this
+         * threshold or the ordinary one. «A report about your account» is, to
+         * somebody harassing a person, a warning to be careful; nothing is hidden
+         * on a `USER` case, so the notice protects nobody and warns the one person
+         * it should not.
+         */
+        const safetyReports =
+          input.targetType === 'USER'
+            ? await tx.report.count({
+                where: {
+                  targetType: 'USER',
+                  targetId: target.id,
+                  status: { not: 'DISMISSED' },
+                  reason: { in: [...SAFETY_REASONS] },
+                },
+              })
+            : 0;
+
+        const triggered =
+          distinctReporters >= threshold || (safetyReports > 0 && safetyReports >= safetyThreshold);
         if (triggered) {
           await this.escalate(tx, {
             targetType: input.targetType,
@@ -137,6 +174,7 @@ export class ReportService {
             ownerUserId: target.ownerUserId,
             publicId: target.publicId,
             reportCount: distinctReporters,
+            notifyOwner: safetyReports === 0,
             now,
           });
         }
@@ -182,6 +220,8 @@ export class ReportService {
       ownerUserId: string | null;
       publicId: string;
       reportCount: number;
+      /** False while a safety report stands against a person — see `file`. */
+      notifyOwner: boolean;
       now: Date;
     },
   ): Promise<void> {
@@ -258,7 +298,7 @@ export class ReportService {
      * reporting an act with a personal cost — which is how a reporting system
      * stops being used at exactly the moment it matters.
      */
-    if (input.ownerUserId !== null) {
+    if (input.ownerUserId !== null && input.notifyOwner) {
       await this.outbox.emit(
         {
           aggregateType: 'moderation_case',
