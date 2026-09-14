@@ -611,6 +611,17 @@ describe('a post whose capacity line has gone stale', () => {
     await expect(channel.findStaleCapacity()).resolves.toEqual([]);
   });
 
+  /** An edit is a write to the public surface the kill switch exists to stop. */
+  it('edits nothing while the channel is switched off', async () => {
+    await livePost({ capacity: 6, acceptedCount: 6 });
+    await prisma.appSetting.create({ data: { key: 'channel.enabled', value: 0 } });
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+
+    await prisma.appSetting.update({ where: { key: 'channel.enabled' }, data: { value: 1 } });
+    await expect(channel.findStaleCapacity()).resolves.toHaveLength(1);
+  });
+
   it('never edits an activity with no limit', async () => {
     await livePost({ capacity: UNLIMITED_CAPACITY, acceptedCount: UNLIMITED_CAPACITY });
     await livePost(

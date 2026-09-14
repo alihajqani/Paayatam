@@ -362,8 +362,13 @@ export class ChannelService {
    * superseded, for a published activity that has not started. Unlimited
    * activities are never full and never returned. `limit` is the edit budget
    * for one pass.
+   *
+   * Nothing while `channel.enabled` is off: an edit is a write to the public
+   * surface the switch exists to stop. Takedowns still run — removing is what an
+   * incident wants — and the flag stays stale, so the edit lands once it is on.
    */
   async findStaleCapacity(limit = 10): Promise<StaleCapacityPost[]> {
+    if ((await this.settings.getInt('channel.enabled')) !== 1) return [];
     const now = this.clock.now();
     // A column compared with a column, which a plain filter cannot express.
     const capacity = this.prisma.event.fields.capacity;
