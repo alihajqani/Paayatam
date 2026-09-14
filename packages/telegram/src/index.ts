@@ -95,6 +95,7 @@ export {
   CASE_STATUS_FA,
   CASE_SUBJECT_FA,
   CASE_TRIGGER_FA,
+  caseTriggerFa,
   adminQueueRows,
   formatAdminCasePrompt,
   formatAdminQueue,

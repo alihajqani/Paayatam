@@ -493,6 +493,58 @@ describe('reviewing one case', () => {
       code: 'INVALID_STATE_TRANSITION',
     });
   });
+
+  /**
+   * «میزبان نیامد» is not content to keep or hide (plan 08).
+   *
+   * `decideCase`'s REJECTED on an EVENT case hides the activity — which would
+   * answer «did the host come?» by punishing everybody looking for the evening.
+   * The case carries what each side said, and `decideCase` refuses to close it.
+   */
+  it('shows a dispute’s statements, and refuses to decide it as content', async () => {
+    const publicId = await seedEvent('شب بازی رومیزی');
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId },
+      select: { id: true, hostUserId: true },
+    });
+    const guest = await createUser(prisma, 'PROFILE_COMPLETE');
+    const seat = await prisma.eventParticipant.create({
+      data: { eventId: event.id, userId: guest, status: 'ACCEPTED', acceptedAt: NOW },
+      select: { id: true },
+    });
+    const opened = await prisma.moderationCase.create({
+      data: { subjectType: 'EVENT', subjectId: event.id, trigger: 'DISPUTE', reportCount: 1 },
+      select: { id: true },
+    });
+    await prisma.noShowClaim.create({
+      data: {
+        eventId: event.id,
+        kind: 'HOST_ABSENT_REPORT',
+        participantId: seat.id,
+        authorUserId: guest,
+        statement: 'ساعت هفت رسیدم و میزبان نیامد.',
+        moderationCaseId: opened.id,
+      },
+    });
+
+    const detail = await operations.caseForReview(SUPER, opened.id);
+    expect(detail.claims).toMatchObject([
+      {
+        kind: 'HOST_ABSENT_REPORT',
+        authorRole: 'GUEST',
+        statement: 'ساعت هفت رسیدم و میزبان نیامد.',
+      },
+    ]);
+    // By side and name, never an id.
+    expect(JSON.stringify(detail.claims)).not.toContain(guest);
+
+    await expect(
+      operations.decideCase(SUPER, opened.id, { decision: 'REJECTED', note: 'hide it' }),
+    ).rejects.toMatchObject({ code: 'WRONG_CASE_DECISION' });
+    await expect(
+      prisma.event.findUniqueOrThrow({ where: { id: event.id }, select: { status: true } }),
+    ).resolves.toEqual({ status: 'PUBLISHED' });
+  });
 });
 
 /**

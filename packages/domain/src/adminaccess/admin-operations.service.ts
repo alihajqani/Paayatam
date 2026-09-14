@@ -99,6 +99,20 @@ export interface CaseDetail extends CaseSummary {
   reports: { publicId: string; reason: string; description: string | null; createdAt: Date }[];
   /** How many blacklist terms matched, never which text they matched. */
   matchedTermCount: number;
+  /**
+   * What each side said, on a `DISPUTE` case (plan 08). Empty on every other.
+   *
+   * By side and display name. `report.review`-shaped like `reports` — a moderator
+   * who may not work reports sees none — because a claim is a report about an
+   * evening, and it is the whole of what the decision is made from.
+   */
+  claims: {
+    kind: 'GUEST_ABSENT_DISPUTE' | 'HOST_ABSENT_REPORT' | 'HOST_ABSENT_RESPONSE';
+    authorRole: 'GUEST' | 'HOST';
+    authorDisplayName: string;
+    statement: string;
+    createdAt: Date;
+  }[];
   /** Who is working it, when somebody has claimed it. */
   assignedAdminId: string | null;
   decidedBy: string | null;
@@ -304,6 +318,38 @@ export class AdminOperationsService {
         })
       : [];
 
+    /**
+     * A disputed attendance (plan 08): the evening and the guest it is about.
+     *
+     * The event's title and the guest as the "owner" — the account the dispute
+     * concerns — so the queue and the panel read it without a second lookup.
+     */
+    const seat =
+      row.subjectType === 'PARTICIPATION'
+        ? await this.prisma.eventParticipant.findUnique({
+            where: { id: row.subjectId },
+            select: {
+              user: { select: { publicId: true, profile: { select: { displayName: true } } } },
+              event: { select: { title: true, description: true, status: true, publicId: true } },
+            },
+          })
+        : null;
+
+    const claims =
+      mayReadReports && row.trigger === 'DISPUTE'
+        ? await this.prisma.noShowClaim.findMany({
+            where: { moderationCaseId: caseId },
+            orderBy: { createdAt: 'asc' },
+            take: 50,
+            select: {
+              kind: true,
+              statement: true,
+              createdAt: true,
+              author: { select: { profile: { select: { displayName: true } } } },
+            },
+          })
+        : [];
+
     return {
       id: row.id,
       subjectType: row.subjectType,
@@ -312,19 +358,30 @@ export class AdminOperationsService {
       trigger: row.trigger,
       reportCount: row.reportCount,
       createdAt: row.createdAt,
-      eventTitle: event?.title ?? null,
-      eventDescription: event?.description ?? null,
-      eventStatus: event?.status ?? null,
-      eventPublicId: event?.publicId ?? null,
-      ownerUserPublicId: event?.host.publicId ?? subjectUser?.publicId ?? null,
+      eventTitle: event?.title ?? seat?.event.title ?? null,
+      eventDescription: event?.description ?? seat?.event.description ?? null,
+      eventStatus: event?.status ?? seat?.event.status ?? null,
+      eventPublicId: event?.publicId ?? seat?.event.publicId ?? null,
+      ownerUserPublicId:
+        event?.host.publicId ?? subjectUser?.publicId ?? seat?.user.publicId ?? null,
       ownerDisplayName:
-        event?.host.profile?.displayName ?? subjectUser?.profile?.displayName ?? null,
+        event?.host.profile?.displayName ??
+        subjectUser?.profile?.displayName ??
+        seat?.user.profile?.displayName ??
+        null,
       reportReasons: grouped
         .map((entry) => ({ reason: entry.reason, count: entry._count.reason }))
         .sort((a, b) => b.count - a.count),
       reports,
       // A count, never the terms and never the text they matched.
       matchedTermCount: Array.isArray(row.matchedTerms) ? row.matchedTerms.length : 0,
+      claims: claims.map((claim) => ({
+        kind: claim.kind,
+        authorRole: claim.kind === 'HOST_ABSENT_RESPONSE' ? 'HOST' : 'GUEST',
+        authorDisplayName: claim.author.profile?.displayName ?? 'کاربر پایه‌تَم',
+        statement: claim.statement,
+        createdAt: claim.createdAt,
+      })),
       assignedAdminId: row.assignedAdminId,
       decidedBy: row.decidedBy,
       decisionNote: row.decisionNote,
@@ -424,9 +481,17 @@ export class AdminOperationsService {
     await this.prisma.$transaction(async (tx) => {
       const existing = await tx.moderationCase.findUnique({
         where: { id: caseId },
-        select: { id: true, status: true, subjectType: true, subjectId: true },
+        select: { id: true, status: true, subjectType: true, subjectId: true, trigger: true },
       });
       if (!existing) throw new AppError(ErrorCode.NOT_FOUND);
+      /**
+       * A dispute is not content to keep or hide (plan 08).
+       *
+       * REJECTED here on an EVENT case hides the activity — which is not an
+       * answer to «did the host come?», and would punish every guest looking for
+       * the evening. `NoShowClaimService.decide` is where those cases close.
+       */
+      if (existing.trigger === 'DISPUTE') throw new AppError(ErrorCode.WRONG_CASE_DECISION);
       if (!['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(existing.status)) {
         throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
       }

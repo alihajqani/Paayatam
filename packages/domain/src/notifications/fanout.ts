@@ -100,6 +100,21 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
       return recipient(row, 'participantUserPublicId', TEMPLATES.NO_SHOW_RECORDED);
 
     /**
+     * The no-show disputes (plan 08). Every recipient key below is one
+     * `NoShowClaimService` writes, and `no-show-claim.service.int.test.ts` reads
+     * them back through this function from the real emitter — review H1's lesson.
+     */
+    case 'participation.no_show_dispute_offer':
+      return recipient(row, 'participantUserPublicId', TEMPLATES.NO_SHOW_DISPUTE_OFFER);
+
+    case 'no_show.host_absent_reported':
+      return recipient(row, 'hostUserPublicId', TEMPLATES.HOST_ABSENT_REPORTED);
+
+    /** One row per person a decision touches; each is told what it means for them. */
+    case 'no_show.claim_decided':
+      return recipient(row, 'recipientUserPublicId', TEMPLATES.NO_SHOW_CLAIM_DECIDED);
+
+    /**
      * The guest withdrew, and only the host is told.
      *
      * One recipient, unlike `participation.requested`: the guest performed this

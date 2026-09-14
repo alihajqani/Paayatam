@@ -173,6 +173,15 @@ export {
   hostRewardKey,
 } from './events/host-reward.service';
 export type { HostSettlementResult } from './events/host-reward.service';
+export {
+  NoShowClaimService,
+  HOST_ABSENT_REASON,
+  NO_SHOW_DISPUTE_UPHELD_REASON,
+  hostAbsentPenaltyKey,
+  hostAbsentTrustKey,
+  noShowDisputeTrustKey,
+} from './events/no-show-claim.service';
+export type { CaseClaim, ClaimReadiness } from './events/no-show-claim.service';
 export { EventsModule } from './events/events.module';
 
 export {
@@ -488,3 +497,9 @@ export {
   DIRECT_MESSAGE_MODES,
 } from './conversation/wizards/direct-message';
 export type { DirectMessageForm, DirectMessageMode } from './conversation/wizards/direct-message';
+export {
+  noShowClaimWizard,
+  isNoShowClaimMode,
+  NO_SHOW_CLAIM_MODES,
+} from './conversation/wizards/no-show-claim';
+export type { NoShowClaimForm, NoShowClaimMode } from './conversation/wizards/no-show-claim';

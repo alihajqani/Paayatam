@@ -104,9 +104,22 @@ export const moderationCaseStatus = z.enum([
 ]);
 export type ModerationCaseStatus = z.infer<typeof moderationCaseStatus>;
 
+/**
+ * What a case can be about: everything a report can target, and a disputed
+ * attendance (plan 08), which no report targets.
+ */
+export const moderationSubjectType = z.enum([
+  'EVENT',
+  'USER',
+  'MESSAGE',
+  'REVIEW',
+  'PARTICIPATION',
+]);
+export type ModerationSubjectTypeView = z.infer<typeof moderationSubjectType>;
+
 export const moderationCaseView = z.object({
   id: z.string(),
-  subjectType: reportTargetType,
+  subjectType: moderationSubjectType,
   subjectId: z.string(),
   status: moderationCaseStatus,
   trigger: z.string(),
@@ -167,6 +180,22 @@ export const moderationCaseDetail = moderationCaseView.extend({
   ),
   /** How many blacklist terms matched. Never which, and never the text. */
   matchedTermCount: z.number().int().nonnegative(),
+  /**
+   * What each side said, on a dispute case (plan 08) — empty on every other.
+   *
+   * By side and display name, never an id. Unlike a report there is nobody to
+   * protect here from the person they wrote about: a host and the guest they
+   * accepted already know one another.
+   */
+  claims: z.array(
+    z.object({
+      kind: z.enum(['GUEST_ABSENT_DISPUTE', 'HOST_ABSENT_REPORT', 'HOST_ABSENT_RESPONSE']),
+      authorRole: z.enum(['GUEST', 'HOST']),
+      authorDisplayName: z.string(),
+      statement: z.string(),
+      createdAt: z.iso.datetime(),
+    }),
+  ),
   assignedAdminId: z.string().nullable(),
   decidedBy: z.string().nullable(),
   decisionNote: z.string().nullable(),
@@ -189,6 +218,20 @@ export const triageCaseRequest = z.object({
   note: z.string().trim().min(3).max(1000).optional(),
 });
 export type TriageCaseRequest = z.infer<typeof triageCaseRequest>;
+
+/**
+ * A dispute case, decided (plan 08).
+ *
+ * Its own request rather than `decideCaseRequest`: that one's REJECTED hides an
+ * activity, and the question here is whether somebody was there. `upheld` says
+ * the claim is right; what follows — reversals, the host's price, refunds — is
+ * fixed by the service, never chosen here.
+ */
+export const decideDisputeRequest = z.object({
+  upheld: z.boolean(),
+  note: z.string().trim().min(3).max(1000),
+});
+export type DecideDisputeRequest = z.infer<typeof decideDisputeRequest>;
 
 // ── Economy adjustments ──────────────────────────────────────────────────────
 

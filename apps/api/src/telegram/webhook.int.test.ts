@@ -4828,3 +4828,176 @@ describe('POST /telegram/:secret — the menu’s status line', () => {
     expect(payload['balance']).toBe(1_000);
   });
 });
+
+/**
+ * No-shows in both directions, driven through the bot (plan 08).
+ *
+ * The service's own suite owns what a decision moves. This is the door: the
+ * buttons under the messages open the form, the form files the claim, a closed
+ * window is a toast rather than a form, and a moderator decides a dispute from
+ * the queue with the same form a content case uses.
+ */
+describe('POST /telegram/:secret — no-show disputes', () => {
+  let sequence = 13_400;
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  /** An evening that ended an hour ago, with the guest accepted to it. */
+  async function endedWithGuest(): Promise<{
+    eventId: string;
+    eventPublicId: string;
+    guestId: string;
+    seat: string;
+  }> {
+    const { hostId, eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+    const joined = await participation.join(guestId, eventPublicId);
+    await participation.accept(hostId, joined.publicId);
+    const ended = new Date(Date.now() - 3_600_000);
+    const event = await prisma.event.update({
+      where: { publicId: eventPublicId },
+      data: { startsAt: new Date(ended.getTime() - 3 * 3_600_000), endsAt: ended },
+      select: { id: true },
+    });
+    return { eventId: event.id, eventPublicId, guestId, seat: joined.publicId };
+  }
+
+  it('files «من حاضر بودم» from the no-show message’s button', async () => {
+    const { guestId, seat } = await endedWithGuest();
+    await prisma.eventParticipant.update({
+      where: { publicId: seat },
+      data: { status: 'NO_SHOW', attended: false, noShowNotifiedAt: new Date() },
+    });
+
+    await tap(GUEST_TELEGRAM_ID, `ev:disp:${seat}`);
+    const state = await prisma.conversationState.findUniqueOrThrow({
+      where: { userId: guestId },
+      select: { kind: true, targetPublicId: true },
+    });
+    expect(state).toEqual({ kind: 'NO_SHOW_CLAIM', targetPublicId: seat });
+
+    await type(GUEST_TELEGRAM_ID, 'من ساعت هفت آنجا بودم و میزبان را دیدم.');
+
+    const claim = await prisma.noShowClaim.findFirstOrThrow({
+      select: { kind: true, statement: true, moderationCase: { select: { trigger: true } } },
+    });
+    expect(claim).toEqual({
+      kind: 'GUEST_ABSENT_DISPUTE',
+      statement: 'من ساعت هفت آنجا بودم و میزبان را دیدم.',
+      moderationCase: { trigger: 'DISPUTE' },
+    });
+    expect(await prisma.conversationState.count()).toBe(0);
+  });
+
+  /** A button stays in the chat forever; past the window it opens no form. */
+  it('opens no form after the window, and files nothing', async () => {
+    const { seat } = await endedWithGuest();
+    await prisma.eventParticipant.update({
+      where: { publicId: seat },
+      data: {
+        status: 'NO_SHOW',
+        attended: false,
+        noShowNotifiedAt: new Date(Date.now() - 30 * 86_400_000),
+      },
+    });
+
+    await tap(GUEST_TELEGRAM_ID, `ev:disp:${seat}`);
+
+    expect(await prisma.conversationState.count()).toBe(0);
+    expect(await prisma.noShowClaim.count()).toBe(0);
+  });
+
+  it('reports «میزبان نیامد», asks the host, and takes the host’s answer', async () => {
+    const { eventPublicId, seat } = await endedWithGuest();
+
+    await tap(GUEST_TELEGRAM_ID, `ev:habs:${seat}`);
+    await type(GUEST_TELEGRAM_ID, 'یک ساعت منتظر ماندیم و میزبان نیامد.');
+
+    await expect(
+      prisma.outboxEvent.count({ where: { eventType: 'no_show.host_absent_reported' } }),
+    ).resolves.toBe(1);
+
+    await tap(HOST_TELEGRAM_ID, `ev:hresp:${eventPublicId}`);
+    await type(HOST_TELEGRAM_ID, 'من آنجا بودم، شاید جای دیگری رفته بودند.');
+
+    const kinds = await prisma.noShowClaim.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: { kind: true },
+    });
+    expect(kinds.map((row) => row.kind)).toEqual(['HOST_ABSENT_REPORT', 'HOST_ABSENT_RESPONSE']);
+  });
+
+  it('lets a moderator uphold a dispute from the queue', async () => {
+    const { guestId, seat } = await endedWithGuest();
+    await prisma.eventParticipant.update({
+      where: { publicId: seat },
+      data: { status: 'NO_SHOW', attended: false, noShowNotifiedAt: new Date() },
+    });
+    await tap(GUEST_TELEGRAM_ID, `ev:disp:${seat}`);
+    await type(GUEST_TELEGRAM_ID, 'من ساعت هفت آنجا بودم و میزبان را دیدم.');
+    const opened = await prisma.moderationCase.findFirstOrThrow({ select: { id: true } });
+
+    // A linked moderator, as the moderation suite seeds one.
+    await seedGuest(SECOND_GUEST_TELEGRAM_ID, 'ناظر');
+    const admin = await prisma.adminUser.create({
+      data: {
+        email: 'dispute-mod@payetam.test',
+        passwordHash: 'not-a-real-hash',
+        totpSecretEnc: 'not-a-real-secret',
+        displayName: 'ناظر',
+      },
+      select: { id: true },
+    });
+    const role = await prisma.role.upsert({
+      where: { key: 'MODERATOR' },
+      create: { key: 'MODERATOR', name: 'MODERATOR' },
+      update: {},
+      select: { id: true },
+    });
+    await prisma.adminUserRole.create({ data: { adminUserId: admin.id, roleId: role.id } });
+    await prisma.adminTelegramLink.create({
+      data: {
+        adminUserId: admin.id,
+        telegramUserId: BigInt(SECOND_GUEST_TELEGRAM_ID),
+        grantedById: admin.id,
+        reason: 'test fixture',
+      },
+    });
+
+    await tap(SECOND_GUEST_TELEGRAM_ID, `ad:open:${opened.id}`);
+    await tap(SECOND_GUEST_TELEGRAM_ID, 'wz:verdict:APPROVED');
+    await type(SECOND_GUEST_TELEGRAM_ID, 'میزبان اشتباه زده بود.');
+    await tap(SECOND_GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    await expect(
+      prisma.moderationCase.findUniqueOrThrow({
+        where: { id: opened.id },
+        select: { status: true, decision: true },
+      }),
+    ).resolves.toEqual({ status: 'APPROVED', decision: 'UPHELD' });
+    await expect(
+      prisma.eventParticipant.findFirstOrThrow({
+        where: { userId: guestId },
+        select: { status: true },
+      }),
+    ).resolves.toEqual({ status: 'COMPLETED' });
+  });
+});

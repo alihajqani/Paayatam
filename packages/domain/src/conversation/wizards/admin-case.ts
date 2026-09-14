@@ -70,6 +70,22 @@ const DECISION_FA: Record<string, string> = {
   REJECTED: '⛔️ محتوا رد شود',
 };
 
+/**
+ * The same two values on a dispute case, asking a different question (plan 08).
+ *
+ * APPROVED means the claim is upheld — «من حاضر بودم» or «میزبان نیامد» is right —
+ * and what follows is fixed by `NoShowClaimService`. Labelled for what it does,
+ * because «محتوا مشکلی ندارد» on a question about attendance means nothing.
+ */
+const DISPUTE_DECISION_FA: Record<string, string> = {
+  APPROVED: '✅ ادعا درست است',
+  REJECTED: '✖️ ادعا درست نیست',
+};
+
+function labelsFor(trigger: string | undefined): Record<string, string> {
+  return trigger === 'DISPUTE' ? DISPUTE_DECISION_FA : DECISION_FA;
+}
+
 const steps: WizardStep<AdminCaseForm>[] = [
   {
     key: 'verdict',
@@ -77,8 +93,10 @@ const steps: WizardStep<AdminCaseForm>[] = [
     // The case itself is the question. Seeded rather than re-read, so a redraw
     // and a redelivery show exactly what the moderator was looking at.
     prompt: (form) => form.headline ?? 'تصمیم شما دربارهٔ این پرونده چیست؟',
-    load: () =>
-      Promise.resolve(DECISIONS.map((value) => ({ value, label: DECISION_FA[value] ?? value }))),
+    load: (form) =>
+      Promise.resolve(
+        DECISIONS.map((value) => ({ value, label: labelsFor(form.trigger)[value] ?? value })),
+      ),
     accept: (input: WizardInput) => {
       const value = DECISIONS.find((candidate) => candidate === input.value);
       if (value === undefined) return { ok: false, error: 'یکی از دو گزینه را انتخاب کنید.' };
@@ -136,6 +154,6 @@ export const adminCaseWizard: WizardDefinition<AdminCaseForm> = {
 };
 
 /** The Persian label for a verdict, so a summary renders what the buttons offered. */
-export function adminDecisionLabelFa(decision: string): string {
-  return DECISION_FA[decision] ?? decision;
+export function adminDecisionLabelFa(decision: string, trigger?: string): string {
+  return labelsFor(trigger)[decision] ?? decision;
 }

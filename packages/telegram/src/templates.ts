@@ -86,6 +86,14 @@ export const TEMPLATES = {
   EVENT_ATTENDANCE_PROMPT: 'event.attendance_prompt',
   REVIEW_WINDOW_OPEN: 'review.window_open',
   NO_SHOW_RECORDED: 'participation.no_show',
+  /**
+   * The no-show disputes (plan 08). The offer goes once to each no-show recorded
+   * before a dispute was possible; the host is asked for their side of «میزبان
+   * نیامد»; and each person a decision touches is told what it means for them.
+   */
+  NO_SHOW_DISPUTE_OFFER: 'participation.no_show_dispute_offer',
+  HOST_ABSENT_REPORTED: 'no_show.host_absent_reported',
+  NO_SHOW_CLAIM_DECIDED: 'no_show.claim_decided',
   CONTENT_HIDDEN: 'moderation.content_hidden',
   /**
    * A direct message about an activity, and the read receipt for it (v0.7.0).
@@ -744,6 +752,21 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
                 text: `${toPersianDigits(rating)}⭐`,
                 callbackData: encodeReviewCallback(rating, participant),
               })),
+              /**
+               * «میزبان نیامد» (plan 08), under the stars and only for a guest:
+               * the one message every guest of a finished evening receives, at
+               * the moment the product asks how it went.
+               */
+              ...(role === 'GUEST'
+                ? [
+                    [
+                      {
+                        text: '🚫 میزبان نیامد',
+                        callbackData: encodeEventCallback('habs', participant),
+                      },
+                    ],
+                  ]
+                : []),
             ],
       );
     }
@@ -768,11 +791,133 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         typeof charged === 'number' && charged > 0
           ? `\n<b>${toPersianDigits(charged)} سکه</b> بابت غیبت از حساب شما کم شد.`
           : '';
+      const seat = id(payload, 'participantPublicId');
+      /**
+       * The two ways to say it is wrong (plan 08), on the message itself.
+       *
+       * «من حاضر بودم» for a guest who was there, and «میزبان نیامد» for the case
+       * this plan exists for — a host who did not come marking the guests who did.
+       * A payload from before plan 08 has no seat to name, so it keeps the old
+       * sentence and draws nothing a tap could not act on.
+       */
+      if (seat === null) {
+        return {
+          text:
+            `میزبان اعلام کرده که شما در «${str(payload, 'eventTitle')}» حاضر نشده‌اید.${cost}\n\n` +
+            `اگر این درست نیست، از «${MAIN_MENU_LABEL}» ← ` +
+            `«${menuPathFor('bug') ?? 'راهنما و پشتیبانی'}» برای ما بنویسید.`,
+        };
+      }
       return {
         text:
           `میزبان اعلام کرده که شما در «${str(payload, 'eventTitle')}» حاضر نشده‌اید.${cost}\n\n` +
-          `اگر این درست نیست، از «${MAIN_MENU_LABEL}» ← ` +
-          `«${menuPathFor('bug') ?? 'راهنما و پشتیبانی'}» برای ما بنویسید.`,
+          `اگر این درست نیست، ${disputeDeadline(payload)}با یکی از دکمه‌های زیر بگویید چه شد. ` +
+          `یک داور هر دو طرف را می‌خواند و تصمیم می‌گیرد.`,
+        keyboard: noShowClaimKeyboard(seat),
+      };
+    }
+
+    /**
+     * An earlier no-show, offered the dispute it never had (plan 08).
+     *
+     * Sent once to every no-show recorded before a dispute existed — some of
+     * them charged without any message at all, until v0.13.0. The deadline runs
+     * from this message, not from the evening.
+     */
+    case TEMPLATES.NO_SHOW_DISPUTE_OFFER: {
+      const seat = id(payload, 'participantPublicId');
+      return {
+        text:
+          `<b>غیبتی که برای شما ثبت شده، قابل اعتراض است</b>\n\n` +
+          `میزبان «${str(payload, 'eventTitle')}» شما را غایب ثبت کرده بود و آن وقت راهی ` +
+          `برای اعتراض نبود. اگر این درست نیست، ${disputeDeadline(payload)}` +
+          `با یکی از دکمه‌های زیر بگویید چه شد.`,
+        ...(seat !== null ? { keyboard: noShowClaimKeyboard(seat) } : {}),
+      };
+    }
+
+    /**
+     * «میزبان نیامد», told to the host once, when the case opens (plan 08).
+     *
+     * That a report exists and how long they have to answer — never who reported
+     * or what they wrote. And that nothing has moved yet, because a host reading
+     * an accusation should know the decision is still to come.
+     */
+    case TEMPLATES.HOST_ABSENT_REPORTED: {
+      const event = id(payload, 'eventPublicId');
+      const respondBy = new Date(raw(payload, 'respondBy'));
+      const deadline = Number.isNaN(respondBy.getTime())
+        ? ''
+        : `تا <b>${formatTehran(respondBy)}</b> `;
+      return {
+        text:
+          `<b>گزارشی دربارهٔ حضور شما</b>\n\n` +
+          `دربارهٔ «${str(payload, 'eventTitle')}» گزارش شده که شما به فعالیت نیامده‌اید.\n\n` +
+          `پیش از تصمیم داور، ${deadline}می‌توانید توضیح بدهید. تا تصمیم، هیچ سکه‌ای ` +
+          `جابه‌جا نمی‌شود.`,
+        ...(event !== null
+          ? {
+              keyboard: [
+                [{ text: '✍️ پاسخ من', callbackData: encodeEventCallback('hresp', event) }],
+              ],
+            }
+          : {}),
+      };
+    }
+
+    /**
+     * A claim, decided — what it means for the person reading it (plan 08).
+     *
+     * One template, one outbox row per recipient, and the sentence chosen by
+     * side, kind and outcome. The coin line appears only for coins that really
+     * moved: a penalty capped at an empty balance wrote no row and returns
+     * nothing, and a message promising otherwise would be false.
+     */
+    case TEMPLATES.NO_SHOW_CLAIM_DECIDED: {
+      const title = str(payload, 'eventTitle');
+      const role = raw(payload, 'recipientRole');
+      const upheld = bool(payload, 'upheld');
+      const amount = payload['coins'];
+      const coins = typeof amount === 'number' && amount > 0 ? toPersianDigits(amount) : null;
+
+      if (raw(payload, 'kind') === 'GUEST_ABSENT_DISPUTE') {
+        if (role === 'HOST') {
+          return {
+            text:
+              `<b>غیبت برداشته شد</b>\n\n` +
+              `غیبتی که برای یکی از مهمان‌های «${title}» ثبت کرده بودید، پس از بررسی ` +
+              `داور برداشته شد.`,
+          };
+        }
+        return {
+          text: upheld
+            ? `<b>اعتراض شما پذیرفته شد ✅</b>\n\n` +
+              `غیبت «${title}» از سابقهٔ شما برداشته شد و اعتماد کم‌شده برگشت.` +
+              (coins === null ? '' : `\n<b>${coins} سکه</b> به حسابتان برگشت.`)
+            : `<b>اعتراض شما پذیرفته نشد</b>\n\n` +
+              `اعتراض شما دربارهٔ «${title}» بررسی شد و غیبت ثبت‌شده سر جایش می‌ماند.`,
+        };
+      }
+
+      if (role === 'HOST') {
+        return {
+          text: upheld
+            ? `<b>نیامدن شما ثبت شد</b>\n\n` +
+              `پس از بررسی، داور نتیجه گرفت که شما در «${title}» حاضر نبودید.` +
+              (coins === null ? '' : `\n<b>${coins} سکه</b> جریمه از حسابتان کم شد.`) +
+              `\nسپردهٔ ثبت این فعالیت برنمی‌گردد و ورودی مهمان‌ها به آن‌ها برگشت.`
+            : `<b>گزارش پذیرفته نشد ✅</b>\n\n` +
+              `گزارشی که دربارهٔ حضور شما در «${title}» ثبت شده بود بررسی شد و ` +
+              `پذیرفته نشد. هیچ چیزی از حساب شما کم نشد.`,
+        };
+      }
+      return {
+        text: upheld
+          ? `<b>میزبان حاضر نبوده است</b>\n\n` +
+            `بررسی نشان داد میزبان «${title}» حاضر نبوده است.` +
+            (coins === null ? '' : `\n<b>${coins} سکه</b> به حسابتان برگشت.`)
+          : `<b>گزارش شما پذیرفته نشد</b>\n\n` +
+            `گزارش شما دربارهٔ «${title}» بررسی شد و پذیرفته نشد.`,
       };
     }
 
@@ -1698,4 +1843,24 @@ function opened(text: string, deepLink: string, keyboard?: InlineKeyboard): Rend
  */
 function openedWithMenu(text: string, deepLink: string): RenderedMessage {
   return { text, deepLink, keyboard: menuOpenerKeyboard() };
+}
+
+/**
+ * «من حاضر بودم» and «میزبان نیامد», named by the seat (plan 08).
+ *
+ * The same two rows under a recorded no-show and under the offer for an earlier
+ * one. The bot checks the window before it opens a form, so a tap after the
+ * deadline is told so rather than asked to write into a refusal.
+ */
+function noShowClaimKeyboard(participantPublicId: string): InlineKeyboard {
+  return [
+    [{ text: '🙋 من حاضر بودم', callbackData: encodeEventCallback('disp', participantPublicId) }],
+    [{ text: '🚫 میزبان نیامد', callbackData: encodeEventCallback('habs', participantPublicId) }],
+  ];
+}
+
+/** «تا ۲۶ شهریور — ۱۲:۰۰ » from `disputeClosesAt`, or nothing when there is none. */
+function disputeDeadline(payload: Payload): string {
+  const closes = new Date(raw(payload, 'disputeClosesAt'));
+  return Number.isNaN(closes.getTime()) ? '' : `تا <b>${formatTehran(closes)}</b> `;
 }

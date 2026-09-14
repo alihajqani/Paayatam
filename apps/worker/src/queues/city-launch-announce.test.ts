@@ -40,6 +40,7 @@ function build(announced: { cityNameFa: string; recipients: number }[]) {
     {} as never, // ModerationDigestService
     {} as never, // AuditService
     cityLaunches as never,
+    {} as never, // NoShowClaimService
   );
 
   return { processors, cityLaunches, messaging };

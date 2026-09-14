@@ -3,16 +3,18 @@ import { JOBS } from '@payetam/platform';
 import { Processors } from './processors.service';
 
 /**
- * «همه آمدند؟» on its schedule (plan 15).
+ * «همه آمدند؟» on its schedule (plan 15) — and, on the same pass, the one-off
+ * dispute offer to the no-shows recorded before a dispute existed (plan 08).
  *
- * Who is asked, and the payload, are `lifecycle.int.test.ts`'s. This is the
- * wiring: the scheduled job reaches `promptAttendance`, and a pass that asked
- * somebody drains the outbox at once instead of leaving the question to the
- * five-minute backstop.
+ * Who is asked, and the payload, are `lifecycle.int.test.ts`'s and
+ * `no-show-claim.service.int.test.ts`'s. This is the wiring: the scheduled job
+ * reaches both, and a pass that sent anything drains the outbox at once instead
+ * of leaving it to the five-minute backstop.
  */
 
-function build(prompted: number) {
+function build(prompted: number, offered = 0) {
   const lifecycle = { promptAttendance: vi.fn().mockResolvedValue(prompted) };
+  const noShowClaims = { offerPastDisputes: vi.fn().mockResolvedValue(offered) };
   const relay = { drain: vi.fn().mockResolvedValue({ processed: 0, created: 0, queued: [] }) };
 
   const processors = new Processors(
@@ -40,9 +42,10 @@ function build(prompted: number) {
     {} as never, // ModerationDigestService
     {} as never, // AuditService
     {} as never, // CityLaunchAnnouncementService
+    noShowClaims as never,
   );
 
-  return { processors, lifecycle, relay };
+  return { processors, lifecycle, noShowClaims, relay };
 }
 
 function scheduled(processors: Processors): Promise<void> {
@@ -68,5 +71,14 @@ describe('the attendance prompt job', () => {
 
     expect(lifecycle.promptAttendance).toHaveBeenCalledOnce();
     expect(relay.drain).not.toHaveBeenCalled();
+  });
+
+  it('offers the earlier no-shows their dispute, and drains when it did', async () => {
+    const { processors, noShowClaims, relay } = build(0, 3);
+
+    await scheduled(processors);
+
+    expect(noShowClaims.offerPastDisputes).toHaveBeenCalledOnce();
+    expect(relay.drain).toHaveBeenCalledOnce();
   });
 });

@@ -12,7 +12,9 @@ import { CatalogService } from '../catalog/catalog.service';
 import { SettingsService } from '../catalog/settings.service';
 import { MessageCipher } from '../crypto/message-cipher';
 import { CoinService } from '../economy/coin.service';
+import { PenaltyService } from '../economy/penalty.service';
 import { TrustService } from '../economy/trust.service';
+import { NoShowClaimService } from '../events/no-show-claim.service';
 import { FoundingService } from '../founding/founding.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { AdminAccessService, permissionsFor, type AdminSession } from './admin-access.service';
@@ -72,6 +74,17 @@ const credentials = new AdminCredentials(env);
 const coins = new CoinService(service, clock);
 const trust = new TrustService(service, clock, settings);
 const cipher = new MessageCipher(env);
+// Plan 08: a dispute decision checks `report.review` on the session it is handed.
+const noShowClaims = new NoShowClaimService(
+  service,
+  clock,
+  settings,
+  new PenaltyService(service, settings, coins, trust),
+  coins,
+  trust,
+  audit,
+  new OutboxService(service, clock),
+);
 
 // The matrix never authenticates, so Redis is never reached. A stub rather than a
 // live connection keeps this suite about authorisation and nothing else.
@@ -168,6 +181,14 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.EVENT_MODERATE,
     run: (session) =>
       operations.decideCase(session, 'no-such-case', { decision: 'APPROVED', note: 'note' }),
+  },
+  // «من حاضر بودم» and «میزبان نیامد», decided (plan 08). `report.review`, the
+  // permission plan 07 named for it: what an upheld claim moves is fixed by the
+  // service, so this is a judgement about a report, not a hand on the ledger.
+  {
+    name: 'POST /admin/v1/moderation/cases/:id/dispute-decision',
+    permission: PERMISSIONS.REPORT_REVIEW,
+    run: (session) => noShowClaims.decide(session, 'no-such-case', { upheld: true, note: 'note' }),
   },
   {
     name: 'POST /admin/v1/coins/adjust',
@@ -608,7 +629,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(69);
+    expect(OPERATIONS).toHaveLength(70);
   });
 
   for (const role of ROLES) {

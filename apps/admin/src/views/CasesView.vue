@@ -180,7 +180,9 @@ async function decide(note: string): Promise<void> {
         // Only meaningful on a dismissal, and only for a case the automation
         // opened: "the scanner was wrong" is not a thing to say about three
         // people who complained.
-        ...(pending.value.decision === 'APPROVED' && pending.value.entry.trigger !== 'MANUAL'
+        ...(pending.value.decision === 'APPROVED' &&
+        pending.value.entry.trigger !== 'MANUAL' &&
+        pending.value.entry.trigger !== 'DISPUTE'
           ? { falsePositive: falsePositive.value }
           : {}),
       },
@@ -197,18 +199,85 @@ async function decide(note: string): Promise<void> {
   }
 }
 
+// ── A dispute (plan 08) ─────────────────────────────────────────────────────
+
+/**
+ * «من حاضر بودم» and «میزبان نیامد» are not content to keep or hide.
+ *
+ * `decide` refuses them — its «تأیید نمی‌شود» on an activity would hide it — so
+ * a dispute gets its own two buttons, its own dialog saying what each outcome
+ * does, and its own endpoint. What an upheld claim moves is fixed by the
+ * service; this screen only says whether the claim is right.
+ */
+const pendingDispute = ref<{ entry: ModerationCaseView; upheld: boolean } | null>(null);
+
+async function decideDispute(note: string): Promise<void> {
+  if (pendingDispute.value === null) return;
+  acting.value = true;
+  actionError.value = null;
+  try {
+    await request<void>(`/moderation/cases/${pendingDispute.value.entry.id}/dispute-decision`, {
+      method: 'POST',
+      body: { upheld: pendingDispute.value.upheld, note },
+    });
+    notice.value = pendingDispute.value.upheld
+      ? 'ادعا پذیرفته شد و پیامدهایش اعمال شد. به همهٔ طرف‌ها خبر داده می‌شود.'
+      : 'ادعا پذیرفته نشد. به نویسنده‌ها خبر داده می‌شود.';
+    pendingDispute.value = null;
+    opened.value = null;
+    await load();
+  } catch (cause) {
+    actionError.value = messageOf(cause, 'ثبت تصمیم انجام نشد.');
+  } finally {
+    acting.value = false;
+  }
+}
+
+/** What each outcome does, said before it happens — it moves coins and records. */
+const disputeBody = computed(() => {
+  const pending = pendingDispute.value;
+  if (pending === null) return '';
+  const aboutHost = pending.entry.subjectType === 'EVENT';
+  if (!pending.upheld) {
+    return aboutHost
+      ? 'گزارش «میزبان نیامد» رد می‌شود. هیچ سکه‌ای جابه‌جا نمی‌شود و به گزارش‌دهنده‌ها و میزبان خبر داده می‌شود.'
+      : 'غیبت ثبت‌شده سر جایش می‌ماند و به مهمان خبر داده می‌شود.';
+  }
+  return aboutHost
+    ? 'میزبان جریمهٔ عدم‌حضور می‌پردازد و اعتمادش کم می‌شود؛ ورودیِ همهٔ مهمان‌های پذیرفته برمی‌گردد؛ ' +
+        'غیبت‌هایی که این میزبان برای آن شب ثبت کرده برداشته می‌شوند؛ و سپردهٔ ثبت فعالیت برنمی‌گردد ' +
+        '(اگر برگشته، پس گرفته می‌شود). این کار برگشت‌پذیر نیست.'
+    : 'جریمهٔ غیبت و اعتماد کم‌شدهٔ مهمان برمی‌گردد و حضورش ثبت می‌شود. به مهمان و میزبان خبر داده می‌شود.';
+});
+
+const CLAIM_KINDS: Record<string, string> = {
+  GUEST_ABSENT_DISPUTE: 'اعتراض مهمان: «من حاضر بودم»',
+  HOST_ABSENT_REPORT: 'گزارش مهمان: «میزبان نیامد»',
+  HOST_ABSENT_RESPONSE: 'پاسخ میزبان',
+};
+
 const SUBJECTS: Record<string, string> = {
   EVENT: 'فعالیت',
   USER: 'کاربر',
   MESSAGE: 'گفت‌وگو',
   REVIEW: 'بازخورد',
+  PARTICIPATION: 'حضور در فعالیت',
 };
 
 const TRIGGERS: Record<string, string> = {
   AUTO_BLACKLIST: 'تشخیص خودکار واژگان',
   REPORT_THRESHOLD: 'رسیدن به آستانهٔ گزارش',
   MANUAL: 'ثبت دستی',
+  DISPUTE: 'اعتراض به حضور',
 };
+
+/** A dispute says which claim it is; the flat map cannot tell the two apart. */
+function triggerLabel(entry: ModerationCaseView): string {
+  if (entry.trigger === 'DISPUTE') {
+    return entry.subjectType === 'EVENT' ? 'گزارش «میزبان نیامد»' : 'اعتراض «من حاضر بودم»';
+  }
+  return TRIGGERS[entry.trigger] ?? entry.trigger;
+}
 
 onMounted(load);
 </script>
@@ -263,7 +332,7 @@ onMounted(load);
                 <span class="text-xs text-ink-faint">{{ formatRelative(entry.createdAt) }}</span>
               </div>
               <p class="mt-2 text-sm text-ink-soft">
-                علت باز شدن: {{ TRIGGERS[entry.trigger] ?? entry.trigger }}
+                علت باز شدن: {{ triggerLabel(entry) }}
                 <template v-if="entry.reportCount > 0">
                   · <bdi>{{ toPersianDigits(entry.reportCount) }}</bdi> گزارش
                 </template>
@@ -297,22 +366,42 @@ onMounted(load);
                 >
                   ارجاع به سرپرست
                 </button>
-                <button
-                  type="button"
-                  class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
-                  :disabled="!session.canMutate"
-                  @click="pending = { entry, decision: 'APPROVED' }"
-                >
-                  ایرادی ندارد
-                </button>
-                <button
-                  type="button"
-                  class="min-h-9 rounded-lg border border-danger px-3 text-sm text-danger disabled:opacity-40"
-                  :disabled="!session.canMutate"
-                  @click="pending = { entry, decision: 'REJECTED' }"
-                >
-                  تأیید نمی‌شود
-                </button>
+                <template v-if="entry.trigger === 'DISPUTE'">
+                  <button
+                    type="button"
+                    class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
+                    :disabled="!session.canMutate"
+                    @click="pendingDispute = { entry, upheld: true }"
+                  >
+                    ادعا درست است
+                  </button>
+                  <button
+                    type="button"
+                    class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
+                    :disabled="!session.canMutate"
+                    @click="pendingDispute = { entry, upheld: false }"
+                  >
+                    ادعا درست نیست
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="min-h-9 rounded-lg border border-line px-3 text-sm disabled:opacity-40"
+                    :disabled="!session.canMutate"
+                    @click="pending = { entry, decision: 'APPROVED' }"
+                  >
+                    ایرادی ندارد
+                  </button>
+                  <button
+                    type="button"
+                    class="min-h-9 rounded-lg border border-danger px-3 text-sm text-danger disabled:opacity-40"
+                    :disabled="!session.canMutate"
+                    @click="pending = { entry, decision: 'REJECTED' }"
+                  >
+                    تأیید نمی‌شود
+                  </button>
+                </template>
               </template>
             </div>
           </div>
@@ -370,6 +459,28 @@ onMounted(load);
               <p class="text-xs text-ink-faint">نام گزارش‌دهندگان عمداً نشان داده نمی‌شود.</p>
             </div>
 
+            <!--
+              A dispute's evidence (plan 08): what each side wrote, by side and
+              name. Unlike a report, nobody here needs protecting from the person
+              they wrote about — a host and the guest they accepted know each other.
+            -->
+            <div v-if="opened.claims.length > 0" class="flex flex-col gap-2">
+              <p class="font-medium">گفته‌ها</p>
+              <ul class="flex flex-col gap-2">
+                <li
+                  v-for="(claim, index) in opened.claims"
+                  :key="index"
+                  class="rounded-lg border border-line bg-surface p-3"
+                >
+                  <p class="text-xs text-ink-faint">
+                    {{ CLAIM_KINDS[claim.kind] ?? claim.kind }} · {{ claim.authorDisplayName }} ·
+                    {{ formatRelative(claim.createdAt) }}
+                  </p>
+                  <p class="mt-1 whitespace-pre-line">{{ claim.statement }}</p>
+                </li>
+              </ul>
+            </div>
+
             <p v-if="opened.decisionNote" class="text-ink-soft">
               یادداشت تصمیم: {{ opened.decisionNote }}
             </p>
@@ -424,6 +535,21 @@ onMounted(load);
       falsePositive = false;
     "
     @confirm="decide"
+  >
+  </ConfirmDialog>
+
+  <ConfirmDialog
+    :open="pendingDispute !== null"
+    :title="pendingDispute?.upheld ? 'پذیرفتن ادعا' : 'رد کردن ادعا'"
+    :body="disputeBody"
+    :confirm-label="pendingDispute?.upheld ? 'ادعا درست است' : 'ادعا درست نیست'"
+    :tone="pendingDispute?.upheld ? 'danger' : 'default'"
+    reason-label="یادداشت تصمیم (الزامی — پروندهٔ بسته باید توضیح داشته باشد)"
+    :reason-min-length="3"
+    :busy="acting"
+    :error="actionError"
+    @cancel="pendingDispute = null"
+    @confirm="decideDispute"
   >
   </ConfirmDialog>
 

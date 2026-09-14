@@ -53,15 +53,26 @@ describe('the participation lifecycle', () => {
     expect(() => assertParticipantTransition('WAITLISTED', 'REJECTED')).not.toThrow();
   });
 
-  it('ends every settled request — six terminal states, no way back', () => {
+  /**
+   * Five terminal states — **no longer six** (plan 08, 2026-09-14).
+   *
+   * `NO_SHOW` was terminal and this test said so, deliberately. It stopped being
+   * true on purpose: a guest who says «من حاضر بودم», or whose host turns out not
+   * to have come, is moved to `COMPLETED` when a moderator upholds the claim
+   * (`NoShowClaimService.decide`). That is the only edge out, and the only caller.
+   */
+  it('ends every settled request — five terminal states, no way back', () => {
     expect(terminalStates(PARTICIPANT_TRANSITIONS).sort()).toEqual([
       'CANCELLED_BY_HOST',
       'CANCELLED_BY_PARTICIPANT',
       'COMPLETED',
       'EXPIRED',
-      'NO_SHOW',
       'REJECTED',
     ]);
+  });
+
+  it('lets a no-show become attended, and nothing else', () => {
+    expect(PARTICIPANT_TRANSITIONS.NO_SHOW).toEqual(['COMPLETED']);
   });
 
   it('reaches every status from somewhere, except the two entry points', () => {

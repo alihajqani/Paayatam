@@ -22,6 +22,7 @@ import {
   RetentionService,
   ReviewService,
   CityLaunchAnnouncementService,
+  NoShowClaimService,
   type PublishablePost,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
@@ -153,6 +154,8 @@ export class Processors implements OnModuleInit {
     private readonly audit: AuditService,
     /** «پایه‌تَم در … باز شد», once per city an operator opens (plan 17). */
     private readonly cityLaunches: CityLaunchAnnouncementService,
+    /** For one thing only: the one-off dispute offer to earlier no-shows (plan 08). */
+    private readonly noShowClaims: NoShowClaimService,
   ) {}
 
   /**
@@ -735,10 +738,16 @@ export class Processors implements OnModuleInit {
          * while the evening is fresh, and the backstop is five minutes away.
          */
         const prompted = await this.lifecycle.promptAttendance();
-        if (prompted > 0) {
-          this.logger.log(`Asked ${String(prompted)} host(s) who came`);
-          await this.onDomainEvent(job);
-        }
+        if (prompted > 0) this.logger.log(`Asked ${String(prompted)} host(s) who came`);
+        /**
+         * And the no-shows recorded before a dispute existed, told once that they
+         * can now dispute (plan 08). On this job because it is about the same
+         * moment in an evening's life; after the first pass it finds nothing,
+         * since every new no-show is stamped when it is told.
+         */
+        const offered = await this.noShowClaims.offerPastDisputes();
+        if (offered > 0) this.logger.log(`Offered ${String(offered)} earlier no-show(s) a dispute`);
+        if (prompted + offered > 0) await this.onDomainEvent(job);
         return;
       }
 

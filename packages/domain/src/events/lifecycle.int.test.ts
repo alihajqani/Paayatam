@@ -491,6 +491,19 @@ describe('reporting a no-show', () => {
       [userPublicId, TEMPLATES.NO_SHOW_RECORDED],
     ]);
     expect(planned[0]?.payload['coinsCharged']).toBe(60);
+    // Plan 08: the seat the two buttons name, and when the dispute closes — which
+    // runs from this moment, stamped on the participation in the same transaction.
+    expect(planned[0]?.payload['participantPublicId']).toBe(person.publicId);
+    const told = await prisma.eventParticipant.findUniqueOrThrow({
+      where: { publicId: person.publicId },
+      select: { noShowNotifiedAt: true },
+    });
+    expect(told.noShowNotifiedAt).toEqual(clock.now());
+    expect(planned[0]?.payload['disputeClosesAt']).toBe(
+      new Date(
+        clock.now().getTime() + SETTING_DEFAULTS['cancellation.dispute_window_days'] * 86_400_000,
+      ).toISOString(),
+    );
   });
 
   it('cannot be claimed before the event has finished', async () => {

@@ -141,6 +141,21 @@ export const ErrorCode = {
   // Moderation
   ALREADY_REPORTED: 'ALREADY_REPORTED',
   CANNOT_REPORT_OWN_CONTENT: 'CANNOT_REPORT_OWN_CONTENT',
+  /**
+   * «من حاضر بودم» or «میزبان نیامد» after `cancellation.dispute_window_days`,
+   * or a host's answer after `cancellation.response_window_hours` (plan 08). The
+   * button stays in the chat forever; this is its polite refusal.
+   */
+  CLAIM_WINDOW_CLOSED: 'CLAIM_WINDOW_CLOSED',
+  /** The same person has already said this about the same evening (plan 08). */
+  ALREADY_CLAIMED: 'ALREADY_CLAIMED',
+  /**
+   * A dispute case sent to `decideCase`, or a content case sent to the dispute
+   * decision (plan 08). The two decide different questions — keep or hide
+   * content, versus whether somebody was there — and one must not stand in for
+   * the other.
+   */
+  WRONG_CASE_DECISION: 'WRONG_CASE_DECISION',
 
   // Admin (ADR-0010)
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
@@ -295,6 +310,10 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
 
   ALREADY_REPORTED: 'شما قبلاً این مورد را گزارش کرده‌اید.',
   CANNOT_REPORT_OWN_CONTENT: 'نمی‌توانید محتوای خودتان را گزارش کنید.',
+  CLAIM_WINDOW_CLOSED:
+    'مهلت ثبت این مورد تمام شده است. اگر هنوز فکر می‌کنید اشتباهی رخ داده، با پشتیبانی در تماس باشید.',
+  ALREADY_CLAIMED: 'شما پیش‌تر دربارهٔ این فعالیت نوشته‌اید و در حال بررسی است.',
+  WRONG_CASE_DECISION: 'این پرونده با این نوع تصمیم بسته نمی‌شود.',
 
   INVALID_CREDENTIALS: 'ایمیل، رمز عبور یا کد تأیید نادرست است.',
   ACCOUNT_LOCKED: 'این حساب موقتاً قفل شده است. کمی بعد دوباره تلاش کنید.',
@@ -373,6 +392,9 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   ALREADY_REVIEWED: 409,
   ALREADY_REPORTED: 409,
   CANNOT_REPORT_OWN_CONTENT: 403,
+  CLAIM_WINDOW_CLOSED: 409,
+  ALREADY_CLAIMED: 409,
+  WRONG_CASE_DECISION: 409,
   INVALID_CREDENTIALS: 401,
   ACCOUNT_LOCKED: 429,
   UNSEAL_REQUIRES_OPEN_CASE: 403,

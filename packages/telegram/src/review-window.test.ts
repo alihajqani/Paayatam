@@ -19,12 +19,29 @@ const base = {
  */
 describe('the review window notification', () => {
   it('offers the five ratings', () => {
-    const data = (
+    const [stars] = render(TEMPLATES.REVIEW_WINDOW_OPEN, { ...base, recipientRole: 'HOST' })
+      ?.keyboard ?? [[]];
+    expect((stars ?? []).map((button) => button.callbackData)).toEqual(
+      [1, 2, 3, 4, 5].map((n) => `rv:rate${String(n)}:${PARTICIPANT}`),
+    );
+  });
+
+  /**
+   * Plan 08: the one message every guest of a finished evening receives is where
+   * «میزبان نیامد» lives — a guest rating an evening that did not happen needs a
+   * way to say so. The host's copy has no such row.
+   */
+  it('offers a guest «میزبان نیامد» under the stars, and the host nothing extra', () => {
+    const guest = (
       render(TEMPLATES.REVIEW_WINDOW_OPEN, { ...base, recipientRole: 'GUEST' })?.keyboard ?? []
-    )
-      .flat()
-      .map((button) => button.callbackData);
-    expect(data).toEqual([1, 2, 3, 4, 5].map((n) => `rv:rate${String(n)}:${PARTICIPANT}`));
+    ).map((row) => row.map((button) => button.callbackData));
+    expect(guest).toEqual([
+      [1, 2, 3, 4, 5].map((n) => `rv:rate${String(n)}:${PARTICIPANT}`),
+      [`ev:habs:${PARTICIPANT}`],
+    ]);
+
+    const host = render(TEMPLATES.REVIEW_WINDOW_OPEN, { ...base, recipientRole: 'HOST' })?.keyboard;
+    expect(host).toHaveLength(1);
   });
 
   /** A host with five guests gets five of these; the name is what tells them apart. */
