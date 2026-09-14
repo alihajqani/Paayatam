@@ -145,6 +145,7 @@ function buildProcessors(): Processors {
     // suite's sends draw is the ordinary one.
     { isLinked: vi.fn().mockResolvedValue(false) } as never,
     {} as never, // ModerationDigestService — this suite sends no digest
+    {} as never, // AuditService — only the channel sweep writes one
   );
 }
 

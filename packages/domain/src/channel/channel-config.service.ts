@@ -74,6 +74,25 @@ export interface RequiredChannelRecord {
 export type ChannelConfigWarning =
   'NO_CHANNELS' | 'NO_JOIN_LINK' | 'NO_CHAT_IDENTIFIER' | 'NO_ACTIONS_SELECTED';
 
+/**
+ * Something wrong with the channel the bot **posts** to (plan 14, item 2).
+ *
+ * A list of its own rather than more `warnings`: those are reasons not to make
+ * membership mandatory and the panel renders them above that switch. This is
+ * about publishing, which has no switch here.
+ */
+export type ChannelPublishingWarning = 'BOT_CANNOT_DELETE';
+
+/**
+ * The audit action the worker's channel sweep writes when Telegram will not take
+ * a post down, and that `status()` reads back. One constant for the writer and
+ * the reader, because a typo on either side is a warning that never appears.
+ */
+export const CHANNEL_POST_UNDELETABLE_ACTION = 'channel.post_undeletable';
+
+/** How long one refused delete keeps the warning up. */
+const UNDELETABLE_WARNING_MS = 24 * 3_600_000;
+
 /** Whether the configuration is complete enough to be switched on safely. */
 export interface ChannelConfigStatus extends ChannelConfig {
   /** Active channels, in the order they are to be joined and displayed. */
@@ -91,6 +110,8 @@ export interface ChannelConfigStatus extends ChannelConfig {
    * the operator never gets to lock everybody out and then read about it.
    */
   warnings: ChannelConfigWarning[];
+  /** What is wrong with posting to the channel right now. Empty means nothing known. */
+  publishingWarnings: ChannelPublishingWarning[];
 }
 
 export const CHANNEL_CONFIG_ID = 'default';
@@ -184,7 +205,19 @@ export class ChannelConfigService {
   }
 
   async status(): Promise<ChannelConfigStatus> {
-    const [config, allChannels] = await Promise.all([this.get(), this.listChannels()]);
+    const [config, allChannels, undeletable] = await Promise.all([
+      this.get(),
+      this.listChannels(),
+      // The sweep's own record that a post stayed up. Indexed read on
+      // `(action, created_at)`; a day old and it is history, not a condition.
+      this.prisma.auditLog.findFirst({
+        where: {
+          action: CHANNEL_POST_UNDELETABLE_ACTION,
+          createdAt: { gte: new Date(this.clock.now().getTime() - UNDELETABLE_WARNING_MS) },
+        },
+        select: { id: true },
+      }),
+    ]);
     const channels = allChannels.filter((channel) => channel.isActive);
 
     const hasJoinLink = channels.length > 0 && channels.every((c) => c.joinUrl !== null);
@@ -200,7 +233,18 @@ export class ChannelConfigService {
       warnings.push('NO_ACTIONS_SELECTED');
     }
 
-    return { ...config, channels, allChannels, hasJoinLink, canVerify, warnings };
+    const publishingWarnings: ChannelPublishingWarning[] =
+      undeletable === null ? [] : ['BOT_CANNOT_DELETE'];
+
+    return {
+      ...config,
+      channels,
+      allChannels,
+      hasJoinLink,
+      canVerify,
+      warnings,
+      publishingWarnings,
+    };
   }
 
   /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GrammyError, HttpError } from 'grammy';
-import { classify } from './telegram.client';
+import { classify, deleteOutcome } from './telegram.client';
 
 /**
  * Which Telegram failures are worth another attempt (ADR-0005).
@@ -117,5 +117,42 @@ describe('everything else is retryable', () => {
   it('keeps an unrecognised error retryable', () => {
     expect(classify(new Error('something unexpected')).kind).toBe('RETRY');
     expect(classify('not even an error').kind).toBe('RETRY');
+  });
+});
+
+/**
+ * Taking a channel post down: gone, undeletable, or try again (plan 14, item 2).
+ *
+ * «message can't be deleted» used to count as success beside «not found», and
+ * the row was recorded as taken down while the post stayed in the channel —
+ * with nobody told. Both still stop the retries; only one of them is a warning.
+ */
+describe('a channel post that will not come down', () => {
+  it('reads a message that is already gone as GONE', () => {
+    expect(deleteOutcome(telegramError(400, 'Bad Request: message to delete not found'))).toBe(
+      'GONE',
+    );
+  });
+
+  it('reads a message Telegram refuses to delete as UNDELETABLE, not as done', () => {
+    expect(deleteOutcome(telegramError(400, "Bad Request: message can't be deleted"))).toBe(
+      'UNDELETABLE',
+    );
+  });
+
+  /** Kicked from the channel, or it is gone: the post stays up and nobody can remove it. */
+  it('reads a bot that has lost the channel as UNDELETABLE', () => {
+    expect(
+      deleteOutcome(telegramError(403, 'Forbidden: bot is not a member of the channel chat')),
+    ).toBe('UNDELETABLE');
+    expect(deleteOutcome(telegramError(400, 'Bad Request: chat not found'))).toBe('UNDELETABLE');
+  });
+
+  it('retries a rate limit and anything it does not recognise', () => {
+    expect(deleteOutcome(telegramError(429, 'Too Many Requests: retry after 5'))).toBe('RETRY');
+    expect(deleteOutcome(telegramError(500, 'Internal Server Error'))).toBe('RETRY');
+    expect(deleteOutcome(new HttpError('network request failed', new Error('reset')))).toBe(
+      'RETRY',
+    );
   });
 });

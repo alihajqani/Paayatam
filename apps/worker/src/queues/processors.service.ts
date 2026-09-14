@@ -2,6 +2,8 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
   AdminTelegramService,
+  AuditService,
+  CHANNEL_POST_UNDELETABLE_ACTION,
   ChannelService,
   CoinService,
   ComebackService,
@@ -139,6 +141,13 @@ export class Processors implements OnModuleInit {
     private readonly adminTelegram: AdminTelegramService,
     /** Who is due the moderation digest, and when they were last sent it (plan 06). */
     private readonly moderationDigests: ModerationDigestService,
+    /**
+     * For one record only: a channel post Telegram would not take down (plan 14).
+     *
+     * The metric says it to `/metrics`; the panel is served by the API and cannot
+     * read the worker's memory, so the warning it shows is read off this row.
+     */
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -992,9 +1001,41 @@ export class Processors implements OnModuleInit {
     let failed = 0;
     let lastReason: string | null = null;
 
+    /**
+     * Takedowns, and the ones Telegram refuses (plan 14, item 2).
+     *
+     * An undeletable post is marked taken down like a gone one — retrying cannot
+     * change the answer, and the row must stop being reconsidered every pass —
+     * but it is still in the channel, so it is also counted, logged by message
+     * id (never the post's text), and recorded once per pass for the panel.
+     */
+    let undeletableRecorded = false;
     for (const target of await this.channel.findTakedowns()) {
-      const removed = await this.telegram.deleteChannelPost(target.telegramMessageId);
-      if (removed) await this.channel.markTakenDown(target.postId);
+      const outcome = await this.telegram.deleteChannelPost(target.telegramMessageId);
+      if (outcome === 'RETRY') continue;
+
+      if (outcome === 'UNDELETABLE') {
+        this.metrics.counter(
+          'payetam_channel_post_total',
+          'Channel publication attempts by outcome.',
+          { outcome: 'undeletable' },
+        );
+        this.logger.warn(
+          `Channel message ${String(target.telegramMessageId)} could not be deleted and stays ` +
+            'in the channel. Check that the bot has «Delete messages» there.',
+        );
+        if (!undeletableRecorded) {
+          await this.audit.record({
+            actorType: 'SYSTEM',
+            action: CHANNEL_POST_UNDELETABLE_ACTION,
+            targetType: 'channel_post',
+            targetId: target.postId,
+          });
+          undeletableRecorded = true;
+        }
+      }
+
+      await this.channel.markTakenDown(target.postId);
     }
 
     /**

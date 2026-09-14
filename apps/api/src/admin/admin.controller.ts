@@ -2250,6 +2250,7 @@ function toChannelConfigView(config: ChannelConfigStatus): ChannelConfigView {
     hasJoinLink: config.hasJoinLink,
     canVerify: config.canVerify,
     warnings: config.warnings,
+    publishingWarnings: config.publishingWarnings,
   };
 }
 

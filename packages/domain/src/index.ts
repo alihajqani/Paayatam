@@ -442,6 +442,7 @@ export { ChannelService } from './channel/channel.service';
 export {
   ChannelConfigService,
   CHANNEL_CONFIG_ID,
+  CHANNEL_POST_UNDELETABLE_ACTION,
   GATED_ACTIONS,
   normalizeChatIdentifier,
   normalizeInviteUrl,
@@ -452,6 +453,7 @@ export type {
   ChannelConfig,
   ChannelConfigStatus,
   ChannelConfigWarning,
+  ChannelPublishingWarning,
   GatedAction,
   RequiredChannelRecord,
 } from './channel/channel-config.service';

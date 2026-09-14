@@ -3,7 +3,11 @@ import type { PrismaClient, PrismaService } from '@payetam/db';
 import { FakeClock } from '@payetam/platform';
 import { createTestPrisma, createUser, resetDatabase } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
-import { CHANNEL_CONFIG_ID, ChannelConfigService } from './channel-config.service';
+import {
+  CHANNEL_CONFIG_ID,
+  CHANNEL_POST_UNDELETABLE_ACTION,
+  ChannelConfigService,
+} from './channel-config.service';
 import {
   ChannelMembershipService,
   type MembershipProbe,
@@ -486,6 +490,35 @@ describe('the configuration itself', () => {
 
     expect(status.membershipRequired).toBe(false);
     expect(status.warnings).toContain('NO_CHANNELS');
+  });
+
+  /**
+   * The worker could not take a post down (plan 14, item 2).
+   *
+   * The metric lives in the worker's memory and the panel is served by the API,
+   * so the signal is a row both can see: the audit entry the sweep writes. A day
+   * old and it is history, not a standing problem.
+   */
+  it('warns that the bot cannot delete posts, for a day after it failed to', async () => {
+    const recordedAt = clock.now();
+    await expect(config.status()).resolves.toMatchObject({ publishingWarnings: [] });
+
+    await audit.record({
+      actorType: 'SYSTEM',
+      action: CHANNEL_POST_UNDELETABLE_ACTION,
+      targetType: 'channel_post',
+      targetId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+    });
+    await expect(config.status()).resolves.toMatchObject({
+      publishingWarnings: ['BOT_CANNOT_DELETE'],
+    });
+
+    try {
+      clock.set(new Date(recordedAt.getTime() + 24 * 3_600_000 + 60_000));
+      await expect(config.status()).resolves.toMatchObject({ publishingWarnings: [] });
+    } finally {
+      clock.set(recordedAt);
+    }
   });
 
   it('records old and new values in the audit trail', async () => {

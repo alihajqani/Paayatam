@@ -1,0 +1,35 @@
+# The production channel — what the bot is allowed to do there
+
+**Scope:** the channel `TELEGRAM_CHANNEL_ID` names, where the worker posts.
+**Read when:** a channel post will not come down or will not update, the panel's
+«انتشار در کانال» warning (`BOT_CANNOT_DELETE`) is up, or a change relies on
+deleting or editing channel messages.
+
+## Rights, as observed
+
+On 2026-09-14 the bot was an **administrator** of the production channel with
+`can_post_messages`, `can_edit_messages` and `can_delete_messages` all `true`, and
+`TELEGRAM_CHANNEL_ID` was set in the production `.env`
+`[validated: cmd getChatMember(<channel>, <bot id>) from the production host, 2026-09-14]`.
+
+So a takedown should never be refused for age, and the capacity edits of plan 14
+item 3 are permitted. If `BOT_CANNOT_DELETE` appears in the panel, suspect a right
+that was **revoked** or the bot removed from the channel — not the 48-hour limit.
+`deleteOutcome` reads a 403 / «chat not found» as `UNDELETABLE` for that reason
+`[validated: apps/worker/src/telegram/telegram.client.ts]`.
+
+## Re-checking without printing a secret
+
+Run on the production host, from the deployment directory, reading both values
+out of `.env` inside the command so neither reaches a terminal or a log:
+
+```bash
+T=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | cut -d= -f2- | tr -d "\"'")
+C=$(grep -E '^TELEGRAM_CHANNEL_ID=' .env | cut -d= -f2- | tr -d "\"'")
+curl -s "https://api.telegram.org/bot${T}/getChatMember" \
+  --data-urlencode "chat_id=${C}" --data-urlencode "user_id=${T%%:*}" |
+  python3 -c 'import json,sys; r=json.load(sys.stdin).get("result",{}); print({k: r.get(k) for k in ("status","can_post_messages","can_edit_messages","can_delete_messages")})'
+```
+
+Read-only. Print the rights, never the response's `user` object wholesale into a
+document, and never the token.
