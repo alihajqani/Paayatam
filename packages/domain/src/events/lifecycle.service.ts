@@ -728,9 +728,12 @@ export class EventLifecycleService {
 
         const ends = await tx.event.findUniqueOrThrow({
           where: { id: event.id },
-          select: { endsAt: true },
+          select: { endsAt: true, hostAbsentAt: true },
         });
         if (ends.endsAt > now) throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
+        // A moderator found this host absent from this evening (plan 08): they are
+        // the one witness to attendance who was not there, so they record none.
+        if (ends.hostAbsentAt !== null) throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
 
         const penalty = await this.penalties.chargeParticipant(tx, {
           participantId: participant.id,

@@ -492,6 +492,22 @@ describe('«میزبان نیامد» — guests report the host', () => {
     );
   });
 
+  /** A host found absent cannot then mark somebody absent from the same evening. */
+  it('upheld: the host can no longer record a no-show for that evening', async () => {
+    const event = await evening();
+    const reporter = await seated(event.publicId);
+    const later = await seated(event.publicId);
+    clock.set(AFTER_END);
+    await claims.reportHostAbsent(reporter.userId, reporter.seat, SAID);
+    const hostCase = await prisma.moderationCase.findFirstOrThrow({ select: { id: true } });
+    await claims.decide(MODERATOR, hostCase.id, { upheld: true, note: 'میزبان نیامده بود' });
+
+    await expect(lifecycle.markNoShow(hostId, later.seat)).rejects.toMatchObject({
+      code: ErrorCode.INVALID_STATE_TRANSITION,
+    });
+    expect(await coins.balanceOf(later.userId)).toBe(BUDGET);
+  });
+
   it('rejected: nothing moves, and the reporters and the host are told', async () => {
     const event = await evening();
     const reporter = await seated(event.publicId);
