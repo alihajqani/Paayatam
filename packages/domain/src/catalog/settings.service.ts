@@ -787,8 +787,9 @@ export const SETTING_DEFAULTS = {
    * was two days before v0.7.0 and read as broken; eighteen hours with the
    * question asked up front is the deliberate middle (plan 15, option A).
    *
-   * A deployment that already has a row for this key keeps its value — check it
-   * in the panel after upgrading.
+   * A default reaches only a key with no row, and `seed-settings` writes rows,
+   * so migration 0054 sets the stored value to 18 as well — with an audit row —
+   * rather than leave a seeded deployment settling hourly with two.
    */
   'participation.settlement_delay_hours': 18,
 
