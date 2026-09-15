@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Env } from '@payetam/config';
+import { DEFAULT_BOT_USERNAME, type Env } from '@payetam/config';
 import {
   CatalogService,
   ChannelMembershipService,
@@ -739,7 +739,7 @@ export class BotService {
             // Optional in the environment, and the link is the point of this
             // message — so an unconfigured username degrades to the bot's own
             // handle rather than to `https://t.me/undefined?start=…`.
-            this.env.TELEGRAM_BOT_USERNAME ?? 'paayatambot',
+            this.env.TELEGRAM_BOT_USERNAME ?? DEFAULT_BOT_USERNAME,
           ),
           ...(canClaim
             ? {
@@ -5378,7 +5378,10 @@ export class BotService {
         // registration or it was not (plan 14).
         publishedToChannel: created.channelStatus !== 'NONE',
         // Built here because `render` takes no bot username (plan 11).
-        shareUrl: shareUrl(this.env.TELEGRAM_BOT_USERNAME ?? 'paayatambot', created.publicId),
+        shareUrl: shareUrl(
+          this.env.TELEGRAM_BOT_USERNAME ?? DEFAULT_BOT_USERNAME,
+          created.publicId,
+        ),
       });
     } catch (error) {
       if (!(error instanceof AppError)) throw error;

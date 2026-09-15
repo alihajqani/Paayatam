@@ -50,7 +50,7 @@ required=(
     NODE_ENV DATABASE_URL REDIS_URL POSTGRES_PASSWORD REDIS_PASSWORD
     TELEGRAM_BOT_TOKEN TELEGRAM_MODE TELEGRAM_WEBHOOK_SECRET_PATH
     TELEGRAM_WEBHOOK_SECRET_TOKEN CHAT_ENCRYPTION_KEY PII_HASH_PEPPER
-    JWT_ACCESS_SECRET JWT_REFRESH_SECRET QUEUE_PREFIX
+    JWT_ACCESS_SECRET JWT_REFRESH_SECRET QUEUE_PREFIX TELEGRAM_BOT_USERNAME
 )
 for key in "${required[@]}"; do
     [[ -n "$(env_value "$key")" ]] || fail "${key} is empty or missing"
@@ -162,9 +162,6 @@ queue_prefix="$(env_value QUEUE_PREFIX)"
 # ── Advisory ─────────────────────────────────────────────────────────────────
 [[ -n "$(env_value MONITORING_CHAT_ID)" ]] \
     || note "MONITORING_CHAT_ID is empty — no alerts will be sent anywhere"
-
-[[ -n "$(env_value TELEGRAM_BOT_USERNAME)" ]] \
-    || note "TELEGRAM_BOT_USERNAME is empty — channel posts, paid invitations and the Mini App's «go to the conversation» button all lose their deep link"
 
 public_url="$(env_value PUBLIC_API_URL)"
 [[ "$public_url" == https://* ]] \

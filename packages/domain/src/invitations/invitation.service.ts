@@ -4,7 +4,7 @@ import type { Prisma } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { ENV } from '@payetam/platform';
-import type { Env } from '@payetam/config';
+import { DEFAULT_BOT_USERNAME, type Env } from '@payetam/config';
 import { renderEventInvitation } from '@payetam/telegram';
 import { AuditService } from '../audit/audit.service';
 import { ChannelMembershipService } from '../channel/membership.service';
@@ -284,7 +284,7 @@ export class InvitationService {
             startsAt: event.startsAt,
             capacity: event.capacity,
             eventPublicId: event.publicId,
-            botUsername: this.env.TELEGRAM_BOT_USERNAME ?? 'payetam_bot',
+            botUsername: this.env.TELEGRAM_BOT_USERNAME ?? DEFAULT_BOT_USERNAME,
           }),
           parseMode: 'HTML',
           filter: { eventPublicId },

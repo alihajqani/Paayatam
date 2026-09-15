@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Bot, GrammyError, HttpError } from 'grammy';
 import type { InlineKeyboardButton } from 'grammy/types';
 import { autoRetry } from '@grammyjs/auto-retry';
-import type { Env } from '@payetam/config';
+import { DEFAULT_BOT_USERNAME, type Env } from '@payetam/config';
 import { ENV } from '@payetam/platform';
 import { mainMenuReplyKeyboard } from '@payetam/telegram';
 import type { InlineKeyboard } from '@payetam/telegram';
@@ -66,9 +66,9 @@ export class TelegramClient {
 
   constructor(@Inject(ENV) env: Env) {
     this.channelId = env.TELEGRAM_CHANNEL_ID;
-    // Only used to build the deep link in a channel post. A wrong value produces a
-    // broken link rather than a wrong destination, so it is not worth failing over.
-    this.botUsername = env.TELEGRAM_BOT_USERNAME ?? 'payetam_bot';
+    // Only used to build the deep link in a channel post. Production refuses to
+    // boot without it (plan 18 item 2), so the default is development's alone.
+    this.botUsername = env.TELEGRAM_BOT_USERNAME ?? DEFAULT_BOT_USERNAME;
     const token = env.TELEGRAM_BOT_TOKEN;
     if (token === undefined || token === '') {
       // Development and CI have no token. Failing at construction would stop the
