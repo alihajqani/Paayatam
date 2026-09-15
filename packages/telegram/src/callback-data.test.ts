@@ -12,6 +12,9 @@ import {
   PROFILE_FIELD_KEYS,
   encodeProfileFieldCallback,
   parseProfileFieldCallback,
+  encodeReviewEditCallback,
+  parseReviewCallback,
+  parseReviewEditCallback,
 } from './callback-data';
 
 const ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -76,6 +79,27 @@ describe('a tampered button', () => {
     ['nothing at all', ''],
   ])('%s parses to null', (_name, data) => {
     expect(parseChatCallback(data)).toBeNull();
+  });
+});
+
+/**
+ * «✏️ ویرایش» on a review still inside its edit window (plan 18 item 7). A
+ * namespace-mate of the rating, and never mistaken for one.
+ */
+describe('the review edit protocol', () => {
+  it('round-trips', () => {
+    expect(encodeReviewEditCallback(ID)).toBe(`rv:edit:${ID}`);
+    expect(parseReviewEditCallback(encodeReviewEditCallback(ID))).toEqual({ id: ID });
+  });
+
+  it('is not a rating, and a rating is not an edit', () => {
+    expect(parseReviewCallback(encodeReviewEditCallback(ID))).toBeNull();
+    expect(parseReviewEditCallback(`rv:rate4:${ID}`)).toBeNull();
+  });
+
+  it('refuses an id that is not a public id', () => {
+    expect(parseReviewEditCallback('rv:edit:1')).toBeNull();
+    expect(parseReviewEditCallback(`rv:edit:${ID}:x`)).toBeNull();
   });
 });
 

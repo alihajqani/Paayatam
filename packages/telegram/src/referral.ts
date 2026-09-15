@@ -25,7 +25,17 @@ export interface ReferralSummaryLine {
   coinsEarned: number;
 }
 
-export function formatReferral(summary: ReferralSummaryLine, botUsername: string): string {
+/** `FoundingService.progress()`: ranks handed out, and the cap (0 = switched off). */
+export interface FoundingProgressLine {
+  awarded: number;
+  max: number;
+}
+
+export function formatReferral(
+  summary: ReferralSummaryLine,
+  botUsername: string,
+  founding?: FoundingProgressLine,
+): string {
   const link = `https://t.me/${botUsername}?start=${summary.code}`;
 
   return (
@@ -35,6 +45,25 @@ export function formatReferral(summary: ReferralSummaryLine, botUsername: string
     `👥 دعوت‌شده: ${toPersianDigits(String(summary.invited))}\n` +
     `✅ فعال‌شده: ${toPersianDigits(String(summary.qualified))}\n` +
     `💰 سکهٔ دریافتی: ${toPersianDigits(String(summary.coinsEarned))}\n\n` +
+    foundingProgressLine(founding) +
     `<i>وقتی کسی با این پیوند بیاید و در فعالیتی شرکت کند، هر دو سکه می‌گیرید.</i>`
+  );
+}
+
+/**
+ * «۶۱۲ از ۱۰۰۰ جای نفرات اول پر شده» (plan 18 item 9).
+ *
+ * The one reason to invite somebody *today* rather than next month: the places
+ * run out. So it is drawn only while some are left — a switched-off campaign
+ * (`max` 0) and a full one both have nothing to hurry for, and a line about
+ * either would be a promise the next sign-up cannot collect.
+ */
+function foundingProgressLine(founding: FoundingProgressLine | undefined): string {
+  if (founding === undefined || founding.max <= 0 || founding.awarded >= founding.max) return '';
+  const awarded = toPersianDigits(String(founding.awarded));
+  const max = toPersianDigits(String(founding.max));
+  return (
+    `🏅 ${awarded} از ${max} جای «${max} نفر اول» پر شده. ` +
+    `دوستی که پیش از پر شدن نمایه‌اش را کامل کند، نشان همیشگی و سکه می‌گیرد.\n\n`
   );
 }

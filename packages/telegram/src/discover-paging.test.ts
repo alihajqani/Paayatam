@@ -5,12 +5,17 @@ import {
   parseDiscoverCallback,
   type DiscoverFilters,
 } from './callback-data';
-import { describeFilters, discoverFilterRows, discoverPageRow } from './discover-filters';
+import {
+  activeFilterCount,
+  describeFilters,
+  discoverFilterRows,
+  discoverPageRow,
+} from './discover-filters';
 
 const CATEGORY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
 function filters(overrides: Partial<DiscoverFilters> = {}): DiscoverFilters {
-  return { when: 'a', cost: 'a', categoryId: null, page: 0, view: 'l', ...overrides };
+  return { when: 'a', cost: 'a', categoryId: null, page: 0, view: 'l', age: false, ...overrides };
 }
 
 /**
@@ -48,6 +53,7 @@ describe('the discovery callback with a page in it', () => {
       categoryId: null,
       page: 0,
       view: 'l',
+      age: false,
     });
   });
 
@@ -63,6 +69,7 @@ describe('the discovery callback with a page in it', () => {
       categoryId: null,
       page: 2,
       view: 'l',
+      age: false,
     });
   });
 
@@ -70,9 +77,23 @@ describe('the discovery callback with a page in it', () => {
     expect(parseDiscoverCallback('dc:aa0x:all')).toBeNull();
   });
 
+  /** Plan 18 item 5: «مناسب سن من», a fifth flag that every older button lacks. */
+  it('round-trips the age filter', () => {
+    const value = filters({ when: 't', age: true, page: 2, view: 'f' });
+    expect(parseDiscoverCallback(encodeDiscoverCallback(value))).toEqual(value);
+  });
+
+  it('reads a pre-age payload as no age filter', () => {
+    expect(parseDiscoverCallback('dc:wf2f:all')?.age).toBe(false);
+  });
+
+  it('refuses an age character outside the encoding', () => {
+    expect(parseDiscoverCallback('dc:aa0lx:all')).toBeNull();
+  });
+
   it('stays inside Telegram’s 64 bytes at its widest', () => {
     const widest = encodeDiscoverCallback(
-      filters({ when: 'w', cost: 'f', categoryId: CATEGORY, page: MAX_DISCOVER_PAGE }),
+      filters({ when: 'w', cost: 'f', categoryId: CATEGORY, page: MAX_DISCOVER_PAGE, age: true }),
     );
     expect(Buffer.byteLength(widest, 'utf8')).toBeLessThanOrEqual(64);
   });
@@ -139,6 +160,30 @@ describe('changing a filter while paged', () => {
         expect(parseDiscoverCallback(button.callbackData)?.page).toBe(0);
       }
     }
+  });
+});
+
+describe('the age filter', () => {
+  const labels = (rows: { text: string }[][]): string[] => rows.flat().map((b) => b.text);
+
+  /** Drawn only when there is an age to fit: `ageFits` without one is a refusal. */
+  it('is offered to somebody whose birth year is known, and to nobody else', () => {
+    expect(labels(discoverFilterRows(filters(), { ageKnown: true }))).toContain('🎂 مناسب سن من');
+    expect(labels(discoverFilterRows(filters(), { ageKnown: false })).join()).not.toContain(
+      'سن من',
+    );
+  });
+
+  it('toggles, and is marked while on', () => {
+    const on = discoverFilterRows(filters({ age: true }), { ageKnown: true }).flat();
+    const button = on.find((b) => b.text.includes('سن من'));
+    expect(button?.text).toBe('✅ 🎂 مناسب سن من');
+    expect(parseDiscoverCallback(button?.callbackData ?? '')?.age).toBe(false);
+  });
+
+  it('counts as a filter in force, and is named in the digest', () => {
+    expect(activeFilterCount(filters({ age: true }))).toBe(1);
+    expect(describeFilters(filters({ age: true }), null)).toContain('مناسب سن من');
   });
 });
 

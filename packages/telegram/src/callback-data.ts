@@ -128,6 +128,13 @@ export const EVENT_CALLBACK_ACTIONS = [
   /** One activity in full, before deciding to spend an evening on it. */
   'show',
   /**
+   * What guests have written about this activity's host (plan 18 item 6).
+   * Carries the **event** public id, so the button names nobody: the host is
+   * resolved from a published activity, which is also what limits it to hosts a
+   * reader could already see.
+   */
+  'hrev',
+  /**
    * Who is coming, and recording that somebody did not turn up.
    *
    * `who` carries an **event** public id; `noshow` and `noshowyes` carry a
@@ -264,6 +271,34 @@ export function parseReviewCallback(data: string): ReviewCallback | null {
   const rating = Number(action.slice(4));
   const match = REVIEW_RATINGS.find((candidate) => candidate === rating);
   return match === undefined ? null : { rating: match, id };
+}
+
+/**
+ * `rv:edit:<participant public id>` — «✏️ ویرایش» under `/reviews` (plan 18 item 7).
+ *
+ * The rating could be amended for `review.edit_window_minutes` after it was
+ * given, and the only door to that was the form that opens straight after the
+ * star tap: close it, and the hour was unreachable. This button reopens the
+ * stars. Like every button, it authorises nothing — `ReviewService.edit` refuses
+ * a review past its window, after reveal, or not the caller's.
+ */
+export function encodeReviewEditCallback(id: string): string {
+  const data = `${REVIEW_PREFIX}:edit:${id}`;
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+export function parseReviewEditCallback(data: string): { id: string } | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, action, id] = parts;
+  if (prefix !== REVIEW_PREFIX || action !== 'edit' || id === undefined || !isPublicId(id)) {
+    return null;
+  }
+  return { id };
 }
 
 /**
@@ -441,6 +476,12 @@ export interface DiscoverFilters {
   page: number;
   /** `l` the numbered list, `f` the filter panel. See `DISCOVER_VIEWS`. */
   view: DiscoverView;
+  /**
+   * «مناسب سن من» — only activities whose age range fits the reader (plan 18
+   * item 5). `DiscoveryService` has taken `ageFits` since M13 and computes the
+   * age from the server's copy of the birth year; this is the switch for it.
+   */
+  age: boolean;
 }
 
 const DISCOVER_PREFIX = 'dc';
@@ -475,7 +516,7 @@ export function encodeDiscoverCallback(filters: DiscoverFilters): string {
   const category = filters.categoryId ?? ANY_CATEGORY;
   const data =
     `${DISCOVER_PREFIX}:${filters.when}${filters.cost}${encodePage(filters.page)}${filters.view}` +
-    `:${category}`;
+    `${filters.age ? 'y' : 'n'}:${category}`;
   if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
     throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
   }
@@ -489,15 +530,15 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
   const [prefix, flags, category] = parts;
   if (prefix !== DISCOVER_PREFIX || flags === undefined || category === undefined) return null;
   /**
-   * Two, three or four characters — one shape per release, and every one of them
-   * still parses.
+   * Two to five characters — one shape per release, and every one of them still
+   * parses.
    *
    * Two is pre-v0.6.5 and means page 0; three carries the page; four carries the
-   * view as well. A button lives in a message for as long as the message does,
-   * and «این دکمه دیگر کار نمی‌کند» on a two-day-old list is a bug rather than a
-   * graceful degradation.
+   * view as well; five carries the age filter (plan 18 item 5). A button lives in
+   * a message for as long as the message does, and «این دکمه دیگر کار نمی‌کند» on
+   * a two-day-old list is a bug rather than a graceful degradation.
    */
-  if (flags.length < 2 || flags.length > 4) return null;
+  if (flags.length < 2 || flags.length > 5) return null;
 
   const when = DISCOVER_WHEN.find((candidate) => candidate === flags[0]);
   const cost = DISCOVER_COST.find((candidate) => candidate === flags[1]);
@@ -510,8 +551,12 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
   const view = flags[3] === undefined ? 'l' : DISCOVER_VIEWS.find((c) => c === flags[3]);
   if (view === undefined) return null;
 
-  if (category === ANY_CATEGORY) return { when, cost, categoryId: null, page, view };
-  return isPublicId(category) ? { when, cost, categoryId: category, page, view } : null;
+  // Absent is off, which is what every button minted before plan 18 means.
+  if (flags[4] !== undefined && flags[4] !== 'y' && flags[4] !== 'n') return null;
+  const age = flags[4] === 'y';
+
+  if (category === ANY_CATEGORY) return { when, cost, categoryId: null, page, view, age };
+  return isPublicId(category) ? { when, cost, categoryId: category, page, view, age } : null;
 }
 
 /**

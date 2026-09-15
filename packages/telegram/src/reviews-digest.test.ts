@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { formatPendingReviews, type PendingReviewLine } from './reviews-digest';
+import {
+  formatEditableReviews,
+  formatPendingReviews,
+  type PendingReviewLine,
+} from './reviews-digest';
 
 const DEADLINE = new Date('2026-09-05T20:00:00.000Z');
 
@@ -78,6 +82,42 @@ describe('formatPendingReviews', () => {
   it('escapes markup in a name and a title', () => {
     const text = formatPendingReviews([
       line({ revieweeDisplayName: '<b>س</b>', eventTitle: '<i>ک</i>' }),
+    ]);
+
+    expect(text).toContain('&lt;b&gt;س&lt;/b&gt;');
+    expect(text).toContain('&lt;i&gt;ک&lt;/i&gt;');
+  });
+});
+
+/** Plan 18 item 7: the reviews still inside their edit hour. */
+describe('formatEditableReviews', () => {
+  const UNTIL = new Date('2026-09-05T17:30:00.000Z');
+
+  it('is empty when nothing can be edited, so /reviews renders as before', () => {
+    expect(formatEditableReviews([])).toBe('');
+  });
+
+  it('names who, the rating given, and until when it can change', () => {
+    const text = formatEditableReviews([
+      {
+        revieweeDisplayName: 'سارا',
+        eventTitle: 'کوهنوردی',
+        rating: 3,
+        editableUntil: UNTIL,
+      },
+    ]);
+
+    expect(text).toContain('ویرایش');
+    expect(text).toContain('سارا');
+    expect(text).toContain('کوهنوردی');
+    expect(text).toContain('۳⭐');
+    // 17:30 UTC is 21:00 in Tehran.
+    expect(text).toContain('۲۱:۰۰');
+  });
+
+  it('escapes markup in a name and a title', () => {
+    const text = formatEditableReviews([
+      { revieweeDisplayName: '<b>س</b>', eventTitle: '<i>ک</i>', rating: 1, editableUntil: UNTIL },
     ]);
 
     expect(text).toContain('&lt;b&gt;س&lt;/b&gt;');

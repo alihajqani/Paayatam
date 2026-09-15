@@ -464,6 +464,34 @@ describe('findMineForEvent', () => {
   });
 });
 
+/** «📥 ۲ درخواست منتظر پاسخ شما» at the top of the menu (plan 18 item 3). */
+describe('countPendingForHost', () => {
+  it('counts the requests waiting on the host, across their activities, and nothing else', async () => {
+    const first = await createEvent();
+    const second = await createEvent();
+    const stranger = await createJoiner();
+    const theirs = await createEvent({ hostUserId: stranger });
+
+    const a = await participation.join(await createJoiner(), first);
+    await participation.join(await createJoiner(), first);
+    await participation.join(await createJoiner(), second);
+    await participation.join(await createJoiner(), theirs);
+    await participation.accept(hostId, a.publicId);
+
+    await expect(participation.countPendingForHost(hostId)).resolves.toBe(2);
+    await expect(participation.countPendingForHost(stranger)).resolves.toBe(1);
+  });
+
+  /** A request on a cancelled activity is nothing anybody can answer. */
+  it('leaves out activities that are no longer published', async () => {
+    const eventPublicId = await createEvent();
+    await participation.join(await createJoiner(), eventPublicId);
+    await prisma.event.update({ where: { publicId: eventPublicId }, data: { status: 'HIDDEN' } });
+
+    await expect(participation.countPendingForHost(hostId)).resolves.toBe(0);
+  });
+});
+
 describe('eligibility, judged against the server’s copy of the profile', () => {
   it('honours a gendered restriction', async () => {
     const eventPublicId = await createEvent({ genderPreference: 'FEMALE_ONLY' });

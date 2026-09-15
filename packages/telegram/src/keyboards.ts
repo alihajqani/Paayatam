@@ -9,7 +9,7 @@ import {
   type ProfileFieldKey,
 } from './callback-data';
 import { COMMAND_GROUPS, describeCommand, type CommandGroup } from './commands';
-import { escapeHtml } from './escape';
+import { escapeHtml, toPersianDigits } from './escape';
 
 /**
  * Inline keyboards (plan §3.2: "grammY composition, keyboards, fa message
@@ -392,8 +392,41 @@ export function menuOpenerKeyboard(): InlineKeyboard {
  * these the same two strings would exist once here and once in `BotService`,
  * which is the drift `MENU_COMMANDS` already exists to prevent.
  */
-export function menuRootText(): string {
-  return `<b>فهرست دستورها</b>\n\n` + `دنبال چه چیزی هستید؟ یکی از بخش‌ها را انتخاب کنید.`;
+export function menuRootText(status?: MenuStatus): string {
+  return (
+    `<b>فهرست دستورها</b>\n\n` +
+    menuStatusLine(status) +
+    `دنبال چه چیزی هستید؟ یکی از بخش‌ها را انتخاب کنید.`
+  );
+}
+
+/** What is waiting on the reader, read when the menu is drawn (plan 18 item 3). */
+export interface MenuStatus {
+  /** PENDING requests on activities the reader hosts. */
+  pendingForMe: number;
+  /** Review windows open for the reader and not yet written. */
+  reviewsOwed: number;
+  balance: number;
+}
+
+/**
+ * «📥 ۲ درخواست منتظر پاسخ شما · ⭐️ ۱ نظر مانده · 🪙 ۴۵ سکه».
+ *
+ * Zeros are left out rather than listed, so an empty line is no line: «۰ درخواست»
+ * is noise on the one screen everybody opens, and somebody with nothing waiting
+ * sees the menu exactly as it was.
+ */
+function menuStatusLine(status: MenuStatus | undefined): string {
+  if (status === undefined) return '';
+  const parts: string[] = [];
+  if (status.pendingForMe > 0) {
+    parts.push(`📥 ${toPersianDigits(String(status.pendingForMe))} درخواست منتظر پاسخ شما`);
+  }
+  if (status.reviewsOwed > 0) {
+    parts.push(`⭐️ ${toPersianDigits(String(status.reviewsOwed))} نظر مانده`);
+  }
+  if (status.balance > 0) parts.push(`🪙 ${toPersianDigits(String(status.balance))} سکه`);
+  return parts.length === 0 ? '' : `${parts.join(' · ')}\n\n`;
 }
 
 export function menuGroupText(group: CommandGroup): string {

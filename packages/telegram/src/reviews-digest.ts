@@ -1,6 +1,6 @@
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
-import { formatJalali } from './wizard/jalali';
+import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
 /** One line: who is owed a review, for what, and by when. */
 export interface PendingReviewLine {
@@ -102,5 +102,44 @@ export function formatPendingReviews(lines: readonly PendingReviewLine[]): strin
     `${digest}\n\n` +
     `<i>ردیف‌های ستاره زیر با شمارهٔ همین فهرست مشخص شده‌اند: ردیف «۱» برای نفر ۱، ` +
     `ردیف «۲» برای نفر ۲ و همین‌طور تا آخر.</i>`
+  );
+}
+
+/** One review the reader wrote and may still change. */
+export interface EditableReviewLine {
+  revieweeDisplayName: string;
+  eventTitle: string;
+  rating: number;
+  editableUntil: Date;
+}
+
+/**
+ * «✏️ هنوز می‌توانید ویرایش کنید» — appended under `/reviews` (plan 18 item 7).
+ *
+ * The hour `review.edit_window_minutes` allows was reachable only from the form
+ * that opens right after the star tap; somebody who closed it could not get the
+ * hour back. These entries are **not numbered**: their buttons name the person
+ * («✏️ ویرایش نظر دربارهٔ سارا»), so they cannot be confused with the numbered
+ * star rows above them.
+ *
+ * Empty string when there is nothing, so the caller concatenates and the screen
+ * renders exactly what it rendered before for everybody else. Not capped with
+ * `buildDigest`: the service returns at most twenty, and an hour-wide window
+ * holds a handful at most.
+ */
+export function formatEditableReviews(lines: readonly EditableReviewLine[]): string {
+  if (lines.length === 0) return '';
+
+  const entries = lines.map(
+    (line) =>
+      `• <b>${escapeHtml(line.revieweeDisplayName)}</b> — ` +
+      `${toPersianDigits(String(line.rating))}⭐ در «${escapeHtml(line.eventTitle)}»\n` +
+      `  ✏️ تا ساعت ${formatJalaliTime(line.editableUntil)}`,
+  );
+
+  return (
+    `\n\n<b>✏️ هنوز می‌توانید ویرایش کنید</b>\n\n` +
+    `${entries.join('\n\n')}\n\n` +
+    `<i>تا وقتی طرف مقابل نظرش را ننوشته، امتیاز و متن را می‌شود عوض کرد.</i>`
   );
 }

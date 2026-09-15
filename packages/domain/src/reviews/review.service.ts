@@ -30,6 +30,29 @@ export function reviewTrustKey(reviewId: string): string {
 /** Which side of the participation somebody is writing from. */
 export type ReviewerRole = 'HOST' | 'GUEST';
 
+/**
+ * Every review the world may read about one person — **invariant 8's filter**.
+ *
+ * One definition for the list and the summary, because an average that counted
+ * one row the list hides would publish that row's rating by arithmetic.
+ */
+function visibleAbout(revieweeUserId: string): Prisma.ReviewWhereInput {
+  return {
+    revieweeUserId,
+    status: 'REVEALED',
+    // ADR-0012's rule, applied to reviews: FLAG stays visible and opens a
+    // case, BLOCK does not become visible. PENDING is what a BLOCK verdict
+    // writes, so the allowlist is the two that publish rather than a denylist
+    // of the ones that do not — a new status added later defaults to hidden.
+    moderationStatus: { in: ['APPROVED', 'FLAGGED'] },
+    // The pair is the authority on whether anybody may read this.
+    OR: [
+      { pairAsHost: { status: { in: [...REVEALED_PAIR_STATUSES] } } },
+      { pairAsGuest: { status: { in: [...REVEALED_PAIR_STATUSES] } } },
+    ],
+  };
+}
+
 const RATING_TRUST_KEYS: Record<number, SettingKey> = {
   5: 'trust.review_rating_5',
   4: 'trust.review_rating_4',
@@ -73,6 +96,15 @@ export interface RevealedReview {
   revealedAt: Date | null;
   /** True when this arrived through D7a: revealed, but the other side never wrote. */
   withoutCounterpart: boolean;
+}
+
+/** A review the caller wrote and may still change (plan 18 item 7). */
+export interface EditableReview {
+  participantPublicId: string;
+  eventTitle: string;
+  revieweeDisplayName: string;
+  rating: number;
+  editableUntil: Date;
 }
 
 /** What the caller wrote, which they may always read back. */
@@ -583,20 +615,7 @@ export class ReviewService {
     if (!user) throw new AppError(ErrorCode.NOT_FOUND);
 
     const rows = await this.prisma.review.findMany({
-      where: {
-        revieweeUserId: user.id,
-        status: 'REVEALED',
-        // ADR-0012's rule, applied to reviews: FLAG stays visible and opens a
-        // case, BLOCK does not become visible. PENDING is what a BLOCK verdict
-        // writes, so the allowlist is the two that publish rather than a denylist
-        // of the ones that do not — a new status added later defaults to hidden.
-        moderationStatus: { in: ['APPROVED', 'FLAGGED'] },
-        // The pair is the authority on whether anybody may read this.
-        OR: [
-          { pairAsHost: { status: { in: [...REVEALED_PAIR_STATUSES] } } },
-          { pairAsGuest: { status: { in: [...REVEALED_PAIR_STATUSES] } } },
-        ],
-      },
+      where: visibleAbout(user.id),
       select: {
         publicId: true,
         rating: true,
@@ -621,6 +640,70 @@ export class ReviewService {
       // «بدون بازخورد متقابل» — D7a asks for this to be *marked*, so the reader
       // knows the other side never answered and can weigh it accordingly.
       withoutCounterpart: (row.pairAsHost?.status ?? row.pairAsGuest?.status) === 'EXPIRED_PARTIAL',
+    }));
+  }
+
+  /**
+   * How many reviews the world may read about one person, and their mean rating
+   * (plan 18 item 6) — what an activity page shows about its host.
+   *
+   * **The same `visibleAbout` filter as `listForUser`, deliberately shared.** An
+   * average that counted an unrevealed rating would leak it through arithmetic —
+   * the count ticks up the moment one side writes — which breaks invariant 8
+   * without ever returning a review.
+   *
+   * Unknown ids are zero rather than NOT_FOUND: the caller already holds a public
+   * id from a published activity, and a page must render either way.
+   */
+  async summaryForUser(
+    revieweePublicId: string,
+  ): Promise<{ count: number; average: number | null }> {
+    const user = await this.prisma.user.findUnique({
+      where: { publicId: revieweePublicId },
+      select: { id: true },
+    });
+    if (!user) return { count: 0, average: null };
+
+    const result = await this.prisma.review.aggregate({
+      where: visibleAbout(user.id),
+      _count: { _all: true },
+      _avg: { rating: true },
+    });
+    return { count: result._count._all, average: result._avg.rating };
+  }
+
+  /**
+   * The caller's reviews that `edit` would still accept (plan 18 item 7).
+   *
+   * The same two conditions `edit` checks, and nothing looser: `SUBMITTED` (a
+   * revealed review is a reply if it changes) and inside `edit_deadline_at`. What
+   * `/reviews` draws «✏️ ویرایش» on, so a button is never drawn for a refusal.
+   *
+   * No index serves `reviewer_user_id` alone; the deadline is an hour wide, the
+   * table is the size of the number of evenings reviewed, and this is read only
+   * when somebody opens `/reviews`.
+   */
+  async listEditable(userId: string): Promise<EditableReview[]> {
+    const now = this.clock.now();
+    const rows = await this.prisma.review.findMany({
+      where: { reviewerUserId: userId, status: 'SUBMITTED', editDeadlineAt: { gt: now } },
+      select: {
+        rating: true,
+        editDeadlineAt: true,
+        participant: { select: { publicId: true } },
+        event: { select: { title: true } },
+        reviewee: { select: { profile: { select: { displayName: true } } } },
+      },
+      orderBy: { editDeadlineAt: 'asc' },
+      take: 20,
+    });
+
+    return rows.map((row) => ({
+      participantPublicId: row.participant.publicId,
+      eventTitle: row.event.title,
+      revieweeDisplayName: row.reviewee.profile?.displayName ?? 'کاربر پایه‌تَم',
+      rating: row.rating,
+      editableUntil: row.editDeadlineAt,
     }));
   }
 

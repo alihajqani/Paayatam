@@ -102,10 +102,12 @@ import {
   menuGroupText,
   menuRootKeyboard,
   menuRootText,
+  type MenuStatus,
   parseDiscoverCallback,
   formatJalali,
   formatPolicies,
   formatReceivedReviews,
+  formatHostReviews,
   formatReferral,
   formatSettings,
   settingsRows,
@@ -140,6 +142,8 @@ import {
   menuCommandFor,
   formatTehran,
   formatPendingReviews,
+  formatEditableReviews,
+  escapeHtml,
   formatMyEvents,
   formatOwnedEvent,
   myEventsPageRow,
@@ -157,6 +161,8 @@ import {
   encodeEventCallback,
   parseReviewCallback,
   encodeReviewCallback,
+  parseReviewEditCallback,
+  encodeReviewEditCallback,
   parseReportCallback,
   encodeReportAsk,
   encodeReportReason,
@@ -711,7 +717,13 @@ export class BotService {
        * so the whole loop closes inside one application.
        */
       case 'referral': {
-        const summary = await this.referrals.summaryFor(user.id);
+        // The founding campaign's progress is the reason to invite somebody now
+        // rather than later (plan 18 item 9); `formatReferral` drops the line
+        // when the campaign is off or full.
+        const [summary, founding] = await Promise.all([
+          this.referrals.summaryFor(user.id),
+          this.founding.progress(),
+        ]);
         /**
          * «کد معرفی دارم» — the half of this screen that never existed.
          *
@@ -740,6 +752,7 @@ export class BotService {
             // message — so an unconfigured username degrades to the bot's own
             // handle rather than to `https://t.me/undefined?start=…`.
             this.env.TELEGRAM_BOT_USERNAME ?? DEFAULT_BOT_USERNAME,
+            founding,
           ),
           ...(canClaim
             ? {
@@ -968,6 +981,7 @@ export class BotService {
           categoryId: null,
           page: 0,
           view: 'l',
+          age: false,
         });
 
       /**
@@ -990,15 +1004,19 @@ export class BotService {
          * becomes writable, under the ones that already are.
          */
         const now = new Date();
-        const pending = await this.reviews.listPending(user.id, true);
-        const text = formatPendingReviews(
-          pending.map((row) => ({
-            revieweeDisplayName: row.revieweeDisplayName,
-            eventTitle: row.eventTitle,
-            deadlineAt: row.deadlineAt,
-            opensAt: row.opensAt > now ? row.opensAt : null,
-          })),
-        );
+        const [pending, editable] = await Promise.all([
+          this.reviews.listPending(user.id, true),
+          this.reviews.listEditable(user.id),
+        ]);
+        const text =
+          formatPendingReviews(
+            pending.map((row) => ({
+              revieweeDisplayName: row.revieweeDisplayName,
+              eventTitle: row.eventTitle,
+              deadlineAt: row.deadlineAt,
+              opensAt: row.opensAt > now ? row.opensAt : null,
+            })),
+          ) + formatEditableReviews(editable);
         /**
          * Five ratings per **open** review, one row each, in the digest's order.
          *
@@ -1012,12 +1030,26 @@ export class BotService {
         const rateable = pending.filter(
           (row) => row.opensAt <= now && isPublicId(row.participantPublicId),
         );
-        const rows = rateable.map((row) =>
+        const rows: { text: string; callbackData: string }[][] = rateable.map((row) =>
           REVIEW_RATINGS.map((rating) => ({
             text: `${toPersianDigits(String(rating))}⭐`,
             callbackData: encodeReviewCallback(rating, row.participantPublicId),
           })),
         );
+        /**
+         * «✏️ ویرایش», one per review still inside its hour (plan 18 item 7) —
+         * after the star rows and named rather than numbered, so they cannot be
+         * read as row `n` of the list above.
+         */
+        for (const row of editable) {
+          if (!isPublicId(row.participantPublicId)) continue;
+          rows.push([
+            {
+              text: `✏️ ویرایش نظر دربارهٔ ${row.revieweeDisplayName}`,
+              callbackData: encodeReviewEditCallback(row.participantPublicId),
+            },
+          ]);
+        }
 
         return this.reply(updateId, user.id, TEMPLATES.BOT_REVIEWS, {
           text,
@@ -1963,6 +1995,42 @@ export class BotService {
     }
 
     /**
+     * «✏️ ویرایش» under `/reviews` (plan 18 item 7): the stars again, for a
+     * review still inside its hour. Read back from `listEditable` rather than
+     * trusted from the button, so a tap after the hour — the button stays in the
+     * chat — is told the window closed instead of being shown stars that the
+     * rating path would then refuse.
+     */
+    const reviewEdit = parseReviewEditCallback(data);
+    if (reviewEdit !== null) {
+      if (!(await this.mayWrite(update.updateId, user))) {
+        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        return;
+      }
+      const editable = (await this.reviews.listEditable(user.id)).find(
+        (row) => row.participantPublicId === reviewEdit.id,
+      );
+      if (editable === undefined) {
+        await this.answer(callbackQueryId, ERROR_MESSAGES_FA[ErrorCode.REVIEW_NOT_EDITABLE]);
+        return;
+      }
+      await this.answer(callbackQueryId, '');
+      return this.reply(update.updateId, user.id, TEMPLATES.BOT_REVIEWS, {
+        text:
+          `<b>✏️ ویرایش نظر دربارهٔ ${escapeHtml(editable.revieweeDisplayName)}</b>\n\n` +
+          `امتیاز فعلی: ${toPersianDigits(String(editable.rating))}⭐ در ` +
+          `«${escapeHtml(editable.eventTitle)}».\n` +
+          `امتیاز تازه را انتخاب کنید؛ بعد از آن می‌توانید برچسب‌ها و متن را هم عوض کنید.`,
+        keyboard: JSON.stringify([
+          REVIEW_RATINGS.map((rating) => ({
+            text: `${toPersianDigits(String(rating))}⭐`,
+            callbackData: encodeReviewCallback(rating, reviewEdit.id),
+          })),
+        ]),
+      });
+    }
+
+    /**
      * A rating tap. Before `chat:` and `ev:`, told apart by prefix like the rest.
      */
     const reviewCallback = parseReviewCallback(data);
@@ -1972,11 +2040,32 @@ export class BotService {
         return;
       }
       try {
-        await this.reviews.submit(user.id, reviewCallback.id, { rating: reviewCallback.rating });
-        await this.answer(
-          callbackQueryId,
-          `نظر شما ثبت شد ✅ (${toPersianDigits(String(reviewCallback.rating))} از ۵)`,
-        );
+        const rating = toPersianDigits(String(reviewCallback.rating));
+        let toast = `نظر شما ثبت شد ✅ (${rating} از ۵)`;
+        try {
+          await this.reviews.submit(user.id, reviewCallback.id, { rating: reviewCallback.rating });
+        } catch (error) {
+          /**
+           * A second tap on a review already written is a change of mind, while
+           * the hour allows one (plan 18 item 7). «✏️ ویرایش» under `/reviews`
+           * redraws these stars, and a «چطور بود؟» message still has them.
+           *
+           * The tags and the comment are carried across: `edit` replaces the
+           * whole review, and a new rating is not a request to lose the words.
+           */
+          if (!(error instanceof AppError) || error.code !== ErrorCode.ALREADY_REVIEWED) {
+            throw error;
+          }
+          const own = await this.reviews.findOwn(user.id, reviewCallback.id);
+          if (own === null || own.editableUntil === null) throw error;
+          await this.reviews.edit(user.id, reviewCallback.id, {
+            rating: reviewCallback.rating,
+            tags: own.tags,
+            ...(own.comment !== null ? { comment: own.comment } : {}),
+          });
+          toast = `امتیاز شما به ${rating} از ۵ تغییر کرد ✅`;
+        }
+        await this.answer(callbackQueryId, toast);
         /**
          * The rating is written; the form is the optional half.
          *
@@ -2229,6 +2318,37 @@ export class BotService {
         case 'show': {
           await this.answer(callbackQueryId, '');
           return this.drawEventDetail(updateId, user, callback.id);
+        }
+
+        /**
+         * «⭐️ نظرها دربارهٔ میزبان» (plan 18 item 6): the latest three published
+         * reviews, without their authors.
+         *
+         * `findPublished` is the gate — a hidden or finished activity answers
+         * «پیدا نشد» here exactly as its page does — and `listForUser` holds
+         * invariant 8, so an unrevealed review cannot reach this screen.
+         */
+        case 'hrev': {
+          const event = await this.discovery.findPublished(callback.id);
+          const [summary, latest] = await Promise.all([
+            this.reviews.summaryForUser(event.hostPublicId),
+            this.reviews.listForUser(event.hostPublicId, HOST_REVIEW_LIMIT),
+          ]);
+          await this.answer(callbackQueryId, '');
+          return this.reply(updateId, user.id, TEMPLATES.BOT_RECEIVED_REVIEWS, {
+            text: formatHostReviews(
+              event.hostDisplayName,
+              summary,
+              latest.map((row) => ({
+                rating: row.rating,
+                tags: row.tags,
+                comment: row.comment,
+                submittedAt: row.submittedAt,
+                withoutCounterpart: row.withoutCounterpart,
+              })),
+              reviewTagLabel,
+            ),
+          });
         }
 
         /**
@@ -2980,10 +3100,16 @@ export class BotService {
      * with a seat was offered «پایتم» again; they now see their status and
      * «✖️ لغو», which asks and quotes the price before anything happens.
      */
-    const mine =
-      event.hostPublicId === user.publicId
-        ? null
-        : await this.participation.findMineForEvent(user.id, eventPublicId);
+    const isHost = event.hostPublicId === user.publicId;
+    /**
+     * What guests have said about the host, as a number (plan 18 item 6). The
+     * texts are one tap further, behind «⭐️ نظرها دربارهٔ میزبان», drawn only
+     * when there is something published to read.
+     */
+    const [mine, hostReviews] = await Promise.all([
+      isHost ? null : this.participation.findMineForEvent(user.id, eventPublicId),
+      this.reviews.summaryForUser(event.hostPublicId),
+    ]);
     return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
       text: formatEventDetail({
         title: event.title,
@@ -3001,12 +3127,13 @@ export class BotService {
         maxAge: event.maxAge,
         hostDisplayName: event.hostDisplayName,
         hostTrustScore: event.hostTrustScore,
+        hostReviews,
         ...(mine !== null
           ? { viewer: { status: mine.status, waitlistRank: mine.waitlistRank } }
           : {}),
       }),
       keyboard: JSON.stringify(
-        event.hostPublicId === user.publicId
+        isHost
           ? [
               [
                 {
@@ -3058,6 +3185,16 @@ export class BotService {
                   callbackData: encodeDirectCallback('write', eventPublicId),
                 },
               ],
+              ...(hostReviews.count > 0
+                ? [
+                    [
+                      {
+                        text: '⭐️ نظرها دربارهٔ میزبان',
+                        callbackData: encodeEventCallback('hrev', eventPublicId),
+                      },
+                    ],
+                  ]
+                : []),
               [
                 { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', eventPublicId) },
                 ...(isPublicId(event.hostPublicId)
@@ -3228,8 +3365,27 @@ export class BotService {
      * who came is exactly what a host does *after* an activity is over.
      */
     const open = OPEN_EVENT_STATUSES.has(event.status);
-    const rows: { text: string; callbackData: string }[][] = [
-      [{ text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) }],
+    const rows: { text: string; callbackData?: string; url?: string }[][] = [
+      [
+        { text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) },
+        /**
+         * The share sheet «فعالیت ثبت شد» already carries (plan 18 item 4), for
+         * the host who wants to share a day later. `PUBLISHED` only, not every
+         * open status: the link opens `/event_…`, which answers «پیدا نشد» for a
+         * draft, and a share that lands a friend on a refusal is worse than none.
+         */
+        ...(event.status === 'PUBLISHED'
+          ? [
+              {
+                text: '🔗 اشتراک‌گذاری',
+                url: shareUrl(
+                  this.env.TELEGRAM_BOT_USERNAME ?? DEFAULT_BOT_USERNAME,
+                  event.publicId,
+                ),
+              },
+            ]
+          : []),
+      ],
     ];
     if (open) {
       rows.push([
@@ -4346,6 +4502,7 @@ export class BotService {
 
     const now = new Date();
     const range = dateRangeFor(filters.when, now);
+    const ageKnown = profile.birthYear !== null;
     const catalog = await this.catalog.snapshot();
     const category =
       filters.categoryId === null
@@ -4384,6 +4541,10 @@ export class BotService {
       // A category that no longer exists is dropped rather than searched for: an
       // operator can deactivate one while somebody holds a button naming it.
       ...(category !== null ? { categoryId: category.id } : {}),
+      // «مناسب سن من» (plan 18 item 5). Only with a birth year on file: the
+      // service refuses `ageFits` without one, and an old button can outlive a
+      // profile edit that cleared it.
+      ...(filters.age && ageKnown ? { ageFits: true } : {}),
     });
 
     const hasNext = page.events.length > DISCOVER_LIMIT;
@@ -4415,6 +4576,7 @@ export class BotService {
         ? discoverFilterPanelRows(
             filters,
             catalog.categories.map((row) => ({ id: row.id, label: row.nameFa })),
+            { ageKnown },
           )
         : discoverListRows(filters, hasNext, activeFilterCount(filters));
 
@@ -4486,7 +4648,13 @@ export class BotService {
 
     if (callback.kind === 'root') {
       if (messageId === null) return this.sendMenuRoot(update.updateId, user);
-      return this.repaint(update.updateId, user, messageId, menuRootText(), menuRootKeyboard());
+      return this.repaint(
+        update.updateId,
+        user,
+        messageId,
+        menuRootText(await this.menuStatus(user)),
+        menuRootKeyboard(),
+      );
     }
 
     const group = commandGroupFor(callback.key);
@@ -4508,7 +4676,24 @@ export class BotService {
 
   /** The menu as a fresh message, for `/menu` and for a tap with no message id. */
   private async sendMenuRoot(updateId: number, user: BotUser): Promise<void> {
-    return this.reply(updateId, user.id, TEMPLATES.BOT_MENU, {});
+    return this.reply(updateId, user.id, TEMPLATES.BOT_MENU, { ...(await this.menuStatus(user)) });
+  }
+
+  /**
+   * The three numbers on the menu's status line (plan 18 item 3).
+   *
+   * Read on every root draw — a fresh `/menu` and a «‹ بازگشت» to the root alike
+   * — because a number that is right on one of the two and stale on the other is
+   * worse than none. Three indexed reads; `listPending` is the widest and is
+   * capped at a hundred pairs.
+   */
+  private async menuStatus(user: BotUser): Promise<MenuStatus> {
+    const [pendingForMe, owed, balance] = await Promise.all([
+      this.participation.countPendingForHost(user.id),
+      this.reviews.listPending(user.id),
+      this.coins.balanceOf(user.id),
+    ]);
+    return { pendingForMe, reviewsOwed: owed.length, balance };
   }
 
   private async repaint(
@@ -5644,13 +5829,21 @@ export class BotService {
       const existing = await this.reviews.findOwn(user.id, participantPublicId);
       if (existing === null) return;
 
+      /**
+       * Every tag that was ticked, not the first of them — and what was already
+       * there when a step was skipped.
+       *
+       * `edit` replaces the whole review (`tags ?? []`, `comment ?? null`), so an
+       * omitted field is a cleared one. That was harmless while this form ran only
+       * straight after a first rating; since «✏️ ویرایش» (plan 18 item 7) it also
+       * runs on a review that already has tags and a comment, and skipping a step
+       * must not erase them.
+       */
+      const comment = form.comment ?? existing.comment;
       await this.reviews.edit(user.id, participantPublicId, {
         rating: existing.rating,
-        // Every tag that was ticked, not the first of them. `edit` replaces the
-        // whole review, so an empty array here would clear tags a previous edit
-        // had set — which is why this is conditional rather than always sent.
-        ...(tags.length > 0 ? { tags } : {}),
-        ...(form.comment !== undefined ? { comment: form.comment } : {}),
+        tags: tags.length > 0 ? tags : existing.tags,
+        ...(comment !== null ? { comment } : {}),
       });
       await this.notice(updateId, user, `نظر شما کامل شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`);
     } catch (error) {
@@ -6178,6 +6371,13 @@ const TRUST_HISTORY_LIMIT = 5;
 
 /** The same reasoning again: what fits in one Telegram message. */
 const RECEIVED_REVIEW_LIMIT = 15;
+
+/**
+ * Reviews shown about a host to a guest deciding whether to join (plan 18 item
+ * 6). The latest three: enough to see a pattern, few enough that one evening's
+ * complaint is not buried or amplified by a wall of them.
+ */
+const HOST_REVIEW_LIMIT = 3;
 
 /**
  * The statuses a host may still act on.

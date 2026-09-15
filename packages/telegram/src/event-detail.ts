@@ -3,6 +3,7 @@ import {
   PARTICIPANT_STATUS_GUEST_FA,
   type ParticipantStatus,
 } from '@payetam/shared';
+import { reviewSummaryLine, type ReviewSummaryLine } from './received-reviews';
 import { seatsLine } from './seats';
 import { escapeHtml, toPersianDigits } from './escape';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
@@ -46,6 +47,11 @@ export interface EventDetailLine {
   hostDisplayName: string;
   /** Null when the host has never been judged. Never rendered as zero. */
   hostTrustScore: number | null;
+  /**
+   * Published reviews about the host (plan 18 item 6). Absent or empty draws
+   * nothing — see `reviewSummaryLine`.
+   */
+  hostReviews?: ReviewSummaryLine;
   /**
    * The reader's own live request on this activity, when they have one
    * (plan 12). Absent for somebody who has not asked, and for the host.
@@ -112,6 +118,7 @@ export function formatEventDetail(line: EventDetailLine): string {
       : `${toPersianDigits(String(line.hostTrustScore))} از ۱۰۰`;
 
   const age = ageLine(line);
+  const reviews = line.hostReviews === undefined ? null : reviewSummaryLine(line.hostReviews);
 
   return (
     `<b>${escapeHtml(line.title)}</b>\n\n` +
@@ -125,7 +132,9 @@ export function formatEventDetail(line: EventDetailLine): string {
     `${costLine(line)}\n` +
     (age === null ? '' : `${age}\n`) +
     `\n👤 میزبان: ${escapeHtml(line.hostDisplayName)}\n` +
-    `⭐️ امتیاز اعتماد: ${trust}\n\n` +
+    `⭐️ امتیاز اعتماد: ${trust}\n` +
+    (reviews === null ? '' : `💬 نظر مهمان‌ها: ${reviews}\n`) +
+    `\n` +
     (line.viewer === undefined
       ? ''
       : `<b>وضعیت شما: ${PARTICIPANT_STATUS_GUEST_FA[line.viewer.status]}</b>` +
