@@ -14,6 +14,56 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.16.0] — 2026-09-15
+
+The channel post names its activity and category as hashtags, shows how full the
+activity is in colour, and follows every seat as it changes; a request awaiting
+the host now closes a seat on every screen; and the admin panel says when a
+required channel is not being enforced.
+
+**One migration, additive.** 0058 adds `event.number` (a sequence, backfilled in
+creation order, `UNIQUE`) and `channel_post.rendered_taken`.
+
+### ⚠️ What a deploy changes for people
+
+- **Every live channel post is edited once** into the new format, at most eight
+  per minute.
+- **«جای خالی» counts pending requests as taken**, in the channel and in the bot:
+  an activity of four with one request says «۳ جای خالی از ۴». A rejection or an
+  expiry opens the seat again. Seat accounting itself (`accepted_count`) is
+  unchanged.
+- The usual release broadcast goes to every user.
+
+### Added
+
+- **`#رویداد_۲۵` at the top of every channel post**, the category as a hashtag
+  at the bottom (`#ورزش`, `#کافه_و_بازی_رومیزی`), and «⏳ رویدادهای منقضی‌شده از
+  کانال حذف می‌شوند.» under it.
+- **A fill colour beside the seats line** — 🟢 → 🟡 → 🟠 → 🔴 — in the channel
+  post, `/discover`, the activity page and the host console. The last seat is
+  always orange.
+- **`channel-capacity-sync`**, every minute: edits a channel post whenever its
+  seats count changes, at most 8 edits per pass, one edit per activity however
+  many requests arrived in the minute.
+- **`BOT_CANNOT_VERIFY` on the panel's channel screen**, naming each required
+  channel where the bot is not an administrator (or the chat is gone), and a
+  throttled API warning when a membership check fails open for that reason.
+
+### Changed
+
+- The channel post's seats line, the discovery list, the activity page and the
+  host console count accepted + PENDING as taken. The waiting-list button now
+  appears exactly when `join` would waitlist.
+- Channel seats edits moved out of the five-minute `channel-sync` into the new
+  job; publishing and takedowns are unchanged.
+
+### Fixed
+
+- **Mandatory membership enforced only one of two channels in production.** The
+  bot was not an administrator of `@paayatam_news`, so every check there failed
+  open by design. The fix is to make the bot an administrator there; the panel
+  now shows it.
+
 ## [v0.15.0] — 2026-09-15
 
 Plans 08, 16 (item 2), 17 and 18 of the bot review: a no-show can be disputed
