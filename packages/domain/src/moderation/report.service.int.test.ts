@@ -353,7 +353,9 @@ describe('the threshold (plan §11: three distinct reporters)', () => {
       await reports.file(reporter.id, {
         targetType: 'USER',
         targetPublicId: host.host.publicId,
-        reason: 'HARASSMENT',
+        // Not HARASSMENT or SAFETY: about a person, those open a case on one
+        // report (plan 16 item 2), which is a different test below.
+        reason: 'INAPPROPRIATE',
       });
     }
 
@@ -478,5 +480,102 @@ describe('what the owner is told', () => {
     await expect(
       prisma.outboxEvent.count({ where: { eventType: 'moderation.content_hidden' } }),
     ).resolves.toBe(0);
+  });
+});
+
+/**
+ * A safety or harassment report about a **person** (plan 16 item 2, decided
+ * 2026-09-14).
+ *
+ * «He threatened me in a direct message» used to wait for two more people to say
+ * the same before any moderator saw it — which for a threat made to one person
+ * is never. One such report now opens a case, hides nothing, and tells the
+ * accused nothing, at this threshold or at the ordinary one.
+ */
+describe('a safety report about a person', () => {
+  async function reportPerson(
+    accusedPublicId: string,
+    reason: 'SAFETY' | 'HARASSMENT' | 'SPAM',
+  ): Promise<{ triggeredReview: boolean }> {
+    const reporter = await createProfiledUser();
+    return reports.file(reporter.id, {
+      targetType: 'USER',
+      targetPublicId: accusedPublicId,
+      reason,
+    });
+  }
+
+  it.each(['SAFETY', 'HARASSMENT'] as const)(
+    'opens a case on a single %s report, and tells the accused nothing',
+    async (reason) => {
+      const filed = await reportPerson(hostPublicId, reason);
+
+      expect(filed.triggeredReview).toBe(true);
+      await expect(
+        prisma.moderationCase.count({ where: { subjectType: 'USER', subjectId: hostId } }),
+      ).resolves.toBe(1);
+      await expect(
+        prisma.outboxEvent.count({ where: { eventType: 'moderation.content_hidden' } }),
+      ).resolves.toBe(0);
+    },
+  );
+
+  it('still needs three reports for any other reason', async () => {
+    await reportPerson(hostPublicId, 'SPAM');
+    await reportPerson(hostPublicId, 'SPAM');
+
+    await expect(prisma.moderationCase.count()).resolves.toBe(0);
+  });
+
+  /** One report hiding an activity is a weapon against a rival; that stays at three. */
+  it('still needs three reports to hide an activity, whatever the reason', async () => {
+    const eventPublicId = await publishEvent();
+    const reporter = await createProfiledUser();
+    await reports.file(reporter.id, {
+      targetType: 'EVENT',
+      targetPublicId: eventPublicId,
+      reason: 'SAFETY',
+    });
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { status: true },
+    });
+    expect(event.status).toBe('PUBLISHED');
+    await expect(prisma.moderationCase.count()).resolves.toBe(0);
+  });
+
+  /** The ordinary threshold, reached with a safety report among them: still silent. */
+  it('tells the accused nothing when a safety report is among the three', async () => {
+    await reportPerson(hostPublicId, 'SPAM');
+    await reportPerson(hostPublicId, 'SAFETY');
+    await reportPerson(hostPublicId, 'SPAM');
+
+    await expect(prisma.moderationCase.count()).resolves.toBe(1);
+    await expect(
+      prisma.outboxEvent.count({ where: { eventType: 'moderation.content_hidden' } }),
+    ).resolves.toBe(0);
+  });
+
+  it('still tells a person reported three times for anything else', async () => {
+    await reportPerson(hostPublicId, 'SPAM');
+    await reportPerson(hostPublicId, 'SPAM');
+    await reportPerson(hostPublicId, 'SPAM');
+
+    await expect(
+      prisma.outboxEvent.count({ where: { eventType: 'moderation.content_hidden' } }),
+    ).resolves.toBe(1);
+  });
+
+  it('reads its own threshold from config', async () => {
+    await prisma.appSetting.create({
+      data: { key: 'moderation.safety_report_threshold', value: 2 },
+    });
+
+    await reportPerson(hostPublicId, 'SAFETY');
+    await expect(prisma.moderationCase.count()).resolves.toBe(0);
+
+    await reportPerson(hostPublicId, 'HARASSMENT');
+    await expect(prisma.moderationCase.count()).resolves.toBe(1);
   });
 });

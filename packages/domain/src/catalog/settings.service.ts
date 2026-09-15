@@ -750,6 +750,17 @@ export const SETTING_DEFAULTS = {
    */
   'moderation.report_threshold': 3,
   /**
+   * Safety or harassment reports about a **person** before a case opens (plan 16
+   * item 2, decided 2026-09-14).
+   *
+   * One, because a threat made to one person has one witness: under the ordinary
+   * three it never reached a moderator at all. Nothing is hidden on a `USER` case,
+   * so what a false report costs is a moderator's minute, not somebody's
+   * standing. Activities keep `moderation.report_threshold` whatever the reason —
+   * one report hiding a rival's activity is the abuse that threshold prevents.
+   */
+  'moderation.safety_report_threshold': 1,
+  /**
    * How old the oldest unclaimed case must be before moderators are told (plan 06).
    *
    * Fifteen minutes, so a moderator who has just emptied the queue is not pinged
