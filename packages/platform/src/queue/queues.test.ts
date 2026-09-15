@@ -82,6 +82,17 @@ describe('the queue catalogue', () => {
     expect(entry).toEqual({ name: 'attendance-prompt', pattern: '*/15 * * * *' });
   });
 
+  /**
+   * A request closing a seat reaches the channel post within a minute (v0.16.0);
+   * the edit budget, not the cadence, is what bounds it.
+   */
+  it('re-syncs channel seats lines every minute, apart from publishing', () => {
+    const capacity = SCHEDULE.find((candidate) => candidate.name === JOBS.CHANNEL_CAPACITY_SYNC);
+    const publishing = SCHEDULE.find((candidate) => candidate.name === JOBS.CHANNEL_SYNC);
+    expect(capacity).toEqual({ name: 'channel-capacity-sync', pattern: '* * * * *' });
+    expect(publishing).toEqual({ name: 'channel-sync', pattern: '*/5 * * * *' });
+  });
+
   /** A city's people hear it opened within five minutes of the click (plan 17). */
   it('announces opened cities every five minutes, with no timezone', () => {
     const entry = SCHEDULE.find((candidate) => candidate.name === JOBS.CITY_LAUNCH_ANNOUNCE);

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Bot, GrammyError, HttpError } from 'grammy';
 import type { Env } from '@payetam/config';
 import { ENV, RedisService } from '@payetam/platform';
-import type { MembershipProbe, MembershipProbeResult } from '@payetam/domain';
+import type { BotChannelStanding, MembershipProbe, MembershipProbeResult } from '@payetam/domain';
 
 /**
  * Asking Telegram whether somebody is in the channel (M22 phase 6).
@@ -35,6 +35,10 @@ import type { MembershipProbe, MembershipProbeResult } from '@payetam/domain';
 export class TelegramMembershipProbe implements MembershipProbe {
   private readonly logger = new Logger(TelegramMembershipProbe.name);
   private readonly bot: Bot | null;
+  /** The bot's own user id — the token's prefix, which is public by Telegram's design. */
+  private readonly botId: number | null;
+  /** When each chat last logged a fail-open, so a broken channel is one line, not one per user. */
+  private readonly lastFailOpenLog = new Map<string, number>();
 
   constructor(
     @Inject(ENV) env: Env,
@@ -47,8 +51,11 @@ export class TelegramMembershipProbe implements MembershipProbe {
       // token must not stop the API booting.
       this.logger.warn('TELEGRAM_BOT_TOKEN is not set — membership checks will report UNKNOWN.');
       this.bot = null;
+      this.botId = null;
       return;
     }
+    const prefix = Number(token.split(':')[0]);
+    this.botId = Number.isSafeInteger(prefix) && prefix > 0 ? prefix : null;
     // No `auto-retry`, unlike the sender. A membership check is in front of a
     // person: an answer that arrives thirty seconds late is worse than "we could
     // not tell", which fails open anyway.
@@ -82,8 +89,57 @@ export class TelegramMembershipProbe implements MembershipProbe {
       result = classifyMembershipError(error);
     }
 
+    if (result.kind === 'BOT_CANNOT_VERIFY' || result.kind === 'CHAT_UNAVAILABLE') {
+      this.logFailOpen(chatIdentifier, result);
+    }
+
     await this.writeCache(cacheKey, result);
     return result;
+  }
+
+  /**
+   * Where the bot itself stands in a channel — the panel's `BOT_CANNOT_VERIFY`.
+   *
+   * `getChatMember` about the bot's own id. An administrator gets an answer; a
+   * bot that is a plain member, or not in the channel at all, gets «member list
+   * is inaccessible», which `classifyMembershipError` already reads as
+   * `BOT_CANNOT_VERIFY`. Not cached: the panel is the only caller, and an
+   * operator who has just fixed the rights must see the warning go.
+   */
+  async botStanding(chatIdentifier: string): Promise<BotChannelStanding> {
+    if (this.bot === null || this.botId === null) return 'UNKNOWN';
+    try {
+      const member = await this.bot.api.getChatMember(chatIdentifier, this.botId);
+      return member.status === 'administrator' || member.status === 'creator'
+        ? 'ADMIN'
+        : 'NOT_ADMIN';
+    } catch (error) {
+      const result = classifyMembershipError(error);
+      if (result.kind === 'BOT_CANNOT_VERIFY') return 'NOT_ADMIN';
+      if (result.kind === 'CHAT_UNAVAILABLE') return 'CHAT_UNAVAILABLE';
+      return 'UNKNOWN';
+    }
+  }
+
+  /**
+   * Say, in the log, that a required channel is letting everybody through.
+   *
+   * The gate failing open is deliberate and silent to the user; it must not be
+   * silent to the operator too. Once per chat per `FAIL_OPEN_LOG_MS`, naming the
+   * chat identifier (an operator-entered @username or chat id, not a person) and
+   * Telegram's description — never the user this check was about.
+   */
+  private logFailOpen(chatIdentifier: string, result: MembershipProbeResult): void {
+    const now = Date.now();
+    const last = this.lastFailOpenLog.get(chatIdentifier);
+    if (last !== undefined && now - last < FAIL_OPEN_LOG_MS) return;
+    this.lastFailOpenLog.set(chatIdentifier, now);
+
+    const reason = 'reason' in result ? result.reason : result.kind;
+    this.logger.warn(
+      `Membership in ${chatIdentifier} cannot be verified (${result.kind}: ${reason}) — ` +
+        'the requirement lets everybody through for this channel. Make the bot an administrator there.',
+    );
   }
 
   /** Drop a cached answer, so an explicit re-check actually asks Telegram. */
@@ -136,6 +192,9 @@ export class TelegramMembershipProbe implements MembershipProbe {
  * something.
  */
 const CACHE_TTL_SECONDS = 120;
+
+/** Ten minutes between two fail-open warnings about the same channel. */
+const FAIL_OPEN_LOG_MS = 10 * 60_000;
 
 /**
  * The cache key.

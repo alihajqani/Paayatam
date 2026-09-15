@@ -186,6 +186,15 @@ export const JOBS = {
   GRANT_COMEBACK_COINS: 'grant-comeback-coins',
   /** Publish newly-eligible events, and take down posts that have gone stale. */
   CHANNEL_SYNC: 'channel-sync',
+  /**
+   * Edit a channel post whose seats line has fallen behind (v0.16.0).
+   *
+   * Apart from `CHANNEL_SYNC` because it runs every minute and that runs every
+   * five: a request closing a seat should show in about a minute. Budgeted by
+   * `ChannelService.findStaleCapacity`, which is what keeps it inside Telegram's
+   * per-channel limits.
+   */
+  CHANNEL_CAPACITY_SYNC: 'channel-capacity-sync',
   /** The retention purge (§8): expired chats, notifications, outbox and audit rows. */
   RETENTION_PURGE: 'retention-purge',
   /** Delete conversation drafts past their seven days (ADR-0017 §3). */
@@ -327,6 +336,8 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    */
   { name: JOBS.GRANT_COMEBACK_COINS, pattern: '0 10 * * *', tz: 'Asia/Tehran' },
   { name: JOBS.CHANNEL_SYNC, pattern: '*/5 * * * *' },
+  // Every minute, budgeted per pass — see `JOBS.CHANNEL_CAPACITY_SYNC`.
+  { name: JOBS.CHANNEL_CAPACITY_SYNC, pattern: '* * * * *' },
   // Every five minutes, no timezone: an opening is an instant, and a message
   // that lands a few minutes after the operator's click is on time (plan 17).
   { name: JOBS.CITY_LAUNCH_ANNOUNCE, pattern: '*/5 * * * *' },

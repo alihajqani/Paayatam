@@ -1439,8 +1439,20 @@ export const channelConfigView = z.object({
    * so the panel is required to say so first rather than afterwards.
    */
   warnings: z.array(
-    z.enum(['NO_CHANNELS', 'NO_JOIN_LINK', 'NO_CHAT_IDENTIFIER', 'NO_ACTIONS_SELECTED']),
+    z.enum([
+      'NO_CHANNELS',
+      'NO_JOIN_LINK',
+      'NO_CHAT_IDENTIFIER',
+      'NO_ACTIONS_SELECTED',
+      'BOT_CANNOT_VERIFY',
+    ]),
   ),
+  /**
+   * Titles of the active channels Telegram says the bot cannot check members of
+   * (v0.16.0) — the channels behind `BOT_CANNOT_VERIFY`. The gate fails open on
+   * each, so they are required in name only until the bot is made an admin.
+   */
+  unverifiableChannels: z.array(z.string()),
   /**
    * What is wrong with the channel the bot posts to (plan 14).
    *

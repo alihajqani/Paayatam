@@ -694,6 +694,33 @@ export class ParticipationService {
     return expired;
   }
 
+  /**
+   * Requests awaiting a host, per activity, by public id (v0.16.0).
+   *
+   * The half of «جای خالی» that is not `accepted_count`: every screen that says
+   * how many seats are left — the channel post, the discovery list, the detail
+   * page, the host's console — counts a PENDING request as a closed seat, so a
+   * reader sees one number wherever they look. A waiting-list place closes
+   * nothing. One grouped read for a whole list; an activity with none is absent
+   * from the map, so read it with `?? 0`.
+   *
+   * Counts only, and only for ids the caller already holds: no participant, no
+   * user and no status beyond the count leaves here.
+   */
+  async pendingCounts(eventPublicIds: readonly string[]): Promise<Map<string, number>> {
+    if (eventPublicIds.length === 0) return new Map();
+    const rows = await this.prisma.event.findMany({
+      where: { publicId: { in: [...new Set(eventPublicIds)] } },
+      select: {
+        publicId: true,
+        _count: {
+          select: { participants: { where: { status: { in: [...SLOT_HOLDING_STATUSES] } } } },
+        },
+      },
+    });
+    return new Map(rows.map((row) => [row.publicId, row._count.participants]));
+  }
+
   /** The host's view of who asked, including the waitlist in queue order. */
   async listForEvent(hostUserId: string, eventPublicId: string): Promise<ParticipantSummary[]> {
     const event = await this.prisma.event.findUnique({

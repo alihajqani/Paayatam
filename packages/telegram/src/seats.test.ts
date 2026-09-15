@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { UNLIMITED_CAPACITY } from '@payetam/shared';
-import { capacityLabel, seatsLine, seatsLineFromRemaining } from './seats';
+import { capacityLabel, seatsFillEmoji, seatsLine, seatsLineFromRemaining } from './seats';
 
 /**
  * The one sentence four screens say about seats.
@@ -39,6 +39,43 @@ describe('seatsLineFromRemaining', () => {
   it('agrees with the counting form', () => {
     expect(seatsLineFromRemaining(6, 4)).toBe(seatsLine(6, 2));
     expect(seatsLineFromRemaining(UNLIMITED_CAPACITY, 0)).toBe('بدون محدودیت');
+  });
+});
+
+/** 🟢 empty → 🟡 → 🟠 → 🔴 full, the scale the channel post leads its seats line with. */
+describe('seatsFillEmoji', () => {
+  it('walks a party of four from green to red', () => {
+    expect([0, 1, 2, 3, 4].map((taken) => seatsFillEmoji(4, taken))).toEqual([
+      '🟢',
+      '🟢',
+      '🟡',
+      '🟠',
+      '🔴',
+    ]);
+  });
+
+  /** By ratio alone the last of three is 67% — yellow — which undersells it. */
+  it('makes the last seat orange whatever the ratio', () => {
+    expect(seatsFillEmoji(3, 2)).toBe('🟠');
+    expect(seatsFillEmoji(2, 1)).toBe('🟠');
+  });
+
+  it('keeps an activity nobody has joined green, even with one seat', () => {
+    expect(seatsFillEmoji(1, 0)).toBe('🟢');
+    expect(seatsFillEmoji(1, 1)).toBe('🔴');
+  });
+
+  it('scales on a larger activity', () => {
+    expect(seatsFillEmoji(10, 4)).toBe('🟢');
+    expect(seatsFillEmoji(10, 5)).toBe('🟡');
+    expect(seatsFillEmoji(10, 8)).toBe('🟠');
+    expect(seatsFillEmoji(10, 10)).toBe('🔴');
+  });
+
+  it('is green for unlimited, and never out of range', () => {
+    expect(seatsFillEmoji(UNLIMITED_CAPACITY, 500)).toBe('🟢');
+    expect(seatsFillEmoji(4, 9)).toBe('🔴');
+    expect(seatsFillEmoji(4, -1)).toBe('🟢');
   });
 });
 

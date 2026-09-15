@@ -2,7 +2,7 @@ import { EVENT_STATUS_FA, type EventStatus } from '@payetam/shared';
 import { encodeMyEventsCallback } from './callback-data';
 import { ENTRY_SEPARATOR } from './discover-digest';
 import { escapeHtml, toPersianDigits } from './escape';
-import { capacityLabel, seatsLine } from './seats';
+import { capacityLabel, seatsFillEmoji, seatsLine } from './seats';
 import { myEventCommandFor } from './event-code';
 import type { InlineButton } from './keyboards';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
@@ -201,7 +201,10 @@ export function formatOwnedEvent(line: OwnedEventLine): string {
     `🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)} تا ` +
     `${formatJalaliTime(line.endsAt)}\n` +
     `👥 ${toPersianDigits(String(line.acceptedCount))} نفر پذیرفته‌شده · ` +
-    `${seatsLine(line.capacity, line.acceptedCount)}` +
+    // A request waiting on the host closes a seat here as it does in the channel
+    // and on the guest's screen (v0.16.0); the line below counts those requests.
+    `${seatsFillEmoji(line.capacity, line.acceptedCount + line.pendingCount)} ` +
+    `${seatsLine(line.capacity, line.acceptedCount + line.pendingCount)}` +
     `${pending}\n` +
     `💵 ${escapeHtml(cost)}`
   );

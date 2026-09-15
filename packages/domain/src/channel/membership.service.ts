@@ -6,48 +6,18 @@ import {
   type GatedAction,
   type RequiredChannelRecord,
 } from './channel-config.service';
+import {
+  MEMBERSHIP_PROBE,
+  type MembershipProbe,
+  type MembershipProbeResult,
+} from './membership-probe';
 
-/**
- * What asking Telegram produced.
- *
- * Five outcomes rather than a boolean, because they lead to five different
- * screens and three different decisions. Collapsing them would mean a user whose
- * check failed because Telegram was down sees the same message as one who is
- * genuinely not a member — and the second is asked to join while the first is
- * asked to do nothing they can do.
- */
-export type MembershipProbeResult =
-  | { kind: 'MEMBER' }
-  | { kind: 'NOT_MEMBER' }
-  /** The chat id is wrong, or the channel is gone. Configuration, not the user. */
-  | { kind: 'CHAT_UNAVAILABLE'; reason: string }
-  /** The bot is not an administrator, so it cannot see the member list. */
-  | { kind: 'BOT_CANNOT_VERIFY'; reason: string }
-  /** A timeout, a 5xx, a rate limit. Nothing is known, and it is nobody's fault. */
-  | { kind: 'UNKNOWN'; reason: string };
-
-/**
- * The port the API implements by talking to Telegram.
- *
- * An injection token rather than a direct dependency, for the reason every other
- * Telegram boundary in this codebase has one: the domain must stay testable with
- * no token and no network, and the one class that can make a network call should
- * be reachable from exactly one place. A deployment that provides no probe — a
- * test, a worker, a CI run — gets `UNKNOWN`, which fails open.
- */
-export const MEMBERSHIP_PROBE = Symbol('MEMBERSHIP_PROBE');
-
-export interface MembershipProbe {
-  check(chatIdentifier: string, telegramUserId: bigint): Promise<MembershipProbeResult>;
-  /**
-   * Drop any cached answer for this pair.
-   *
-   * Optional, because a probe with no cache has nothing to clear — and the domain
-   * must not require an implementation to have one. It exists so «بررسی دوباره»
-   * can mean "ask Telegram now" rather than "read the same cached answer again".
-   */
-  invalidate?(chatIdentifier: string, telegramUserId: bigint): Promise<void>;
-}
+export { MEMBERSHIP_PROBE } from './membership-probe';
+export type {
+  BotChannelStanding,
+  MembershipProbe,
+  MembershipProbeResult,
+} from './membership-probe';
 
 /** One channel, and where this user stands with it. */
 export interface ChannelMembershipState {

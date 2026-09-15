@@ -474,6 +474,7 @@ export type {
 } from './channel/channel-config.service';
 export { ChannelMembershipService, MEMBERSHIP_PROBE } from './channel/membership.service';
 export type {
+  BotChannelStanding,
   ChannelMembershipState,
   MembershipProbe,
   MembershipProbeResult,

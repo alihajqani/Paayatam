@@ -9,7 +9,7 @@ const line: EventDetailLine = {
   startsAt: new Date('2026-09-20T15:30:00.000Z'),
   endsAt: new Date('2026-09-20T18:30:00.000Z'),
   capacity: 6,
-  acceptedCount: 2,
+  takenCount: 2,
   costType: 'FREE',
   costAmount: null,
   costNote: null,
@@ -18,6 +18,14 @@ const line: EventDetailLine = {
   hostDisplayName: 'مریم',
   hostTrustScore: 80,
 };
+
+describe('the seats line (v0.16.0)', () => {
+  it('counts the seats the channel counts, with the same colour', () => {
+    expect(formatEventDetail({ ...line, capacity: 4, takenCount: 3 })).toContain(
+      '🟠 ۱ جای خالی از ۴',
+    );
+  });
+});
 
 /**
  * The page says where the reader stands (plan 12, review M7).

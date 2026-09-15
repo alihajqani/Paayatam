@@ -1,7 +1,7 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { formatTehran } from './datetime';
-import { escapeHtml, toPersianAmount } from './escape';
-import { seatsLine } from './seats';
+import { escapeHtml, toPersianAmount, toPersianDigits } from './escape';
+import { seatsFillEmoji, seatsLine } from './seats';
 import { botStartUrl, encodeStartPayload } from './deep-link';
 import { type InlineKeyboard } from './keyboards';
 
@@ -26,10 +26,28 @@ export interface ChannelPostContent {
   districtName: string | null;
   startsAt: Date;
   capacity: number;
-  acceptedCount: number;
+  /**
+   * Seats **spoken for**: accepted guests plus requests still awaiting the host.
+   *
+   * Not `accepted_count`, and deliberately so. In the channel a request closes a
+   * seat the moment it is made — an acceptance keeps it closed and a rejection
+   * opens it again — because a reader who taps «پایتم» on «۱ جای خالی» after
+   * somebody else already asked for it is asking for a seat that is not there.
+   * Inside the product a seat is still consumed by an acceptance and nothing else
+   * (`SEAT_HOLDING_STATUSES`); this is what the public post counts, and
+   * `ChannelService` is where the two are added up.
+   */
+  takenCount: number;
   costType: string;
   costAmount: number | null;
   eventPublicId: string;
+  /**
+   * The activity's sequential number, for the «#رویداد_۲۵» hashtag.
+   *
+   * A number rather than the public id because a reader searches the channel by
+   * it and says it out loud; a UUID is neither.
+   */
+  eventNumber: number;
   /** The bot's username, for the deep link. */
   botUsername: string;
 }
@@ -108,9 +126,10 @@ export interface RenderedChannelPost {
  *
  * ── The disclaimer (report 8) ────────────────────────────────────────────────
  *
- * The first line of every post, above the event's own details, because "above
- * every event" is what was asked for and because a liability line below the fold
- * is a line nobody reads. It is the short form: a paragraph at the top of every
+ * Above the event's own details, because "above every event" is what was asked
+ * for and because a liability line below the fold is a line nobody reads. Only
+ * the «#رویداد_…» hashtag comes before it (v0.16.0) — one short token, not a
+ * paragraph competing with it. It is the short form: a paragraph at the top of every
  * post is a paragraph readers learn to skip, which is the one thing a disclaimer
  * cannot afford. The text is `@payetam/shared`'s, so the channel and the Mini App
  * cannot drift into saying different things.
@@ -125,6 +144,14 @@ export interface RenderedChannelPost {
  * کیو داریم اینجا؟ بگه!» — the host asking, in the register the product is named
  * in, with the activity's name inside the sentence rather than above it. The five
  * facts follow unchanged, because they are what a reader decides on.
+ *
+ * ── Hashtags, the fill colour, and the note (v0.16.0) ───────────────────────
+ *
+ * The post opens with «#رویداد_۲۵» and closes with the category as a hashtag
+ * and a line saying expired activities are removed — both hashtags are
+ * searches of the channel on a tap. The seats line leads with 🟢🟡🟠🔴
+ * (`seatsFillEmoji`) and counts pending requests as taken (`takenCount`), and
+ * the worker edits the post whenever that count moves, within a budget.
  *
  * ── Escaping ─────────────────────────────────────────────────────────────────
  *
@@ -148,6 +175,9 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
       : `${toPersianAmount(content.costAmount)} تومان (${COST_LABEL[content.costType] ?? ''})`;
 
   const text = [
+    // First, so the post is findable by tapping it: Telegram makes a hashtag a
+    // search of the channel, and «#رویداد_۲۵» is how a reader names one activity.
+    `#رویداد_${toPersianDigits(String(content.eventNumber))}`,
     // Escaped like everything else, even though it is our own constant: the day
     // somebody puts an angle bracket in it, the post should not break. It
     // carries its own ⚠️ and is plain rather than italic — a whole italic line
@@ -160,7 +190,11 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
     `📍 ${where}`,
     `🗓 ${formatTehran(content.startsAt)}`,
     `💸 ${cost}`,
-    `👥 ${seatsLine(content.capacity, content.acceptedCount)}`,
+    `${seatsFillEmoji(content.capacity, content.takenCount)} ${seatsLine(content.capacity, content.takenCount)}`,
+    ``,
+    // The category as a hashtag, so a tap lists every activity of its kind.
+    escapeHtml(categoryHashtag(content.categoryName)),
+    CHANNEL_EXPIRY_NOTE,
   ].join('\n');
 
   /**
@@ -193,4 +227,31 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
   }
 
   return { text, keyboard };
+}
+
+/**
+ * Why a post a reader saw yesterday is not there today.
+ *
+ * The sweep takes a post down the moment its activity starts, is cancelled or
+ * hidden. Said once under every post, because a vanished message with no
+ * explanation reads as the channel deleting something it should not have.
+ */
+export const CHANNEL_EXPIRY_NOTE = '⏳ رویدادهای منقضی‌شده از کانال حذف می‌شوند.';
+
+/**
+ * «کافه و بازی رومیزی» → «#کافه_و_بازی_رومیزی».
+ *
+ * A Telegram hashtag ends at the first character that is not a letter, a digit,
+ * an underscore or a zero-width non-joiner, so a space would cut the category's
+ * name in half and punctuation would end it early. Runs of anything else become
+ * one underscore, and the ZWNJ stays — «طبیعت‌گردی» written without it is a
+ * different-looking word, and Telegram keeps it inside a hashtag.
+ */
+export function categoryHashtag(name: string): string {
+  const body = name
+    .normalize('NFC')
+    .replace(/[^\p{L}\p{M}\p{N}_\u200c]+/gu, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[_\u200c]+|[_\u200c]+$/g, '');
+  return body === '' ? '' : `#${body}`;
 }

@@ -2934,6 +2934,54 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     expect(participant.status).toBe('WAITLISTED');
   });
 
+  /**
+   * A request awaiting the host closes a seat on every screen (v0.16.0), as it
+   * does in the channel post — so a reader never sees «۱ جای خالی» in the channel
+   * and «۲ جای خالی» in the bot. Four accepted and one pending fill five.
+   */
+  it('counts a pending request as a taken seat in the list and on the page', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const asker = await seedGuest(GUEST_TELEGRAM_ID + 1, 'درخواست‌دهنده');
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    const event = await prisma.event.update({
+      where: { publicId: eventPublicId },
+      data: { acceptedCount: 4 },
+      select: { id: true, capacity: true },
+    });
+    expect(event.capacity).toBe(5);
+    await prisma.eventParticipant.create({
+      data: {
+        eventId: event.id,
+        userId: asker,
+        status: 'PENDING',
+        requestedAt: new Date(),
+        hostDeadlineAt: new Date(Date.now() + 3_600_000),
+      },
+    });
+
+    await type(GUEST_TELEGRAM_ID, '/discover');
+    const digest = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_DISCOVER },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect(String((digest.payload as Record<string, unknown>)['text'])).toContain('🔴 ظرفیت تکمیل');
+
+    const code = eventPublicId.replaceAll('-', '').slice(0, 10);
+    await type(GUEST_TELEGRAM_ID, `/event_${code}`);
+    const detail = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_EVENT_DETAIL },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect(String((detail.payload as Record<string, unknown>)['text'])).toContain('🔴 ظرفیت تکمیل');
+    const join = keyboardOf(detail.payload)
+      .flat()
+      .find((button) => button.callbackData === `ev:join:${eventPublicId}`);
+    expect(join?.text).toContain('نوبت انتظار');
+  });
+
   /** A code that names nothing is refused the way an unknown activity is. */
   it('refuses a code that matches no published activity', async () => {
     await seedGuest(GUEST_TELEGRAM_ID);

@@ -1,7 +1,7 @@
 export { escapeHtml, toPersianDigits } from './escape';
 export { TEMPLATES, render } from './templates';
 export type { TemplateKey, RenderedMessage } from './templates';
-export { renderChannelPost } from './channel';
+export { CHANNEL_EXPIRY_NOTE, categoryHashtag, renderChannelPost } from './channel';
 export {
   START_ACTIONS,
   botStartUrl,
@@ -43,7 +43,7 @@ export { insufficientCoinsNotice } from './notices';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa, walletPageRow } from './wallet';
 export { buyCoinsRow, formatCoinPackages, type CoinPackage } from './coin-packages';
-export { capacityLabel, seatsLine, seatsLineFromRemaining } from './seats';
+export { capacityLabel, seatsFillEmoji, seatsLine, seatsLineFromRemaining } from './seats';
 export { formatDirectMessage } from './direct';
 export type { DirectMessageLine } from './direct';
 export { toPersianAmount } from './escape';

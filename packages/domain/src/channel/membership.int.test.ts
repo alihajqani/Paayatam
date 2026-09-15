@@ -521,6 +521,56 @@ describe('the configuration itself', () => {
     }
   });
 
+  /**
+   * The production gate had two channels and enforced one (v0.16.0): the bot was
+   * not an administrator of the second, every check failed open, and the panel
+   * was green. It now names the channel.
+   */
+  it('names the channels the bot cannot check members of', async () => {
+    const standings = new Map([
+      ['@payetam', 'ADMIN'],
+      ['@payetam_news', 'NOT_ADMIN'],
+      ['@payetam_gone', 'CHAT_UNAVAILABLE'],
+      ['@payetam_slow', 'UNKNOWN'],
+    ] as const);
+    const asked: string[] = [];
+    const withStanding = new ChannelConfigService(service, clock, audit, {
+      check: () => Promise.resolve({ kind: 'MEMBER' }),
+      botStanding: (chatIdentifier: string) => {
+        asked.push(chatIdentifier);
+        return Promise.resolve(standings.get(chatIdentifier as '@payetam') ?? 'UNKNOWN');
+      },
+    });
+    await addChannel('رویدادها');
+    await addChannel('اخبار', {
+      chatIdentifier: '@payetam_news',
+      inviteUrl: 'https://t.me/payetam_news',
+    });
+    await addChannel('رفته', { chatIdentifier: '@payetam_gone', inviteUrl: 'https://t.me/x1' });
+    // A timeout is weather, not a finding: a warning that flickers gets ignored.
+    await addChannel('کند', { chatIdentifier: '@payetam_slow', inviteUrl: 'https://t.me/x2' });
+    await configure();
+
+    const status = await withStanding.status();
+
+    expect(status.warnings).toContain('BOT_CANNOT_VERIFY');
+    expect(status.unverifiableChannels).toEqual(['اخبار', 'رفته']);
+    expect(asked).toHaveLength(4);
+
+    // Verification switched off: nothing is being checked, so nothing to warn about.
+    await configure({ verifyViaTelegram: false });
+    const unchecked = await withStanding.status();
+    expect(unchecked.warnings).not.toContain('BOT_CANNOT_VERIFY');
+    expect(unchecked.unverifiableChannels).toEqual([]);
+  });
+
+  it('says nothing about the bot when there is no probe to ask', async () => {
+    await addChannel('رویدادها');
+    await configure();
+
+    await expect(config.status()).resolves.toMatchObject({ unverifiableChannels: [] });
+  });
+
   it('records old and new values in the audit trail', async () => {
     await addChannel('کانال');
     await config.update(ADMIN_ID, { membershipRequired: true, requiredActions: ['EVENT_JOIN'] });
