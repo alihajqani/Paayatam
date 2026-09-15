@@ -21,6 +21,7 @@ import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
+import { EconomyReportService } from './economy-report.service';
 import { FoundingAdminService } from './founding-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { ProfileService } from '../profile/profile.service';
@@ -121,6 +122,7 @@ const giftCodes = new GiftCodeAdminService(service, clock, access, settings, aud
 const referrals = new ReferralAdminService(service, clock, access, audit);
 const insight = new AdminInsightService(service, clock, access);
 const foundingAdmin = new FoundingAdminService(service, clock, access, settings);
+const economyReport = new EconomyReportService(service, clock, access, settings);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
@@ -333,6 +335,15 @@ const OPERATIONS: Operation[] = [
     name: 'GET /admin/v1/founding/members',
     permission: PERMISSIONS.USER_READ,
     run: (session) => foundingAdmin.members(session),
+  },
+  // The coin economy's health (v0.11.0). `dashboard.read` like the campaign
+  // report above and for the same reason: every number on it is an aggregate,
+  // and the one that comes closest to naming somebody — the largest amount a
+  // single account earned in thirty days — is a figure rather than a person.
+  {
+    name: 'GET /admin/v1/economy',
+    permission: PERMISSIONS.DASHBOARD_READ,
+    run: (session) => economyReport.report(session),
   },
   {
     name: 'GET /admin/v1/users',
@@ -601,14 +612,25 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
    * The completeness half of rule 3: "an endpoint with no declared permission is
    * unreachable, and a test asserts that no endpoint lacks a declaration".
    *
-   * Counted rather than merely listed, so adding an operation to the services
-   * without adding it here is a failure rather than a silent gap.
+   * ── What the count does and does not catch ──────────────────────────────────
+   *
+   * `OPERATIONS` is hand-written, so this number catches somebody **editing this
+   * list** without meaning to — a row deleted in a merge, or added without a
+   * thought about which role it opens up.
+   *
+   * It does **not** catch a new admin method that never got a row here. Nothing
+   * derives this list from the services, so an endpoint added to the controller
+   * and to `response-leak.int.test.ts` and not to this file leaves the suite
+   * entirely green. That happened with `GET /admin/v1/economy` in v0.11.0 and was
+   * found by reading, not by a failure. Until the list is derived, the third of
+   * the three places an admin endpoint must be registered is the one with no
+   * alarm on it.
    */
   it('declares a permission for every admin operation', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(69);
+    expect(OPERATIONS).toHaveLength(70);
   });
 
   for (const role of ROLES) {
