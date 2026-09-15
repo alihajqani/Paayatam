@@ -1235,6 +1235,14 @@ beforeAll(async () => {
       admin: true,
       body: { decision: 'APPROVED', note: 'nothing to answer' },
     },
+    // Plan 08. A refusal, like `decide` above: a response with nothing in it to
+    // leak is still a response, and the totality test wants the route scanned.
+    {
+      method: 'POST',
+      url: '/admin/v1/moderation/cases/no-such-case/dispute-decision',
+      admin: true,
+      body: { upheld: false, note: 'nothing to answer' },
+    },
     {
       method: 'POST',
       url: '/admin/v1/trust/adjust',

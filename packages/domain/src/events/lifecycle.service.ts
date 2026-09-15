@@ -728,9 +728,12 @@ export class EventLifecycleService {
 
         const ends = await tx.event.findUniqueOrThrow({
           where: { id: event.id },
-          select: { endsAt: true },
+          select: { endsAt: true, hostAbsentAt: true },
         });
         if (ends.endsAt > now) throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
+        // A moderator found this host absent from this evening (plan 08): they are
+        // the one witness to attendance who was not there, so they record none.
+        if (ends.hostAbsentAt !== null) throw new AppError(ErrorCode.INVALID_STATE_TRANSITION);
 
         const penalty = await this.penalties.chargeParticipant(tx, {
           participantId: participant.id,
@@ -746,9 +749,13 @@ export class EventLifecycleService {
             attended: false,
             cancellationBucket: 'NO_SHOW',
             penaltyLedgerId: penalty.ledgerId,
+            // Told in this transaction, with «من حاضر بودم» under the message: the
+            // dispute window runs from here (plan 08).
+            noShowNotifiedAt: now,
             version: { increment: 1 },
           },
         });
+        const disputeDays = await this.settings.getInt('cancellation.dispute_window_days', tx);
 
         // A seat on an event that has already happened is not a seat anybody can
         // use, so `accepted_count` is deliberately left alone: it is the record of
@@ -785,6 +792,8 @@ export class EventLifecycleService {
               // it — which is what it did from the day this was written until
               // review H1, while charging sixty coins in silence.
               participantUserPublicId: participant.user.publicId,
+              // The last moment «من حاضر بودم» is accepted (plan 08).
+              disputeClosesAt: new Date(now.getTime() + disputeDays * 86_400_000).toISOString(),
             },
           },
           tx,

@@ -24,6 +24,7 @@ import { adminCaseWizard } from './wizards/admin-case';
 import { redeemCodeWizard } from './wizards/redeem-code';
 import { bugReportWizard } from './wizards/bug-report';
 import { directMessageWizard } from './wizards/direct-message';
+import { noShowClaimWizard } from './wizards/no-show-claim';
 
 /**
  * Where the machine records which fields the user answered.
@@ -84,6 +85,11 @@ const WIZARDS: Partial<Record<ConversationKind, WizardDefinition<Record<string, 
    * anonymous conversation.
    */
   DIRECT_MESSAGE: directMessageWizard as unknown as WizardDefinition<Record<string, unknown>>,
+  /**
+   * «من حاضر بودم», «میزبان نیامد», and a host's answer (plan 08). One text step;
+   * which of the three arrives seeded, like `DIRECT_MESSAGE`'s mode.
+   */
+  NO_SHOW_CLAIM: noShowClaimWizard as unknown as WizardDefinition<Record<string, unknown>>,
 };
 
 export interface ConversationSnapshot {

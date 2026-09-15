@@ -78,6 +78,15 @@ const CATEGORY: Record<string, NotificationCategory> = {
 
   // ── Things somebody is entitled to know ───────────────────────────────────
   [TEMPLATES.NO_SHOW_RECORDED]: 'essential',
+  /**
+   * The rest of a no-show's life (plan 08): the offer to dispute an old one, the
+   * host being asked for their side, and the decision. `essential`, all three —
+   * each is a decision about somebody's coins and record, or the one chance to
+   * answer before it is made.
+   */
+  [TEMPLATES.NO_SHOW_DISPUTE_OFFER]: 'essential',
+  [TEMPLATES.HOST_ABSENT_REPORTED]: 'essential',
+  [TEMPLATES.NO_SHOW_CLAIM_DECIDED]: 'essential',
   // Coins landing in an account. `essential` rather than `campaigns`: this is not
   // the product advertising itself, it is the product reporting that money
   // changed hands — and a preference that could silence it would leave somebody

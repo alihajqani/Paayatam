@@ -83,6 +83,7 @@ function build(options: Options) {
     {} as never, // ModerationDigestService
     audit as never,
     {} as never, // CityLaunchAnnouncementService
+    {} as never, // NoShowClaimService
   );
 
   return { processors, channel, telegram, metrics, audit };

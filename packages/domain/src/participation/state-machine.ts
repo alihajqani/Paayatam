@@ -51,7 +51,12 @@ export const PARTICIPANT_TRANSITIONS: TransitionTable<ParticipantStatus> = {
   CANCELLED_BY_PARTICIPANT: [],
   CANCELLED_BY_HOST: [],
   COMPLETED: [],
-  NO_SHOW: [],
+  /**
+   * One way out, and one caller (plan 08): a moderator upholding «من حاضر بودم»,
+   * or upholding «میزبان نیامد» for the evening a host marked this guest absent.
+   * `NoShowClaimService.decide` reverses the penalty in the same transaction.
+   */
+  NO_SHOW: ['COMPLETED'],
 };
 
 export function assertParticipantTransition(

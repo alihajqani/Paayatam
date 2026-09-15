@@ -30,6 +30,7 @@ import {
   GeographyAdminService,
   GiftCodeAdminService,
   MessagingAdminService,
+  NoShowClaimService,
   PolicyAdminService,
   ReferralAdminService,
   type AdminSession,
@@ -103,6 +104,8 @@ import {
   publishPolicyRequest,
   updatePolicyDraftRequest,
   updateSettingRequest,
+  decideDisputeRequest,
+  type DecideDisputeRequest,
   type AdjustCoinsRequest,
   type AdjustTrustRequest,
   type AdminCityListQuery,
@@ -273,6 +276,8 @@ export class AdminController {
      * without waiting for the next scheduled pass.
      */
     private readonly queues: QueueService,
+    /** Deciding «من حاضر بودم» and «میزبان نیامد» (plan 08). */
+    private readonly noShowClaims: NoShowClaimService,
     /** Only for the release string; nothing else in this controller reads it. */
     @Inject(ENV) env: Env,
   ) {
@@ -428,6 +433,13 @@ export class AdminController {
         createdAt: report.createdAt.toISOString(),
       })),
       matchedTermCount: row.matchedTermCount,
+      claims: row.claims.map((claim) => ({
+        kind: claim.kind,
+        authorRole: claim.authorRole,
+        authorDisplayName: claim.authorDisplayName,
+        statement: claim.statement,
+        createdAt: claim.createdAt.toISOString(),
+      })),
       assignedAdminId: row.assignedAdminId,
       decidedBy: row.decidedBy,
       decisionNote: row.decisionNote,
@@ -464,6 +476,23 @@ export class AdminController {
       note: body.note,
       ...(body.falsePositive !== undefined ? { falsePositive: body.falsePositive } : {}),
     });
+  }
+
+  /**
+   * A dispute case, decided (plan 08).
+   *
+   * Its own route because `decide` answers a different question — keep or hide
+   * content — and refuses these cases. `report.review` is asserted in the
+   * service; what an upheld claim moves is fixed there, not chosen here.
+   */
+  @Post('moderation/cases/:id/dispute-decision')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async decideDispute(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(decideDisputeRequest)) body: DecideDisputeRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<void> {
+    await this.noShowClaims.decide(admin, id, { upheld: body.upheld, note: body.note });
   }
 
   // ── Economy ────────────────────────────────────────────────────────────────

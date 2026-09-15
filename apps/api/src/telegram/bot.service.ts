@@ -53,6 +53,9 @@ import {
   type DirectMessageForm,
   isDirectMessageMode,
   DirectMessageService,
+  type NoShowClaimForm,
+  isNoShowClaimMode,
+  NoShowClaimService,
   type ReferralClaim,
   type ProfileField,
   type CityLaunchStatus,
@@ -353,6 +356,8 @@ export class BotService {
     private readonly admins: AdminOperationsService,
     /** «پیام مستقیم به میزبان» (v0.7.0) — the only messaging the product has. */
     private readonly directs: DirectMessageService,
+    /** «من حاضر بودم», «میزبان نیامد», and the host's answer (plan 08). */
+    private readonly noShowClaims: NoShowClaimService,
   ) {}
 
   /**
@@ -2321,6 +2326,49 @@ export class BotService {
         }
 
         /**
+         * «من حاضر بودم», «میزبان نیامد», and the host's answer (plan 08).
+         *
+         * The window is checked **before** the form opens: the buttons stay in the
+         * chat forever, and somebody who types a paragraph into a form the submit
+         * then refuses has been made to do work for a «مهلت تمام شده». The service
+         * checks again at submit, because a form can stay open for days.
+         */
+        case 'disp':
+        case 'habs':
+        case 'hresp': {
+          if (!this.env.ENABLE_CONVERSATION_WIZARD) {
+            await this.answer(callbackQueryId, '');
+            return this.wizardsOff(updateId, user);
+          }
+          if (!(await this.mayWrite(updateId, user))) {
+            await this.answer(callbackQueryId, '');
+            return;
+          }
+          const mode =
+            callback.action === 'disp'
+              ? ('dispute' as const)
+              : callback.action === 'habs'
+                ? ('absent' as const)
+                : ('response' as const);
+          if (mode === 'dispute') {
+            await this.noShowClaims.disputeReadiness(user.id, callback.id);
+          } else if (mode === 'absent') {
+            await this.noShowClaims.hostAbsentReadiness(user.id, callback.id);
+          } else {
+            await this.noShowClaims.responseReadiness(user.id, callback.id);
+          }
+          await this.answer(callbackQueryId, '');
+          const outcome = await this.conversations.start(
+            user.id,
+            'NO_SHOW_CLAIM',
+            updateId,
+            callback.id,
+            { mode },
+          );
+          return this.drawWizard(updateId, user, outcome);
+        }
+
+        /**
          * «⭐️ نظرها دربارهٔ میزبان» (plan 18 item 6): the latest three published
          * reviews, without their authors.
          *
@@ -2825,6 +2873,8 @@ export class BotService {
         eventStatus: detail.eventStatus,
         reportReasons: detail.reportReasons,
         matchedTermCount: detail.matchedTermCount,
+        // What each side said, on a dispute (plan 08) — the evidence itself.
+        claims: detail.claims,
       }),
       // Seeded so the false-positive step can ask `when` it applies, which is
       // only where the automation is the thing being judged (ADR-0012).
@@ -2935,12 +2985,26 @@ export class BotService {
       return this.notice(updateId, user, ERROR_MESSAGES_FA[ErrorCode.VALIDATION_FAILED]);
     }
 
+    /**
+     * A dispute is decided by `NoShowClaimService` (plan 08), which asserts
+     * `report.review` and fixes what an upheld claim moves. The form is the same
+     * one; what APPROVED means is «the claim is right», and `decideCase` refuses
+     * these cases outright.
+     */
+    const dispute = form.trigger === 'DISPUTE';
     try {
-      await this.admins.decideCase(session, caseId, {
-        decision,
-        note: form.note,
-        ...(form.falsePositive !== undefined ? { falsePositive: form.falsePositive } : {}),
-      });
+      if (dispute) {
+        await this.noShowClaims.decide(session, caseId, {
+          upheld: decision === 'APPROVED',
+          note: form.note,
+        });
+      } else {
+        await this.admins.decideCase(session, caseId, {
+          decision,
+          note: form.note,
+          ...(form.falsePositive !== undefined ? { falsePositive: form.falsePositive } : {}),
+        });
+      }
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       await this.conversations.clear(user.id);
@@ -2951,9 +3015,13 @@ export class BotService {
     await this.notice(
       updateId,
       user,
-      decision === 'APPROVED'
-        ? 'پرونده بسته شد: محتوا تأیید شد. ✅'
-        : 'پرونده بسته شد: محتوا رد شد. ⛔️',
+      dispute
+        ? decision === 'APPROVED'
+          ? 'پرونده بسته شد: ادعا پذیرفته شد و پیامدهایش اعمال شد. ✅'
+          : 'پرونده بسته شد: ادعا پذیرفته نشد. ✖️'
+        : decision === 'APPROVED'
+          ? 'پرونده بسته شد: محتوا تأیید شد. ✅'
+          : 'پرونده بسته شد: محتوا رد شد. ⛔️',
     );
     // Straight back to the queue, because a moderator with one case has
     // usually got several — and a decision that ends in a dead end is a
@@ -4147,6 +4215,50 @@ export class BotService {
   }
 
   /**
+   * «من حاضر بودم», «میزبان نیامد», or a host's answer, once written (plan 08).
+   *
+   * `mode` was seeded by the button, and it decides what `targetPublicId` is: a
+   * participation for the first two, an event for the third. The service checks
+   * the window again, because a form can sit open past a deadline.
+   */
+  private async submitNoShowClaim(
+    updateId: number,
+    user: BotUser,
+    snapshot: ConversationSnapshot,
+  ): Promise<void> {
+    const form = snapshot.form as NoShowClaimForm;
+    const targetPublicId = snapshot.targetPublicId;
+
+    await this.conversations.clear(user.id);
+
+    if (targetPublicId === null || form.statement === undefined || !isNoShowClaimMode(form.mode)) {
+      return this.notice(updateId, user, 'ثبت نشد. دوباره از دکمهٔ پیام تلاش کنید.');
+    }
+
+    try {
+      if (form.mode === 'dispute') {
+        await this.noShowClaims.dispute(user.id, targetPublicId, form.statement);
+      } else if (form.mode === 'absent') {
+        await this.noShowClaims.reportHostAbsent(user.id, targetPublicId, form.statement);
+      } else {
+        await this.noShowClaims.respondAsHost(user.id, targetPublicId, form.statement);
+      }
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      return this.refuse(updateId, user, error);
+    }
+
+    return this.notice(
+      updateId,
+      user,
+      form.mode === 'response'
+        ? 'توضیح شما ثبت شد ✅ داور آن را کنار گزارش‌ها می‌خواند و نتیجه را همین‌جا به شما می‌گوییم.'
+        : 'ثبت شد ✅ یک داور آن را بررسی می‌کند و نتیجه را همین‌جا به شما می‌گوییم. ' +
+            'تا تصمیم داور، هیچ سکه‌ای جابه‌جا نمی‌شود.',
+    );
+  }
+
+  /**
    * `/wallet` — the balance, and one page of the ledger behind it.
    *
    * `/balance` answers "how many" and has since M13; it does not answer "why is
@@ -4993,6 +5105,8 @@ export class BotService {
           case 'DIRECT_MESSAGE':
             await this.submitDirectMessage(updateId, user, outcome.snapshot);
             return;
+          case 'NO_SHOW_CLAIM':
+            return this.submitNoShowClaim(updateId, user, outcome.snapshot);
           case 'BUG_REPORT':
             return this.submitBugReport(updateId, user, outcome.snapshot.form);
           default:
@@ -5027,6 +5141,10 @@ export class BotService {
          */
         if (outcome.snapshot.kind === 'DIRECT_MESSAGE') {
           return this.submitDirectMessage(updateId, user, outcome.snapshot);
+        }
+        // One field, still on screen — the same reason as the two above (plan 08).
+        if (outcome.snapshot.kind === 'NO_SHOW_CLAIM') {
+          return this.submitNoShowClaim(updateId, user, outcome.snapshot);
         }
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
           const profile = outcome.snapshot.form as EditProfileForm;
@@ -5087,7 +5205,7 @@ export class BotService {
         if (outcome.snapshot.kind === 'ADMIN_CASE') {
           const form = outcome.snapshot.form as AdminCaseForm;
           const lines: SummaryLine[] = [
-            { label: 'تصمیم', value: adminDecisionLabelFa(form.decision ?? '—') },
+            { label: 'تصمیم', value: adminDecisionLabelFa(form.decision ?? '—', form.trigger) },
           ];
           if (form.falsePositive !== undefined) {
             lines.push({

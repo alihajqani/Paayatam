@@ -128,6 +128,14 @@ export const EVENT_CALLBACK_ACTIONS = [
   /** One activity in full, before deciding to spend an evening on it. */
   'show',
   /**
+   * The no-show claims (plan 08). `disp` — «من حاضر بودم» — and `habs` —
+   * «میزبان نیامد» — carry a **participant** public id: the seat the claim is
+   * about. `hresp` — the host's answer — carries an **event** public id.
+   */
+  'disp',
+  'habs',
+  'hresp',
+  /**
    * What guests have written about this activity's host (plan 18 item 6).
    * Carries the **event** public id, so the button names nobody: the host is
    * resolved from a published activity, which is also what limits it to hosts a

@@ -236,3 +236,75 @@ describe('the moderation digest', () => {
     ).toEqual(['ad:list:x']);
   });
 });
+
+/**
+ * A dispute case in the bot's queue (plan 08): what each side said is the whole
+ * of what the decision is made from, so it is on the question's screen.
+ */
+describe('a dispute case', () => {
+  const dispute: AdminCaseDetailLine = {
+    ...detail,
+    subjectType: 'EVENT',
+    trigger: 'DISPUTE',
+    reportCount: 2,
+    reportReasons: [],
+    matchedTermCount: 0,
+    claims: [
+      {
+        kind: 'HOST_ABSENT_REPORT',
+        authorRole: 'GUEST',
+        authorDisplayName: 'سارا',
+        statement: 'ساعت هفت رسیدم و تا هشت کسی نیامد.',
+      },
+      {
+        kind: 'HOST_ABSENT_RESPONSE',
+        authorRole: 'HOST',
+        authorDisplayName: 'مریم',
+        statement: 'من در کافه بودم، شاید جای دیگری رفته بود.',
+      },
+    ],
+  };
+
+  it('names the trigger and shows each side’s words, by side and name', () => {
+    const prompt = formatAdminCasePrompt(dispute);
+    expect(prompt).toContain('میزبان نیامد');
+    expect(prompt).toContain('مهمان — سارا');
+    expect(prompt).toContain('ساعت هفت رسیدم');
+    expect(prompt).toContain('میزبان — مریم');
+  });
+
+  it('asks whether the claim is right', () => {
+    expect(formatAdminCasePrompt(dispute).endsWith('آیا ادعا درست است؟')).toBe(true);
+  });
+
+  it('names a disputed no-show as about one person’s attendance', () => {
+    const prompt = formatAdminCasePrompt({
+      ...dispute,
+      subjectType: 'PARTICIPATION',
+      claims: [
+        {
+          kind: 'GUEST_ABSENT_DISPUTE',
+          authorRole: 'GUEST',
+          authorDisplayName: 'سارا',
+          statement: 'من سر وقت آنجا بودم.',
+        },
+      ],
+    });
+    expect(prompt).toContain('حضور');
+    expect(prompt).toContain('من حاضر بودم');
+  });
+
+  it('still stays inside one Telegram message', () => {
+    const prompt = formatAdminCasePrompt({
+      ...dispute,
+      claims: Array.from({ length: 12 }, () => ({
+        kind: 'HOST_ABSENT_REPORT' as const,
+        authorRole: 'GUEST' as const,
+        authorDisplayName: 'سارا',
+        statement: 'ب'.repeat(500),
+      })),
+    });
+    expect(prompt.length).toBeLessThanOrEqual(2048);
+    expect(prompt.endsWith('آیا ادعا درست است؟')).toBe(true);
+  });
+});

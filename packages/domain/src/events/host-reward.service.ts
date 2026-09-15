@@ -148,6 +148,23 @@ export class HostRewardService {
         status: 'COMPLETED',
         deletedAt: null,
         endsAt: { lte: settledBefore, gte: oldestCandidate },
+        /**
+         * Not an evening whose host a moderator found absent (plan 08), and not
+         * one while guests' «میزبان نیامد» is still being decided.
+         *
+         * The first used to hold by accident — a host who was not there cannot
+         * review the guests who were, and `assess` waits on those reviews — and
+         * accident is not a guarantee: plan 10 let a host who marked everybody
+         * absent collect the deposit with no reviews owed at all. The second is
+         * the hold: nothing is paid while the answer might be to take it back.
+         */
+        hostAbsentAt: null,
+        noShowClaims: {
+          none: {
+            kind: 'HOST_ABSENT_REPORT',
+            moderationCase: { status: { in: ['OPEN', 'IN_REVIEW', 'ESCALATED'] } },
+          },
+        },
       },
       select: { id: true, hostUserId: true },
       orderBy: { endsAt: 'asc' },

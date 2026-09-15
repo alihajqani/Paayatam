@@ -147,6 +147,7 @@ function buildProcessors(): Processors {
     {} as never, // ModerationDigestService — this suite sends no digest
     {} as never, // AuditService — only the channel sweep writes one
     {} as never, // CityLaunchAnnouncementService
+    {} as never, // NoShowClaimService
   );
 }
 

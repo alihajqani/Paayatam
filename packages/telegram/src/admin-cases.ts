@@ -48,13 +48,30 @@ export const CASE_SUBJECT_FA: Record<string, string> = {
   USER: 'کاربر',
   MESSAGE: 'گفتگو',
   REVIEW: 'نظر',
+  PARTICIPATION: 'حضور در فعالیت',
 };
 
 export const CASE_TRIGGER_FA: Record<string, string> = {
   AUTO_BLACKLIST: 'هشدار خودکار',
   REPORT_THRESHOLD: 'گزارش کاربران',
   MANUAL: 'ثبت دستی',
+  DISPUTE: 'اعتراض به حضور',
 };
+
+/**
+ * Why a case opened, said precisely (plan 08).
+ *
+ * A dispute is two different claims depending on what it is about: «من حاضر
+ * بودم» on a participation, «میزبان نیامد» on an evening. The flat map above
+ * cannot tell them apart, and a moderator should not have to infer the question
+ * from the subject line.
+ */
+export function caseTriggerFa(trigger: string, subjectType: string): string {
+  if (trigger === 'DISPUTE') {
+    return subjectType === 'EVENT' ? 'گزارش «میزبان نیامد»' : 'اعتراض «من حاضر بودم»';
+  }
+  return CASE_TRIGGER_FA[trigger] ?? trigger;
+}
 
 export const CASE_STATUS_FA: Record<string, string> = {
   OPEN: 'باز',
@@ -75,7 +92,7 @@ export const CASE_STATUS_FA: Record<string, string> = {
 export function formatAdminQueue(lines: readonly AdminCaseLine[]): string {
   const entries = lines.map((line, index) => {
     const subject = CASE_SUBJECT_FA[line.subjectType] ?? line.subjectType;
-    const trigger = CASE_TRIGGER_FA[line.trigger] ?? line.trigger;
+    const trigger = caseTriggerFa(line.trigger, line.subjectType);
     const title = line.eventTitle === null ? '' : `\n  «${escapeHtml(line.eventTitle)}»`;
     const reports =
       line.reportCount === 0 ? '' : ` · ${toPersianDigits(String(line.reportCount))} گزارش`;
@@ -140,7 +157,17 @@ export interface AdminCaseDetailLine extends AdminCaseLine {
   eventStatus: string | null;
   reportReasons: readonly { reason: string; count: number }[];
   matchedTermCount: number;
+  /** What each side said, on a dispute case (plan 08). */
+  claims?: readonly {
+    kind: string;
+    authorRole: 'GUEST' | 'HOST';
+    authorDisplayName: string;
+    statement: string;
+  }[];
 }
+
+/** How much of one statement reaches the question's screen; the panel has all of it. */
+const STATEMENT_BUDGET = 300;
 
 const REPORT_REASON_FA: Record<string, string> = {
   SPAM: 'هرزنامه یا تبلیغ',
@@ -172,9 +199,11 @@ const REPORT_REASON_FA: Record<string, string> = {
  */
 const DESCRIPTION_BUDGET = 1200;
 
+const CLIP_MARK = '… (بریده شد)';
+
 /** Cut on a whole character, and say that it was cut. */
 function clip(text: string, budget: number): string {
-  return text.length <= budget ? text : `${text.slice(0, budget).trimEnd()}… (بریده شد)`;
+  return text.length <= budget ? text : `${text.slice(0, budget).trimEnd()}${CLIP_MARK}`;
 }
 
 /**
@@ -187,7 +216,7 @@ function clip(text: string, budget: number): string {
  */
 export function formatAdminCasePrompt(detail: AdminCaseDetailLine): string {
   const subject = CASE_SUBJECT_FA[detail.subjectType] ?? detail.subjectType;
-  const trigger = CASE_TRIGGER_FA[detail.trigger] ?? detail.trigger;
+  const trigger = caseTriggerFa(detail.trigger, detail.subjectType);
   const status = CASE_STATUS_FA[detail.status] ?? detail.status;
 
   const lines = [
@@ -210,10 +239,26 @@ export function formatAdminCasePrompt(detail: AdminCaseDetailLine): string {
     }
   }
 
+  /**
+   * What each side said (plan 08) — before the activity's own description,
+   * because on a dispute the statements are the evidence and the description is
+   * context. By side and display name; each clipped, the panel has the rest.
+   */
+  if (detail.claims !== undefined && detail.claims.length > 0) {
+    lines.push('');
+    lines.push('گفته‌ها:');
+    for (const claim of detail.claims) {
+      const side = claim.authorRole === 'HOST' ? 'میزبان' : 'مهمان';
+      lines.push(
+        `• ${side} — ${claim.authorDisplayName}: «${clip(claim.statement, STATEMENT_BUDGET)}»`,
+      );
+    }
+  }
+
   if (detail.eventTitle !== null) {
     lines.push('');
     lines.push(`عنوان: ${clip(detail.eventTitle, 200)}`);
-    if (detail.eventDescription !== null) {
+    if (detail.eventDescription !== null && detail.trigger !== 'DISPUTE') {
       lines.push(`شرح: ${clip(detail.eventDescription, DESCRIPTION_BUDGET)}`);
     }
   } else if (detail.subjectType !== 'EVENT') {
@@ -237,8 +282,10 @@ export function formatAdminCasePrompt(detail: AdminCaseDetailLine): string {
    * evidence over two unexplained buttons — which is the one line on it that
    * cannot be lost.
    */
-  const question = 'تصمیم شما چیست؟';
-  const budget = Math.floor(TELEGRAM_MESSAGE_LIMIT / 2) - question.length - 2;
+  const question = detail.trigger === 'DISPUTE' ? 'آیا ادعا درست است؟' : 'تصمیم شما چیست؟';
+  // The mark a clip appends counts too: a body cut to the budget and then
+  // labelled «بریده شد» must still land under the ceiling.
+  const budget = Math.floor(TELEGRAM_MESSAGE_LIMIT / 2) - question.length - 2 - CLIP_MARK.length;
 
   return `${clip(lines.join('\n'), budget)}\n\n${question}`;
 }

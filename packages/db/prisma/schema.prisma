@@ -100,6 +100,7 @@ model User {
   conversation        ConversationState?
   directsSent         DirectMessage[]      @relation("DirectMessagesSent")
   directsReceived     DirectMessage[]      @relation("DirectMessagesReceived")
+  noShowClaims        NoShowClaim[]        @relation("NoShowClaimsAuthored")
 
   @@index([status])
   @@index([createdAt])
@@ -1141,6 +1142,9 @@ model Event {
   /// When the host was asked «همه آمدند؟», once, after the end (migration 0053,
   /// plan 15). NULL is "not yet"; the sweep claims the event by writing it.
   attendancePromptedAt DateTime? @map("attendance_prompted_at") @db.Timestamptz(3)
+  /// A moderator upheld «میزبان نیامد» (plan 08, migration 0057). The host's
+  /// deposit is refused on it, and a paid one reversed.
+  hostAbsentAt DateTime? @map("host_absent_at") @db.Timestamptz(3)
 
   capacity      Int
   /// Invariant 1. Only ever changed under `SELECT … FOR UPDATE` on this row (M6).
@@ -1199,6 +1203,7 @@ model Event {
   invitations  EventInvitation[]
   campaigns    MessageCampaign[]
   directs      DirectMessage[]
+  noShowClaims NoShowClaim[]
 
   @@index([status, startsAt])
   @@index([hostUserId, createdAt])
@@ -1306,6 +1311,11 @@ model EventParticipant {
   /// Null until the event completes and attendance is settled (M11).
   attended Boolean?
 
+  /// When a no-show was told to this guest *with a way to dispute it* (plan 08,
+  /// migration 0057). The dispute window runs from here. NULL on a no-show
+  /// recorded before disputes existed, until the one-off offer is sent.
+  noShowNotifiedAt DateTime? @map("no_show_notified_at") @db.Timestamptz(3)
+
   /// Optimistic-concurrency token for host edits of a decision. Capacity itself
   /// is protected by the event row lock, never by this — a version check cannot
   /// make a counter safe (ADR-0006).
@@ -1322,6 +1332,7 @@ model EventParticipant {
   /// Both sides' reviews of this participation, and the window they share (M11).
   reviews    Review[]
   reviewPair ReviewPair?
+  noShowClaims NoShowClaim[]
 
   /// Invariant 4, and the duplicate-request guard the join path relies on.
   @@unique([eventId, userId])
@@ -1643,6 +1654,8 @@ enum ModerationSubjectType {
   USER
   MESSAGE
   REVIEW
+  /// One person's attendance at one evening — a disputed no-show (plan 08).
+  PARTICIPATION
 
   @@map("moderation_subject_type")
 }
@@ -1651,8 +1664,45 @@ enum ModerationTrigger {
   AUTO_BLACKLIST
   REPORT_THRESHOLD
   MANUAL
+  /// «من حاضر بودم» or «میزبان نیامد» (plan 08). Decided by
+  /// `NoShowClaimService.decide`; `decideCase` refuses it, because its REJECTED
+  /// on an EVENT case would hide the activity.
+  DISPUTE
 
   @@map("moderation_trigger")
+}
+
+/// Which of the three things somebody said about an evening (plan 08).
+enum NoShowClaimKind {
+  GUEST_ABSENT_DISPUTE
+  HOST_ABSENT_REPORT
+  HOST_ABSENT_RESPONSE
+
+  @@map("no_show_claim_kind")
+}
+
+/// One person, about one evening, once (migration 0057).
+model NoShowClaim {
+  id      String          @id @default(uuid(7))
+  eventId String          @map("event_id")
+  kind    NoShowClaimKind
+  /// The seat it is about. NULL exactly for HOST_ABSENT_RESPONSE, by CHECK.
+  participantId    String? @map("participant_id")
+  authorUserId     String  @map("author_user_id")
+  /// 10 to 500 characters, by CHECK. Plain text, like `report.description`.
+  statement        String
+  moderationCaseId String? @map("moderation_case_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  event          Event             @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  participant    EventParticipant? @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  author         User              @relation("NoShowClaimsAuthored", fields: [authorUserId], references: [id], onDelete: Restrict)
+  moderationCase ModerationCase?   @relation(fields: [moderationCaseId], references: [id], onDelete: SetNull)
+
+  @@unique([kind, eventId, authorUserId])
+  @@index([moderationCaseId])
+  @@map("no_show_claim")
 }
 
 enum ModerationCaseStatus {
@@ -1694,6 +1744,7 @@ model ModerationCase {
 
   reports      Report[]
   unsealGrants ChatUnsealGrant[]
+  noShowClaims NoShowClaim[]
 
   @@index([status, createdAt])
   @@index([subjectType, subjectId])
@@ -2959,6 +3010,9 @@ enum ConversationKind {
   /// the two are told apart by the wizard's own seeded field rather than by
   /// guessing at a UUID's table.
   DIRECT_MESSAGE
+  /// «من حاضر بودم», «میزبان نیامد», and a host's answer to the second (plan 08,
+  /// migration 0056). One text field; which of the three it is arrives seeded.
+  NO_SHOW_CLAIM
 
   @@map("conversation_kind")
 }

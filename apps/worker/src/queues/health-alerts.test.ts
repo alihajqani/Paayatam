@@ -63,6 +63,7 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     {} as never, // ModerationDigestService
     {} as never, // AuditService — only the channel sweep writes one
     {} as never, // CityLaunchAnnouncementService
+    {} as never, // NoShowClaimService
   );
 }
 

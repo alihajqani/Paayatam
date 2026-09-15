@@ -378,6 +378,13 @@ export class ReportService {
          */
         return { id: chat.id, publicId: chat.publicId, ownerUserId: null };
       }
+      /**
+       * Not reportable (plan 08). A disputed attendance opens its own case from
+       * «من حاضر بودم», and a participation has no public id a report could name
+       * from outside the two people in it.
+       */
+      case 'PARTICIPATION':
+        throw new AppError(ErrorCode.NOT_FOUND);
     }
   }
 }

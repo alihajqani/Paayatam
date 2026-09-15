@@ -318,6 +318,56 @@ describe('the hosting settlement', () => {
   });
 
   /**
+   * The same evening, with the guest saying the host never came (plan 08).
+   *
+   * A host who did not come and marked the only guest absent is exactly the
+   * case above — so the deposit is held while «میزبان نیامد» is open, refused
+   * once it is upheld, and paid only if the report is not.
+   */
+  it('holds the deposit while a report that the host did not come is open', async () => {
+    const { id, guests } = await heldWith(1, REFUND, 1);
+    const seat = await prisma.eventParticipant.findFirstOrThrow({
+      where: { eventId: id },
+      select: { id: true },
+    });
+    const opened = await prisma.moderationCase.create({
+      data: { subjectType: 'EVENT', subjectId: id, trigger: 'DISPUTE' },
+      select: { id: true },
+    });
+    await prisma.noShowClaim.create({
+      data: {
+        eventId: id,
+        kind: 'HOST_ABSENT_REPORT',
+        participantId: seat.id,
+        authorUserId: guests[0] ?? '',
+        statement: 'میزبان اصلاً نیامد و کسی آنجا نبود.',
+        moderationCaseId: opened.id,
+      },
+    });
+
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 0 });
+
+    await prisma.moderationCase.update({
+      where: { id: opened.id },
+      data: {
+        status: 'REJECTED',
+        decision: 'DISMISSED',
+        decisionNote: 'میزبان حاضر بود',
+        decidedBy: 'moderator',
+        decidedAt: AFTER_SETTLEMENT,
+      },
+    });
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 1, coins: REFUND });
+  });
+
+  it('never returns the deposit of a host found absent', async () => {
+    const { id } = await heldWith(1, REFUND, 1);
+    await prisma.event.update({ where: { id }, data: { hostAbsentAt: AFTER_SETTLEMENT } });
+
+    await expect(hostRewards.settle()).resolves.toMatchObject({ events: 0, coins: 0 });
+  });
+
+  /**
    * Nobody ever held a seat: the deposit is kept, so registering activities that
    * never happen still costs what it was meant to.
    */

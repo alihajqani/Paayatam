@@ -366,7 +366,16 @@ export class PenaltyService {
   async refundParticipant(
     tx: Prisma.TransactionClient,
     participantId: string,
-    actorUserId: string,
+    actorId: string,
+    /**
+     * Who is giving it back. The host, when they cancel; a moderator, when they
+     * uphold «میزبان نیامد» (plan 08) — the same refund for the undeclared
+     * version of the same thing, with the ledger naming who decided it.
+     */
+    actor: { actorType: 'USER' | 'ADMIN'; reasonCode: string } = {
+      actorType: 'USER',
+      reasonCode: HOST_REFUND_REASON,
+    },
   ): Promise<number> {
     const charges = await tx.coinLedger.findMany({
       where: {
@@ -386,9 +395,9 @@ export class PenaltyService {
       await this.coins.reverse(
         {
           ledgerId: charge.id,
-          reasonCode: HOST_REFUND_REASON,
-          actorType: 'USER',
-          actorId: actorUserId,
+          reasonCode: actor.reasonCode,
+          actorType: actor.actorType,
+          actorId,
         },
         tx,
       );

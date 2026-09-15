@@ -630,6 +630,22 @@ export const SETTING_DEFAULTS = {
   'cancellation.host_penalty_multiplier': 1.5,
   'cancellation.host_trust_gt24h': 5,
   'cancellation.host_trust_lt24h': 12,
+  /**
+   * How long «من حاضر بودم» and «میزبان نیامد» stay open (plan 08, decided
+   * 2026-09-14): from the moment a guest was told of their no-show, and from the
+   * end of the activity for a report about the host.
+   *
+   * Seven days, because ledgers and the economy reports reckon over the past and
+   * cannot stay open forever — and because the button stays in the chat forever,
+   * so past this it refuses politely rather than with an error.
+   */
+  'cancellation.dispute_window_days': 7,
+  /**
+   * How long a host has to answer «میزبان نیامد» before a moderator decides
+   * without them (plan 08). From the moment the first report opened the case.
+   * Nothing moves while it runs: money changes hands only on the decision.
+   */
+  'cancellation.response_window_hours': 48,
 
   /**
    * Attending something is the one routine way a score goes up (plan §11: +2,
