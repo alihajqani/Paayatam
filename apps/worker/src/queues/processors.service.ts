@@ -636,6 +636,11 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      case JOBS.CHANNEL_CAPACITY_SYNC: {
+        await this.syncChannelCapacity();
+        return;
+      }
+
       case JOBS.CAMPAIGN_DISPATCH: {
         await this.onCampaignDispatch();
         return;
@@ -1106,7 +1111,7 @@ export class Processors implements OnModuleInit {
       const outcome = await this.telegram.postToChannel(rendered.text, rendered.keyboard);
 
       if (outcome.kind === 'SENT') {
-        await this.channel.markPosted(post.postId, outcome.messageId, post.full);
+        await this.channel.markPosted(post.postId, outcome.messageId, post);
         this.metrics.counter(
           'payetam_channel_post_total',
           'Channel publication attempts by outcome.',
@@ -1128,18 +1133,25 @@ export class Processors implements OnModuleInit {
     }
 
     this.reportChannelHealth(sent, failed, lastReason);
+  }
 
-    /**
-     * Capacity lines that crossed a boundary (plan 14, item 3).
-     *
-     * Last, and budgeted by `findStaleCapacity`'s limit: a new post matters more
-     * than a corrected one, and an edit per acceptance would spend the channel's
-     * rate limit on digits. Only «filled» and «a seat opened again» are edited.
-     *
-     * A post that is gone or uneditable is recorded as rendered anyway — retrying
-     * cannot change the answer, and the row must stop coming back every pass.
-     * Not counted in the channel's health: that is about publishing.
-     */
+  /**
+   * Seats lines that have fallen behind their activity (v0.16.0).
+   *
+   * Its own job, once a minute, rather than the tail of `syncChannel`: a request
+   * closing a seat should reach the channel in about a minute, and the five-minute
+   * publishing sweep would make it five. What keeps a minute's cadence safe with
+   * Telegram is `findStaleCapacity`'s budget — a handful of edits per pass, well
+   * under a channel's per-minute allowance even beside a publishing pass — and
+   * that it compares counts rather than replaying changes, so a burst of requests
+   * to one activity is one edit.
+   *
+   * A post that is gone or uneditable is recorded as rendered anyway — retrying
+   * cannot change the answer, and the row must stop coming back every pass. A
+   * RETRY (a 429 among them) leaves the row stale and the next pass tries again.
+   * Not counted in the channel's health: that is about publishing.
+   */
+  private async syncChannelCapacity(): Promise<void> {
     for (const post of await this.channel.findStaleCapacity()) {
       const rendered = this.renderPost(post);
       const outcome = await this.telegram.editChannelPost(
@@ -1155,7 +1167,7 @@ export class Processors implements OnModuleInit {
             'its capacity line stays as it was.',
         );
       }
-      await this.channel.markCapacityRendered(post.postId, post.full);
+      await this.channel.markCapacityRendered(post.postId, post);
     }
   }
 
@@ -1175,10 +1187,11 @@ export class Processors implements OnModuleInit {
       districtName: post.districtName,
       startsAt: post.startsAt,
       capacity: post.capacity,
-      acceptedCount: post.acceptedCount,
+      takenCount: post.takenCount,
       costType: post.costType,
       costAmount: post.costAmount,
       eventPublicId: post.eventPublicId,
+      eventNumber: post.eventNumber,
       botUsername: this.telegram.botUsername,
     });
   }

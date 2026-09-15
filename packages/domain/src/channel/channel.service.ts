@@ -2,14 +2,17 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { ChannelPostKind, Prisma } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
-import { UNLIMITED_CAPACITY, isUnlimitedCapacity } from '@payetam/shared';
+import { isUnlimitedCapacity } from '@payetam/shared';
 import { SettingsService } from '../catalog/settings.service';
 import { isUniqueViolation } from '../identity/user.service';
+import { SLOT_HOLDING_STATUSES } from '../participation/state-machine';
 
 /** What the publisher needs to render and post one event. */
 export interface PublishablePost {
   postId: string;
   eventPublicId: string;
+  /** `event.number`, for the post's «#رویداد_…» hashtag. */
+  eventNumber: number;
   kind: ChannelPostKind;
   title: string;
   categoryName: string;
@@ -18,15 +21,25 @@ export interface PublishablePost {
   startsAt: Date;
   capacity: number;
   acceptedCount: number;
+  /**
+   * Seats the channel shows as taken: accepted guests plus requests awaiting the
+   * host (v0.16.0). A request closes a seat in the post the moment it is made; an
+   * acceptance keeps it closed, a rejection or an expiry opens it. What
+   * `markPosted` and `markCapacityRendered` record, so the sweep can tell when the
+   * text in the channel has fallen behind.
+   */
+  takenCount: number;
   costType: string;
   costAmount: number | null;
-  /**
-   * Whether these numbers render as «ظرفیت تکمیل» — what `markPosted` and
-   * `markCapacityRendered` record, so the sweep knows which side of full the
-   * text in the channel is on (plan 14, item 3).
-   */
+  /** Whether `takenCount` renders as «ظرفیت تکمیل». Recorded as `rendered_full`. */
   full: boolean;
 }
+
+/**
+ * How many live posts one capacity pass looks at. Far more than the channel
+ * carries at once — they are the posts for activities that have not started.
+ */
+const LIVE_POST_SCAN = 200;
 
 /** A live post whose capacity line no longer matches the activity. */
 export interface StaleCapacityPost extends PublishablePost {
@@ -37,8 +50,59 @@ export interface StaleCapacityPost extends PublishablePost {
  * «ظرفیت تکمیل», by the rule `seatsLine` renders: nothing left, and a limit to
  * have run out of. Unlimited is never full, however many have joined.
  */
-function showsFull(capacity: number, acceptedCount: number): boolean {
-  return !isUnlimitedCapacity(capacity) && acceptedCount >= capacity;
+function showsFull(capacity: number, takenCount: number): boolean {
+  return !isUnlimitedCapacity(capacity) && takenCount >= capacity;
+}
+
+/** The event columns every post is rendered from. One list, three reads. */
+const POST_EVENT_SELECT = {
+  id: true,
+  publicId: true,
+  number: true,
+  title: true,
+  startsAt: true,
+  capacity: true,
+  acceptedCount: true,
+  costType: true,
+  costAmount: true,
+  category: { select: { nameFa: true } },
+  city: { select: { nameFa: true } },
+  district: { select: { nameFa: true } },
+  districtLabel: true,
+} satisfies Prisma.EventSelect;
+
+type PostEventRow = Prisma.EventGetPayload<{ select: typeof POST_EVENT_SELECT }>;
+
+/** A publishable post from its row, its event and the event's pending requests. */
+function toPublishable(
+  postId: string,
+  kind: ChannelPostKind,
+  event: PostEventRow,
+  pending: number,
+): PublishablePost {
+  // Clamped: `join` admits against `accepted + pending < capacity`, so the sum
+  // cannot pass capacity through it — but a host lowering capacity under an open
+  // queue could, and a post must not say «-۱ جای خالی».
+  const takenCount = isUnlimitedCapacity(event.capacity)
+    ? event.acceptedCount + pending
+    : Math.min(event.acceptedCount + pending, event.capacity);
+  return {
+    postId,
+    eventPublicId: event.publicId,
+    eventNumber: event.number,
+    kind,
+    title: event.title,
+    categoryName: event.category.nameFa,
+    cityName: event.city.nameFa,
+    districtName: event.district?.nameFa ?? event.districtLabel,
+    startsAt: event.startsAt,
+    capacity: event.capacity,
+    acceptedCount: event.acceptedCount,
+    takenCount,
+    costType: event.costType,
+    costAmount: event.costAmount,
+    full: showsFull(event.capacity, takenCount),
+  };
 }
 
 /** A post that should come down, and the message id needed to take it down. */
@@ -109,23 +173,10 @@ export class ChannelService {
       },
       orderBy: { publishedAt: 'asc' },
       take: limit,
-      select: {
-        id: true,
-        publicId: true,
-        title: true,
-        startsAt: true,
-        capacity: true,
-        acceptedCount: true,
-        costType: true,
-        costAmount: true,
-        requestCount: true,
-        category: { select: { nameFa: true } },
-        city: { select: { nameFa: true } },
-        district: { select: { nameFa: true } },
-        districtLabel: true,
-      },
+      select: POST_EVENT_SELECT,
     });
 
+    const pending = await this.pendingCounts(candidates.map((event) => event.id));
     const claimed: PublishablePost[] = [];
 
     for (const event of candidates) {
@@ -149,21 +200,7 @@ export class ChannelService {
           throw error;
         }
 
-        claimed.push({
-          postId,
-          eventPublicId: event.publicId,
-          kind,
-          title: event.title,
-          categoryName: event.category.nameFa,
-          cityName: event.city.nameFa,
-          districtName: event.district?.nameFa ?? event.districtLabel,
-          startsAt: event.startsAt,
-          capacity: event.capacity,
-          acceptedCount: event.acceptedCount,
-          costType: event.costType,
-          costAmount: event.costAmount,
-          full: showsFull(event.capacity, event.acceptedCount),
-        });
+        claimed.push(toPublishable(postId, kind, event, pending.get(event.id) ?? 0));
       }
     }
 
@@ -295,83 +332,67 @@ export class ChannelService {
       where: { kind: 'PAID', postedAt: null, deletedAt: null },
       orderBy: { createdAt: 'asc' },
       take: limit,
-      select: {
-        id: true,
-        event: {
-          select: {
-            publicId: true,
-            title: true,
-            startsAt: true,
-            capacity: true,
-            acceptedCount: true,
-            costType: true,
-            costAmount: true,
-            category: { select: { nameFa: true } },
-            city: { select: { nameFa: true } },
-            district: { select: { nameFa: true } },
-            districtLabel: true,
-          },
-        },
-      },
+      select: { id: true, event: { select: POST_EVENT_SELECT } },
     });
 
-    return rows.map((row) => ({
-      postId: row.id,
-      eventPublicId: row.event.publicId,
-      kind: 'PAID' as const,
-      title: row.event.title,
-      categoryName: row.event.category.nameFa,
-      cityName: row.event.city.nameFa,
-      districtName: row.event.district?.nameFa ?? row.event.districtLabel,
-      startsAt: row.event.startsAt,
-      capacity: row.event.capacity,
-      acceptedCount: row.event.acceptedCount,
-      costType: row.event.costType,
-      costAmount: row.event.costAmount,
-      full: showsFull(row.event.capacity, row.event.acceptedCount),
-    }));
+    const pending = await this.pendingCounts(rows.map((row) => row.event.id));
+    return rows.map((row) =>
+      toPublishable(row.id, 'PAID', row.event, pending.get(row.event.id) ?? 0),
+    );
   }
 
   /**
    * Telegram confirmed it. Now the row can be taken down later.
    *
-   * `renderedFull` is the `full` of the post that was sent: without it, a post
-   * that went out already full would read as stale and be edited to what it
+   * `post` is what was sent: its `full` and `takenCount` are recorded so the
+   * capacity sweep does not read a fresh post as stale and edit it into what it
    * already says.
    */
   async markPosted(
     postId: string,
     telegramMessageId: number,
-    renderedFull: boolean,
+    post: Pick<PublishablePost, 'full' | 'takenCount'>,
   ): Promise<void> {
     await this.prisma.channelPost.update({
       where: { id: postId },
-      data: { telegramMessageId, postedAt: this.clock.now(), renderedFull },
+      data: {
+        telegramMessageId,
+        postedAt: this.clock.now(),
+        renderedFull: post.full,
+        renderedTaken: post.takenCount,
+      },
     });
   }
 
   /**
-   * Live posts that say the wrong side of full (plan 14, item 3).
+   * Live posts whose seats line no longer matches the activity (v0.16.0).
    *
-   * A post is rendered once. Editing it on every acceptance would put a busy
-   * channel against Telegram's rate limit, so only the two boundaries count: it
-   * filled while the text still offers seats, or a seat opened on one that says
-   * «ظرفیت تکمیل». The number between them is allowed to lag.
+   * Plan 14 edited a post only when it crossed «ظرفیت تکمیل», so a busy activity
+   * was not an edit per acceptance. The channel now shows every change — a
+   * request closes a seat, a rejection opens it — and what keeps that inside
+   * Telegram's limits is not the boundary any more but the **budget**: `limit`
+   * edits per pass, oldest post first, on a pass that runs once a minute. Five
+   * requests to one activity inside that minute are one edit, because the sweep
+   * compares the count now with the count the text carries and never replays the
+   * changes in between.
+   *
+   * Stale means `rendered_taken` disagrees with accepted + pending, or is NULL —
+   * a post from before 0058, edited once into the current format. An unlimited
+   * activity's line never changes («بدون محدودیت»), so only that NULL edits it.
    *
    * Live means what `findTakedowns` does not want: posted, not taken down, not
-   * superseded, for a published activity that has not started. Unlimited
-   * activities are never full and never returned. `limit` is the edit budget
-   * for one pass.
+   * superseded, for a published activity that has not started. Live posts are
+   * the handful for upcoming activities, so they are read whole and compared
+   * here — the count is an aggregate over another table, which a Prisma filter
+   * cannot compare with a column.
    *
    * Nothing while `channel.enabled` is off: an edit is a write to the public
-   * surface the switch exists to stop. Takedowns still run — removing is what an
-   * incident wants — and the flag stays stale, so the edit lands once it is on.
+   * surface the switch exists to stop. The stored count stays stale, so the edit
+   * lands once it is on.
    */
-  async findStaleCapacity(limit = 10): Promise<StaleCapacityPost[]> {
+  async findStaleCapacity(limit = 8): Promise<StaleCapacityPost[]> {
     if ((await this.settings.getInt('channel.enabled')) !== 1) return [];
     const now = this.clock.now();
-    // A column compared with a column, which a plain filter cannot express.
-    const capacity = this.prisma.event.fields.capacity;
 
     const rows = await this.prisma.channelPost.findMany({
       where: {
@@ -379,71 +400,62 @@ export class ChannelService {
         postedAt: { not: null },
         supersededAt: null,
         telegramMessageId: { not: null },
-        event: {
-          status: 'PUBLISHED',
-          deletedAt: null,
-          startsAt: { gt: now },
-          capacity: { lt: UNLIMITED_CAPACITY },
-        },
-        OR: [
-          { renderedFull: false, event: { acceptedCount: { gte: capacity } } },
-          { renderedFull: true, event: { acceptedCount: { lt: capacity } } },
-        ],
+        event: { status: 'PUBLISHED', deletedAt: null, startsAt: { gt: now } },
       },
       orderBy: { postedAt: 'asc' },
-      take: limit,
+      take: LIVE_POST_SCAN,
       select: {
         id: true,
         kind: true,
         telegramMessageId: true,
-        event: {
-          select: {
-            publicId: true,
-            title: true,
-            startsAt: true,
-            capacity: true,
-            acceptedCount: true,
-            costType: true,
-            costAmount: true,
-            category: { select: { nameFa: true } },
-            city: { select: { nameFa: true } },
-            district: { select: { nameFa: true } },
-            districtLabel: true,
-          },
-        },
+        renderedTaken: true,
+        event: { select: POST_EVENT_SELECT },
       },
     });
 
-    return rows.flatMap((row) =>
-      row.telegramMessageId === null
-        ? []
-        : [
-            {
-              postId: row.id,
-              telegramMessageId: row.telegramMessageId,
-              eventPublicId: row.event.publicId,
-              kind: row.kind,
-              title: row.event.title,
-              categoryName: row.event.category.nameFa,
-              cityName: row.event.city.nameFa,
-              districtName: row.event.district?.nameFa ?? row.event.districtLabel,
-              startsAt: row.event.startsAt,
-              capacity: row.event.capacity,
-              acceptedCount: row.event.acceptedCount,
-              costType: row.event.costType,
-              costAmount: row.event.costAmount,
-              full: showsFull(row.event.capacity, row.event.acceptedCount),
-            },
-          ],
-    );
+    const pending = await this.pendingCounts(rows.map((row) => row.event.id));
+    const stale: StaleCapacityPost[] = [];
+
+    for (const row of rows) {
+      if (stale.length >= limit) break;
+      if (row.telegramMessageId === null) continue;
+
+      const post = toPublishable(row.id, row.kind, row.event, pending.get(row.event.id) ?? 0);
+      const changed =
+        row.renderedTaken === null ||
+        (!isUnlimitedCapacity(post.capacity) && row.renderedTaken !== post.takenCount);
+      if (changed) stale.push({ ...post, telegramMessageId: row.telegramMessageId });
+    }
+
+    return stale;
   }
 
-  /** The edit landed, or can never land: either way the channel now says `full`. */
-  async markCapacityRendered(postId: string, full: boolean): Promise<void> {
+  /** The edit landed, or can never land: either way stop reconsidering this count. */
+  async markCapacityRendered(
+    postId: string,
+    post: Pick<PublishablePost, 'full' | 'takenCount'>,
+  ): Promise<void> {
     await this.prisma.channelPost.update({
       where: { id: postId },
-      data: { renderedFull: full },
+      data: { renderedFull: post.full, renderedTaken: post.takenCount },
     });
+  }
+
+  /**
+   * Requests awaiting a host, per event — the half of `takenCount` that is not
+   * `accepted_count`. One grouped read for a whole pass.
+   */
+  private async pendingCounts(eventIds: readonly string[]): Promise<Map<string, number>> {
+    if (eventIds.length === 0) return new Map();
+    const groups = await this.prisma.eventParticipant.groupBy({
+      by: ['eventId'],
+      where: {
+        eventId: { in: [...new Set(eventIds)] },
+        status: { in: [...SLOT_HOLDING_STATUSES] },
+      },
+      _count: { _all: true },
+    });
+    return new Map(groups.map((group) => [group.eventId, group._count._all]));
   }
 
   /**

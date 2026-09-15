@@ -34,7 +34,7 @@ describe('formatDiscovered', () => {
     const text = formatDiscovered([line()]);
 
     expect(text).toContain('کوهنوردی');
-    expect(text).toContain('۳ جای خالی از ۶');
+    expect(text).toContain('🟡 ۳ جای خالی از ۶');
     expect(text).toContain('ساعت');
   });
 

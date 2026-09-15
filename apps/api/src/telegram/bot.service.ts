@@ -3174,10 +3174,18 @@ export class BotService {
      * texts are one tap further, behind «⭐️ نظرها دربارهٔ میزبان», drawn only
      * when there is something published to read.
      */
-    const [mine, hostReviews] = await Promise.all([
+    const [mine, hostReviews, pending] = await Promise.all([
       isHost ? null : this.participation.findMineForEvent(user.id, eventPublicId),
       this.reviews.summaryForUser(event.hostPublicId),
+      this.participation.pendingCounts([eventPublicId]),
     ]);
+    /**
+     * Seats spoken for, the way the channel post counts them (v0.16.0): a
+     * request awaiting the host closes a seat. It is also what `join` admits
+     * against, so the waiting-list label below appears exactly when a tap would
+     * be waitlisted.
+     */
+    const takenCount = event.acceptedCount + (pending.get(eventPublicId) ?? 0);
     return this.reply(updateId, user.id, TEMPLATES.BOT_EVENT_DETAIL, {
       text: formatEventDetail({
         title: event.title,
@@ -3187,7 +3195,7 @@ export class BotService {
         startsAt: event.startsAt,
         endsAt: event.endsAt,
         capacity: event.capacity,
-        acceptedCount: event.acceptedCount,
+        takenCount,
         costType: event.costType,
         costAmount: event.costAmount,
         costNote: event.costNote,
@@ -3228,7 +3236,7 @@ export class BotService {
                          */
                         text: isUnlimitedCapacity(event.capacity)
                           ? JOIN_BUTTON_FA
-                          : event.acceptedCount >= event.capacity
+                          : takenCount >= event.capacity
                             ? WAITLIST_BUTTON_FA
                             : JOIN_BUTTON_FA,
                         callbackData: encodeEventCallback('join', eventPublicId),
@@ -4661,6 +4669,9 @@ export class BotService {
 
     const hasNext = page.events.length > DISCOVER_LIMIT;
     const shown = page.events.slice(0, DISCOVER_LIMIT);
+    // A request awaiting its host closes a seat in the list as it does in the
+    // channel (v0.16.0). One grouped read for the page.
+    const pending = await this.participation.pendingCounts(shown.map((event) => event.publicId));
 
     /**
      * The list, and the panel that filters it — one message with two faces.
@@ -4677,7 +4688,10 @@ export class BotService {
           title: event.title,
           startsAt: event.startsAt,
           capacity: event.capacity,
-          remainingCapacity: Math.max(event.capacity - event.acceptedCount, 0),
+          remainingCapacity: Math.max(
+            event.capacity - event.acceptedCount - (pending.get(event.publicId) ?? 0),
+            0,
+          ),
           publicId: event.publicId,
         })),
         filters.page * DISCOVER_LIMIT,

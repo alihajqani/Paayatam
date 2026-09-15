@@ -2272,6 +2272,7 @@ function toChannelConfigView(config: ChannelConfigStatus): ChannelConfigView {
     canVerify: config.canVerify,
     warnings: config.warnings,
     publishingWarnings: config.publishingWarnings,
+    unverifiableChannels: config.unverifiableChannels,
   };
 }
 

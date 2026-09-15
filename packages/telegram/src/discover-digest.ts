@@ -1,6 +1,6 @@
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import { escapeHtml, toPersianDigits } from './escape';
-import { seatsLineFromRemaining } from './seats';
+import { seatsFillEmoji, seatsLineFromRemaining } from './seats';
 import { eventCommandFor } from './event-code';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
@@ -9,6 +9,7 @@ export interface DiscoverLine {
   title: string;
   startsAt: Date;
   capacity: number;
+  /** Seats neither accepted nor asked for — pending requests close one (v0.16.0). */
   remainingCapacity: number;
   /** The activity's public id — the command that opens it is derived from this. */
   publicId: string;
@@ -80,7 +81,9 @@ export function formatDiscovered(
      * v0.7.0 the list shows full activities on purpose, because a waiting list
      * you cannot see is a waiting list nobody joins.
      */
-    const seats = seatsLineFromRemaining(line.capacity, line.remainingCapacity);
+    const seats =
+      `${seatsFillEmoji(line.capacity, line.capacity - line.remainingCapacity)} ` +
+      seatsLineFromRemaining(line.capacity, line.remainingCapacity);
 
     // Numbered from the top of the *page*, so the reader's «۳» is the third
     // thing they can see rather than the third of a set they cannot.
@@ -90,7 +93,7 @@ export function formatDiscovered(
     return (
       `<b>${number}. ${escapeHtml(line.title)}</b>\n` +
       `🗓 ${formatJalali(line.startsAt)} — ساعت ${formatJalaliTime(line.startsAt)}\n` +
-      `👥 ${seats}` +
+      `${seats}` +
       // An activity whose public id is malformed gets no command rather than a
       // broken one: the line is still readable, and nothing renders `/event_null`.
       (command === null ? '' : `\n${command}`)

@@ -138,6 +138,14 @@ describe('formatOwnedEvent', () => {
     expect(text).toContain('۳ جای خالی از ۶');
   });
 
+  /** A request awaiting the host closes a seat, as it does in the channel (v0.16.0). */
+  it('counts requests awaiting an answer as taken seats', () => {
+    const text = formatOwnedEvent(owned({ capacity: 4, acceptedCount: 1, pendingCount: 2 }));
+
+    expect(text).toContain('۱ نفر پذیرفته‌شده · 🟠 ۱ جای خالی از ۴');
+    expect(text).toContain('۲ درخواست در انتظار پاسخ شما');
+  });
+
   it('says «ظرفیت تکمیل» rather than «۰ جای خالی»', () => {
     expect(formatOwnedEvent(owned({ acceptedCount: 6 }))).toContain('ظرفیت تکمیل');
   });

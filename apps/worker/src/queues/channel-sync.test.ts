@@ -19,6 +19,7 @@ function stalePost(overrides: Record<string, unknown> = {}): Record<string, unkn
     postId: 'post-1',
     telegramMessageId: 4242,
     eventPublicId: EVENT,
+    eventNumber: 25,
     kind: 'PAID',
     title: 'شب بازی رومیزی',
     categoryName: 'بازی',
@@ -26,7 +27,8 @@ function stalePost(overrides: Record<string, unknown> = {}): Record<string, unkn
     districtName: null,
     startsAt: new Date('2026-09-20T15:00:00.000Z'),
     capacity: 6,
-    acceptedCount: 6,
+    acceptedCount: 4,
+    takenCount: 6,
     costType: 'FREE',
     costAmount: null,
     full: true,
@@ -90,10 +92,18 @@ function build(options: Options) {
 }
 
 /** Reached the way the scheduled queue reaches it. */
-function sync(processors: Processors): Promise<void> {
+function run(processors: Processors, name: string): Promise<void> {
   return (
     processors as unknown as { onScheduled: (job: { name: string }) => Promise<void> }
-  ).onScheduled({ name: JOBS.CHANNEL_SYNC });
+  ).onScheduled({ name });
+}
+
+function sync(processors: Processors): Promise<void> {
+  return run(processors, JOBS.CHANNEL_SYNC);
+}
+
+function syncCapacity(processors: Processors): Promise<void> {
+  return run(processors, JOBS.CHANNEL_CAPACITY_SYNC);
 }
 
 describe('a takedown Telegram refuses', () => {
@@ -148,37 +158,65 @@ describe('a takedown Telegram refuses', () => {
   });
 });
 
-describe('a capacity line that crossed a boundary', () => {
+describe('a seats line that fell behind (v0.16.0)', () => {
   it('rewrites the post with its buttons, and records what it now says', async () => {
     const { processors, channel, telegram } = build({ stale: [stalePost()] });
 
-    await sync(processors);
+    await syncCapacity(processors);
 
     expect(telegram.editChannelPost).toHaveBeenCalledOnce();
     const [messageId, text, keyboard] = telegram.editChannelPost.mock.calls[0] ?? [];
     expect(messageId).toBe(4242);
-    expect(text).toContain('ظرفیت تکمیل');
+    // Four accepted plus two pending is six of six.
+    expect(text).toContain('🔴 ظرفیت تکمیل');
+    expect(text).toContain('#رویداد_۲۵');
     // Without `reply_markup` the edit would strip «🤝 پایتم» off the post.
     expect((keyboard as unknown[][]).flat().length).toBeGreaterThan(0);
-    expect(channel.markCapacityRendered).toHaveBeenCalledWith('post-1', true);
+    expect(channel.markCapacityRendered).toHaveBeenCalledWith(
+      'post-1',
+      expect.objectContaining({ full: true, takenCount: 6 }),
+    );
+  });
+
+  it('counts a pending request as a closed seat', async () => {
+    const { processors, telegram } = build({
+      stale: [stalePost({ acceptedCount: 0, takenCount: 1, capacity: 4, full: false })],
+    });
+
+    await syncCapacity(processors);
+
+    const [, text] = telegram.editChannelPost.mock.calls[0] ?? [];
+    expect(text).toContain('🟢 ۳ جای خالی از ۴');
   });
 
   it('tries again next pass when the edit did not land', async () => {
     const { processors, channel } = build({ stale: [stalePost()], edited: 'RETRY' });
 
-    await sync(processors);
+    await syncCapacity(processors);
 
     expect(channel.markCapacityRendered).not.toHaveBeenCalled();
   });
 
   it('stops asking about a post that can never be edited', async () => {
     const { processors, channel } = build({
-      stale: [stalePost({ full: false, acceptedCount: 5 })],
+      stale: [stalePost({ full: false, takenCount: 5 })],
       edited: 'UNEDITABLE',
     });
 
+    await syncCapacity(processors);
+
+    expect(channel.markCapacityRendered).toHaveBeenCalledWith(
+      'post-1',
+      expect.objectContaining({ full: false, takenCount: 5 }),
+    );
+  });
+
+  /** Publishing runs every five minutes; the seats line cannot wait that long. */
+  it('is not the publishing sweep’s job any more', async () => {
+    const { processors, channel } = build({ stale: [stalePost()] });
+
     await sync(processors);
 
-    expect(channel.markCapacityRendered).toHaveBeenCalledWith('post-1', false);
+    expect(channel.findStaleCapacity).not.toHaveBeenCalled();
   });
 });

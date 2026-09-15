@@ -1087,6 +1087,9 @@ enum GenderPreference {
 model Event {
   id          String @id @default(uuid(7))
   publicId    String @unique @default(uuid(4)) @map("public_id")
+  /// The activity's sequential number, for the channel's «#رویداد_۲۵» (0058).
+  /// A sequence, so gaps are allowed; not an identifier anything looks rows up by.
+  number      Int    @unique @default(autoincrement())
   hostUserId  String @map("host_user_id")
   title       String
   description String
@@ -2628,6 +2631,10 @@ model ChannelPost {
   /// when this disagrees with the event, so a busy activity is not an edit per
   /// acceptance (0052, plan 14).
   renderedFull Boolean @default(false) @map("rendered_full")
+  /// The seats-taken count (accepted + pending) the text in the channel shows. The
+  /// capacity sweep edits a post when this disagrees with the activity; NULL is a
+  /// post from before 0058, edited once into the current format.
+  renderedTaken Int? @map("rendered_taken")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 

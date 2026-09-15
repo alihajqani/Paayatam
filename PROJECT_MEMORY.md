@@ -388,6 +388,14 @@ suite was green through all of them.
   host's queue*, which is what `join` admits against. Do not "restore" PENDING to
   the seat-holding set to make the waitlist work — `SLOT_HOLDING_STATUSES` is
   what makes it work, and the reason for the split is written on both constants.
+  **What «جای خالی» shows is a different count, by the operator's request**
+  (v0.16.0): the channel post, the discovery list, the detail page and the host's
+  console all count accepted + PENDING as taken, so a request closes a seat on
+  screen and a rejection opens it (`PublishablePost.takenCount`,
+  `ParticipationService.pendingCounts`). That is display only — `accepted_count`
+  and `SEAT_HOLDING_STATUSES` did not change — and it matches what `join` already
+  admits against, so the waiting-list button appears exactly when a tap would be
+  waitlisted.
 - **Gift codes are matched exactly; referral codes are not.** The two look like
   the same kind of string and are not: one is generated from a fixed alphabet and
   read aloud, the other is chosen by an operator and worth money. Do not

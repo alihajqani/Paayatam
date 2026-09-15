@@ -288,7 +288,7 @@ describe('no duplicate post per event per kind', () => {
     await createEvent({ requestCount: 10 });
     const claimed = await channel.claimPending();
     const postId = claimed[0]?.postId ?? '';
-    await channel.markPosted(postId, 42, false);
+    await channel.markPosted(postId, 42, { full: false, takenCount: 2 });
 
     await channel.releaseClaim(postId);
 
@@ -302,7 +302,7 @@ describe('a stale post comes down', () => {
     const event = await createEvent({ requestCount: 10, ...options });
     const claimed = await channel.claimPending();
     const postId = claimed[0]?.postId ?? '';
-    await channel.markPosted(postId, 4242, false);
+    await channel.markPosted(postId, 4242, { full: false, takenCount: 2 });
     return { id: event.id, postId };
   }
 
@@ -408,10 +408,11 @@ describe('the post body carries no host identity', () => {
       districtName: post?.districtName ?? null,
       startsAt: post?.startsAt ?? NOW,
       capacity: post?.capacity ?? 0,
-      acceptedCount: post?.acceptedCount ?? 0,
+      takenCount: post?.takenCount ?? 0,
       costType: post?.costType ?? 'FREE',
       costAmount: post?.costAmount ?? null,
       eventPublicId: post?.eventPublicId ?? '',
+      eventNumber: 7,
       botUsername: 'payetam_bot',
     });
     // Text *and* button. The keyboard is part of the post the channel shows, so
@@ -438,10 +439,11 @@ describe('the post body carries no host identity', () => {
         districtName: null,
         startsAt: STARTS_AT,
         capacity: 6,
-        acceptedCount: 2,
+        takenCount: 2,
         costType: 'FREE',
         costAmount: null,
         eventPublicId: '00000000-0000-4000-8000-000000000000',
+        eventNumber: 7,
         botUsername: 'payetam_bot',
       });
 
@@ -471,10 +473,11 @@ describe('the post body carries no host identity', () => {
       districtName: null,
       startsAt: STARTS_AT,
       capacity: 6,
-      acceptedCount: 2,
+      takenCount: 2,
       costType: 'FREE',
       costAmount: null,
       eventPublicId: '11111111-1111-4111-8111-111111111111',
+      eventNumber: 7,
       botUsername: 'payetam_bot',
     });
 
@@ -510,10 +513,11 @@ describe('the post body carries no host identity', () => {
       districtName: null,
       startsAt: STARTS_AT,
       capacity: 6,
-      acceptedCount: 2,
+      takenCount: 2,
       costType: 'FREE',
       costAmount: null,
       eventPublicId: post?.eventPublicId ?? '',
+      eventNumber: 7,
       botUsername: 'payetam_bot',
     }).text;
 
@@ -536,10 +540,11 @@ describe('the post body carries no host identity', () => {
       districtName: null,
       startsAt: STARTS_AT,
       capacity: 6,
-      acceptedCount: 2,
+      takenCount: 2,
       costType: 'FREE',
       costAmount: null,
       eventPublicId: claimed[0]?.eventPublicId ?? '',
+      eventNumber: 7,
       botUsername: 'payetam_bot',
     });
 
@@ -550,17 +555,17 @@ describe('the post body carries no host identity', () => {
 });
 
 /**
- * A post that still says there are seats (plan 14, item 3).
+ * A post whose seats line has fallen behind (plan 14 item 3, v0.16.0).
  *
- * The post is rendered once, and nothing edited it: «۳ جای خالی» stayed after the
- * activity filled. Editing on every acceptance would put a busy channel against
- * Telegram's rate limit, so only the two boundaries are edited — it filled, or a
- * seat opened again on a post that said it was full.
+ * Plan 14 edited only at the «ظرفیت تکمیل» boundary. The channel now shows every
+ * change, and a request closes a seat in the post the moment it is made: an
+ * acceptance keeps it closed, a rejection opens it. The budget per pass, not a
+ * boundary, is what keeps that inside Telegram's limits.
  */
-describe('a post whose capacity line has gone stale', () => {
+describe('a post whose seats line has gone stale', () => {
   async function livePost(
     options: EventOptions,
-    renderedFull = false,
+    renderedTaken: number | null = null,
   ): Promise<{ eventId: string; postId: string }> {
     const event = await createEvent(options);
     const post = await prisma.channelPost.create({
@@ -570,43 +575,87 @@ describe('a post whose capacity line has gone stale', () => {
         createdAt: NOW,
         postedAt: NOW,
         telegramMessageId: 4242,
-        renderedFull,
+        renderedTaken,
       },
       select: { id: true },
     });
     return { eventId: event.id, postId: post.id };
   }
 
-  it('finds a post that says there are seats on an activity that has filled', async () => {
-    const { postId } = await livePost({ capacity: 6, acceptedCount: 6 });
+  async function ask(eventId: string, status: 'PENDING' | 'WAITLISTED' = 'PENDING'): Promise<void> {
+    const userId = await createUser(prisma);
+    await prisma.eventParticipant.create({
+      data: {
+        eventId,
+        userId,
+        status,
+        requestedAt: NOW,
+        hostDeadlineAt: status === 'PENDING' ? STARTS_AT : null,
+      },
+    });
+  }
+
+  it('closes a seat in the post the moment somebody asks to join', async () => {
+    const { eventId, postId } = await livePost({ capacity: 4, acceptedCount: 0 }, 0);
+    await ask(eventId);
 
     const stale = await channel.findStaleCapacity();
 
-    expect(stale.map((post) => [post.postId, post.full, post.telegramMessageId])).toEqual([
-      [postId, true, 4242],
+    expect(stale.map((post) => [post.postId, post.takenCount, post.full])).toEqual([
+      [postId, 1, false],
     ]);
   });
 
-  it('stops finding it once the full line has been rendered', async () => {
-    const { postId } = await livePost({ capacity: 6, acceptedCount: 6 });
+  it('stops finding it once that count has been rendered', async () => {
+    const { eventId, postId } = await livePost({ capacity: 4, acceptedCount: 0 }, 0);
+    await ask(eventId);
+    const [post] = await channel.findStaleCapacity();
 
-    await channel.markCapacityRendered(postId, true);
+    await channel.markCapacityRendered(postId, post ?? { full: false, takenCount: 1 });
 
     await expect(channel.findStaleCapacity()).resolves.toEqual([]);
   });
 
-  it('finds a post that says full once a seat opens again', async () => {
-    const { postId } = await livePost({ capacity: 6, acceptedCount: 5 }, true);
+  /** Accepting moves the seat from PENDING to `accepted_count`: the sum is unchanged. */
+  it('leaves the post alone when the request is accepted', async () => {
+    await livePost({ capacity: 4, acceptedCount: 1 }, 1);
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  it('opens the seat again when the request is rejected', async () => {
+    const { postId } = await livePost({ capacity: 4, acceptedCount: 0 }, 1);
 
     const stale = await channel.findStaleCapacity();
 
-    expect(stale.map((post) => [post.postId, post.full])).toEqual([[postId, false]]);
+    expect(stale.map((post) => [post.postId, post.takenCount])).toEqual([[postId, 0]]);
   });
 
-  /** A seat taken is not a boundary crossed — the number is allowed to lag. */
-  it('leaves a post alone while the activity is on the same side of full', async () => {
-    await livePost({ capacity: 6, acceptedCount: 5, title: 'یکی مانده' });
-    await livePost({ capacity: 6, acceptedCount: 6, title: 'فعالیت پرشده' }, true);
+  /** A waiting-list place is not a seat: it closes nothing until it is promoted. */
+  it('does not count the waiting list', async () => {
+    const { eventId } = await livePost({ capacity: 2, acceptedCount: 1 }, 2);
+    await ask(eventId);
+    await ask(eventId, 'WAITLISTED');
+
+    await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  it('says full when the last seat is asked for, not only when it is accepted', async () => {
+    const { eventId, postId } = await livePost({ capacity: 2, acceptedCount: 1 }, 1);
+    await ask(eventId);
+
+    const stale = await channel.findStaleCapacity();
+
+    expect(stale.map((post) => [post.postId, post.full])).toEqual([[postId, true]]);
+  });
+
+  /** Posted before 0058: no count on record, so it is edited once into the new format. */
+  it('edits a post with no rendered count once', async () => {
+    const { postId } = await livePost({ capacity: 6, acceptedCount: 2 });
+
+    const [post] = await channel.findStaleCapacity();
+    expect(post?.postId).toBe(postId);
+    await channel.markCapacityRendered(postId, post ?? { full: false, takenCount: 2 });
 
     await expect(channel.findStaleCapacity()).resolves.toEqual([]);
   });
@@ -622,12 +671,8 @@ describe('a post whose capacity line has gone stale', () => {
     await expect(channel.findStaleCapacity()).resolves.toHaveLength(1);
   });
 
-  it('never edits an activity with no limit', async () => {
-    await livePost({ capacity: UNLIMITED_CAPACITY, acceptedCount: UNLIMITED_CAPACITY });
-    await livePost(
-      { capacity: UNLIMITED_CAPACITY, acceptedCount: 3, title: 'فعالیت بی‌سقف' },
-      true,
-    );
+  it('never re-edits an activity with no limit over its count', async () => {
+    await livePost({ capacity: UNLIMITED_CAPACITY, acceptedCount: 5 }, 3);
 
     await expect(channel.findStaleCapacity()).resolves.toEqual([]);
   });
@@ -654,16 +699,34 @@ describe('a post whose capacity line has gone stale', () => {
     await expect(channel.findStaleCapacity()).resolves.toEqual([]);
   });
 
-  /** The first render is recorded too, or a post sent full is edited to full. */
-  it('records whether the post went out full when it is posted', async () => {
-    const event = await createEvent({ capacity: 6, acceptedCount: 6 });
+  /** The first render is recorded too, or a fresh post is edited into what it says. */
+  it('records the count the post went out with when it is posted', async () => {
+    const event = await createEvent({ capacity: 6, acceptedCount: 5 });
+    await ask(event.id);
     await prisma.channelPost.create({ data: { eventId: event.id, kind: 'PAID', createdAt: NOW } });
 
     const [post] = await channel.findUnpostedPaid();
-    expect(post?.full).toBe(true);
-    await channel.markPosted(post?.postId ?? '', 4242, post?.full ?? false);
+    expect([post?.takenCount, post?.full]).toEqual([6, true]);
+    await channel.markPosted(post?.postId ?? '', 4242, post ?? { full: false, takenCount: 0 });
 
     await expect(channel.findStaleCapacity()).resolves.toEqual([]);
+  });
+
+  it('carries the activity number for the hashtag', async () => {
+    const first = await createEvent({ requestCount: 10, title: 'اولی' });
+    const second = await createEvent({ requestCount: 10, title: 'دومی' });
+    const numbers = await prisma.event.findMany({
+      where: { id: { in: [first.id, second.id] } },
+      orderBy: { createdAt: 'asc' },
+      select: { number: true },
+    });
+
+    const claimed = await channel.claimPending();
+
+    expect(claimed.map((post) => post.eventNumber).sort((a, b) => a - b)).toEqual(
+      numbers.map((row) => row.number).sort((a, b) => a - b),
+    );
+    expect((numbers[1]?.number ?? 0) > (numbers[0]?.number ?? 0)).toBe(true);
   });
 
   it('edits at most a bounded number per pass', async () => {

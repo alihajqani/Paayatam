@@ -4,7 +4,7 @@ import {
   type ParticipantStatus,
 } from '@payetam/shared';
 import { reviewSummaryLine, type ReviewSummaryLine } from './received-reviews';
-import { seatsLine } from './seats';
+import { seatsFillEmoji, seatsLine } from './seats';
 import { escapeHtml, toPersianDigits } from './escape';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
@@ -38,7 +38,12 @@ export interface EventDetailLine {
   startsAt: Date;
   endsAt: Date;
   capacity: number;
-  acceptedCount: number;
+  /**
+   * Seats spoken for: accepted guests plus requests awaiting the host (v0.16.0).
+   * The same count the channel post shows, so a reader who taps «مشاهده در ربات»
+   * under «۳ جای خالی» does not arrive at «۴ جای خالی».
+   */
+  takenCount: number;
   costType: string;
   costAmount: number | null;
   costNote: string | null;
@@ -102,7 +107,7 @@ function ageLine(line: EventDetailLine): string | null {
 }
 
 export function formatEventDetail(line: EventDetailLine): string {
-  const seats = seatsLine(line.capacity, line.acceptedCount);
+  const seats = `${seatsFillEmoji(line.capacity, line.takenCount)} ${seatsLine(line.capacity, line.takenCount)}`;
 
   /**
    * «تازه‌وارد» rather than a number, when the host has never been judged.
@@ -128,7 +133,7 @@ export function formatEventDetail(line: EventDetailLine): string {
     `🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)} تا ${formatJalaliTime(
       line.endsAt,
     )}\n` +
-    `👥 ${seats}\n` +
+    `${seats}\n` +
     `${costLine(line)}\n` +
     (age === null ? '' : `${age}\n`) +
     `\n👤 میزبان: ${escapeHtml(line.hostDisplayName)}\n` +

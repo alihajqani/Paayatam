@@ -91,7 +91,16 @@ const WARNING_LABELS: Record<string, string> = {
   NO_CHAT_IDENTIFIER:
     'دست‌کم یکی از کانال‌ها شناسه ندارد، پس عضویت در آن قابل بررسی نیست و همه اجازهٔ عبور می‌گیرند.',
   NO_ACTIONS_SELECTED: 'هیچ عملیاتی برای اجبار انتخاب نشده است، پس این تنظیم اثری ندارد.',
+  BOT_CANNOT_VERIFY:
+    'ربات نمی‌تواند عضویت را در این کانال‌ها بررسی کند، پس همه اجازهٔ عبور می‌گیرند: ' +
+    '{channels}. ربات را در هر کدام «مدیر» (ادمین) کنید و صفحه را دوباره باز کنید.',
 };
+
+/** A warning's sentence, with the channels it is about when it names any. */
+function warningText(warning: string): string {
+  const label = WARNING_LABELS[warning] ?? warning;
+  return label.replace('{channels}', (config.value?.unverifiableChannels ?? []).join('، '));
+}
 
 /**
  * The channel the bot posts to (plan 14). Typed over the contract's enum, so a
@@ -278,7 +287,7 @@ onMounted(load);
         <h2 class="text-sm font-semibold text-warn">پیش از اجباری کردن عضویت</h2>
         <ul class="mt-1 list-disc space-y-1 ps-5 text-sm text-warn">
           <li v-for="warning in config.warnings" :key="warning">
-            {{ WARNING_LABELS[warning] ?? warning }}
+            {{ warningText(warning) }}
           </li>
         </ul>
       </section>

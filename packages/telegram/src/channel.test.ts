@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { EVENT_DISCLAIMER_SHORT_FA, UNLIMITED_CAPACITY } from '@payetam/shared';
-import { renderChannelPost, type ChannelPostContent } from './channel';
+import {
+  CHANNEL_EXPIRY_NOTE,
+  categoryHashtag,
+  renderChannelPost,
+  type ChannelPostContent,
+} from './channel';
 
 const BASE: ChannelPostContent = {
   kind: 'TRENDING',
@@ -10,10 +15,11 @@ const BASE: ChannelPostContent = {
   districtName: null,
   startsAt: new Date('2026-09-08T00:30:00.000Z'),
   capacity: 1,
-  acceptedCount: 0,
+  takenCount: 0,
   costType: 'FREE',
   costAmount: null,
   eventPublicId: '00000000-0000-4000-8000-000000000000',
+  eventNumber: 25,
   botUsername: 'payetam_bot',
 };
 
@@ -30,9 +36,10 @@ function post(overrides: Partial<ChannelPostContent> = {}): string {
  * would, with the activity's name inside the sentence rather than above it.
  */
 describe('the channel post', () => {
-  it('is the disclaimer, the invitation, then the facts', () => {
+  it('is the number, the disclaimer, the invitation, the facts, then the category', () => {
     expect(post()).toBe(
-      `${EVENT_DISCLAIMER_SHORT_FA}\n` +
+      `#رویداد_۲۵\n` +
+        `${EVENT_DISCLAIMER_SHORT_FA}\n` +
         `پایه واسه <b>کافه‌گردی و گپ</b> میخوام\n` +
         `کیو داریم اینجا؟ بگه!\n` +
         `\n` +
@@ -40,14 +47,17 @@ describe('the channel post', () => {
         `📍 مشهد\n` +
         `🗓 ۱۷ شهریور ۱۴۰۵ — ۰۴:۰۰\n` +
         `💸 رایگان\n` +
-        `👥 ۱ جای خالی از ۱`,
+        `🟢 ۱ جای خالی از ۱\n` +
+        `\n` +
+        `#کافه‌گردی\n` +
+        CHANNEL_EXPIRY_NOTE,
     );
   });
 
   /** Above everything, because a liability line below the fold is unread. */
-  it('puts the disclaimer first, before the activity is named', () => {
+  it('puts the disclaimer right under the number, before the activity is named', () => {
     const text = post();
-    expect(text.indexOf(EVENT_DISCLAIMER_SHORT_FA)).toBe(0);
+    expect(text.split('\n')[1]).toBe(EVENT_DISCLAIMER_SHORT_FA);
     expect(text.indexOf('کافه‌گردی و گپ')).toBeGreaterThan(0);
   });
 
@@ -79,15 +89,16 @@ describe('the channel post', () => {
       expect(post({ costType: 'SPLIT' })).toContain('💸 دنگی');
     });
 
-    it('counts the seats left, and says when there are none', () => {
-      expect(post({ capacity: 6, acceptedCount: 2 })).toContain('👥 ۴ جای خالی از ۶');
-      expect(post({ capacity: 6, acceptedCount: 6 })).toContain('👥 ظرفیت تکمیل');
+    it('counts the seats left with their colour, and says when there are none', () => {
+      expect(post({ capacity: 4, takenCount: 0 })).toContain('🟢 ۴ جای خالی از ۴');
+      expect(post({ capacity: 4, takenCount: 1 })).toContain('🟢 ۳ جای خالی از ۴');
+      expect(post({ capacity: 4, takenCount: 2 })).toContain('🟡 ۲ جای خالی از ۴');
+      expect(post({ capacity: 4, takenCount: 3 })).toContain('🟠 ۱ جای خالی از ۴');
+      expect(post({ capacity: 4, takenCount: 4 })).toContain('🔴 ظرفیت تکمیل');
     });
 
     it('never counts down from an unlimited capacity', () => {
-      expect(post({ capacity: UNLIMITED_CAPACITY, acceptedCount: 12 })).toContain(
-        '👥 بدون محدودیت',
-      );
+      expect(post({ capacity: UNLIMITED_CAPACITY, takenCount: 12 })).toContain('🟢 بدون محدودیت');
     });
 
     /** Tehran, Jalali, Persian digits — the reader's calendar, not the column's. */
@@ -113,6 +124,35 @@ describe('the channel post', () => {
 
       expect(text).toContain('📍 تهران&lt;، &gt;ولنجک');
       expect(text).toContain('🗂 &amp;کافه');
+    });
+
+    /** A category name reaches the hashtag too, and `&` must not survive into it. */
+    it('builds the category hashtag from escaped-safe characters only', () => {
+      expect(post({ categoryName: '<b>کافه</b>' })).toContain('\n#b_کافه_b\n');
+    });
+  });
+
+  /** «#رویداد_۲۵» and «#ورزش»: both are searches of the channel on a tap. */
+  describe('the hashtags', () => {
+    it('numbers the activity in Persian digits', () => {
+      expect(post({ eventNumber: 1407 }).split('\n')[0]).toBe('#رویداد_۱۴۰۷');
+    });
+
+    it('joins a multi-word category with underscores and keeps the ZWNJ', () => {
+      expect(categoryHashtag('ورزش')).toBe('#ورزش');
+      expect(categoryHashtag('کافه و بازی رومیزی')).toBe('#کافه_و_بازی_رومیزی');
+      expect(categoryHashtag('طبیعت‌گردی')).toBe('#طبیعت‌گردی');
+      expect(categoryHashtag('سینما و تئاتر')).toBe('#سینما_و_تئاتر');
+    });
+
+    it('drops punctuation that would end a hashtag early', () => {
+      expect(categoryHashtag(' موزه، گالری! ')).toBe('#موزه_گالری');
+      expect(categoryHashtag('؟؟')).toBe('');
+    });
+
+    it('closes the post with the category and the expiry note', () => {
+      const lines = post({ categoryName: 'ورزش' }).split('\n');
+      expect(lines.slice(-2)).toEqual(['#ورزش', CHANNEL_EXPIRY_NOTE]);
     });
   });
 

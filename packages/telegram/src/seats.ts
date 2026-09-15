@@ -34,6 +34,37 @@ export function seatsLineFromRemaining(capacity: number, remainingCapacity: numb
   return seatsLine(capacity, capacity - remainingCapacity);
 }
 
+/**
+ * How full an activity is, as one of four colours: 🟢 empty → 🟡 → 🟠 → 🔴 full.
+ *
+ * A scale with one end each, as the operator asked for it: green is room, red
+ * is none, and the two between say "going" and "nearly gone". The thresholds
+ * are on the share of seats taken, with one exception that matters on the small
+ * activities this product mostly carries — **the last seat is always orange**.
+ * By ratio alone the last of three is 67% and would read yellow, and «یک جا
+ * مانده» is exactly the moment a reader should feel the hurry.
+ *
+ *  * 🔴 nothing left
+ *  * 🟠 somebody is in and one seat is left, or three quarters are taken
+ *  * 🟡 half or more taken
+ *  * 🟢 anything less, and every unlimited activity
+ *
+ * "Somebody is in" keeps a capacity-one activity nobody has asked about green:
+ * its one seat is also its last, and an empty activity is not nearly full.
+ */
+export function seatsFillEmoji(capacity: number, takenCount: number): string {
+  if (isUnlimitedCapacity(capacity) || capacity <= 0) return '🟢';
+
+  const taken = Math.min(Math.max(takenCount, 0), capacity);
+  const remaining = capacity - taken;
+  if (remaining === 0) return '🔴';
+
+  const share = taken / capacity;
+  if (taken > 0 && (remaining === 1 || share >= 0.75)) return '🟠';
+  if (share >= 0.5) return '🟡';
+  return '🟢';
+}
+
 /** «ظرفیت ۶ نفر» / «ظرفیت بدون محدودیت», for a screen that states the total. */
 export function capacityLabel(capacity: number): string {
   return isUnlimitedCapacity(capacity)

@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
+import { MEMBERSHIP_PROBE, type MembershipProbe } from './membership-probe';
 
 /**
  * Which operations a membership requirement can cover.
@@ -72,7 +73,17 @@ export interface RequiredChannelRecord {
  * and the wire contract cannot drift from what this file produces.
  */
 export type ChannelConfigWarning =
-  'NO_CHANNELS' | 'NO_JOIN_LINK' | 'NO_CHAT_IDENTIFIER' | 'NO_ACTIONS_SELECTED';
+  | 'NO_CHANNELS'
+  | 'NO_JOIN_LINK'
+  | 'NO_CHAT_IDENTIFIER'
+  | 'NO_ACTIONS_SELECTED'
+  /**
+   * Telegram says the bot cannot see who is in at least one active channel —
+   * it is not an administrator there, or the identifier names no chat. The gate
+   * fails open on that, so the channel is required on paper and on nobody.
+   * `unverifiableChannels` names which.
+   */
+  | 'BOT_CANNOT_VERIFY';
 
 /**
  * Something wrong with the channel the bot **posts** to (plan 14, item 2).
@@ -112,6 +123,12 @@ export interface ChannelConfigStatus extends ChannelConfig {
   warnings: ChannelConfigWarning[];
   /** What is wrong with posting to the channel right now. Empty means nothing known. */
   publishingWarnings: ChannelPublishingWarning[];
+  /**
+   * Titles of the active channels behind `BOT_CANNOT_VERIFY`, in join order.
+   * Empty when every channel answered, when verification is off, or when there
+   * is no probe to ask (the worker, a test).
+   */
+  unverifiableChannels: string[];
 }
 
 export const CHANNEL_CONFIG_ID = 'default';
@@ -154,6 +171,7 @@ export class ChannelConfigService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly audit: AuditService,
+    @Optional() @Inject(MEMBERSHIP_PROBE) private readonly probe?: MembershipProbe,
   ) {}
 
   /**
@@ -233,6 +251,9 @@ export class ChannelConfigService {
       warnings.push('NO_ACTIONS_SELECTED');
     }
 
+    const unverifiableChannels = config.verifyViaTelegram ? await this.unverifiable(channels) : [];
+    if (unverifiableChannels.length > 0) warnings.push('BOT_CANNOT_VERIFY');
+
     const publishingWarnings: ChannelPublishingWarning[] =
       undeletable === null ? [] : ['BOT_CANNOT_DELETE'];
 
@@ -244,7 +265,36 @@ export class ChannelConfigService {
       canVerify,
       warnings,
       publishingWarnings,
+      unverifiableChannels,
     };
+  }
+
+  /**
+   * The active channels Telegram says the bot cannot check members of (v0.16.0).
+   *
+   * The production gate was on, with two channels, and only one of them was
+   * enforced: the bot had never been made an administrator of the second, so
+   * every check there answered «member list is inaccessible» and failed open —
+   * exactly as designed, and invisibly. The panel was green. This asks Telegram
+   * where the bot stands in each channel, on the one screen an operator reads.
+   *
+   * Only an authoritative answer is reported. `UNKNOWN` (a timeout, a 429) is
+   * weather, and a warning that comes and goes with it teaches the operator to
+   * ignore the block. A channel with no identifier is `NO_CHAT_IDENTIFIER`'s,
+   * not this one's. One Telegram read per channel per panel load; the panel is
+   * the only caller.
+   */
+  private async unverifiable(channels: readonly RequiredChannelRecord[]): Promise<string[]> {
+    const probe = this.probe;
+    if (probe?.botStanding === undefined) return [];
+
+    const titles: string[] = [];
+    for (const channel of channels) {
+      if (channel.chatIdentifier === null) continue;
+      const standing = await probe.botStanding(channel.chatIdentifier);
+      if (standing === 'NOT_ADMIN' || standing === 'CHAT_UNAVAILABLE') titles.push(channel.title);
+    }
+    return titles;
   }
 
   /**
