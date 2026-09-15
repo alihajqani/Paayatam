@@ -14,6 +14,64 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.15.0] — 2026-09-15
+
+Plans 08, 16 (item 2), 17 and 18 of the bot review: a no-show can be disputed
+in both directions and a moderator decides it, one safety report about a person
+reaches a moderator, a city's people are told when it opens, and the bot gains
+the Telegram-native screens the Mini App used to carry.
+
+**Three migrations, all additive.** 0055 adds `city.launched_at` and
+`city.launch_announced_at` and backfills both for every city already launched,
+so no existing city is announced. 0056 adds three enum values
+(`PARTICIPATION`, `DISPUTE`, `NO_SHOW_CLAIM`). 0057 adds the `no_show_claim`
+table, `event.host_absent_at` and `event_participant.no_show_notified_at`.
+
+### ⚠️ What a deploy changes for people
+
+- **Every guest ever recorded as a no-show gets one message** with «من حاضر
+  بودم», and seven days from that message to use it.
+- **A host's deposit is held while a «میزبان نیامد» case is open.**
+- **Production now refuses to start without `TELEGRAM_BOT_USERNAME`**
+  (production has it set).
+- The usual release broadcast goes to every user.
+
+### Added
+
+- **Disputing a no-show** (plan 08): «✋ من حاضر بودم» under the no-show message
+  (7 days, `cancellation.dispute_window_days`), the host's answer within 48 hours
+  (`cancellation.response_window_hours`), and a moderator's decision in the bot
+  or at `POST /admin/v1/moderation/cases/:id/dispute-decision`. An upheld
+  dispute reverses the no-show and costs the host nothing more.
+- **«میزبان نیامد»** under the no-show message and the guest's «چطور بود؟». One
+  case per evening; if upheld, the host pays the no-show penalty (−90 coins,
+  −12 trust), every accepted guest's 20-coin deposit is refunded, the host's
+  deposit and bonus are reversed, and the no-shows that host recorded for that
+  evening are undone.
+- **A city's launch broadcast**, sent once, to profile-complete users in that
+  city, the first time it is opened. The panel confirms with the recipient count.
+- **The bot menu says what is waiting**: requests to answer, reviews owed, balance.
+- «🔗 اشتراک‌گذاری» on a published activity in the host console.
+- «🎂 مناسب سن من» in the `/discover` filters.
+- A host's average rating and review count on the activity page, with the three
+  latest anonymous reviews behind a button.
+- Editing a review from `/reviews` while its window is open.
+- The founding campaign's progress on `/referral`, while places remain.
+
+### Changed
+
+- **One SAFETY or HARASSMENT report about a user opens a moderation case**
+  (`moderation.safety_report_threshold`, default 1), and the reported person is
+  never notified for those two reasons.
+- A city waiting to open reads «آمادهٔ باز شدن» instead of promising a count.
+
+### Fixed
+
+- **The panel's «باز کردن» on a city did nothing** since v0.10.0:
+  `PATCH /admin/v1/cities/:id` dropped `isLaunched` before the service.
+- Skipping a step while editing a review no longer erased its tags and comment.
+- A host found absent can no longer record no-shows for that evening.
+
 ## [v0.14.0] — 2026-09-14
 
 Plans 14 and 15 of the bot review: the channel stops taking money for posts it
