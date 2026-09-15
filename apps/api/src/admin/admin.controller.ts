@@ -209,6 +209,7 @@ import {
 import { HealthService } from '../health/health.service';
 import { RateLimit } from '../common/rate-limit.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { toUpdateCityInput } from './city-request';
 import {
   ADMIN_SESSION_COOKIE,
   AdminAuthGuard,
@@ -1796,17 +1797,7 @@ export class AdminController {
     @Body(new ZodValidationPipe(updateCityRequest)) body: UpdateCityRequest,
     @CurrentAdmin() admin: AdminSession,
   ): Promise<AdminCityView> {
-    return toAdminCityView(
-      await this.geography.updateCity(admin, id, {
-        ...(body.nameFa !== undefined ? { nameFa: body.nameFa } : {}),
-        ...(body.provinceId !== undefined ? { provinceId: body.provinceId } : {}),
-        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
-        ...(body.confirmReferences !== undefined
-          ? { confirmReferences: body.confirmReferences }
-          : {}),
-      }),
-    );
+    return toAdminCityView(await this.geography.updateCity(admin, id, toUpdateCityInput(body)));
   }
 
   @Post('cities/reorder')
@@ -2187,6 +2178,7 @@ function toAdminCityView(city: CitySummary): AdminCityView {
     nameFa: city.nameFa,
     isActive: city.isActive,
     isLaunched: city.isLaunched,
+    everLaunched: city.everLaunched,
     sortOrder: city.sortOrder,
     provinceId: city.provinceId,
     provinceNameFa: city.provinceNameFa,

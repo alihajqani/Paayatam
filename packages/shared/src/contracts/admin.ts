@@ -1652,6 +1652,12 @@ export const adminCityView = z.object({
    * which is only whether somebody may say they live here.
    */
   isLaunched: z.boolean(),
+  /**
+   * Whether it has ever been opened (plan 17). False means opening it now is the
+   * first launch, which sends everybody who named the city one message — the
+   * panel says so, with the count, before it happens.
+   */
+  everLaunched: z.boolean(),
   sortOrder: z.number().int(),
   provinceId: z.uuid().nullable(),
   provinceNameFa: z.string().nullable(),

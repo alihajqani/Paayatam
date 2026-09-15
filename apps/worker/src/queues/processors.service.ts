@@ -21,6 +21,7 @@ import {
   ReleaseAnnouncementService,
   RetentionService,
   ReviewService,
+  CityLaunchAnnouncementService,
   type PublishablePost,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
@@ -150,6 +151,8 @@ export class Processors implements OnModuleInit {
      * read the worker's memory, so the warning it shows is read off this row.
      */
     private readonly audit: AuditService,
+    /** «پایه‌تَم در … باز شد», once per city an operator opens (plan 17). */
+    private readonly cityLaunches: CityLaunchAnnouncementService,
   ) {}
 
   /**
@@ -735,6 +738,27 @@ export class Processors implements OnModuleInit {
         if (prompted > 0) {
           this.logger.log(`Asked ${String(prompted)} host(s) who came`);
           await this.onDomainEvent(job);
+        }
+        return;
+      }
+
+      case JOBS.CITY_LAUNCH_ANNOUNCE: {
+        /**
+         * «پایه‌تَم در … باز شد» for each city opened since the last pass (plan 17).
+         *
+         * The campaign is confirmed by the service, so it is dispatched here at
+         * once rather than on the next minute's `CAMPAIGN_DISPATCH` tick — the
+         * same nudge the API gives a campaign an operator confirms. Logged only
+         * when a city was announced; almost every pass finds none.
+         */
+        const announced = await this.cityLaunches.announceLaunchedCities();
+        if (announced.length > 0) {
+          for (const city of announced) {
+            this.logger.log(
+              `Announced the opening of ${city.cityNameFa} to ${String(city.recipients)} recipients`,
+            );
+          }
+          await this.onCampaignDispatch();
         }
         return;
       }

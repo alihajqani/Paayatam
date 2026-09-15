@@ -25,6 +25,12 @@ export interface CitySummary {
   isActive: boolean;
   /** Whether the product runs here yet (v0.10.0). */
   isLaunched: boolean;
+  /**
+   * Whether it has ever been opened (plan 17). False means the next opening is
+   * the first, and sends its people «پایه‌تَم در … باز شد» — which the panel says
+   * before the operator confirms.
+   */
+  everLaunched: boolean;
   sortOrder: number;
   provinceId: string | null;
   provinceNameFa: string | null;
@@ -360,23 +366,50 @@ export class GeographyAdminService {
         input.provinceId === null ? { disconnect: true } : { connect: { id: input.provinceId } };
     }
 
-    await this.prisma.city.update({ where: { id }, data });
+    /**
+     * The first opening, stamped once (plan 17).
+     *
+     * `launched_at` is what the worker announces from — «پایه‌تَم در … باز شد» to
+     * everybody who named the city — so closing and reopening must not write it
+     * again. The `updateMany` on `launched_at IS NULL` is the guard against two
+     * operators opening the same city at once: one write, one announcement.
+     */
+    const firstLaunch =
+      input.isLaunched === true && !before.isLaunched && before.launchedAt === null;
 
-    const after = await this.prisma.city.findUniqueOrThrow({ where: { id }, select: CITY_SELECT });
+    const after = await this.prisma.$transaction(async (tx) => {
+      await tx.city.update({ where: { id }, data });
+      if (firstLaunch) {
+        await tx.city.updateMany({
+          where: { id, launchedAt: null },
+          data: { launchedAt: new Date() },
+        });
+      }
 
-    await this.audit.record({
-      actorType: 'ADMIN',
-      actorId: session.adminUserId,
-      action: 'catalog.city.updated',
-      targetType: 'city',
-      targetId: id,
-      before: cityAuditShape(before),
-      after: {
-        ...cityAuditShape(after),
-        // Recorded when it applied, so "who turned off a city 234 people live in"
-        // is answerable from the trail alone.
-        ...(deactivating ? { deactivatedWithReferences: references } : {}),
-      },
+      const row = await tx.city.findUniqueOrThrow({ where: { id }, select: CITY_SELECT });
+
+      // In the transaction since plan 17: an opening the trail does not record is
+      // an announcement nobody can trace back to a person (invariant 12).
+      await this.audit.record(
+        {
+          actorType: 'ADMIN',
+          actorId: session.adminUserId,
+          action: 'catalog.city.updated',
+          targetType: 'city',
+          targetId: id,
+          before: cityAuditShape(before),
+          after: {
+            ...cityAuditShape(row),
+            // Recorded when it applied, so "who turned off a city 234 people live in"
+            // is answerable from the trail alone.
+            ...(deactivating ? { deactivatedWithReferences: references } : {}),
+            ...(firstLaunch ? { firstLaunch: true } : {}),
+          },
+        },
+        tx,
+      );
+
+      return row;
     });
 
     return toCitySummary(after);
@@ -461,6 +494,7 @@ const CITY_SELECT = {
   nameFa: true,
   isActive: true,
   isLaunched: true,
+  launchedAt: true,
   sortOrder: true,
   provinceId: true,
   province: { select: { nameFa: true } },
@@ -476,6 +510,7 @@ function toCitySummary(row: CityRow): CitySummary {
     nameFa: row.nameFa,
     isActive: row.isActive,
     isLaunched: row.isLaunched,
+    everLaunched: row.launchedAt !== null,
     sortOrder: row.sortOrder,
     provinceId: row.provinceId,
     provinceNameFa: row.province?.nameFa ?? null,

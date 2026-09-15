@@ -328,6 +328,12 @@ model City {
   /// of people waiting is what decides which city opens next, so the data that
   /// answers it has to be collectable *before* the city is open.
   isLaunched Boolean  @default(false) @map("is_launched")
+  /// The first time the panel opened this city, and never rewritten — reopening
+  /// a closed city is not a launch (plan 17, migration 0055).
+  launchedAt DateTime? @map("launched_at") @db.Timestamptz(3)
+  /// When the worker created the «پایه‌تَم در … باز شد» broadcast. Launched and
+  /// not yet announced is the queue `CityLaunchAnnouncementService` drains.
+  launchAnnouncedAt DateTime? @map("launch_announced_at") @db.Timestamptz(3)
   sortOrder  Int      @default(0) @map("sort_order")
   /// Nullable on purpose and permanently — see migration 0020.
   provinceId String?  @map("province_id")

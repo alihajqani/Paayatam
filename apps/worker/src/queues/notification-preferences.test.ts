@@ -84,6 +84,7 @@ function buildProcessors(options: {
     adminTelegram as never,
     {} as never, // ModerationDigestService
     {} as never, // AuditService — only the channel sweep writes one
+    {} as never, // CityLaunchAnnouncementService
   );
 
   return { processors, send, markSuppressed, isLinked };

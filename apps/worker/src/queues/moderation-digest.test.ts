@@ -53,6 +53,7 @@ function build(outcome: Record<string, unknown>): {
     {} as never, // AdminTelegramService
     { due: vi.fn().mockResolvedValue([DUE]), markSent } as never,
     {} as never, // AuditService — only the channel sweep writes one
+    {} as never, // CityLaunchAnnouncementService
   );
   return { processors, send, markSent };
 }

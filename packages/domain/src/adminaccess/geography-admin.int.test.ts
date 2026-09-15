@@ -300,3 +300,62 @@ describe('GeographyAdminService — cities', () => {
     expect((geography as unknown as Record<string, unknown>)['deleteCity']).toBeUndefined();
   });
 });
+
+/**
+ * Opening a city is remembered once (plan 17): `launched_at` is what the worker
+ * announces from, so it must be written by the first opening and by nothing
+ * after it.
+ */
+describe('GeographyAdminService — the first launch', () => {
+  async function closedCity(): Promise<string> {
+    const city = await geography.createCity(SUPER, { slug: 'shiraz', nameFa: 'شیراز' });
+    return city.id;
+  }
+
+  it('stamps the first opening, and says a first opening is still to come', async () => {
+    const id = await closedCity();
+    const listed = await geography.listCities(SUPER, {});
+    expect(listed.rows.find((row) => row.id === id)?.everLaunched).toBe(false);
+
+    const opened = await geography.updateCity(SUPER, id, { isLaunched: true });
+
+    expect(opened).toMatchObject({ isLaunched: true, everLaunched: true });
+    const row = await prisma.city.findUniqueOrThrow({
+      where: { id },
+      select: { launchedAt: true, launchAnnouncedAt: true },
+    });
+    expect(row.launchedAt).not.toBeNull();
+    // Announcing is the worker's, not the panel's.
+    expect(row.launchAnnouncedAt).toBeNull();
+  });
+
+  /** Closing and reopening is not a launch, and its people must not be told twice. */
+  it('does not stamp it again when the city is closed and reopened', async () => {
+    const id = await closedCity();
+    await geography.updateCity(SUPER, id, { isLaunched: true });
+    const first = await prisma.city.findUniqueOrThrow({
+      where: { id },
+      select: { launchedAt: true },
+    });
+
+    await geography.updateCity(SUPER, id, { isLaunched: false });
+    await geography.updateCity(SUPER, id, { isLaunched: true });
+
+    const again = await prisma.city.findUniqueOrThrow({
+      where: { id },
+      select: { launchedAt: true },
+    });
+    expect(again.launchedAt).toEqual(first.launchedAt);
+  });
+
+  it('stamps nothing for an edit that does not open the city', async () => {
+    const id = await closedCity();
+    await geography.updateCity(SUPER, id, { nameFa: 'شیراز نو' });
+
+    const row = await prisma.city.findUniqueOrThrow({
+      where: { id },
+      select: { launchedAt: true },
+    });
+    expect(row.launchedAt).toBeNull();
+  });
+});
