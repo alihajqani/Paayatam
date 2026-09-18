@@ -232,6 +232,12 @@ interface BotUser {
    * appear here and the type says so.
    */
   status: 'ACTIVE' | 'SUSPENDED';
+  /**
+   * Carried for `profileGateOwed` (v0.17.0), for the same reason `status` is:
+   * a second read of something `knownUser` already selected would be a query
+   * per update rather than per write.
+   */
+  onboardingState: 'NEW' | 'TERMS_ACCEPTED' | 'PROFILE_COMPLETE';
 }
 
 /**
@@ -441,6 +447,45 @@ export class BotService {
          */
         if (await this.appAccessBlocked(update.updateId, user, intent)) return;
 
+        /**
+         * The profile-completion gate (v0.17.0), for commands and text.
+         *
+         * `finishConsent` already hands a new user the profile wizard the
+         * moment they accept the terms, but nothing stopped them cancelling it
+         * or tapping the persistent menu instead — after which only a handful
+         * of *writes* re-asked for a profile (`PROFILE_INCOMPLETE`, checked
+         * inside the service that owns the action) and every read worked with
+         * none at all. That is the bug this closes: somebody with an accepted
+         * consent and no profile gets this instead of whatever they typed,
+         * until they finish it.
+         *
+         * Same shape as `appAccessBlocked` above, and applied right after it
+         * for the same reason — this is the one point every command and every
+         * typed message passes through. `profileGateOwed` itself excludes an
+         * open wizard, so answering the very form this redirects to still
+         * reaches it.
+         *
+         * **Deliberately not applied to callback taps** (`onCallback`, a
+         * separate top-level case above). A profile-incomplete user reaches
+         * this branch on their next command or typed message — including a
+         * persistent-keyboard tap, which arrives as text — before any
+         * inline-button screen exists for them to tap instead, so the gap a
+         * callback-side gate would close is already small; extending it there
+         * would also have to thread through every read (paging, settings) and
+         * every admin/moderation callback this router carries, each with its
+         * own reasons not to be gated on a *user's* onboarding state.
+         */
+        if (
+          !(
+            intent.kind === 'COMMAND' &&
+            BotService.UNGATED_COMMANDS.has(intent.command.toLowerCase())
+          ) &&
+          (await this.profileGateOwed(user))
+        ) {
+          await this.openProfileGate(update.updateId, user);
+          return;
+        }
+
         switch (intent.kind) {
           case 'TEXT':
             return this.onText(update.updateId, user, intent.message);
@@ -535,6 +580,39 @@ export class BotService {
     }
 
     return this.channelsBlock(updateId, user, 'APP_ACCESS');
+  }
+
+  /**
+   * Whether the profile-completion gate applies to this user right now
+   * (v0.17.0).
+   *
+   * Exactly `onboardingState === 'TERMS_ACCEPTED'` — the terms are accepted (a
+   * `NEW` user is `ConsentService`'s job, not this one: opening the profile
+   * wizard before that would let somebody fill it in and then fail at submit
+   * with `TERMS_NOT_ACCEPTED`) and there is no profile yet (the state moves to
+   * `PROFILE_COMPLETE` in the same transaction `ProfileService.complete`
+   * writes the row in, so the two facts are one column, not two reads).
+   *
+   * **Not `ConsentService.hasAcceptedCurrentPolicies`**, which was tried first
+   * and is wrong here: it answers `true` whenever `requiredPolicies()` is
+   * empty, which is a legitimate state for an environment with no policy rows
+   * seeded — and reads as "terms accepted" for a `NEW` user who has done
+   * nothing of the sort. `onboardingState` is the one column both gates
+   * actually move.
+   *
+   * The second check is a wizard already open, so this does not interrupt the
+   * very form it would open — including the one it opened a moment ago.
+   */
+  private async profileGateOwed(user: BotUser): Promise<boolean> {
+    if (!this.env.ENABLE_CONVERSATION_WIZARD) return false;
+    if (user.onboardingState !== 'TERMS_ACCEPTED') return false;
+    return (await this.conversations.current(user.id)) === null;
+  }
+
+  /** Open the mandatory, full profile wizard — the one `profileGateOwed` owes. */
+  private async openProfileGate(updateId: number, user: BotUser): Promise<void> {
+    const outcome = await this.startProfileWizard(user.id, updateId);
+    await this.drawWizard(updateId, user, outcome);
   }
 
   /**
@@ -1330,6 +1408,7 @@ export class BotService {
       // `findOrCreateByTelegram` refuses a banned or deleted account outright, so
       // anything that reaches here is one of the two writable states.
       status: created.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE',
+      onboardingState: created.onboardingState,
     };
 
     /**
@@ -3658,6 +3737,11 @@ export class BotService {
       ...(interestIds.length > 0 ? { interestIds } : {}),
       ...(field !== undefined ? { field } : {}),
       ...(notice === 1 ? { locationNotice: true } : {}),
+      // Same discipline as `suspendedNotice`: omitted rather than a
+      // placeholder when the operator has not set one (v0.17.0).
+      ...(this.env.SUPPORT_CONTACT !== undefined
+        ? { supportContact: this.env.SUPPORT_CONTACT }
+        : {}),
     });
   }
 
@@ -5789,7 +5873,9 @@ export class BotService {
         user.id,
         {
           ...(form.displayName !== undefined ? { displayName: form.displayName } : {}),
-          ...(form.gender !== undefined ? { gender: form.gender } : {}),
+          // No `gender` here, ever: `PROFILE_FIELDS` has no button for it, so
+          // `form.gender` cannot be set on this path — and if it somehow were,
+          // `ProfileService.update` would refuse it (`GENDER_NOT_EDITABLE`).
           ...(form.birthYear !== undefined ? { birthYear: form.birthYear } : {}),
           ...(form.cityId !== undefined ? { cityId: form.cityId } : {}),
           ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
@@ -5805,9 +5891,9 @@ export class BotService {
            * the step was visited, and «رد کردن» leaves the selection alone rather
            * than writing back what the prefill happened to hold.
            *
-           * An empty array is still sent when the step *was* answered: «تمام»
-           * with nothing ticked is somebody clearing their interests, and
-           * `update` replaces the set, so that is exactly what it does.
+           * Never empty when it is sent: the tags step is mandatory now
+           * (v0.17.0) and «تمام» refuses to advance with nothing ticked, so a
+           * touched `interestIds` always carries at least one id.
            */
           ...(touched.has('interestIds') && form.interestIds !== undefined
             ? { interestIds: form.interestIds }
@@ -5833,10 +5919,12 @@ export class BotService {
    * every profile the bot created after ADR-0017 was created with no interests,
    * on a product whose other way of setting them was being retired.
    *
-   * Still `[]` when the step was skipped, because `complete` requires the field
-   * and "did not choose any" is the honest value for somebody who pressed «رد
-   * کردن». Unlike `update`, there is nothing to preserve here — the profile is
-   * being created.
+   * `missing` below is a backstop rather than the normal path (v0.17.0). Name,
+   * gender, birth year, city and interests all lost their «رد کردن» in the
+   * wizard itself, so a form that reaches here by the ordinary route has
+   * already answered every one of them — this only fires for a draft saved
+   * before that deploy, or one resumed after the build that defined a step
+   * changed under it.
    */
   private async createProfile(
     updateId: number,
@@ -5845,13 +5933,23 @@ export class BotService {
   ): Promise<void> {
     const missing: string[] = [];
     if (form.displayName === undefined) missing.push('نام');
+    if (form.gender === undefined) missing.push('جنسیت');
     if (form.birthYear === undefined) missing.push('سال تولد');
     if (form.cityId === undefined) missing.push('شهر');
+    if (form.interestIds === undefined || form.interestIds.length === 0) {
+      missing.push('علاقه‌مندی‌ها');
+    }
 
+    // Restated as one guard, rather than trusting `missing.length`, so the
+    // compiler narrows each field to the non-optional type `complete` takes —
+    // `missing` on its own tells TypeScript nothing about which fields survived.
     if (
       form.displayName === undefined ||
+      form.gender === undefined ||
       form.birthYear === undefined ||
-      form.cityId === undefined
+      form.cityId === undefined ||
+      form.interestIds === undefined ||
+      form.interestIds.length === 0
     ) {
       // The draft is left open on purpose: «ویرایش» on the summary walks back to
       // the step they skipped, and clearing it would make them start over.
@@ -5867,12 +5965,14 @@ export class BotService {
     try {
       const completion = await this.profiles.complete(user.id, {
         displayName: form.displayName,
+        gender: form.gender,
         birthYear: form.birthYear,
         cityId: form.cityId,
-        ...(form.gender !== undefined ? { gender: form.gender } : {}),
         ...(form.districtId !== undefined ? { districtId: form.districtId } : {}),
         ...(form.bio !== undefined ? { bio: form.bio } : {}),
-        interestIds: form.interestIds ?? [],
+        // Never empty here: the `missing` check above already refused an
+        // undefined or empty selection.
+        interestIds: form.interestIds,
       });
       await this.conversations.clear(user.id);
       // Only for the call that actually allocated one — which is a handful of
@@ -6371,6 +6471,7 @@ export class BotService {
       // second `findByTelegramId` per update to learn a field this one already
       // selected would be a query per keystroke in a wizard.
       status: user.status,
+      onboardingState: user.onboardingState,
     };
   }
 }

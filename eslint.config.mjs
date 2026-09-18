@@ -14,6 +14,10 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/coverage/**',
+      // Git-ignored and machine-local (CLAUDE.md), and sometimes holds a git
+      // worktree for unrelated work-in-progress — `eslint .` from the root has
+      // no reason to descend into it, and no ADR governs code that lives here.
+      '.claude/**',
       'packages/db/src/generated/**',
       'packages/db/prisma/migrations/**',
       // A standalone ESM generator run by hand (`node tools/data/…`), not part of

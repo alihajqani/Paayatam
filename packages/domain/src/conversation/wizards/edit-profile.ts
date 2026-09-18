@@ -1,4 +1,4 @@
-import { gender, type Gender } from '@payetam/shared';
+import { DISPLAY_NAME_PATTERN, gender, type Gender } from '@payetam/shared';
 import { toPersianDigits, type Choice } from '@payetam/telegram';
 import { acceptText, quoted, toAsciiDigits } from './answers';
 import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
@@ -13,27 +13,32 @@ import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
  * `PROFILE_COMPLETE` cannot do anything at all. `EditEventView` is a
  * convenience; this is a gate.
  *
- * ── Every step is optional, and that is the difference from creating ────────
+ * ── Which steps may be skipped, and which may not ───────────────────────────
  *
  * `CreateEventForm` starts empty and has to be filled. A profile **already
- * exists**, and an edit is a change to some of it — so every step here can be
- * skipped, and a skipped step means *leave that field alone* rather than clear
- * it. `UpdateProfileInput` takes a partial for exactly this reason, and the
- * caller sends only the keys the user actually answered.
+ * exists** at edit time, and for a while every step here answered «رد کردن» —
+ * a skip meant *leave that field alone* rather than clear it, `UpdateProfileInput`
+ * takes a partial for exactly that reason, and the caller sends only the keys the
+ * user actually answered.
  *
- * The flow is otherwise a straight line somebody can step out of at any point by
- * pressing «رد کردن» — nothing here is conditional on anything the *user* has
- * answered.
+ * That is no longer true of every step. Name, gender, birth year, province, city
+ * and interests are answers a profile cannot exist without, and a user who
+ * abandoned one of them mid-form — or reached this form with nothing answered at
+ * all, which is what profile *completion* is — used to be able to skip past it and
+ * end up with an incomplete profile the product never noticed. Those steps have
+ * no `optional` flag now, so `wizard.ts`'s `apply` refuses a skip on them, and
+ * their prompt says «(اجباری)». Only bio stays a genuine «رد کردن» — a preference,
+ * not a fact the product depends on.
  *
  * ── The one `when`, and why it is not a second wizard ──────────────────────
  *
- * `onlyInterests` (v0.8.1) hides the six ordinary steps so `/interests` can open
- * this same form at its last one. A second `ConversationKind` would have been
- * the obvious alternative and it is worse three ways: it is a migration for a
- * form that already exists, it duplicates the interests step (so the toggle
- * logic and the Persian copy could drift), and `conversation_state.user_id` is
- * UNIQUE — so the two would evict each other anyway, which is the behaviour a
- * single kind gives for free.
+ * `onlyInterests` (v0.8.1) hides every other step so `/interests` can open this
+ * same form at its last one. A second `ConversationKind` would have been the
+ * obvious alternative and it is worse three ways: it is a migration for a form
+ * that already exists, it duplicates the interests step (so the toggle logic and
+ * the Persian copy could drift), and `conversation_state.user_id` is UNIQUE — so
+ * the two would evict each other anyway, which is the behaviour a single kind
+ * gives for free.
  *
  * It is a *caller's* flag rather than an answer, which is why it is not asked
  * about anywhere: `ConversationService.start` seeds it through `initialForm`,
@@ -99,6 +104,18 @@ export interface EditProfileForm {
    * `prompt` is a pure function of the form by design.
    */
   locationNotice?: boolean;
+
+  /**
+   * Where to reach support, on the gender step (v0.17.0).
+   *
+   * Same reasoning as `locationNotice`: a wizard's `prompt` is a pure function
+   * of the form, so the caller is the only layer that can turn `env.
+   * SUPPORT_CONTACT` into something the prompt can see. **Absent rather than a
+   * placeholder** when the operator has not set one — this codebase's own rule
+   * for the same env var elsewhere (`suspendedNotice`): telling somebody to
+   * reach support with no way to is worse than not raising it.
+   */
+  supportContact?: string;
 }
 
 /**
@@ -108,8 +125,13 @@ export interface EditProfileForm {
  * cannot show 1252 cities in one keyboard, not because they are two decisions —
  * and a menu entry that changed the province while leaving the city behind would
  * put somebody in a city they never chose.
+ *
+ * **No `gender` button.** Gender is asked once, at completion (the `steps`
+ * array below still has the step, for that one pass), and is not a
+ * self-service edit afterward — only support may change it, through the
+ * admin edit path (`GENDER_NOT_EDITABLE`, `ProfileService.update`).
  */
-export const PROFILE_FIELDS = ['name', 'gender', 'birth', 'loc', 'bio', 'tags'] as const;
+export const PROFILE_FIELDS = ['name', 'birth', 'loc', 'bio', 'tags'] as const;
 export type ProfileField = (typeof PROFILE_FIELDS)[number];
 
 export function isProfileField(value: string): value is ProfileField {
@@ -247,28 +269,40 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'name',
     when: scopedTo('name'),
     ui: 'text',
-    optional: true,
-    prompt: () => 'نام نمایشی‌تان چه باشد؟ برای تغییر ندادن، «رد کردن» را بزنید.',
+    prompt: () =>
+      'نام نمایشی‌تان چه باشد؟ (اجباری)\nفقط حروف فارسی یا انگلیسی و فاصله — بدون عدد، ایموجی یا نماد.',
     accept: (input) => {
       const result = acceptText(input, 2, 40, 'نام نمایشی');
-      return result.ok ? { ok: true, patch: { displayName: result.value } } : result;
+      if (!result.ok) return result;
+      if (!DISPLAY_NAME_PATTERN.test(result.value)) {
+        return {
+          ok: false,
+          error:
+            `نام نمایشی فقط می‌تواند حروف فارسی یا انگلیسی و فاصله داشته باشد — ` +
+            `بدون عدد، ایموجی یا نماد. ${quoted(result.value)} نویسهٔ غیرمجاز دارد.`,
+        };
+      }
+      return { ok: true, patch: { displayName: result.value } };
     },
   },
   {
     key: 'gender',
-    when: scopedTo('gender'),
+    // Not `scopedTo('gender')`: there is no field-specific edit for it — see
+    // `PROFILE_FIELDS`. This step runs only on the full, onboarding pass.
+    when: (form) => form.onlyInterests !== true && form.field === undefined,
     ui: 'choice',
-    optional: true,
-    prompt: () => 'جنسیت؟',
+    prompt: (form) =>
+      'جنسیت؟ (اجباری)\nاین گزینه پس از ثبت قابل تغییر نیست.' +
+      (form.supportContact === undefined
+        ? ' تغییر آن فقط از طریق پشتیبانی ممکن است.'
+        : ` تغییر آن فقط از طریق پشتیبانی (${form.supportContact}) ممکن است.`),
     load: () => Promise.resolve(GENDERS.map((value) => ({ value, label: GENDER_FA[value] }))),
     accept: (input) => {
       const value = GENDERS.find((candidate) => candidate === input.value);
       if (value === undefined) {
         return {
           ok: false,
-          error:
-            `یکی از دکمه‌های زیر را بزنید، یا «رد کردن» برای تغییر ندادن — ` +
-            `${quoted(input.value)} گزینهٔ این مرحله نیست.`,
+          error: `یکی از دکمه‌های زیر را بزنید — ${quoted(input.value)} گزینهٔ این مرحله نیست.`,
         };
       }
       return { ok: true, patch: { gender: value } };
@@ -278,8 +312,7 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'birth',
     when: scopedTo('birth'),
     ui: 'text',
-    optional: true,
-    prompt: () => 'سال تولد شما به شمسی؟ برای نمونه: ۱۳۷۰',
+    prompt: () => 'سال تولد شما به شمسی؟ (اجباری)\nبرای نمونه: ۱۳۷۰',
     accept: (input) => {
       const value = birthYearOf(input);
       if (typeof value === 'string') return { ok: false, error: value };
@@ -290,7 +323,6 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'prov',
     when: scopedTo('loc'),
     ui: 'choice',
-    optional: true,
     /**
      * The one prompt that explains itself (v0.9.1).
      *
@@ -305,11 +337,11 @@ const steps: WizardStep<EditProfileForm>[] = [
      */
     prompt: (form) =>
       form.locationNotice === true
-        ? 'در کدام استان هستید؟\n\n' +
+        ? 'در کدام استان هستید؟ (اجباری)\n\n' +
           'فعلاً فقط تهران و مشهد باز است — این عمدی است: پایه‌تَم وقتی کار می‌کند ' +
           'که در شهرتان به‌اندازهٔ کافی آدم باشد. شهر بعدی را بر اساس همین‌که از کجا ' +
           'بیشتر ثبت‌نام می‌شود باز می‌کنیم.'
-        : 'در کدام استان هستید؟',
+        : 'در کدام استان هستید؟ (اجباری)',
     load: (_form, deps) => deps.provinces(),
     accept: (input) => {
       const id = chosenId(input);
@@ -328,8 +360,7 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'city',
     when: scopedTo('loc'),
     ui: 'choice',
-    optional: true,
-    prompt: () => 'کدام شهر؟',
+    prompt: () => 'کدام شهر؟ (اجباری)',
     load: (form, deps) => deps.citiesOf(form.provinceId ?? ''),
     accept: (input) => {
       const id = chosenId(input);
@@ -389,9 +420,8 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'tags',
     when: scopedTo('tags'),
     ui: 'multi',
-    optional: true,
     prompt: () =>
-      'به چه چیزهایی علاقه دارید؟ هر تعداد که می‌خواهید انتخاب کنید، بعد «تمام» را بزنید.',
+      'به چه چیزهایی علاقه دارید؟ (اجباری)\nدست‌کم یکی را انتخاب کنید، بعد «تمام» را بزنید.',
     load: (_form, deps) => deps.interests(),
     selectedOf: (form) => form.interestIds ?? [],
     accept: (input, form) => {
