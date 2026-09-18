@@ -42,10 +42,14 @@ request a seat on a seed event (it is already full by the time they see it).
 ```prisma
 model User {
   // ...existing fields...
-  /// Synthetic identity with no real Telegram account behind it (marketing
-  /// seed events). `telegramUserId` for these rows is drawn from a reserved
-  /// negative range — real Telegram ids are always positive, so collision is
-  /// structurally impossible.
+  /// Synthetic identity for a marketing seed event. A seed `User` is created
+  /// with **no `TelegramAccount` row** (that relation is already optional —
+  /// `telegramAccount TelegramAccount?` — so this needs no schema change of
+  /// its own): there is structurally no chat id to resolve, which is a
+  /// stronger guarantee than a flag alone. `isSeed` is kept anyway as an
+  /// explicit, cheap-to-query marker for the outbox skip (belt-and-suspenders
+  /// — see below) and for excluding these rows from admin/user-facing
+  /// analytics.
   isSeed Boolean @default(false) @map("is_seed")
 }
 
