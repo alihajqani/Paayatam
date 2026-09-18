@@ -66,6 +66,13 @@ model User {
   /// Generated on first read rather than at signup, so it costs nothing for the
   /// users who never open the invite screen. Nullable for the same reason.
   referralCode    String?         @unique @map("referral_code")
+  /// Synthetic identity for a marketing seed event (see
+  /// docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md). Has
+  /// no `telegramAccount` row — there is structurally no chat id to send to,
+  /// which is a stronger guarantee than a flag alone. The flag is kept for a
+  /// cheap, explicit skip in the outbox relay and for excluding these rows
+  /// from admin-facing analytics.
+  isSeed          Boolean         @default(false) @map("is_seed")
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(3)
@@ -101,6 +108,7 @@ model User {
   directsSent         DirectMessage[]      @relation("DirectMessagesSent")
   directsReceived     DirectMessage[]      @relation("DirectMessagesReceived")
   noShowClaims        NoShowClaim[]        @relation("NoShowClaimsAuthored")
+  seedConfigsHosted   CitySeedConfig[]
 
   @@index([status])
   @@index([createdAt])
@@ -345,6 +353,7 @@ model City {
   profiles   UserProfile[]
   events     Event[]
   categories CityCategory[]
+  seedConfig CitySeedConfig?
 
   province Province? @relation(fields: [provinceId], references: [id], onDelete: Restrict)
 
@@ -358,6 +367,34 @@ model City {
   /// The admin list: one province's cities, alphabetically.
   @@index([provinceId, nameFa], map: "city_province_name_idx")
   @@map("city")
+}
+
+/// Per-city configuration for the marketing seed-event scheduler (see
+/// docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md). One
+/// row per configured city, created on demand from the admin screen — not
+/// seeded for every city. Absence of a row means the scheduler leaves that
+/// city alone.
+model CitySeedConfig {
+  cityId String  @id @map("city_id")
+  enabled Boolean @default(false)
+  /// How many "filling" seed events (PUBLISHED, acceptedCount < capacity)
+  /// the scheduler keeps alive at once for this city. Capped at 3 at the
+  /// contract level — `EventService`'s own concurrent-active-per-host quota.
+  floorCount    Int @default(1) @map("floor_count")
+  eventCapacity Int @default(6) @map("event_capacity")
+  /// Target minutes from a seed event's creation to full capacity.
+  fillMinutes Int @default(5) @map("fill_minutes")
+  /// A real, funded, dedicated Telegram account — never shared across
+  /// cities, since the 3-concurrent/5-per-day creation quota is per host.
+  hostUserId       String   @map("host_user_id")
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedByAdminId String   @map("updated_by_admin_id")
+
+  city City @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  host User @relation(fields: [hostUserId], references: [id], onDelete: Restrict)
+
+  @@index([hostUserId])
+  @@map("city_seed_config")
 }
 
 model District {
@@ -1172,6 +1209,10 @@ model Event {
 
   boostedUntil DateTime? @map("boosted_until") @db.Timestamptz(3)
   isVip        Boolean   @default(false) @map("is_vip")
+  /// True for an admin/system-generated marketing event (see
+  /// docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md). The
+  /// host is always a real account; only the participants are synthetic.
+  isSeeded     Boolean   @default(false) @map("is_seeded")
 
   viewCount    Int @default(0) @map("view_count")
   requestCount Int @default(0) @map("request_count")
