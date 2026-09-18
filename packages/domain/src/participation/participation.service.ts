@@ -413,6 +413,57 @@ export class ParticipationService {
   }
 
   /**
+   * Seat a synthetic participant directly into ACCEPTED, under the same event
+   * lock every other capacity-changing operation uses (ADR-0006). Used only
+   * by the marketing seed-events module
+   * (`packages/domain/src/seeding/`, see
+   * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md) —
+   * there is no bot or HTTP path that calls this, and it never emits an
+   * outbox notification: there is nobody real on the other end to tell.
+   *
+   * Skips the `PENDING` step `join`/`accept` go through: there is no real
+   * host reviewing a synthetic request one at a time.
+   */
+  async seatSeedParticipant(eventPublicId: string, userId: string): Promise<void> {
+    const now = this.clock.now();
+    const graceMinutes = await this.settings.getInt('participation.grace_minutes');
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        const event = await lockEventByPublicIdForUpdate(tx, eventPublicId);
+        if (!event) throw new AppError(ErrorCode.NOT_FOUND);
+
+        this.assertSeatAvailable(event);
+        await this.takeSeat(tx, event);
+
+        const participant = await tx.eventParticipant.create({
+          data: {
+            eventId: event.id,
+            userId,
+            status: 'ACCEPTED',
+            requestedAt: now,
+            decidedAt: now,
+            acceptedAt: now,
+            graceExpiresAt: new Date(now.getTime() + graceMinutes * 60_000),
+          },
+        });
+
+        await this.audit.record(
+          {
+            actorType: 'SYSTEM',
+            action: 'participation.seed_seated',
+            targetType: 'event_participant',
+            targetId: participant.id,
+            after: { status: 'ACCEPTED' },
+          },
+          tx,
+        );
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+  }
+
+  /**
    * The host says no, the seat the request was holding goes back — **and so do
    * the coins** (v0.8.1).
    *

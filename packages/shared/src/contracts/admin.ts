@@ -2172,3 +2172,39 @@ export const foundingMemberListResponse = z.object({
   total: z.number().int().nonnegative(),
 });
 export type FoundingMemberListResponse = z.infer<typeof foundingMemberListResponse>;
+
+/**
+ * The admin-facing shape of one city's marketing seed-event configuration
+ * (see docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+ */
+export const citySeedConfigView = z.object({
+  cityId: z.string(),
+  cityNameFa: z.string(),
+  isLaunched: z.boolean(),
+  enabled: z.boolean(),
+  floorCount: z.number().int().min(0),
+  eventCapacity: z.number().int().min(1),
+  fillMinutes: z.number().int().min(1),
+  hostUserPublicId: z.string().nullable(),
+  hostDisplayName: z.string().nullable(),
+  fillingEventCount: z.number().int().min(0),
+});
+export type CitySeedConfigView = z.infer<typeof citySeedConfigView>;
+
+export const seedEventsCitiesResponse = z.object({
+  cities: z.array(citySeedConfigView),
+});
+export type SeedEventsCitiesResponse = z.infer<typeof seedEventsCitiesResponse>;
+
+export const updateCitySeedConfigRequest = z.object({
+  enabled: z.boolean().optional(),
+  // Capped at 3, not a round product number: `EventService` allows at most 3
+  // concurrently-active (not-yet-started) events per host, so a
+  // `floorCount` above 3 could never actually be reached by one dedicated
+  // host account (see the design spec's "confirmed constraint" section).
+  floorCount: z.number().int().min(0).max(3).optional(),
+  eventCapacity: z.number().int().min(1).max(50).optional(),
+  fillMinutes: z.number().int().min(1).max(240).optional(),
+  hostUserPublicId: z.string().optional(),
+});
+export type UpdateCitySeedConfigRequest = z.infer<typeof updateCitySeedConfigRequest>;

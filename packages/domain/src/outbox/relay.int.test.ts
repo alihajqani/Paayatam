@@ -243,6 +243,30 @@ describe('the fan-out', () => {
     expect(result.created).toBe(0);
   });
 
+  /**
+   * A seed identity (marketing seed events) resolves exactly like a deleted
+   * or anonymised account: quietly skipped, nothing queued, nothing sent —
+   * there is nobody real on the other end (see
+   * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+   */
+  it('quietly skips a seed identity, exactly like a deleted user', async () => {
+    const seedUser = await prisma.user.create({
+      data: { isSeed: true, onboardingState: 'PROFILE_COMPLETE' },
+    });
+
+    await outbox.emit({
+      aggregateType: 'event_participant',
+      aggregateId: 'participant-1',
+      eventType: 'participation.accepted',
+      payload: { participantUserPublicId: seedUser.publicId },
+    });
+
+    const result = await relay.drain();
+    expect(result.processed).toBe(1);
+    expect(result.created).toBe(0);
+    await expect(prisma.notification.count()).resolves.toBe(0);
+  });
+
   it('drains oldest first, so a backlog does not starve the front of the queue', async () => {
     const guest = await createProfiledUser();
 

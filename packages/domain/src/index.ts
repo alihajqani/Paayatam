@@ -201,6 +201,12 @@ export type {
 } from './participation/participation.service';
 export { ParticipationModule } from './participation/participation.module';
 
+export { pickSeedContent } from './seeding/seed-content';
+export { SeedIdentityService } from './seeding/seed-identity.service';
+export { SeedEventService } from './seeding/seed-event.service';
+export { SeedSchedulerService, isDueForSeat } from './seeding/seed-scheduler.service';
+export { SeedingModule } from './seeding/seeding.module';
+
 export { REDACTION_PLACEHOLDER, sanitizeInbound } from './privacy/sanitizer';
 export type {
   Redaction,

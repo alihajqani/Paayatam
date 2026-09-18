@@ -146,6 +146,16 @@ export const PERMISSIONS = {
   AUDIT_READ: 'audit.read',
   /** Request or approve a role change. Four-eyes applies on top (rule 4). */
   ROLE_MANAGE: 'role.manage',
+  /**
+   * Configure and run the marketing seed-event scheduler for a city (see
+   * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+   *
+   * `SUPER_ADMIN` only, at the same sensitivity tier as `coin.adjust` and
+   * `giftcode.manage`: this tool fabricates public-facing platform data —
+   * fake events and fake participants — rather than adjusting or reading
+   * something that is already real.
+   */
+  EVENT_SEED_MANAGE: 'event.seed.manage',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

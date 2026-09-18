@@ -147,9 +147,19 @@ export class OutboxRelayService {
   private async resolveUserId(publicId: string): Promise<string | null> {
     const user = await this.prisma.user.findUnique({
       where: { publicId },
-      select: { id: true },
+      select: { id: true, isSeed: true },
     });
-    return user?.id ?? null;
+    if (user === null) return null;
+    if (user.isSeed) {
+      // A marketing seed identity (see
+      // docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md)
+      // has no telegramAccount and nobody real behind it — expected, high
+      // volume, and not a symptom of anything broken, unlike the "no user"
+      // case above, so this is debug rather than warn.
+      this.logger.debug(`outbox: skipping seed identity ${publicId}`);
+      return null;
+    }
+    return user.id;
   }
 }
 

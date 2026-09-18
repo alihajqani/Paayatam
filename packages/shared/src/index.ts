@@ -342,6 +342,9 @@ export {
   foundingMemberView,
   foundingMemberListQuery,
   foundingMemberListResponse,
+  citySeedConfigView,
+  seedEventsCitiesResponse,
+  updateCitySeedConfigRequest,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -479,6 +482,9 @@ export type {
   FoundingMemberView,
   FoundingMemberListQuery,
   FoundingMemberListResponse,
+  CitySeedConfigView,
+  SeedEventsCitiesResponse,
+  UpdateCitySeedConfigRequest,
 } from './contracts/admin';
 
 export { foldForSearch, foldedIncludes } from './search-fold';

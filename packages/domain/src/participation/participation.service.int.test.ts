@@ -1387,3 +1387,60 @@ describe('the deadline floor (v0.7.0)', () => {
     expect(result.hostDeadlineAt).toEqual(new Date('2026-08-16T09:00:00.000Z'));
   });
 });
+
+/**
+ * The one seat-taking path built for marketing seed events (see
+ * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md), rather
+ * than for `join`/`accept`: it reuses the same ADR-0006 lock and `takeSeat`,
+ * skipping only the PENDING step — there is no real host reviewing a
+ * synthetic request one at a time.
+ */
+describe('seatSeedParticipant', () => {
+  it('seats a participant directly into ACCEPTED and takes a seat', async () => {
+    const eventPublicId = await createEvent({ capacity: 2 });
+    const seed = await prisma.user.create({ data: { isSeed: true } });
+
+    await participation.seatSeedParticipant(eventPublicId, seed.id);
+
+    const event = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { eventId: event.id, userId: seed.id },
+    });
+    expect(participant.status).toBe('ACCEPTED');
+    expect(participant.acceptedAt).not.toBeNull();
+    expect(event.acceptedCount).toBe(1);
+  });
+
+  it('refuses once the event is full', async () => {
+    const eventPublicId = await createEvent({ capacity: 1 });
+    const first = await prisma.user.create({ data: { isSeed: true } });
+    const second = await prisma.user.create({ data: { isSeed: true } });
+
+    await participation.seatSeedParticipant(eventPublicId, first.id);
+
+    await expect(
+      participation.seatSeedParticipant(eventPublicId, second.id),
+    ).rejects.toThrow(/CAPACITY_EXCEEDED/);
+  });
+
+  it('writes a SYSTEM audit row and emits no outbox notification', async () => {
+    const eventPublicId = await createEvent({ capacity: 2 });
+    const seed = await prisma.user.create({ data: { isSeed: true } });
+    const beforeCount = await prisma.outboxEvent.count();
+
+    await participation.seatSeedParticipant(eventPublicId, seed.id);
+
+    const event = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
+    const participant = await prisma.eventParticipant.findFirstOrThrow({
+      where: { eventId: event.id, userId: seed.id },
+    });
+    const audit = await prisma.auditLog.findFirstOrThrow({
+      where: { targetType: 'event_participant', targetId: participant.id },
+    });
+    expect(audit.actorType).toBe('SYSTEM');
+    expect(audit.action).toBe('participation.seed_seated');
+
+    const afterCount = await prisma.outboxEvent.count();
+    expect(afterCount).toBe(beforeCount);
+  });
+});
