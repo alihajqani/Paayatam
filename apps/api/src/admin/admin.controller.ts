@@ -33,6 +33,7 @@ import {
   NoShowClaimService,
   PolicyAdminService,
   ReferralAdminService,
+  SeedAdminService,
   type AdminSession,
   type ChannelConfigStatus,
   type RequiredChannelRecord,
@@ -101,6 +102,7 @@ import {
   reorderCitiesRequest,
   updateCityRequest,
   updateProvinceRequest,
+  updateCitySeedConfigRequest,
   publishPolicyRequest,
   updatePolicyDraftRequest,
   updateSettingRequest,
@@ -130,6 +132,9 @@ import {
   type ReorderCitiesRequest,
   type UpdateCityRequest,
   type UpdateProvinceRequest,
+  type UpdateCitySeedConfigRequest,
+  type CitySeedConfigView,
+  type SeedEventsCitiesResponse,
   type MessageCampaignListResponse,
   type MessageCampaignView,
   type MessagePreviewResponse,
@@ -278,6 +283,8 @@ export class AdminController {
     private readonly queues: QueueService,
     /** Deciding «من حاضر بودم» and «میزبان نیامد» (plan 08). */
     private readonly noShowClaims: NoShowClaimService,
+    /** The marketing seed-event scheduler's admin configuration. */
+    private readonly seedAdmin: SeedAdminService,
     /** Only for the release string; nothing else in this controller reads it. */
     @Inject(ENV) env: Env,
   ) {
@@ -1836,6 +1843,24 @@ export class AdminController {
     @CurrentAdmin() admin: AdminSession,
   ): Promise<void> {
     await this.geography.reorderCities(admin, body.order);
+  }
+
+  /**
+   * Every launched city and its marketing seed-event configuration (see
+   * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+   */
+  @Get('seed-events/cities')
+  async listSeedCities(@CurrentAdmin() admin: AdminSession): Promise<SeedEventsCitiesResponse> {
+    return { cities: await this.seedAdmin.listCities(admin) };
+  }
+
+  @Patch('seed-events/cities/:cityId')
+  async updateSeedCity(
+    @Param('cityId') cityId: string,
+    @Body(new ZodValidationPipe(updateCitySeedConfigRequest)) body: UpdateCitySeedConfigRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<CitySeedConfigView> {
+    return this.seedAdmin.updateConfig(admin, cityId, body);
   }
 
   @Get('activity-tags')

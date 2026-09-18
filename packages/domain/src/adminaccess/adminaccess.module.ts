@@ -22,6 +22,7 @@ import { ModerationDigestService } from './moderation-digest.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
+import { SeedAdminService } from './seed-admin.service';
 // AuditModule and OutboxModule are @Global, so they need no import here.
 
 /**
@@ -68,6 +69,7 @@ import { ReferralAdminService } from './referral-admin.service';
     MessagingAdminService,
     PolicyAdminService,
     ModerationDigestService,
+    SeedAdminService,
   ],
   exports: [
     AdminCredentials,
@@ -86,6 +88,7 @@ import { ReferralAdminService } from './referral-admin.service';
     MessagingAdminService,
     PolicyAdminService,
     ModerationDigestService,
+    SeedAdminService,
   ],
 })
 export class AdminAccessModule {}

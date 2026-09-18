@@ -1418,9 +1418,9 @@ describe('seatSeedParticipant', () => {
 
     await participation.seatSeedParticipant(eventPublicId, first.id);
 
-    await expect(
-      participation.seatSeedParticipant(eventPublicId, second.id),
-    ).rejects.toThrow(/CAPACITY_EXCEEDED/);
+    await expect(participation.seatSeedParticipant(eventPublicId, second.id)).rejects.toThrow(
+      /CAPACITY_EXCEEDED/,
+    );
   });
 
   it('writes a SYSTEM audit row and emits no outbox notification', async () => {

@@ -1546,6 +1546,17 @@ beforeAll(async () => {
       admin: true,
       body: { order: [scanCityId] },
     },
+    // Marketing seed events (docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+    { method: 'GET', url: '/admin/v1/seed-events/cities', admin: true },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/seed-events/cities/${scanCityId}`,
+      admin: true,
+      // `scanCityId` is not launched, so this refuses with NOT_FOUND — still a
+      // real JSON response worth scanning, and no host lookup is needed to
+      // exercise it.
+      body: {},
+    },
     // Last of all: it retires the viewer's event, and the passes that follow then
     // read the refusals — which are responses too.
     { method: 'POST', url: `/api/v1/events/${viewerEventPublicId}/cancel`, body: {} },

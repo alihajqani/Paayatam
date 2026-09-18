@@ -35,6 +35,7 @@ import { GeographyAdminService } from './geography-admin.service';
 import { MessagingAdminService } from './messaging-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
+import { SeedAdminService } from './seed-admin.service';
 import {
   PERMISSIONS,
   ROLE_KEYS,
@@ -139,6 +140,7 @@ const economyReport = new EconomyReportService(service, clock, access, settings)
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
+const seedAdmin = new SeedAdminService(service, access, audit);
 const channelAdmin = new ChannelAdminService(
   access,
   new ChannelConfigService(service, clock, audit),
@@ -544,6 +546,16 @@ const OPERATIONS: Operation[] = [
     name: 'POST /admin/v1/cities/reorder',
     permission: PERMISSIONS.CATALOG_MANAGE,
     run: (session) => geography.reorderCities(session, [NO_SUCH_ID]),
+  },
+  {
+    name: 'GET /admin/v1/seed-events/cities',
+    permission: PERMISSIONS.EVENT_SEED_MANAGE,
+    run: (session) => seedAdmin.listCities(session),
+  },
+  {
+    name: 'PATCH /admin/v1/seed-events/cities/:cityId',
+    permission: PERMISSIONS.EVENT_SEED_MANAGE,
+    run: (session) => seedAdmin.updateConfig(session, NO_SUCH_ID, {}),
   },
   {
     // A one-user audience is the narrow case, so `message.send` alone covers it.

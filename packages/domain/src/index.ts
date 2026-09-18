@@ -448,6 +448,7 @@ export { PolicyAdminService } from './adminaccess/policy-admin.service';
 export type { PolicySummary, ConsentRecord } from './adminaccess/policy-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
+export { SeedAdminService } from './adminaccess/seed-admin.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';
 
 export { NotificationService } from './notifications/notification.service';
