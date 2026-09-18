@@ -14,6 +14,36 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.18.0] — 2026-09-18
+
+A new city opens empty, and an empty city keeps new users from joining it — nobody
+wants to be first. This adds an admin-configurable scheduler that keeps a floor of
+believable, fast-filling "seed" events running per open city: real events, hosted
+by a real team Telegram account, seated by synthetic participants that a real user
+can never actually request — the event is already full by the time anyone sees it.
+Seed events ride the product's real lifecycle unmodified (reminders, attendance,
+host reward, reviews); the only new code path is a one-line skip that stops the
+outbox from ever trying to message a synthetic identity, handled exactly like a
+deleted user.
+
+A new `SUPER_ADMIN`-only «رویدادهای بذر» screen in the admin panel configures this
+per city: on/off, how many filling events to keep alive at once, event capacity,
+and how many minutes an event takes to fill. **No city has a configuration row
+until an admin creates one and turns it on** — this release changes nothing in
+production by itself.
+
+**Migration `00000000000059_seed_events`** (additive): `user.is_seed` marks a
+synthetic identity (created with no `telegram_account` row, so there is
+structurally no chat id to send to); `event.is_seeded` marks the event for
+filtering; `city_seed_config` is the new per-city admin table.
+
+### ⚠️ What a deploy changes for people
+
+- **Nothing, until an admin enables a city.** The scheduler only acts on cities
+  with an enabled `city_seed_config` row, and none exist yet.
+- Once enabled for a city, real users there will see events they cannot join
+  appear and fill on their own — that is the intended effect, not a bug.
+
 ## [v0.17.0] — 2026-09-18
 
 A profile was never actually mandatory: a new user could cancel the wizard
