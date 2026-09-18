@@ -221,6 +221,13 @@ export const JOBS = {
    * one found by a user disputing their balance in six weeks.
    */
   LEDGER_RECONCILE: 'ledger-reconcile',
+  /**
+   * Create seed events up to each configured city's floor (marketing seed
+   * events, see docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+   */
+  SEED_TOPUP: 'seed-topup',
+  /** Advance every filling seed event that is due its next seat. */
+  SEED_FILL: 'seed-fill',
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
@@ -376,4 +383,16 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    * before it would occasionally report a drift that the next half hour resolves.
    */
   { name: JOBS.LEDGER_RECONCILE, pattern: '30 4 * * *', tz: 'Asia/Tehran' },
+  /**
+   * Every five minutes — cheap enough to run often, and `floorCount` is
+   * small per city (capped at 3), so there is never much to create in one
+   * pass.
+   */
+  { name: JOBS.SEED_TOPUP, pattern: '*/5 * * * *' },
+  /**
+   * Every minute — a configured `fillMinutes` is typically around 5, so a
+   * coarser cadence would make the "filling live" effect look stepped
+   * rather than organic.
+   */
+  { name: JOBS.SEED_FILL, pattern: '* * * * *' },
 ];

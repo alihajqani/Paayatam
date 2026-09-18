@@ -86,6 +86,7 @@ function buildProcessors(options: {
     {} as never, // AuditService — only the channel sweep writes one
     {} as never, // CityLaunchAnnouncementService
     {} as never, // NoShowClaimService
+    {} as never, // SeedSchedulerService
   );
 
   return { processors, send, markSuppressed, isLinked };

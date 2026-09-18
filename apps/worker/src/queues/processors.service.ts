@@ -23,6 +23,7 @@ import {
   ReviewService,
   CityLaunchAnnouncementService,
   NoShowClaimService,
+  SeedSchedulerService,
   type PublishablePost,
 } from '@payetam/domain';
 import { JOBS, MetricsRegistry, QUEUES, QueueService, SCHEDULE, jobId } from '@payetam/platform';
@@ -156,6 +157,8 @@ export class Processors implements OnModuleInit {
     private readonly cityLaunches: CityLaunchAnnouncementService,
     /** For one thing only: the one-off dispute offer to earlier no-shows (plan 08). */
     private readonly noShowClaims: NoShowClaimService,
+    /** Marketing seed events: create and fill fake events per city (SUPER_ADMIN-configured). */
+    private readonly seedScheduler: SeedSchedulerService,
   ) {}
 
   /**
@@ -615,6 +618,37 @@ export class Processors implements OnModuleInit {
             `Settled ${String(settled.events)} host(s) for ${String(settled.coins)} coins`,
           );
           await this.onDomainEvent(job);
+        }
+        return;
+      }
+
+      /**
+       * Marketing seed events (see
+       * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+       *
+       * A newly created seed event goes through the real `EventService.create`,
+       * which can emit real discovery/invite notifications to interested city
+       * residents — the same as a real host's event would. `onDomainEvent`
+       * drains those promptly rather than waiting for the five-minute backstop,
+       * exactly like `EVENT_LIFECYCLE` and `SETTLE_HOST_REWARDS` above.
+       */
+      case JOBS.SEED_TOPUP: {
+        const result = await this.seedScheduler.topUp();
+        if (result.created > 0) {
+          this.logger.log(`Seed scheduler created ${String(result.created)} event(s)`);
+          await this.onDomainEvent(job);
+        }
+        return;
+      }
+
+      /**
+       * `seatSeedParticipant` never emits an outbox notification — there is
+       * nobody real to tell — so there is nothing to drain here.
+       */
+      case JOBS.SEED_FILL: {
+        const result = await this.seedScheduler.fill();
+        if (result.steps > 0) {
+          this.logger.log(`Seed scheduler advanced ${String(result.steps)} event(s)`);
         }
         return;
       }

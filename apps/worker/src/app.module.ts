@@ -16,6 +16,7 @@ import {
   ParticipationModule,
   PrivacyModule,
   ReviewsModule,
+  SeedingModule,
 } from '@payetam/domain';
 import {
   ClockModule,
@@ -70,6 +71,7 @@ import { TelegramClient } from './telegram/telegram.client';
     NotificationsModule,
     IdentityModule,
     PrivacyModule,
+    SeedingModule,
   ],
   providers: [WorkerFactory, TelegramClient, TelegramLoggerService, Processors],
 })

@@ -41,6 +41,7 @@ function build(announced: { cityNameFa: string; recipients: number }[]) {
     {} as never, // AuditService
     cityLaunches as never,
     {} as never, // NoShowClaimService
+    {} as never, // SeedSchedulerService
   );
 
   return { processors, cityLaunches, messaging };
