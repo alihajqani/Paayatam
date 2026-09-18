@@ -508,7 +508,7 @@ heading, which looks like styling and is a wrong date.
 | Kind | Command | Shape |
 |---|---|---|
 | `CREATE_EVENT` | `/create_event` | eleven steps, then a summary; the optional nine are behind «افزودن جزئیات بیشتر» |
-| `EDIT_PROFILE` | `/edit_profile`, `/interests` | seven steps, every one skippable; the last is a **multi-select** over the interest catalogue, and `/interests` opens the same wizard with the other six `when`'d out |
+| `EDIT_PROFILE` | `/edit_profile`, `/interests` | seven steps; only `bio` is skippable (v0.17.0 — name, gender, birth year, province, city and interests are answers a profile cannot exist without). The last is a **multi-select** over the interest catalogue and refuses «تمام» with nothing ticked; `/interests` opens the same wizard with the other six `when`'d out. No field-specific edit for gender — it is asked once, at completion, and only support may change it afterward |
 | `EDIT_EVENT` | `/edit_event` | `pick`, then the create wizard's own steps with `optional` set |
 | `ACCEPT_POLICIES` | opened by the gate, or `/terms` | one step, not cancellable |
 | `WRITE_REVIEW` / `FILE_REPORT` / `ADMIN_CASE` / `REDEEM_CODE` | see §10b | |

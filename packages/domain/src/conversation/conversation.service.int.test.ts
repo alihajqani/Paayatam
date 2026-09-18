@@ -209,10 +209,11 @@ describe('a multi-select step', () => {
   });
 
   /**
-   * «تمام» with nothing ticked is a real answer — somebody clearing their
-   * interests — and it must not be mistaken for a refused tap.
+   * Interests are mandatory (v0.17.0): «تمام» with nothing ticked refuses,
+   * the same way «رد کردن» refuses on any other non-optional step, rather
+   * than being read as somebody deliberately clearing their interests.
    */
-  it('advances on «تمام» with nothing chosen', async () => {
+  it('refuses «تمام» with nothing chosen, and does not advance', async () => {
     await openInterests();
 
     const done = await conversations.handle(userId, 2, {
@@ -221,7 +222,8 @@ describe('a multi-select step', () => {
       value: '',
     });
 
-    expect(done?.kind).toBe('summary');
+    expect(done).toMatchObject({ kind: 'step', step: { key: 'tags' } });
+    expect((await conversations.current(userId))?.step).toBe('tags');
   });
 
   /**

@@ -3613,7 +3613,11 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
     await type(NEWCOMER_TELEGRAM_ID, '۱۳۶۹');
     await tap(NEWCOMER_TELEGRAM_ID, `wz:prov:${provinceId}`);
     await tap(NEWCOMER_TELEGRAM_ID, `wz:city:${fixture.tehranId}`);
-    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // bio
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // bio, the one field that still is
+    // Interests are mandatory since v0.17.0 — «تمام» with nothing ticked
+    // refuses, so a real completion has to tap at least one.
+    await tap(NEWCOMER_TELEGRAM_ID, `wz:tags:${fixture.boardGamesId}`);
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:done:');
     await tap(NEWCOMER_TELEGRAM_ID, 'wz:confirm:');
 
     const profile = await prisma.userProfile.findUniqueOrThrow({
@@ -3634,30 +3638,41 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
     expect(await prisma.conversationState.count({ where: { userId: account.userId } })).toBe(0);
   });
 
-  /** A first profile needs a name, a year and a city; the wizard lets you skip all three. */
-  it('names what is missing rather than refusing generically', async () => {
+  /**
+   * A first profile needs a name, a gender, a year, a city and at least one
+   * interest — the wizard used to let you skip all of them (this test's old
+   * title). Since v0.17.0 the mandatory steps refuse «رد کردن» outright, one
+   * at a time, rather than collecting a form with holes in it and refusing at
+   * the very end.
+   */
+  it('refuses to skip a mandatory step, and does not advance', async () => {
     await type(NEWCOMER_TELEGRAM_ID, '/start');
 
     await type(NEWCOMER_TELEGRAM_ID, '/edit_profile');
     await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // name
-    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // gender
-    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // birth year
-    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // province
-    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // city
-    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // bio
-    await tap(NEWCOMER_TELEGRAM_ID, 'wz:confirm:');
 
-    const notice = await prisma.notification.findFirstOrThrow({
-      where: { templateKey: TEMPLATES.BOT_NOTICE },
-      orderBy: { createdAt: 'desc' },
-      select: { payload: true },
-    });
-    const text = String((notice.payload as Record<string, unknown>)['text']);
-    expect(text).toContain('نام');
-    expect(text).toContain('سال تولد');
-    expect(text).toContain('شهر');
-    // The draft survives, so «ویرایش» walks back to the step they skipped.
-    expect(await prisma.conversationState.count()).toBe(1);
+    let state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.step).toBe('name');
+
+    // Answering it moves on; skipping the next mandatory step is refused the
+    // same way, one question later.
+    await type(NEWCOMER_TELEGRAM_ID, 'شوماخر');
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // gender
+
+    state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.step).toBe('gender');
+
+    // The wizard's own `accept` only checks a tap's *shape* (a UUID), never
+    // catalog membership — that is `ProfileService.complete`'s job, never
+    // reached here — so `fixture.tehranId` stands in for both taps.
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:gender:MALE');
+    await type(NEWCOMER_TELEGRAM_ID, '۱۳۶۹');
+    await tap(NEWCOMER_TELEGRAM_ID, `wz:prov:${fixture.tehranId}`);
+    await tap(NEWCOMER_TELEGRAM_ID, `wz:city:${fixture.tehranId}`);
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:skip:'); // bio, the one step still answerable this way
+
+    state = await prisma.conversationState.findFirstOrThrow();
+    expect(state.step).toBe('tags');
   });
 
   it('changes only the fields that were answered', async () => {

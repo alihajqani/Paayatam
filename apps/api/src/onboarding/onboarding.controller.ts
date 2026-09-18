@@ -178,7 +178,7 @@ export class OnboardingController {
 
     const completion = await this.profiles.complete(internalId, {
       displayName: body.displayName,
-      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      gender: body.gender,
       birthYear: body.birthYear,
       cityId: body.cityId,
       ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
@@ -302,7 +302,6 @@ export class OnboardingController {
     // body carries the second for every field the client omitted.
     const profile = await this.profiles.update(internalId, {
       ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
-      ...(body.gender !== undefined ? { gender: body.gender } : {}),
       ...(body.birthYear !== undefined ? { birthYear: body.birthYear } : {}),
       ...(body.cityId !== undefined ? { cityId: body.cityId } : {}),
       ...(body.districtId !== undefined ? { districtId: body.districtId } : {}),
