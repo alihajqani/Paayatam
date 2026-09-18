@@ -15,16 +15,34 @@ function accept(
   return apply(step, { kind, value }, form);
 }
 
-describe('every step is skippable', () => {
+describe('which steps may be skipped', () => {
   /**
    * A profile already exists; an edit changes some of it. Skipping means "leave
-   * this alone", which is why `UpdateProfileInput` takes a partial.
+   * this alone", which is why `UpdateProfileInput` takes a partial — for the one
+   * step that is still a genuine preference.
    */
-  it('lets any step be skipped, changing nothing', () => {
-    for (const step of editProfileWizard.steps) {
+  it('lets bio be skipped, changing nothing', () => {
+    const bio = stepByKey(editProfileWizard, 'bio');
+    if (bio === null) throw new Error('no bio step');
+    expect(apply(bio, { kind: 'callback', action: 'skip', value: '' }, {})).toEqual({
+      ok: true,
+      patch: {},
+    });
+  });
+
+  /**
+   * Name, gender, birth year, province, city and interests are answers a
+   * profile cannot exist without (v0.17.0) — a skipped one used to leave a
+   * profile the product never noticed was incomplete. `tags` is a `multi` step
+   * and has no «رد کردن» skip action at all; the other five refuse it.
+   */
+  it('refuses a skip on every mandatory step', () => {
+    for (const key of ['name', 'gender', 'birth', 'prov', 'city']) {
+      const step = stepByKey(editProfileWizard, key);
+      if (step === null) throw new Error(`no step ${key}`);
       expect(apply(step, { kind: 'callback', action: 'skip', value: '' }, {})).toEqual({
-        ok: true,
-        patch: {},
+        ok: false,
+        error: 'این مورد را نمی‌توان رد کرد.',
       });
     }
   });
@@ -135,6 +153,17 @@ describe('interests', () => {
   it('is a multi-select step', () => {
     expect(stepByKey(editProfileWizard, 'tags')?.ui).toBe('multi');
   });
+
+  /**
+   * Mandatory since v0.17.0 — `optional` absent rather than `true`, which is
+   * what both removes the «رد کردن» button (`render.ts`) and is what
+   * `ConversationService`'s `done` handling reads to refuse «تمام» with
+   * nothing ticked. The actual refusal is an engine-level test
+   * (`conversation.service.test.ts`), because it happens outside `accept`.
+   */
+  it('is not optional', () => {
+    expect(stepByKey(editProfileWizard, 'tags')?.optional).not.toBe(true);
+  });
 });
 
 describe('display name', () => {
@@ -142,9 +171,26 @@ describe('display name', () => {
     expect(accept('name', '  علی  ')).toEqual({ ok: true, patch: { displayName: 'علی' } });
   });
 
+  it('accepts an English name', () => {
+    expect(accept('name', 'Ali Reza')).toEqual({ ok: true, patch: { displayName: 'Ali Reza' } });
+  });
+
   it('refuses one that is too short or too long', () => {
     expect(accept('name', 'ا').ok).toBe(false);
     expect(accept('name', 'ا'.repeat(41)).ok).toBe(false);
+  });
+
+  /**
+   * Only Persian or English letters and spaces (v0.17.0) — no digits, emoji or
+   * other symbols. A display name is how one person recognises another; the API
+   * contracts enforce the same rule with `DISPLAY_NAME_PATTERN`, and this is the
+   * bot's own friendlier refusal for it.
+   */
+  it('refuses digits, emoji and symbols', () => {
+    expect(accept('name', 'علی۱۲').ok).toBe(false);
+    expect(accept('name', 'Ali123').ok).toBe(false);
+    expect(accept('name', 'علی 😀').ok).toBe(false);
+    expect(accept('name', 'علی_رضا').ok).toBe(false);
   });
 });
 
@@ -213,6 +259,19 @@ describe('gender', () => {
   it('refuses anything else', () => {
     expect(accept('gender', 'OTHER', {}, 'callback').ok).toBe(false);
   });
+
+  it('is not optional', () => {
+    expect(stepByKey(editProfileWizard, 'gender')?.optional).not.toBe(true);
+  });
+
+  /**
+   * Told once, on the question itself, since this is the only chance the
+   * wizard gets to say it — there is no later screen that edits gender back.
+   */
+  it('says it cannot be changed except by support', () => {
+    const gender = stepByKey(editProfileWizard, 'gender');
+    expect(gender?.prompt({})).toContain('پشتیبانی');
+  });
 });
 
 describe('province and city', () => {
@@ -260,12 +319,22 @@ describe('editProfileWizard — one field at a time', () => {
 
   it.each([
     ['name', ['name']],
-    ['gender', ['gender']],
     ['birth', ['birth']],
     ['bio', ['bio']],
     ['tags', ['tags']],
   ])('asks only about %s', (field, expected) => {
     expect(stepsFor({ field } as EditProfileForm)).toEqual(expected);
+  });
+
+  /**
+   * There is no field-specific edit for gender (v0.17.0) — `PROFILE_FIELDS` has
+   * no button for it, so nothing can ever set `form.field` to `'gender'`
+   * through `/edit_profile`. The gender step's own `when` still refuses it if
+   * something did: it runs only on the full, unscoped pass.
+   */
+  it('has no field-specific edit for gender', () => {
+    const gender = stepByKey(editProfileWizard, 'gender');
+    expect(gender?.when?.({ field: 'gender' } as unknown as EditProfileForm)).toBe(false);
   });
 
   /**
@@ -292,7 +361,7 @@ describe('the province prompt', () => {
   const prov = editProfileWizard.steps.find((step) => step.key === 'prov');
 
   it('says nothing extra by default', () => {
-    expect(prov?.prompt({})).toBe('در کدام استان هستید؟');
+    expect(prov?.prompt({})).toBe('در کدام استان هستید؟ (اجباری)');
   });
 
   /**

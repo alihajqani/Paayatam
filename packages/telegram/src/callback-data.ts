@@ -1039,8 +1039,12 @@ export function parseBuyCallback(data: string): boolean {
  * The names are the wizard's own `ProfileField` union, kept short because
  * `callback_data` is capped at 64 bytes by Telegram — `loc` covers province and
  * city together, which are two steps and one decision.
+ *
+ * **No `gender`.** Gender is asked once, at completion, and is not a
+ * self-service edit afterward (v0.17.0) — see `edit-profile.ts`'s
+ * `PROFILE_FIELDS`, which this mirrors.
  */
-export const PROFILE_FIELD_KEYS = ['name', 'gender', 'birth', 'loc', 'bio', 'tags'] as const;
+export const PROFILE_FIELD_KEYS = ['name', 'birth', 'loc', 'bio', 'tags'] as const;
 export type ProfileFieldKey = (typeof PROFILE_FIELD_KEYS)[number];
 
 const PROFILE_FIELD_PREFIX = 'pf';

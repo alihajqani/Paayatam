@@ -296,15 +296,18 @@ export function menuCommandFor(text: string): string | null {
  * label that cannot be read is a button that has to be guessed at.
  */
 /**
- * The six fields of a profile, two to a row (v0.9.1).
+ * The five fields of a profile, two to a row (v0.9.1).
  *
- * Two per row rather than one, because six single-button rows is a screen you
+ * Two per row rather than one, because five single-button rows is a screen you
  * scroll to read; and rather than three, because the Persian labels wrap at
  * three on a narrow phone and a wrapped button label is unreadable.
  *
+ * **No gender button.** Gender is asked once, at completion, and is not a
+ * self-service edit afterward (v0.17.0) — only support may change it.
+ *
  * «همه را پشت سر هم» is last and deliberately still offered: completing a
  * profile from scratch really is all seven questions, and somebody who has just
- * arrived should not have to tap six buttons to answer them.
+ * arrived should not have to tap five buttons to answer them.
  */
 /** The heading over the board. One line: the buttons say the rest. */
 export function profileEditText(): string {
@@ -314,7 +317,6 @@ export function profileEditText(): string {
 export function profileEditKeyboard(): InlineKeyboard {
   const fields: { text: string; field: ProfileFieldKey }[] = [
     { text: '👤 نام نمایشی', field: 'name' },
-    { text: '🚻 جنسیت', field: 'gender' },
     { text: '🎂 سال تولد', field: 'birth' },
     { text: '📍 استان و شهر', field: 'loc' },
     { text: '📝 درباره من', field: 'bio' },

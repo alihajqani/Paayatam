@@ -13,6 +13,18 @@ export const gender = z.enum(['MALE', 'FEMALE', 'PREFER_NOT_SAY']);
 export type Gender = z.infer<typeof gender>;
 
 /**
+ * A display name may hold Persian or English letters, spaces, and the
+ * half-space (ZWNJ, U+200C) Persian compound words need — nothing else.
+ *
+ * No digits and no emoji: a display name is how one person recognises
+ * another in the product, and the bot's own wizard enforces this rule
+ * interactively (`edit-profile.ts`) with a friendlier refusal than a bare
+ * regex failure. This is the same rule at the API boundary, for every
+ * surface that is not the bot.
+ */
+export const DISPLAY_NAME_PATTERN = /^[A-Za-z؀-ٟ٪-ۯۺ-ۿ‌ ]+$/u;
+
+/**
  * How many interests one profile may carry.
  *
  * A named constant rather than a literal in two schemas, because the number is
@@ -39,8 +51,10 @@ export const MAX_PROFILE_INTERESTS = 10;
  * that computed the age itself would be trusting a client clock.
  */
 export const completeProfileRequest = z.object({
-  displayName: z.string().trim().min(2).max(40),
-  gender: gender.optional(),
+  displayName: z.string().trim().min(2).max(40).regex(DISPLAY_NAME_PATTERN),
+  // Asked once, here, and never editable afterward by the user — see
+  // `GENDER_NOT_EDITABLE` and `ProfileService.update`.
+  gender,
   birthYear: z.number().int().min(1900).max(2200),
   cityId: z.uuid(),
   districtId: z.uuid().optional(),
@@ -52,7 +66,7 @@ export type CompleteProfileRequest = z.infer<typeof completeProfileRequest>;
 /**
  * Editing a profile that already exists (M22 phase 2).
  *
- * Deliberately **not** `completeProfileRequest.partial()`. Three of these fields
+ * Deliberately **not** `completeProfileRequest.partial()`. `districtId` and `bio`
  * are nullable here and are not optional-with-absent-meaning-null there, and the
  * distinction is the whole contract: an **absent** key means "leave it alone" and
  * an explicit `null` means "clear it". `.partial()` collapses those into one
@@ -70,8 +84,10 @@ export type CompleteProfileRequest = z.infer<typeof completeProfileRequest>;
  */
 export const updateProfileRequest = z
   .object({
-    displayName: z.string().trim().min(2).max(40).optional(),
-    gender: gender.nullable().optional(),
+    displayName: z.string().trim().min(2).max(40).regex(DISPLAY_NAME_PATTERN).optional(),
+    // No `gender` here, deliberately: once set at completion it is not a
+    // self-service edit. `ProfileService.update` also refuses it for a user
+    // editor, so this is belt-and-suspenders rather than the only guard.
     birthYear: z.number().int().min(1900).max(2200).optional(),
     cityId: z.uuid().optional(),
     districtId: z.uuid().nullable().optional(),
@@ -101,7 +117,9 @@ export type UpdateProfileRequest = z.infer<typeof updateProfileRequest>;
  */
 export const adminUpdateProfileRequest = z
   .object({
-    displayName: z.string().trim().min(2).max(40).optional(),
+    displayName: z.string().trim().min(2).max(40).regex(DISPLAY_NAME_PATTERN).optional(),
+    // Support's own path to change gender — the one case `GENDER_NOT_EDITABLE`
+    // does not refuse, because `editor.kind` here is `'ADMIN'`.
     gender: gender.nullable().optional(),
     birthYear: z.number().int().min(1900).max(2200).optional(),
     cityId: z.uuid().optional(),

@@ -24,6 +24,14 @@ export const ErrorCode = {
   POLICY_VERSION_STALE: 'POLICY_VERSION_STALE',
   AGE_BELOW_MINIMUM: 'AGE_BELOW_MINIMUM',
   PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
+  /**
+   * A user (not support) tried to change their own gender.
+   *
+   * Gender is asked once, at profile completion, and is deliberately not a
+   * self-service field afterward — only an admin edit
+   * (`adminUpdateProfileRequest`, `editor.kind === 'ADMIN'`) may change it.
+   */
+  GENDER_NOT_EDITABLE: 'GENDER_NOT_EDITABLE',
   INVALID_INTEREST: 'INVALID_INTEREST',
   CITY_NOT_AVAILABLE: 'CITY_NOT_AVAILABLE',
   /**
@@ -256,6 +264,13 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   POLICY_VERSION_STALE: 'قوانین به‌روزرسانی شده است. لطفاً نسخهٔ جدید را مطالعه و تأیید کنید.',
   AGE_BELOW_MINIMUM: 'استفاده از پایه‌تَم برای افراد زیر ۱۸ سال امکان‌پذیر نیست.',
   PROFILE_INCOMPLETE: 'برای ادامه، ابتدا پروفایل خود را کامل کنید.',
+  // Not «با پشتیبانی تماس بگیرید»: this catalogue cannot interpolate
+  // `SUPPORT_CONTACT` (it is static strings keyed by code), and the codebase's
+  // own rule for that env var is that a call to action with no channel behind
+  // it is worse than not raising the subject (`suspendedNotice`). Stated as a
+  // fact instead — and in practice unreachable through the bot or the Mini
+  // App, since neither offers a control that could send this.
+  GENDER_NOT_EDITABLE: 'جنسیت پس از ثبت قابل تغییر نیست؛ تغییر آن فقط از طریق پشتیبانی ممکن است.',
   INVALID_INTEREST: 'یکی از علاقه‌مندی‌های انتخاب‌شده معتبر نیست.',
   // Reworded in M21: the product serves 1,252 cities, and a message naming
   // Tehran would now be wrong in 1,251 of them.
@@ -366,6 +381,7 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   UNAUTHENTICATED: 401,
   USER_BANNED: 403,
   TERMS_NOT_ACCEPTED: 403,
+  GENDER_NOT_EDITABLE: 403,
   /**
    * 403, alongside `TERMS_NOT_ACCEPTED` rather than defaulting to 400 (M22).
    *

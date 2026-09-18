@@ -298,6 +298,28 @@ export class ConversationService {
      * re-evaluated here too.
      */
     if (input.action === 'done') {
+      /**
+       * A non-optional multi-select refuses «تمام» with nothing ticked.
+       *
+       * `wizard.ts`'s `apply` already refuses a bare «رد کردن» on a step whose
+       * `optional` is not `true`; a multi-select's «تمام» is the same gesture by
+       * a different name when the selection is empty — both are "leave this
+       * unanswered" — so it gets the same refusal rather than silently advancing
+       * with the field unset (v0.17.0, profile interests).
+       */
+      if (step.optional !== true && (step.selectedOf?.(snapshot.form) ?? []).length === 0) {
+        await this.save(userId, snapshot, updateId);
+        const { position, total } = progressOf(definition, step.key, snapshot.form);
+        return {
+          kind: 'step',
+          step,
+          snapshot,
+          error: 'دست‌کم یک مورد را انتخاب کنید.',
+          position,
+          total,
+        };
+      }
+
       const following = nextStep(definition, step.key, snapshot.form);
       if (following === null) {
         await this.save(userId, snapshot, updateId);

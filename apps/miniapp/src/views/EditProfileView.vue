@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { updateProfileRequest, type Gender, type UpdateProfileRequest } from '@payetam/shared';
+import {
+  ERROR_MESSAGES_FA,
+  updateProfileRequest,
+  type Gender,
+  type UpdateProfileRequest,
+} from '@payetam/shared';
 import { ApiError } from '@/api/client';
 import CityPicker from '@/components/CityPicker.vue';
 import MainButton from '@/components/MainButton.vue';
@@ -36,7 +41,12 @@ const router = useRouter();
 const session = useSessionStore();
 
 const displayName = ref('');
-const gender = ref<Gender | ''>('');
+/**
+ * Read-only. Gender is asked once, at completion, and is not a self-service
+ * edit afterward — `ProfileService.update` refuses it for a user editor
+ * (`GENDER_NOT_EDITABLE`), so this screen only ever shows it back.
+ */
+const gender = ref<Gender | null>(null);
 const birthYear = ref<number | ''>('');
 const cityId = ref('');
 const districtId = ref('');
@@ -69,7 +79,7 @@ function hydrate(): void {
   const current = profile.value;
   if (!current) return;
   displayName.value = current.displayName;
-  gender.value = current.gender ?? '';
+  gender.value = current.gender;
   birthYear.value = current.birthYear ?? '';
   cityId.value = current.city.id;
   districtId.value = current.district?.id ?? '';
@@ -137,9 +147,6 @@ function buildRequest(): UpdateProfileRequest | null | 'unchanged' {
   if (displayName.value.trim() !== current.displayName) {
     candidate['displayName'] = displayName.value;
   }
-  if ((gender.value === '' ? null : gender.value) !== current.gender) {
-    candidate['gender'] = gender.value === '' ? null : gender.value;
-  }
   if (birthYear.value !== '' && birthYear.value !== current.birthYear) {
     candidate['birthYear'] = birthYear.value;
   }
@@ -172,6 +179,12 @@ function buildRequest(): UpdateProfileRequest | null | 'unchanged' {
   );
   return null;
 }
+
+const GENDER_FA: Record<Gender, string> = {
+  FEMALE: 'زن',
+  MALE: 'مرد',
+  PREFER_NOT_SAY: 'ترجیح می‌دهم نگویم',
+};
 
 function messageFor(field: PropertyKey | undefined): string {
   switch (field) {
@@ -271,30 +284,13 @@ onMounted(load);
         </span>
       </label>
 
-      <fieldset class="flex flex-col gap-2">
-        <legend class="text-sm text-tg-subtitle">جنسیت (اختیاری)</legend>
-        <div class="flex gap-2">
-          <button
-            v-for="option in [
-              { value: 'FEMALE', label: 'زن' },
-              { value: 'MALE', label: 'مرد' },
-              { value: 'PREFER_NOT_SAY', label: 'ترجیح می‌دهم نگویم' },
-            ]"
-            :key="option.value"
-            type="button"
-            class="min-h-11 flex-1 rounded-xl px-2 text-sm"
-            :class="
-              gender === option.value
-                ? 'bg-tg-button text-tg-button-text'
-                : 'bg-tg-secondary-bg text-tg-text'
-            "
-            :aria-pressed="gender === option.value"
-            @click="gender = gender === option.value ? '' : (option.value as Gender)"
-          >
-            {{ option.label }}
-          </button>
-        </div>
-      </fieldset>
+      <div class="flex flex-col gap-1">
+        <span class="text-sm text-tg-subtitle">جنسیت</span>
+        <p class="min-h-11 rounded-xl bg-tg-secondary-bg px-3 py-2 text-tg-text">
+          {{ gender ? GENDER_FA[gender] : '—' }}
+        </p>
+        <span class="text-sm text-tg-hint">{{ ERROR_MESSAGES_FA.GENDER_NOT_EDITABLE }}</span>
+      </div>
 
       <label class="flex flex-col gap-1">
         <span class="text-sm text-tg-subtitle">سال تولد (شمسی)</span>

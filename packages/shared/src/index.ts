@@ -59,6 +59,7 @@ export type {
 
 export {
   gender,
+  DISPLAY_NAME_PATTERN,
   MAX_PROFILE_INTERESTS,
   completeProfileRequest,
   updateProfileRequest,

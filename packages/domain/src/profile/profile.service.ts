@@ -14,7 +14,8 @@ import { isOldEnough } from './age';
 
 export interface CompleteProfileInput {
   displayName: string;
-  gender?: Gender;
+  /** Asked once, here, and never a self-service edit afterward — see `update`. */
+  gender: Gender;
   birthYear: number;
   cityId: string;
   districtId?: string;
@@ -217,6 +218,17 @@ export class ProfileService {
   ): Promise<ProfileDetail> {
     const now = this.clock.now();
 
+    /**
+     * Gender is asked once, at completion, and is not a self-service field
+     * afterward — only support may change it (`editor.kind === 'ADMIN'`).
+     *
+     * Checked before the transaction, like the age check below: refusing a
+     * rule that does not depend on the database should not wait for a lock.
+     */
+    if (editor.kind === 'USER' && input.gender !== undefined) {
+      throw new AppError(ErrorCode.GENDER_NOT_EDITABLE);
+    }
+
     // Before the transaction, and only when a year was actually sent: refusing
     // an under-age edit should not depend on having taken a lock first, and the
     // overwhelming majority of edits do not touch the year at all.
@@ -406,7 +418,7 @@ export class ProfileService {
 
       const data = {
         displayName: input.displayName,
-        gender: input.gender ?? null,
+        gender: input.gender,
         birthYear: input.birthYear,
         cityId: location.cityId,
         districtId: location.districtId,
