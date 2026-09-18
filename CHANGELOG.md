@@ -14,6 +14,57 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.17.0] — 2026-09-18
+
+A profile was never actually mandatory: a new user could cancel the wizard
+`finishConsent` opened, or tap the menu instead, and use almost the whole bot
+with no profile at all. A router-level gate now sends any command or message
+back to the wizard until it is finished. Inside the wizard, name, gender,
+birth year, province, city and interests lose their «رد کردن» and are marked
+«(اجباری)»; only the bio stays optional. Gender is asked once and is no
+longer a self-service edit afterward — only support can change it.
+
+**No migration.** The rules tighten at the application layer; the columns
+they govern already existed.
+
+### ⚠️ What a deploy changes for people
+
+- **Anyone who accepted the terms but never finished their profile** is
+  handed the profile wizard on their next command or message, and nothing
+  else works until they finish it.
+- **Gender becomes locked once set**, including for existing profiles that
+  already have one. Only an admin edit (support) can change it from here on.
+- **Interests become mandatory.** `/interests` and the tags step inside
+  `/edit_profile` now refuse «تمام» with nothing ticked.
+- **Display names are restricted** to Persian or English letters and spaces —
+  no digits, emoji or symbols — on every surface that accepts one (the bot,
+  the Mini App, and admin edits).
+- The usual release broadcast goes to every user.
+
+### Added
+
+- **The profile-completion gate** (`BotService.profileGateOwed`): any
+  command or typed message from a user who has accepted the terms but has no
+  profile yet is redirected to the profile wizard instead of being answered.
+  An already-open wizard is left alone, so answering it still works.
+- **`DISPLAY_NAME_PATTERN`** in `@payetam/shared`, enforced by
+  `completeProfileRequest`, `updateProfileRequest`, `adminUpdateProfileRequest`
+  and the bot wizard's own `name` step.
+- **`GENDER_NOT_EDITABLE`**, a new error code: `ProfileService.update` refuses
+  a gender change from a user editor (not an admin).
+
+### Changed
+
+- The `EDIT_PROFILE` wizard: `name`, `gender`, `birth`, `prov`, `city` and
+  `tags` no longer accept «رد کردن»; a non-optional `multi` step (`tags`)
+  now also refuses «تمام» with nothing selected
+  (`ConversationService`'s `done` handling).
+- **No field-specific gender edit.** `PROFILE_FIELDS` and the `/edit_profile`
+  board's `PROFILE_FIELD_KEYS` drop `gender`; the Mini App's edit screen shows
+  gender read-only instead of an editable control.
+- `CompleteProfileInput.gender` is now required, matching
+  `completeProfileRequest`.
+
 ## [v0.16.0] — 2026-09-15
 
 The channel post names its activity and category as hashtags, shows how full the
