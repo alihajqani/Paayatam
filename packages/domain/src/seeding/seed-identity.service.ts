@@ -29,7 +29,10 @@ export class SeedIdentityService {
     const gender = pick(GENDERS);
     const firstName = pick(FIRST_NAMES[gender]);
     const lastInitial = pick(LAST_INITIALS);
-    const birthYear = 1370 + Math.floor(Math.random() * 15); // Persian calendar, ~20-35 y/o
+    // Gregorian, per `user_profile_birth_year_plausible` (migration 0003) — a
+    // Jalali year here would fail that CHECK, exactly the mistake it exists
+    // to catch. ~20-35 y/o as of the mid-2020s.
+    const birthYear = 1990 + Math.floor(Math.random() * 15);
 
     const user = await this.prisma.user.create({
       data: {
