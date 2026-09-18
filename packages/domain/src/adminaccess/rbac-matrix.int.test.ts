@@ -663,7 +663,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(71);
+    expect(OPERATIONS).toHaveLength(73);
   });
 
   for (const role of ROLES) {
