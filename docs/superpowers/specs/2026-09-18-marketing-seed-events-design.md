@@ -217,16 +217,29 @@ each event/city operation takes its own lock.
   5. `apps/{api,worker}/src/app.module.test.ts` resolves the new providers
      (the module-wiring trap this repo has hit before).
 
-## Known implementation risk to verify early
+## Confirmed constraint: the real per-host quota and coin cost apply
 
-`createSeedEvent` calls the real `EventService.createEvent` as the configured
-host, which means any existing per-host limit (e.g. a cap on concurrently
-active events for one account, if `event.service.ts` has one) applies to the
-seed host exactly as it would to a real one. If a city's `floorCount ×`
-concurrent-fill-window bumps into such a limit, the fix is a small pool of
-host accounts per city in `CitySeedConfig` rather than one — not a bypass of
-the limit. Confirm this during implementation before assuming a single host
-is sufficient.
+`createSeedEvent` calls the real `EventService.create(hostUserId, input)` as
+the configured host — read in full while writing the plan. Two consequences,
+both intentional (they are exactly "the same thing that happens to a real
+event"), and both need an operational answer, not a code branch:
+
+1. **Quota:** `EventService` enforces five new events per Tehran day and
+   three *concurrently active* (not yet started) events, per host — plan
+   §11, `assertWithinQuota`/`quotaFor`. `CitySeedConfig.floorCount` is
+   therefore capped at **3** at the contract level (`z.number().max(3)`),
+   and each city must use its **own** dedicated host account — sharing one
+   host across cities divides one 3-slot, 5/day budget between them. This is
+   the reason `hostUserId` is per-city in `CitySeedConfig`, not global.
+2. **Coins:** `create()` charges the host `economy.event_create_coins`, and
+   — since a seed event's clean content always resolves to `PUBLISHED` — a
+   further `economy.event_channel_post_coins`-ish channel-post charge in the
+   same transaction, exactly as it would a real host. **The configured host
+   account must be kept funded** (e.g. periodic `coin.adjust` top-ups); an
+   exhausted balance surfaces as `INSUFFICIENT_COINS` on `topUp()`. The
+   scheduler must not let one city's exhausted host abort the sweep for
+   other cities — each city's creation attempt is wrapped in its own
+   try/catch (Task 7 of the plan).
 
 ## Explicitly out of scope
 
