@@ -219,6 +219,25 @@ const routes: RouteRecordRaw[] = [
   },
   {
     /**
+     * Marketing seed events (see
+     * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+     *
+     * Its own permission, `event.seed.manage`, at the same sensitivity tier
+     * as `coin.adjust`/`giftcode.manage` — this tool fabricates
+     * public-facing platform data, not something every moderator should
+     * reach.
+     */
+    path: '/seed-events',
+    name: 'seed-events',
+    component: () => import('@/views/SeedEventsView.vue'),
+    meta: {
+      title: 'رویدادهای بازاریابی',
+      permission: PERMISSIONS.EVENT_SEED_MANAGE,
+      group: 'system',
+    },
+  },
+  {
+    /**
      * Legal documents (M22 phase 8).
      *
      * `policy.read` rather than `policy.manage`, so support and moderation can
