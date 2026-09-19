@@ -14,6 +14,74 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.18.1] — 2026-09-19
+
+The seed-event scheduler shipped in v0.18.0 kept creating events without end. Its
+floor counted only seed events that were still *filling*, and a seed event fills in
+minutes, so every five-minute pass saw a deficit again and made a fresh batch —
+all starting at the same instant, all in the same category — until the host ran out
+of quota or coins. Real events in the city were never counted. And the synthetic
+guests were never removed, so they sat in the user table for good and in every
+count that reads users.
+
+**No migration.** `user.is_seed`, `event.is_seeded` and `city_seed_config` already
+exist; the change is in how they are used. The design and the reasoning are in
+`docs/superpowers/specs/2026-09-19-seed-event-floor-and-purge-design.md`.
+
+### ⚠️ What a deploy changes for people
+
+- **`city_seed_config.floor_count` changes meaning.** It was "seed events kept
+  filling"; it is now "upcoming events the city should have", real and seeded
+  together. A city configured with 3 that already has 3 or more real upcoming events
+  will create **no** seed events after this ships. Check each configured city
+  against its real activity.
+- **The synthetic guests of finished events disappear.** An hourly job deletes them
+  once their event has ended (or was cancelled). Guests the old scheduler already
+  left behind go the same way, as their events end. The events themselves stay.
+- Seed events are still charged to the host account (creation and the channel post),
+  and nothing refunds them.
+- The usual release broadcast goes to every user.
+
+### Fixed
+
+- **The floor counts the city, not the filling.** It is the number of upcoming
+  published events in the city, real and seeded, full or not. Seven exist and a floor
+  of ten makes three. At most three per city per pass, recounted before each one.
+- **Every event looks different.** Category (the one the city has fewest of, never
+  the catch-all, only where it is offered), a topic from a curated bank keyed by
+  category slug that also says which part of the day it suits, a day and hour drawn
+  over the next 14 days with a two-hour clash rule, and a varied duration. The bank is
+  scanned against the real starter blacklist.
+- **The kill switch stops filling as well as creation.** `fill()` used to check only
+  that a config row existed.
+- **A failing event no longer abandons the rest of a fill pass**, and a refused seat
+  discards the synthetic identity it had just made instead of stranding it.
+- `is_seeded` is written in the same transaction as the event, not by a second
+  `UPDATE` afterwards.
+
+### Changed
+
+- **Seed events are exempt from the per-host quota** (three concurrent, five a day),
+  and are left out of the host's quota counts, so a floor above three is reachable
+  and a team account that also hosts real evenings is not locked out by its own
+  seeds. Coins are still charged. The cap on the floor in the admin screen moves from
+  3 to 50, and the screen shows the upcoming count the floor is compared with.
+- **Attendance settlement** settles a synthetic guest's row but credits no trust and
+  opens no review window for it. `trust_score_ledger` is append-only by trigger, so
+  one credit would make that identity impossible to delete; it also stops the real
+  host being asked to review guests who do not exist.
+- **Every counter that reads users excludes synthetic identities:** the admin
+  dashboard (total, by status, new and active this week), the admin user list, a
+  closed city's waiting count, the founding report, the city admin's profile count and
+  the comeback grant.
+
+### Added
+
+- **The `seed-purge` job**, hourly at :50, run by the worker. It deletes an event's
+  synthetic guests, with their review pairs, reviews and seats, under the event lock
+  and filtered on `is_seed`, and writes a `seed.purged` audit row.
+- `localDateIn` in the time helpers, and a per-zone formatter cache behind them.
+
 ## [v0.18.0] — 2026-09-18
 
 A new city opens empty, and an empty city keeps new users from joining it — nobody
