@@ -136,7 +136,7 @@ OUT="$T/out"
 # Run deploy-remote.sh from the "operator's" checkout, with no terminal on stdin.
 run() {
     set +e
-    (cd "$WORK" && env HOME="$HOME_DIR" DEPLOY_REMOTE_CONFIG=/nonexistent \
+    (cd "$WORK" && env HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" DEPLOY_REMOTE_CONFIG=/nonexistent \
         DEPLOY_SSH_CMD="$T/bin/fake-ssh" DEPLOY_SCP_CMD="$T/bin/fake-scp" DEPLOY_SSH_TARGET=fake \
         DEPLOY_REMOTE_DIR="$SRV" DEPLOY_TRANSFER_DIR="$XFER" DEPLOY_POLL_SECONDS=0.2 \
         DEPLOY_OOB_FILES=docker/sites-available/site.conf \
@@ -300,14 +300,14 @@ check "the server is back on v0.2.0" test "$(current)" = v0.2.0
 
 section "Configuration"
 set +e
-(cd "$WORK" && env HOME="$HOME_DIR" DEPLOY_REMOTE_CONFIG=/nonexistent bash scripts/deploy-remote.sh v0.2.0) > "$OUT" 2>&1 < /dev/null
+(cd "$WORK" && env HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" DEPLOY_REMOTE_CONFIG=/nonexistent bash scripts/deploy-remote.sh v0.2.0) > "$OUT" 2>&1 < /dev/null
 RC=$?
 set -e
 check "no SSH target: refuses and explains" test "$RC" -ne 0
 check "  points at the example file" said "deploy-remote.env.example"
 printf 'DEPLOY_SSH_TARGET=from-file\nDEPLOY_BOGUS=1\n' > "$T/cfg.env"
 set +e
-(cd "$WORK" && env HOME="$HOME_DIR" DEPLOY_REMOTE_CONFIG="$T/cfg.env" DEPLOY_SSH_CMD=/nonexistent-ssh bash scripts/deploy-remote.sh v0.2.0) > "$OUT" 2>&1 < /dev/null
+(cd "$WORK" && env HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" DEPLOY_REMOTE_CONFIG="$T/cfg.env" DEPLOY_SSH_CMD=/nonexistent-ssh bash scripts/deploy-remote.sh v0.2.0) > "$OUT" 2>&1 < /dev/null
 set -e
 check "a file's target is used (and an unknown key is reported)" said "ignoring unknown key DEPLOY_BOGUS"
 
