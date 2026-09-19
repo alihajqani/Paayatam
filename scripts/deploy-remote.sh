@@ -153,7 +153,12 @@ done
 # being followed by a person who is not looking is a hang, not a login.
 SSH_OPTS_EXTRA=()
 if [[ -n "$DEPLOY_SSH_OPTS" ]]; then read -r -a SSH_OPTS_EXTRA <<< "$DEPLOY_SSH_OPTS"; fi
-SSH_COMMON=(-o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
+# ClearAllForwardings, because an alias in ~/.ssh/config often carries a LocalForward
+# (a database tunnel, say). This script makes dozens of short connections; each would try
+# to open that port, fail with "Address already in use" whenever another session holds it,
+# and print the error into the deploy log every few seconds. It never needs a forward.
+SSH_COMMON=(-o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=6
+    -o ClearAllForwardings=yes)
 
 # The script goes in on stdin to `bash -s`, so there is no second layer of shell
 # quoting to get wrong and it does not matter what root's login shell is. It also
