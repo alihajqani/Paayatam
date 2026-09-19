@@ -881,9 +881,21 @@ configuration) is copied aside, stashed for the deploy and restored afterwards; 
 copy stays in root's home. It never passes `--no-migrate` or `--no-backup` and has no
 option to, and it never runs `restore.sh`.
 
-**If the server does not answer.** `cannot reach the server` almost always means the
-tunnel or VPN on your machine, not the server: check `ssh <alias> true` by hand, and
-`ip route get <server address>`. Nothing has been changed at that point.
+**If the server does not answer.** Run `scripts/deploy-remote.sh --diagnose`. It is
+local and read-only, and separates three causes that need three different actions:
+
+| What it shows | What it means | What to do |
+|---|---|---|
+| an SSH banner | the server is up; ssh is refusing you | `ssh -v <alias>`: keys, user, permissions |
+| no banner, and the same site answers from elsewhere | the path from **this machine** is broken (a VPN or tunnel, a firewall) | route the address direct or switch the tunnel off |
+| no banner, and it does not answer from anywhere | the server or its network is **down** | the hosting provider's panel: power, console, network, billing |
+
+Two things mislead. Through a tunnel device the operating system answers ping in a
+fraction of a millisecond and accepts every TCP connection whether or not anything is
+there, so "connected" and a fast ping prove nothing; only the SSH banner counts. And
+"a VPN is up" is not the same as "the VPN is the problem": ask an outside checker
+(<https://check-host.net>, an HTTP check on the site's URL) before changing anything on
+your machine. Nothing has been changed on the server when the script stops here.
 
 **After changing the scripts**, rehearse them: `scripts/deploy-remote.selftest.sh`
 runs the real scripts against a fake server (a local directory) and exercises the

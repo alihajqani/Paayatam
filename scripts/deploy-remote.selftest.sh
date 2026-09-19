@@ -320,6 +320,26 @@ set +e
 set -e
 check "a file's target is used (and an unknown key is reported)" said "ignoring unknown key DEPLOY_BOGUS"
 
+section "When the server does not answer"
+set +e
+(cd "$WORK" && env HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" DEPLOY_REMOTE_CONFIG=/nonexistent \
+    DEPLOY_SSH_CMD=/bin/false DEPLOY_SCP_CMD=/bin/false DEPLOY_SSH_TARGET=unreachable \
+    bash scripts/deploy-remote.sh --status) > "$OUT" 2>&1 < /dev/null
+RC=$?
+set -e
+check "a transport failure stops with a non-zero exit" test "$RC" -ne 0
+check "  runs the diagnosis" said "Diagnosing the connection"
+check "  tells the operator nothing was changed" said "Nothing was changed"
+check "  says a banner is what proves the server is up" said "no SSH banner"
+set +e
+(cd "$WORK" && env HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" DEPLOY_REMOTE_CONFIG=/nonexistent \
+    DEPLOY_SSH_CMD=/bin/false DEPLOY_SCP_CMD=/bin/false DEPLOY_SSH_TARGET=unreachable \
+    bash scripts/deploy-remote.sh --diagnose) > "$OUT" 2>&1 < /dev/null
+RC=$?
+set -e
+check "--diagnose on its own exits 0 and only reports" test "$RC" -eq 0
+check "  and does not touch the server" said "Diagnosing the connection"
+
 echo
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

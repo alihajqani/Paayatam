@@ -8,6 +8,7 @@
 #   scripts/deploy-remote.sh --status             # what the server is running now
 #   scripts/deploy-remote.sh --rollback [tag]     # back to .deploy/previous-release
 #   scripts/deploy-remote.sh --attach <key>       # follow a deploy that is still running
+#   scripts/deploy-remote.sh --diagnose           # the server does not answer: why?
 #
 #   --yes                    do not ask for confirmation (not for destructive migrations)
 #   --bot-commands           republish the Telegram command menu even if it did not change
@@ -68,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         --bot-commands)        FORCE_BOT=1; shift ;;
         --skip-remote-check)   SKIP_REMOTE_CHECK=1; shift ;;
         --status)              MODE='status'; shift ;;
+        --diagnose)            MODE='diagnose'; shift ;;
         --rollback)            MODE='rollback'; shift
                                if [[ $# -gt 0 && "$1" != -* ]]; then ROLLBACK_TARGET="$1"; shift; fi ;;
         --attach)              MODE='attach'; shift
@@ -106,7 +108,7 @@ load_config() {
             if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then value="${BASH_REMATCH[1]}"; fi
             case "$key" in
                 DEPLOY_SSH_TARGET | DEPLOY_REMOTE_DIR | DEPLOY_TRANSFER_DIR | DEPLOY_SSH_OPTS | \
-                    DEPLOY_OOB_FILES | DEPLOY_SSH_CMD | DEPLOY_SCP_CMD)
+                    DEPLOY_OOB_FILES | DEPLOY_SSH_CMD | DEPLOY_SCP_CMD | DEPLOY_PUBLIC_URL)
                     if [[ -z "${!key+x}" ]]; then printf -v "$key" '%s' "$value"; fi
                     ;;
                 *) warn "${CONFIG_FILE}: ignoring unknown key ${key}" ;;
@@ -125,6 +127,9 @@ DEPLOY_TRANSFER_DIR="${DEPLOY_TRANSFER_DIR:-/root/deploy-transfer}"
 DEPLOY_SSH_OPTS="${DEPLOY_SSH_OPTS:-}"
 DEPLOY_SSH_CMD="${DEPLOY_SSH_CMD:-ssh}"
 DEPLOY_SCP_CMD="${DEPLOY_SCP_CMD:-scp}"
+# Optional: a public URL of the product, used only by --diagnose to tell "the server is
+# down" from "my machine cannot reach it".
+DEPLOY_PUBLIC_URL="${DEPLOY_PUBLIC_URL:-}"
 # Tracked files that are edited on the server by hand and must survive a deploy.
 # `-` not `:-`, so an explicitly empty value really means "none".
 DEPLOY_OOB_FILES="${DEPLOY_OOB_FILES-docker/sites-available/app.paayatam.online.conf}"
@@ -136,6 +141,7 @@ DEPLOY_OOB_FILES="${DEPLOY_OOB_FILES-docker/sites-available/app.paayatam.online.
 [[ "$DEPLOY_SSH_TARGET" =~ ^[A-Za-z0-9_][A-Za-z0-9._@:-]*$ ]] || die "DEPLOY_SSH_TARGET '${DEPLOY_SSH_TARGET}' is not a plain host alias or user@host"
 [[ "$DEPLOY_REMOTE_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "DEPLOY_REMOTE_DIR must be an absolute path without spaces"
 [[ "$DEPLOY_TRANSFER_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "DEPLOY_TRANSFER_DIR must be an absolute path without spaces"
+[[ -z "$DEPLOY_PUBLIC_URL" || "$DEPLOY_PUBLIC_URL" =~ ^https?://[A-Za-z0-9._:/?=\&%-]+$ ]] || die "DEPLOY_PUBLIC_URL is not a plain http(s) URL"
 for _oob in $DEPLOY_OOB_FILES; do
     [[ "$_oob" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ && "$_oob" != *..* ]] || die "DEPLOY_OOB_FILES entry '${_oob}' is not a plain relative path"
 done
@@ -189,6 +195,91 @@ require_tools() {
     git -C "$PAYETAM_ROOT" rev-parse --git-dir > /dev/null 2>&1 || die "${PAYETAM_ROOT} is not a git checkout"
 }
 
+# ── When the server does not answer ──────────────────────────────────────────
+#
+# "Cannot reach the server" has three causes that call for three different
+# actions, and guessing wrong costs an evening: the server (or its network) is
+# down; the path from THIS machine to it is broken (a VPN or tunnel, a firewall);
+# or sshd answers and refuses you. This tells them apart. It is local, read-only,
+# and sends nothing to anybody.
+#
+# One clue misleads, and is worth knowing: through a tunnel device the operating
+# system's own tunnel accepts every TCP connection and answers ping in a fraction
+# of a millisecond, whether or not anything is at the other end. "Connected" and a
+# fast ping are therefore evidence of nothing; only the SSH banner is.
+diagnose_connection() {
+    local cfg addr port route dev banner rtt via_tunnel=0 http
+    log "Diagnosing the connection to ${DEPLOY_SSH_TARGET}"
+
+    cfg="$("$DEPLOY_SSH_CMD" -G "$DEPLOY_SSH_TARGET" 2> /dev/null || true)"
+    addr="$(awk '$1 == "hostname" {print $2}' <<< "$cfg" | head -1 || true)"
+    port="$(awk '$1 == "port" {print $2}' <<< "$cfg" | head -1 || true)"
+    addr="${addr:-$DEPLOY_SSH_TARGET}"
+    port="${port:-22}"
+    if [[ ! "$addr" =~ ^[A-Za-z0-9._:-]+$ || ! "$port" =~ ^[0-9]+$ ]]; then
+        warn "cannot work out an address for ${DEPLOY_SSH_TARGET} from your ssh config"
+        return 0
+    fi
+
+    if command -v ip > /dev/null 2>&1; then
+        route="$(ip route get "$addr" 2> /dev/null | head -1 || true)"
+        dev="$(sed -n 's/.* dev \([^ ]*\).*/\1/p' <<< "$route")"
+        [[ -z "$route" ]] || printf '  Route        %s\n' "$route"
+        case "$dev" in tun* | utun* | wg* | singbox* | ppp* | tailscale* | zt*) via_tunnel=1 ;; esac
+        if ((via_tunnel)); then printf '               traffic to this address goes through a tunnel (%s)\n' "$dev"; fi
+    fi
+
+    if command -v ping > /dev/null 2>&1; then
+        rtt="$(ping -c 2 -W 3 "$addr" 2> /dev/null | awk -F/ '/^(rtt|round-trip)/ {print $5}' | head -1 || true)"
+        if [[ -n "$rtt" ]]; then
+            printf '  Ping         %s ms\n' "$rtt"
+            if ((via_tunnel)) && awk -v r="$rtt" 'BEGIN {exit !(r < 1)}'; then
+                printf '               under 1 ms through a tunnel: the tunnel answered, not the server\n'
+            fi
+        else
+            printf '  Ping         no answer\n'
+        fi
+    fi
+
+    banner="$(timeout 10 bash -c "exec 3<>/dev/tcp/${addr}/${port} && read -r -t 6 line <&3 && printf '%s' \"\$line\"" 2> /dev/null || true)"
+    if [[ "$banner" == SSH-* ]]; then
+        printf '  SSH banner   %s\n' "${banner%$'\r'}"
+    else
+        printf '  SSH banner   none within 6 s\n'
+    fi
+
+    if [[ -n "$DEPLOY_PUBLIC_URL" ]] && command -v curl > /dev/null 2>&1; then
+        http="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$DEPLOY_PUBLIC_URL" 2> /dev/null || true)"
+        if [[ -n "$http" && "$http" != 000 ]]; then
+            printf '  Public URL   HTTP %s\n' "$http"
+        else
+            printf '  Public URL   no answer\n'
+        fi
+    fi
+
+    echo
+    if [[ "$banner" == SSH-* ]]; then
+        ok "sshd answers, so the server is up. If ssh still fails it is authentication or permissions: ssh -v ${DEPLOY_SSH_TARGET}"
+    else
+        err "no SSH banner: the server, or the path from this machine to it, is down."
+        cat >&2 << HINT
+
+  Tell the two apart by looking from somewhere else:
+
+    1. Ask an outside checker, e.g. https://check-host.net (HTTP check on your site's URL${DEPLOY_PUBLIC_URL:+: ${DEPLOY_PUBLIC_URL}}),
+       or try the same address from another network (a phone hotspot).
+
+    2. It answers from elsewhere but not from here -> the path from this machine is broken:
+       a VPN/tunnel or firewall. Route this address directly, or switch the tunnel off, and retry.
+
+    3. It does not answer from anywhere -> the server or its network is down. This is a
+       production outage, not a deploy problem: use the hosting provider's panel (power,
+       console, network, billing or suspension). Nothing here can fix it.
+
+HINT
+    fi
+}
+
 # ── What the server says about itself ────────────────────────────────────────
 #
 # One read-only round trip. KEY=VALUE lines, so nothing here depends on the
@@ -208,7 +299,10 @@ read_server() { # <tag or empty>
         if [ -f .deploy/remote-deploy.pid ] && kill -0 \$(cat .deploy/remote-deploy.pid) 2>/dev/null; then echo RUNNING=1; fi
         if [ -n $(q "$tag") ]; then echo TAG_COMMIT=\$(git rev-parse -q --verify refs/tags/$(q "$tag")^{commit} 2>/dev/null); fi
         git status --porcelain --untracked-files=no | sed 's/^...//' | while read -r f; do echo DIRTY=\$f; done
-    ")" || die "cannot reach the server (${DEPLOY_SSH_TARGET}). Is the VPN/tunnel up? Try: ${DEPLOY_SSH_CMD} ${DEPLOY_SSH_TARGET} true"
+    ")" || {
+        diagnose_connection
+        die "cannot reach the server (${DEPLOY_SSH_TARGET}) over SSH. Nothing was changed. The diagnosis above says which side is down."
+    }
 
     R_DIRTY=()
     while IFS= read -r line; do
@@ -374,6 +468,11 @@ report_code() { # <code> <what>
 
 # ── Modes ────────────────────────────────────────────────────────────────────
 require_tools
+
+if [[ "$MODE" == 'diagnose' ]]; then
+    diagnose_connection
+    exit 0
+fi
 
 if [[ "$MODE" == 'status' ]]; then
     log "Server ${DEPLOY_SSH_TARGET}"
