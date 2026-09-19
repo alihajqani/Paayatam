@@ -228,6 +228,12 @@ export const JOBS = {
   SEED_TOPUP: 'seed-topup',
   /** Advance every filling seed event that is due its next seat. */
   SEED_FILL: 'seed-fill',
+  /**
+   * Remove the synthetic people of every seed event that is over, so they never
+   * add up to a user count that is not real (see
+   * docs/superpowers/specs/2026-09-19-seed-event-floor-and-purge-design.md).
+   */
+  SEED_PURGE: 'seed-purge',
 } as const;
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
@@ -384,9 +390,8 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    */
   { name: JOBS.LEDGER_RECONCILE, pattern: '30 4 * * *', tz: 'Asia/Tehran' },
   /**
-   * Every five minutes — cheap enough to run often, and `floorCount` is
-   * small per city (capped at 3), so there is never much to create in one
-   * pass.
+   * Every five minutes. A pass creates at most three events per city, so a city
+   * far below its floor is reached over a few passes rather than in one burst.
    */
   { name: JOBS.SEED_TOPUP, pattern: '*/5 * * * *' },
   /**
@@ -395,4 +400,12 @@ export const SCHEDULE: ReadonlyArray<{ name: JobName; pattern: string; tz?: stri
    * rather than organic.
    */
   { name: JOBS.SEED_FILL, pattern: '* * * * *' },
+  /**
+   * Hourly, at :50 — just after `SETTLE_ATTENDANCE` (:40), so an event whose
+   * settlement delay has only now passed is usually settled by the real sweep
+   * first and purged straight after. Either order is safe; this one avoids
+   * deleting people the settlement was about to write to. An event's synthetic
+   * guests are not urgent, and an hour of lag costs nothing.
+   */
+  { name: JOBS.SEED_PURGE, pattern: '50 * * * *' },
 ];

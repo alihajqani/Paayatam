@@ -8,14 +8,16 @@ import { useSessionStore } from '@/stores/session';
 
 /**
  * Marketing seed events — per-city configuration (see
- * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md).
+ * docs/superpowers/specs/2026-09-18-marketing-seed-events-design.md and
+ * 2026-09-19-seed-event-floor-and-purge-design.md).
  *
- * `floorCount` is capped at 3 in the form (and by the server), because that
- * is `EventService`'s own concurrent-active-per-host quota — a city's
- * dedicated host account cannot actually reach a higher floor. Each city
- * needs its own host: the 3-concurrent/5-per-day creation budget is per
- * account, not per city, so sharing one host across cities divides its
- * budget between them.
+ * `floorCount` is the number of upcoming events the city should always have,
+ * real and seeded together: a city with seven and a floor of ten gets three
+ * more, and one already at ten gets none. Seed events are exempt from the
+ * host's per-account quota, so the floor is bounded by what a feed can
+ * plausibly show (50), not by what one account may hold. Each city still needs
+ * its own funded host: every event costs the host its creation and channel-post
+ * coins.
  */
 const session = useSessionStore();
 
@@ -104,11 +106,14 @@ onMounted(load);
 <template>
   <div class="flex flex-col gap-4">
     <p class="max-w-3xl text-sm text-ink-soft">
-      برای هر شهر بازشده، تعدادی رویداد ساختگی با میزبان واقعی و شرکت‌کنندگان مصنوعی ساخته می‌شود که
-      به‌سرعت پر می‌شوند — تا در ابتدای کار، شهر خالی به نظر نرسد. هر شهر باید میزبان اختصاصی خودش
-      را داشته باشد (نه یک اکانت مشترک بین چند شهر)، چون سقف رویداد هم‌زمانِ هر اکانت ۳ رویداد و سقف
-      روزانه‌اش ۵ رویداد است — «کف تعداد» بیش از ۳ عملاً قابل دسترس نیست. حساب میزبان باید سکه کافی
-      داشته باشد؛ نبود سکه یعنی توقف بی‌صدای ساخت رویداد در همان شهر.
+      «کف رویداد شهر» یعنی تعداد رویدادهای آینده‌ی شهر، چه واقعی و چه ساختگی. تا وقتی شهر به این
+      تعداد نرسیده باشد، رویداد ساختگی ساخته می‌شود؛ مثلاً اگر شهر ۷ رویداد دارد و کف ۱۰ است، فقط ۳
+      رویداد تازه ساخته می‌شود. هر رویداد موضوع، روز و ساعت خودش را دارد و در هر دور حداکثر ۳ رویداد
+      برای هر شهر ساخته می‌شود. شرکت‌کنندگان رویداد ساختگی مصنوعی‌اند. رویداد را به‌سرعت پر می‌کنند
+      و بعد از پایان آن پاک می‌شوند؛ تا آن موقع هم در آمار کاربران حساب نمی‌شوند. رویداد ساختگی به
+      سقف ۳ رویداد هم‌زمان و ۵ رویداد روزانه‌ی میزبان نمی‌خورد، اما سکه‌ی ساخت و پست کانال را مثل
+      رویداد واقعی از حساب میزبان کم می‌کند. هر شهر میزبان اختصاصی و سکه‌ی کافی می‌خواهد، وگرنه ساخت
+      رویداد در همان شهر بی‌صدا متوقف می‌شود.
     </p>
 
     <StateBlock
@@ -118,16 +123,17 @@ onMounted(load);
       @retry="load"
     >
       <div class="overflow-x-auto rounded-xl border border-line bg-surface">
-        <table class="w-full min-w-[64rem] text-sm">
+        <table class="w-full min-w-[72rem] text-sm">
           <thead class="border-b border-line text-ink-soft">
             <tr>
               <th class="px-4 py-3 text-start font-medium">شهر</th>
               <th class="px-4 py-3 text-start font-medium">فعال</th>
-              <th class="px-4 py-3 text-start font-medium">کف تعداد</th>
+              <th class="px-4 py-3 text-start font-medium">کف رویداد شهر</th>
               <th class="px-4 py-3 text-start font-medium">ظرفیت هر رویداد</th>
               <th class="px-4 py-3 text-start font-medium">مدت پر شدن (دقیقه)</th>
               <th class="px-4 py-3 text-start font-medium">میزبان (publicId)</th>
-              <th class="px-4 py-3 text-start font-medium">در حال پر شدن</th>
+              <th class="px-4 py-3 text-start font-medium">رویداد آینده‌ی شهر</th>
+              <th class="px-4 py-3 text-start font-medium">ساختگی در حال پر شدن</th>
               <th class="px-4 py-3 text-start font-medium"><span class="sr-only">اقدام</span></th>
             </tr>
           </thead>
@@ -150,7 +156,7 @@ onMounted(load);
                 <input
                   type="number"
                   min="0"
-                  max="3"
+                  max="50"
                   :value="draftFor(city).floorCount"
                   :disabled="!session.canMutate"
                   class="min-h-9 w-16 rounded-lg border border-line bg-surface px-2 tabular-nums"
@@ -196,6 +202,9 @@ onMounted(load);
                 <span v-if="city.hostDisplayName" class="mt-1 block text-xs text-ink-faint">
                   {{ city.hostDisplayName }}
                 </span>
+              </td>
+              <td class="px-4 py-3 tabular-nums">
+                <bdi>{{ toPersianDigits(city.upcomingEventCount) }}</bdi>
               </td>
               <td class="px-4 py-3 tabular-nums">
                 <bdi>{{ toPersianDigits(city.fillingEventCount) }}</bdi>

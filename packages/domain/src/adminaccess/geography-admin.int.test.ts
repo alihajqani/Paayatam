@@ -207,6 +207,26 @@ describe('GeographyAdminService — cities', () => {
     expect(tehran).toMatchObject({ profileCount: 1, districtCount: 1, eventCount: 0 });
   });
 
+  it('does not count a synthetic guest as somebody who lives in the city', async () => {
+    const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+    await prisma.userProfile.create({
+      data: { userId, displayName: 'ساکن', cityId: fixture.tehranId, birthYear: 1995 },
+    });
+    await prisma.user.create({
+      data: {
+        isSeed: true,
+        onboardingState: 'PROFILE_COMPLETE',
+        profile: {
+          create: { displayName: 'مهمان ساختگی', cityId: fixture.tehranId, birthYear: 1995 },
+        },
+      },
+    });
+
+    const page = await geography.listCities(SUPER, { query: 'tehran' });
+
+    expect(page.rows.find((row) => row.slug === 'tehran')).toMatchObject({ profileCount: 1 });
+  });
+
   it('refuses to deactivate a city people live in, and names the counts', async () => {
     const userId = await createUser(prisma, 'PROFILE_COMPLETE');
     await prisma.userProfile.create({

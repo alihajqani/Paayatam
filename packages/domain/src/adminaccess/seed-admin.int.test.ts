@@ -25,7 +25,7 @@ const credentials = new AdminCredentials({
 } as never);
 const redis = { client: {} } as unknown as RedisService;
 const access = new AdminAccessService(service, clock, redis, credentials, audit);
-const seedAdmin = new SeedAdminService(service, access, audit);
+const seedAdmin = new SeedAdminService(service, clock, access, audit);
 
 let fixture: CatalogFixture;
 let SUPER: AdminSession;
@@ -41,6 +41,12 @@ async function seedRealHost(cityId: string): Promise<{ id: string; publicId: str
     select: { publicId: true },
   });
   return { id: userId, publicId: user.publicId };
+}
+
+async function seedConfigFor(cityId: string, hostUserId: string): Promise<void> {
+  await prisma.citySeedConfig.create({
+    data: { cityId, enabled: true, hostUserId, updatedByAdminId: SUPER.adminUserId },
+  });
 }
 
 beforeEach(async () => {
@@ -99,6 +105,49 @@ describe('SeedAdminService', () => {
 
       expect(cities).toHaveLength(launchedCount);
       expect(cities.every((c) => c.enabled === false)).toBe(true); // none configured yet
+    });
+
+    /**
+     * Two different questions. `upcomingEventCount` is what the floor is compared
+     * with — every published event still ahead, real or seeded, full or not — and
+     * `fillingEventCount` is how many seed events are still short of capacity.
+     */
+    it('reports what the floor is compared with, apart from what is still filling', async () => {
+      const host = await seedRealHost(fixture.tehranId);
+      const someoneElse = await createUser(prisma, 'PROFILE_COMPLETE');
+      await seedConfigFor(fixture.tehranId, host.id);
+      const startsAt = new Date('2026-09-01T15:00:00.000Z');
+      const insert = (hostUserId: string, title: string, extra: Record<string, unknown>) =>
+        prisma.event.create({
+          data: {
+            hostUserId,
+            title,
+            description: 'یک رویداد برای آزمون شمارش.',
+            titleNormalized: title,
+            descriptionNormalized: 'یک رویداد برای آزمون شمارش.',
+            categoryId: fixture.categoryId,
+            cityId: fixture.tehranId,
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + 2 * 3_600_000),
+            capacity: 4,
+            costType: 'FREE',
+            status: 'PUBLISHED',
+            moderationStatus: 'APPROVED',
+            publishedAt: startsAt,
+            ...extra,
+          },
+        });
+      await insert(someoneElse, 'واقعی', {});
+      await insert(host.id, 'ساختگی پر', { isSeeded: true, acceptedCount: 4 });
+      await insert(host.id, 'ساختگی در حال پر شدن', { isSeeded: true, acceptedCount: 1 });
+      // Started already, and cancelled: neither is ahead of anybody.
+      await insert(someoneElse, 'گذشته', { startsAt: new Date('2026-08-20T09:00:00.000Z') });
+      await insert(someoneElse, 'لغو شده', { status: 'CANCELLED_BY_HOST' });
+
+      const cities = await seedAdmin.listCities(SUPER);
+
+      const tehran = cities.find((city) => city.cityId === fixture.tehranId);
+      expect(tehran).toMatchObject({ upcomingEventCount: 3, fillingEventCount: 1 });
     });
   });
 

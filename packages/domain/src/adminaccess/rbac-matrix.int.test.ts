@@ -140,7 +140,7 @@ const economyReport = new EconomyReportService(service, clock, access, settings)
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
-const seedAdmin = new SeedAdminService(service, access, audit);
+const seedAdmin = new SeedAdminService(service, clock, access, audit);
 const channelAdmin = new ChannelAdminService(
   access,
   new ChannelConfigService(service, clock, audit),

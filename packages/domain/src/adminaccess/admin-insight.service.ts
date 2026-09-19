@@ -210,12 +210,21 @@ export class AdminInsightService {
       giftCodeFailures,
       oldestOpenCase,
     ] = await Promise.all([
-      this.prisma.user.groupBy({ by: ['status'], _count: { _all: true } }),
-      this.prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
+      // `isSeed: false` on all three user counts: a marketing seed event's
+      // synthetic guests are not people and must never raise the numbers an
+      // operator reads growth from. They are purged after their event, but
+      // that can be days away.
+      this.prisma.user.groupBy({
+        by: ['status'],
+        where: { isSeed: false },
+        _count: { _all: true },
+      }),
+      this.prisma.user.count({ where: { isSeed: false, createdAt: { gte: weekAgo } } }),
       // "Active" is a user who did something, not one who exists: a login count
       // would make a dormant install look healthy.
       this.prisma.user.count({
         where: {
+          isSeed: false,
           OR: [
             { participations: { some: { requestedAt: { gte: weekAgo } } } },
             { hostedEvents: { some: { createdAt: { gte: weekAgo } } } },
@@ -318,6 +327,8 @@ export class AdminInsightService {
 
     const query = filters.query?.trim();
     const where: Prisma.UserWhereInput = {
+      // A seed identity is not a user an operator can act on.
+      isSeed: false,
       ...(filters.status !== undefined ? { status: filters.status } : {}),
       ...(query !== undefined && query !== ''
         ? {

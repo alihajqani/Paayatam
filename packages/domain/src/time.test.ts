@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gregorianYearIn, startOfDayIn } from './time';
+import { gregorianYearIn, localDateIn, startOfDayIn } from './time';
 
 const TEHRAN = 'Asia/Tehran';
 
@@ -52,5 +52,14 @@ describe('gregorianYearIn', () => {
     const instant = new Date('2026-12-31T21:00:00.000Z');
     expect(gregorianYearIn(instant, 'UTC')).toBe(2026);
     expect(gregorianYearIn(instant, TEHRAN)).toBe(2027);
+  });
+});
+
+describe('localDateIn', () => {
+  it('reads the calendar date in the requested zone, not the UTC one', () => {
+    // 21:00Z on 31 December is already 00:30 on 1 January in Tehran.
+    const instant = new Date('2026-12-31T21:00:00.000Z');
+    expect(localDateIn(instant, 'UTC')).toEqual({ year: 2026, month: 12, day: 31 });
+    expect(localDateIn(instant, TEHRAN)).toEqual({ year: 2027, month: 1, day: 1 });
   });
 });

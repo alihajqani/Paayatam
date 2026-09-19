@@ -498,7 +498,17 @@ const CITY_SELECT = {
   sortOrder: true,
   provinceId: true,
   province: { select: { nameFa: true } },
-  _count: { select: { districts: true, profiles: true, events: true } },
+  // Profiles of real people only: a marketing seed event's synthetic guests each
+  // have a profile in the city, and until they are purged they would read as
+  // residents. (The delete guard adds events, and any city with seed guests has
+  // seed events, so the guard is unaffected.)
+  _count: {
+    select: {
+      districts: true,
+      profiles: { where: { user: { isSeed: false } } },
+      events: true,
+    },
+  },
 } as const;
 
 type CityRow = Prisma.CityGetPayload<{ select: typeof CITY_SELECT }>;

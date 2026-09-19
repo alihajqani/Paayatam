@@ -212,6 +212,22 @@ describe('city launch state', () => {
     });
   });
 
+  it('does not count a seed event’s synthetic guest as somebody waiting', async () => {
+    await closeCity(fixture.tehranId);
+    await seedProfileIn(fixture.tehranId);
+    await prisma.user.create({
+      data: {
+        isSeed: true,
+        onboardingState: 'PROFILE_COMPLETE',
+        profile: {
+          create: { displayName: 'مهمان ساختگی', cityId: fixture.tehranId, birthYear: 1995 },
+        },
+      },
+    });
+
+    await expect(catalog.launchStatus(fixture.tehranId)).resolves.toMatchObject({ waiting: 1 });
+  });
+
   it('takes the threshold from app_setting, not from code', async () => {
     await closeCity(fixture.tehranId);
     await prisma.appSetting.create({ data: { key: 'city.launch_threshold', value: 40 } });

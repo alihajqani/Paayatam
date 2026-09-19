@@ -653,6 +653,21 @@ export class Processors implements OnModuleInit {
         return;
       }
 
+      /**
+       * The synthetic guests of finished seed events, so they never count as
+       * people (see docs/superpowers/specs/2026-09-19-seed-event-floor-and-purge-design.md).
+       * Nothing is emitted, so there is nothing to drain.
+       */
+      case JOBS.SEED_PURGE: {
+        const result = await this.seedScheduler.purge();
+        if (result.users > 0 || result.orphans > 0) {
+          this.logger.log(
+            `Seed purge: removed ${String(result.users)} seed user(s) from ${String(result.events)} event(s) and ${String(result.orphans)} orphan(s)`,
+          );
+        }
+        return;
+      }
+
       /** The comeback grant. Same shape, once a day. */
       case JOBS.GRANT_COMEBACK_COINS: {
         const granted = await this.comeback.sweep();

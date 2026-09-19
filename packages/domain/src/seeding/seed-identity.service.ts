@@ -52,6 +52,18 @@ export class SeedIdentityService {
 
     return { userId: user.id };
   }
+
+  /**
+   * Removes an identity that never got a seat — the seat failed after the
+   * identity was made. A no-op for anyone who is not a seed identity and for
+   * anyone who does hold a participation, so it cannot remove a real account or
+   * a seat's occupant whatever id it is handed.
+   */
+  async discard(userId: string): Promise<void> {
+    await this.prisma.user.deleteMany({
+      where: { id: userId, isSeed: true, participations: { none: {} } },
+    });
+  }
 }
 
 function pick<T>(items: readonly T[]): T {

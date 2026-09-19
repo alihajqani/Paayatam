@@ -75,7 +75,7 @@ const participation = new ParticipationService(
   coins,
 );
 const identities = new SeedIdentityService(service);
-const seedEvents = new SeedEventService(service, clock, events, participation, identities);
+const seedEvents = new SeedEventService(service, clock, env, events, participation, identities);
 
 let fixture: CatalogFixture;
 
@@ -155,5 +155,34 @@ describe('SeedEventService', () => {
     expect(third.done).toBe(true);
     event = await prisma.event.findUniqueOrThrow({ where: { publicId: eventPublicId } });
     expect(event.acceptedCount).toBe(2); // unchanged — no-op past capacity
+  });
+
+  it('leaves no synthetic user behind when the seat is refused', async () => {
+    const host = await seedRealHost(fixture.tehranId);
+    await seedConfig(fixture.tehranId, host.id, { eventCapacity: 3 });
+    const { eventPublicId } = await seedEvents.createSeedEvent(fixture.tehranId);
+    // A seat refused after the identity was made: the event filled under us.
+    const refusing = {
+      seatSeedParticipant: () => Promise.reject(new Error('the seat was taken')),
+    } as unknown as ParticipationService;
+    const failing = new SeedEventService(service, clock, env, events, refusing, identities);
+
+    await expect(failing.fillStep(eventPublicId)).rejects.toThrow('the seat was taken');
+
+    // The identity `fillStep` made for the seat was discarded, not stranded in the
+    // user table where it would count as a person.
+    expect(await prisma.user.count({ where: { isSeed: true } })).toBe(0);
+  });
+
+  it('creates the event already marked as seeded, and exempt from the host’s quota', async () => {
+    const host = await seedRealHost(fixture.tehranId);
+    await seedConfig(fixture.tehranId, host.id, { eventCapacity: 3 });
+
+    for (let n = 0; n < 5; n += 1) await seedEvents.createSeedEvent(fixture.tehranId);
+
+    // Five made in a row, past the host's concurrent limit of three.
+    expect(await prisma.event.count({ where: { isSeeded: true } })).toBe(5);
+    const quota = await events.quotaFor(host.id);
+    expect(quota).toMatchObject({ activeCount: 0, createdToday: 0, blockedBy: null });
   });
 });

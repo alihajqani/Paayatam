@@ -132,6 +132,13 @@ describe('the comeback grant', () => {
     await expect(coins.balanceOf(userId)).resolves.toBe(GRANT);
   });
 
+  it('never pays a synthetic seed identity, even one that looks like a qualifying account', async () => {
+    const userId = await candidate();
+    await prisma.user.update({ where: { id: userId }, data: { isSeed: true } });
+
+    await expect(comeback.sweep()).resolves.toMatchObject({ granted: 0 });
+  });
+
   it('skips somebody who can still afford an activity', async () => {
     // The most expensive mistake this feature can make: converting a would-be
     // buyer into a non-buyer.
