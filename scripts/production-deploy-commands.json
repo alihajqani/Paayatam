@@ -25,21 +25,21 @@
       "git push origin v0.4.0"
     ],
     "3_deploy": [
-      "ssh root@95.182.87.95 \"cd /srv/payetam && git fetch --tags\"",
-      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/deploy.sh v0.4.0 --no-pull\""
+      "ssh root@<server> \"cd /srv/payetam && git fetch --tags\"",
+      "ssh root@<server> \"cd /srv/payetam && ./scripts/deploy.sh v0.4.0 --no-pull\""
     ],
     "4_publish_command_menu": [
-      "ssh root@95.182.87.95 \"cd /srv/payetam && pnpm set-bot-commands\"",
-      "ssh root@95.182.87.95 \"cd /srv/payetam && pnpm set-bot-commands --info\""
+      "ssh root@<server> \"cd /srv/payetam && pnpm set-bot-commands\"",
+      "ssh root@<server> \"cd /srv/payetam && pnpm set-bot-commands --info\""
     ],
     "5_verify": [
-      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/compose.sh ps\"",
-      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/smoke-tests.sh\"",
-      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/set-webhook.sh --info\""
+      "ssh root@<server> \"cd /srv/payetam && ./scripts/compose.sh ps\"",
+      "ssh root@<server> \"cd /srv/payetam && ./scripts/smoke-tests.sh\"",
+      "ssh root@<server> \"cd /srv/payetam && ./scripts/set-webhook.sh --info\""
     ],
     "6_rollback_if_needed": [
-      "ssh root@95.182.87.95 \"cd /srv/payetam && ./scripts/rollback.sh\"",
-      "ssh root@95.182.87.95 \"cd /srv/payetam && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env && ./scripts/compose.sh restart api\""
+      "ssh root@<server> \"cd /srv/payetam && ./scripts/rollback.sh\"",
+      "ssh root@<server> \"cd /srv/payetam && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env && ./scripts/compose.sh restart api\""
     ]
   },
   "notes": {
@@ -71,13 +71,13 @@
   "commands_actually_run": [
     "git merge --no-ff feature/bot-commands   # v0.4.0 -> 2c98a31",
     "git tag -a v0.4.0 2c98a31 && git push origin master v0.4.0",
-    "ssh -A root@95.182.87.95 'cd /srv/payetam && git fetch --tags --prune origin'",
-    "ssh -A root@95.182.87.95 'cd /srv/payetam && ./scripts/deploy.sh v0.4.0 --no-pull'",
+    "ssh -A root@<server> 'cd /srv/payetam && git fetch --tags --prune origin'",
+    "ssh -A root@<server> 'cd /srv/payetam && ./scripts/deploy.sh v0.4.0 --no-pull'",
     "pnpm set-bot-commands                                   # 12 commands published",
     "# --- production UX repairs ---",
     "git tag -a v0.4.1 062abd3 && git push origin master v0.4.1",
-    "ssh -A root@95.182.87.95 \"cd /srv/payetam && git fetch origin refs/tags/v0.4.1:refs/tags/v0.4.1\"",
-    "ssh -A root@95.182.87.95 'cd /srv/payetam && ./scripts/deploy.sh v0.4.1 --no-pull'",
+    "ssh -A root@<server> \"cd /srv/payetam && git fetch origin refs/tags/v0.4.1:refs/tags/v0.4.1\"",
+    "ssh -A root@<server> 'cd /srv/payetam && ./scripts/deploy.sh v0.4.1 --no-pull'",
     "curl https://app.paayatam.online/api/v1/version         # {\"version\":\"v0.4.1\"}"
   ],
   "deviations_from_the_written_plan": [
@@ -95,9 +95,9 @@
     "health": "/health 200, /api/v1/version reports v0.4.1"
   },
   "rollback": {
-    "cheap": "ssh root@95.182.87.95 \"cd /srv/payetam && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env && ./scripts/compose.sh restart api\"  # reverts the bot to read-only, keeps drafts",
+    "cheap": "ssh root@<server> \"cd /srv/payetam && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env && ./scripts/compose.sh restart api\"  # reverts the bot to read-only, keeps drafts",
     "note": "the flag is currently absent from .env rather than set to 1, so add the line rather than sed it: echo 'ENABLE_CONVERSATION_WIZARD=0' >> .env",
-    "full": "ssh root@95.182.87.95 'cd /srv/payetam && ./scripts/rollback.sh'  # back to v0.4.0",
+    "full": "ssh root@<server> 'cd /srv/payetam && ./scripts/rollback.sh'  # back to v0.4.0",
     "migration": "additive only; neither rollback needs a down migration"
   },
   "known_open": {
