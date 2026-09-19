@@ -795,6 +795,12 @@ checks the shape before it ever gets there.
 
 ## 13. Deploying again
 
+> **From your own machine, `scripts/deploy-remote.sh <tag>` does everything below over
+> SSH** — the checks, the bundle transfer, the deploy, the verification and, when it is
+> safe, the rollback — and is the way releases are shipped. The steps here are what it
+> automates, and what to do by hand if it cannot be used. See README.md, "Deploying with
+> one script".
+
 ```bash
 # Tag the release, from your own machine:
 git tag -a v0.2.0 -m 'M20: containerised deployment'
