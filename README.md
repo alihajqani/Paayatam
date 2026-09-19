@@ -794,6 +794,7 @@ browser. So `app.paayatam.online` serves the Mini App *and* proxies `/api/` and
 ./scripts/check-env.sh                              # before anything: is .env sane?
 ./scripts/init-letsencrypt.sh --email you@…         # once, after DNS resolves
 ./scripts/deploy.sh v0.4.2                          # build, migrate, start, verify
+./scripts/deploy-remote.sh v0.4.2                   # the same, over SSH, from your own machine
 ./scripts/rollback.sh                               # back to the previous tag
 ./scripts/smoke-tests.sh                            # 27 checks against what is running
 ./scripts/backup.sh                                 # dump, verify, encrypt, copy off-host
@@ -805,6 +806,86 @@ browser. So `app.paayatam.online` serves the Mini App *and* proxies `/api/` and
 `scripts/compose.sh` exists because Compose resolves `env_file` and relative
 volume paths against the compose file's own directory, so a bare
 `docker compose -f docker/…` behaves differently depending on where you ran it.
+
+### Deploying with one script
+
+`scripts/deploy-remote.sh` is the whole release procedure as one command, run **from
+your own machine**. It exists so that a deploy does not depend on anyone (or
+anything) remembering the steps: with the repository, SSH access to the server and
+this section, you can ship a release.
+
+**Setup, once.** The script needs to know which server to talk to, and that
+belongs outside the repository:
+
+```bash
+mkdir -p ~/.config/payatam
+cp scripts/deploy-remote.env.example ~/.config/payatam/remote.env
+$EDITOR ~/.config/payatam/remote.env     # set DEPLOY_SSH_TARGET (an alias from ~/.ssh/config)
+ssh <that alias> true                    # must work with no password prompt
+```
+
+Nothing in that file is a secret (authentication stays in `~/.ssh`), but it is never
+committed. `.deploy/remote.env` inside the checkout works too, and is git-ignored.
+
+**A release, end to end.**
+
+```bash
+# 1. The change is on master, with a CHANGELOG.md entry, and tagged and pushed:
+git tag -a v0.4.3 -m v0.4.3 && git push origin master v0.4.3
+
+# 2. Look before you leap. Every check, nothing sent, nothing changed:
+scripts/deploy-remote.sh v0.4.3 --dry-run
+
+# 3. Deploy. It shows the plan and asks once:
+scripts/deploy-remote.sh v0.4.3
+```
+
+What it does, in order: checks the tag (it exists, its tree has a `CHANGELOG.md`
+entry, GitHub has the same commit); reads the server, read-only; prints the plan;
+sends the tag as a git bundle (the server cannot reach GitHub); then starts the
+repository's own `scripts/deploy.sh <tag> --no-pull` on the server, **detached**, and
+follows its log. `deploy.sh` does the environment check, the pre-migration backup,
+the migration, the build, the restart, the health check and the smoke tests. If your
+connection drops the deploy carries on; re-join with
+`scripts/deploy-remote.sh --attach <tag>`.
+
+**The plan is where to read.** Before it asks, it lists:
+
+| Line | What to do with it |
+|---|---|
+| `Migrations N new` | A rollback does **not** undo migrations. A `DROP`/`RENAME`/`TRUNCATE`/`DELETE`/type change is flagged, needs you to type `deploy anyway` at a terminal (`--yes` does not skip it), and turns automatic rollback off. |
+| `Bot menu will be republished` | `packages/telegram/src/commands.ts` changed, so the command menu is published after the deploy. Force it with `--bot-commands`. |
+| `settings defaults changed` | A new default only applies where production has **no row** for that key. Read the rows first. |
+| the release broadcast | Every new version is announced **once to every user**. To suppress it, set `release.announce_enabled` to `0` in the admin panel *before* deploying; it is read at boot. |
+
+**When it goes wrong.** A failure before the stack was replaced changes nothing (exit
+10). A failure after it started rolls back by itself when the migrations were
+additive (exit 11), and stops with a clear message when they were not (exit 12).
+Every exit code is explained where it is printed, and in the header of
+`scripts/deploy-remote-runner.sh`.
+
+```bash
+scripts/deploy-remote.sh --status            # what is serving, what it rolls back to, containers
+scripts/deploy-remote.sh --rollback          # back to .deploy/previous-release (asks first)
+scripts/deploy-remote.sh --rollback v0.4.2   # to a named tag
+scripts/deploy-remote.sh --attach v0.4.3     # follow a deploy that is still running
+```
+
+**Things it protects you from.** It refuses a tag that is not on GitHub or is a
+different commit there, a tag with no changelog entry, a server checkout with edits
+it was not told about, and a second deploy while one is running. A file that is
+edited on the server by hand (`DEPLOY_OOB_FILES`, by default the nginx site
+configuration) is copied aside, stashed for the deploy and restored afterwards; the
+copy stays in root's home. It never passes `--no-migrate` or `--no-backup` and has no
+option to, and it never runs `restore.sh`.
+
+**If the server does not answer.** `cannot reach the server` almost always means the
+tunnel or VPN on your machine, not the server: check `ssh <alias> true` by hand, and
+`ip route get <server address>`. Nothing has been changed at that point.
+
+**After changing the scripts**, rehearse them: `scripts/deploy-remote.selftest.sh`
+runs the real scripts against a fake server (a local directory) and exercises the
+success path, every refusal and both failure paths, with no network and no Docker.
 
 ### Generating the secrets
 
