@@ -14,6 +14,39 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.18.2] — 2026-09-19
+
+The first release shipped with `scripts/deploy-remote.sh`: one command, run from your own
+machine, that checks a tag, sends it to the server as a git bundle, runs `deploy.sh` there
+detached (a dropped connection no longer kills a build or a migration) and rolls back by
+itself when a new release fails its checks and its migrations were additive. See the README,
+"Deploying with one script". **From this release on, production is deployed with that script
+and nothing else.**
+
+**No runtime change.** The application code is byte-for-byte v0.18.1, which was tagged but
+never deployed on its own, so this release also carries everything in it: the seed-event floor
+that counts the city, varied seed events, and synthetic guests deleted after their event.
+Read the v0.18.1 notes below before deploying: `city_seed_config.floor_count` changes meaning.
+
+### ⚠️ What a deploy changes for people
+
+- Everything listed under v0.18.1 below.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- `scripts/deploy-remote.sh`, its server half `scripts/deploy-remote-runner.sh`, the example
+  configuration `scripts/deploy-remote.env.example`, and `scripts/deploy-remote.selftest.sh`,
+  which runs them against a fake server (57 checks, no network, no Docker).
+- README "Deploying with one script"; a pointer from DEPLOYMENT.md §13.
+
+### Changed
+
+- **The production server's address is no longer in the repository.** It was in three tracked
+  files (an old work checkpoint, the manual test results and the v0.4.x deploy-commands record);
+  they now say `<server>`. The address lives in the SSH alias only. It is still in the history
+  of the commits that introduced it.
+
 ## [v0.18.1] — 2026-09-19
 
 The seed-event scheduler shipped in v0.18.0 kept creating events without end. Its
