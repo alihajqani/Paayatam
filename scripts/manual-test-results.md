@@ -109,12 +109,12 @@ The rollback that makes this acceptable, in order of cost:
 ```bash
 # 1. Cheapest. Reverts the bot to read-only. Drafts in flight are kept and
 #    resume when it goes back on; nothing is discarded.
-ssh root@95.182.87.95 "cd /srv/payetam \
+ssh root@<server> "cd /srv/payetam \
   && sed -i 's/^ENABLE_CONVERSATION_WIZARD=1/ENABLE_CONVERSATION_WIZARD=0/' .env \
   && ./scripts/compose.sh restart api"
 
 # 2. Full release rollback, if the problem is not the wizards.
-ssh root@95.182.87.95 "cd /srv/payetam && ./scripts/rollback.sh"
+ssh root@<server> "cd /srv/payetam && ./scripts/rollback.sh"
 ```
 
 Migration 0025 is additive — one enum, one table, two indexes — so the previous

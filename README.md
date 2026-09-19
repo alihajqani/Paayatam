@@ -825,7 +825,9 @@ ssh <that alias> true                    # must work with no password prompt
 ```
 
 Nothing in that file is a secret (authentication stays in `~/.ssh`), but it is never
-committed. `.deploy/remote.env` inside the checkout works too, and is git-ignored.
+committed. **The server's address never goes in the repository at all**: it lives in the
+SSH alias (`~/.ssh/config`), and every script and document here refers to the alias or
+to `<server>`. `.deploy/remote.env` inside the checkout works too, and is git-ignored.
 
 **A release, end to end.**
 
