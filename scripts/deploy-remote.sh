@@ -257,7 +257,7 @@ local_commit() { git -C "$PAYETAM_ROOT" rev-parse -q --verify "$1^{commit}" 2> /
 DESTRUCTIVE=0 SAFE_ROLLBACK=1 BOT_CHANGED=0 MIGRATION_COUNT=0 KNOWN_PREV=0
 
 migration_report() { # <from commit> <to commit>
-    local from="$1" to="$2" files f flagged=()
+    local from="$1" to="$2" files f sql flagged=()
     files="$(git -C "$PAYETAM_ROOT" diff --name-only --diff-filter=A "$from" "$to" \
         -- 'packages/db/prisma/migrations/*/migration.sql')"
     MIGRATION_COUNT=0
@@ -268,8 +268,11 @@ migration_report() { # <from commit> <to commit>
         printf '                %s\n' "$(basename "$(dirname "$f")")"
         # Comments stripped first: the migrations in this repo explain themselves at
         # length, and "we do not DROP anything" must not read as a DROP.
-        if git -C "$PAYETAM_ROOT" show "${to}:${f}" | sed 's/--.*$//' \
-            | grep -q -i -E '\b(DROP|RENAME|TRUNCATE)\b|ALTER +COLUMN +[^ ]+ +(TYPE|SET +NOT +NULL)|DELETE +FROM'; then
+        # Into a variable, then grep the variable: see the note at the CHANGELOG
+        # check. Here a SIGPIPE would not fail loudly, it would make a DROP look
+        # like "nothing found" and let a destructive migration through unflagged.
+        sql="$(git -C "$PAYETAM_ROOT" show "${to}:${f}" | sed 's/--.*$//')"
+        if grep -q -i -E '\b(DROP|RENAME|TRUNCATE)\b|ALTER +COLUMN +[^ ]+ +(TYPE|SET +NOT +NULL)|DELETE +FROM' <<< "$sql"; then
             flagged+=("$(basename "$(dirname "$f")")")
         fi
     done <<< "$files"
@@ -440,7 +443,7 @@ fi
 
 # ── Deploy ───────────────────────────────────────────────────────────────────
 if [[ "$TAG" == 'latest' ]]; then
-    TAG="$(git -C "$PAYETAM_ROOT" tag --list 'v[0-9]*' --sort=-v:refname | head -1)"
+    TAG="$(git -C "$PAYETAM_ROOT" tag --list 'v[0-9]*' --sort=-v:refname | head -1 || true)"
     [[ -n "$TAG" ]] || die "no v* tag exists in this checkout"
     log "Latest tag: ${TAG}"
 fi
@@ -455,7 +458,15 @@ ok "tag ${TAG} -> ${TAG_COMMIT:0:9}"
 
 # The tag names the commit, so the entry must be in *that* tree, not in whatever is
 # checked out now. "No tag without a changelog entry" is a project rule.
-git -C "$PAYETAM_ROOT" show "${TAG}:CHANGELOG.md" 2> /dev/null | grep -q -F "## [${TAG}]" \
+#
+# Read into a variable first, then grep the variable. `git show | grep -q` looks
+# equivalent and is not: grep -q exits at the first match, git show is then killed
+# by SIGPIPE part way through a large file, and under `pipefail` the pipeline
+# reports failure for a file that DOES contain the entry — at random, and more
+# often the bigger and the newer-entry-first the changelog is (which is exactly
+# what this repository's is).
+changelog_at_tag="$(git -C "$PAYETAM_ROOT" show "${TAG}:CHANGELOG.md" 2> /dev/null || true)"
+grep -q -F "## [${TAG}]" <<< "$changelog_at_tag" \
     || die "CHANGELOG.md at ${TAG} has no '## [${TAG}]' entry. Every release needs one."
 ok "CHANGELOG.md has an entry for ${TAG}"
 

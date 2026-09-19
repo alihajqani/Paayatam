@@ -97,8 +97,15 @@ printf 'server { listen 443; }\n' > "$WORK/docker/sites-available/site.conf"
 printf 'export const BOT_COMMANDS = [1];\n' > "$WORK/packages/telegram/src/commands.ts"
 printf '# readme\n' > "$WORK/README.md"
 
+# A CHANGELOG the size of a real one (well past a pipe buffer), newest entry first:
+# the shape that made `git show | grep -q` die of SIGPIPE under `pipefail`.
+{ for i in $(seq 1 4000); do printf 'filler line %d to make the changelog large enough to matter\n' "$i"; done; } > "$T/filler.txt"
+
 commit_tag() { # <tag> <changelog entry: yes|no>
-    if [[ "$2" == yes ]]; then printf '## [%s] — 2026-01-01\n\nnotes\n\n' "$1" >> "$WORK/CHANGELOG.md"; fi
+    if [[ "$2" == yes ]]; then
+        { printf '## [%s] — 2026-01-01\n\nnotes\n\n' "$1"; cat "$WORK/CHANGELOG.md" 2> /dev/null || cat "$T/filler.txt"; } > "$T/changelog.new"
+        mv "$T/changelog.new" "$WORK/CHANGELOG.md"
+    fi
     git -C "$WORK" add -A
     git -C "$WORK" commit -q --allow-empty -m "release $1"
     git -C "$WORK" tag -a "$1" -m "$1"
@@ -115,7 +122,9 @@ echo 'ALTER TABLE t ADD COLUMN c int; -- we never DROP anything' > "$WORK/packag
 commit_tag v0.2.0 yes
 
 mkdir -p "$WORK/packages/db/prisma/migrations/00000000000002_destructive"
-echo 'ALTER TABLE t DROP COLUMN c;' > "$WORK/packages/db/prisma/migrations/00000000000002_destructive/migration.sql"
+# The DROP is on the first line of a large file: the shape in which a scan that lets
+# grep -q close the pipe early misses it, silently.
+{ echo 'ALTER TABLE t DROP COLUMN c;'; sed 's/^/-- /' "$T/filler.txt"; echo 'SELECT 1;'; } > "$WORK/packages/db/prisma/migrations/00000000000002_destructive/migration.sql"
 commit_tag v0.3.0 yes
 
 commit_tag v0.4.0 no # no CHANGELOG entry: must be refused
