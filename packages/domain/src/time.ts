@@ -20,22 +20,39 @@ interface ZonedParts {
   second: number;
 }
 
+/**
+ * One formatter per zone, built once. Constructing an `Intl.DateTimeFormat` is
+ * the expensive part of every helper below (each of which calls `partsIn` two or
+ * three times), and a caller that walks a fortnight of candidate times — the
+ * seed-event slot picker — would otherwise build hundreds per pick.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  let formatter = formatters.get(timeZone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      // Named explicitly: `fa-IR` resolves to the Persian calendar and
+      // Persian digits by default, and a policy threshold must not depend on
+      // which locale chain the runtime happens to prefer.
+      calendar: 'gregory',
+      numberingSystem: 'latn',
+    });
+    formatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
 function partsIn(instant: Date, timeZone: string): ZonedParts {
-  const formatted = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    // Named explicitly: `fa-IR` resolves to the Persian calendar and
-    // Persian digits by default, and a policy threshold must not depend on
-    // which locale chain the runtime happens to prefer.
-    calendar: 'gregory',
-    numberingSystem: 'latn',
-  }).formatToParts(instant);
+  const formatted = formatterFor(timeZone).formatToParts(instant);
 
   const value = (type: Intl.DateTimeFormatPartTypes): number => {
     const part = formatted.find((candidate) => candidate.type === type);
@@ -73,6 +90,19 @@ function offsetMsAt(instant: Date, timeZone: string): number {
 /** The Gregorian year at an instant, in a given zone. */
 export function gregorianYearIn(instant: Date, timeZone: string): number {
   return partsIn(instant, timeZone).year;
+}
+
+/**
+ * The Gregorian calendar date at an instant, in a given zone. `month` is
+ * 1-based, matching `zonedTimeToUtc`, so the two compose: a caller reads
+ * today's date here and asks `zonedTimeToUtc` for "day + 3, at 18:30".
+ */
+export function localDateIn(
+  instant: Date,
+  timeZone: string,
+): { year: number; month: number; day: number } {
+  const { year, month, day } = partsIn(instant, timeZone);
+  return { year, month, day };
 }
 
 /**

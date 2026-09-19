@@ -2187,7 +2187,13 @@ export const citySeedConfigView = z.object({
   fillMinutes: z.number().int().min(1),
   hostUserPublicId: z.string().nullable(),
   hostDisplayName: z.string().nullable(),
+  /** Seed events still short of capacity. */
   fillingEventCount: z.number().int().min(0),
+  /**
+   * Upcoming published events in the city, real and seeded — the number the
+   * floor is compared with.
+   */
+  upcomingEventCount: z.number().int().min(0),
 });
 export type CitySeedConfigView = z.infer<typeof citySeedConfigView>;
 
@@ -2198,11 +2204,11 @@ export type SeedEventsCitiesResponse = z.infer<typeof seedEventsCitiesResponse>;
 
 export const updateCitySeedConfigRequest = z.object({
   enabled: z.boolean().optional(),
-  // Capped at 3, not a round product number: `EventService` allows at most 3
-  // concurrently-active (not-yet-started) events per host, so a
-  // `floorCount` above 3 could never actually be reached by one dedicated
-  // host account (see the design spec's "confirmed constraint" section).
-  floorCount: z.number().int().min(0).max(3).optional(),
+  // The number of upcoming events the city should always have, real and seeded
+  // together. Seed events are exempt from the per-host quota, so this is bounded
+  // by what looks plausible on a feed rather than by what one account may hold;
+  // the scheduler still creates at most three per city per pass.
+  floorCount: z.number().int().min(0).max(50).optional(),
   eventCapacity: z.number().int().min(1).max(50).optional(),
   fillMinutes: z.number().int().min(1).max(240).optional(),
   hostUserPublicId: z.string().optional(),

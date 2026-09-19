@@ -63,6 +63,38 @@ function sessionFor(role: keyof typeof ROLE_KEYS): AdminSession {
   };
 }
 
+/**
+ * A marketing seed event's synthetic guest: a user with a profile and a seat, and
+ * no Telegram account. Counted by nothing an operator reads growth from.
+ */
+async function seedSyntheticGuest(hostId: string): Promise<void> {
+  const eventPublicId = await seedEvent(hostId, 'رویداد ساختگی');
+  const event = await prisma.event.findUniqueOrThrow({
+    where: { publicId: eventPublicId },
+    select: { id: true },
+  });
+  const guest = await prisma.user.create({
+    data: {
+      isSeed: true,
+      onboardingState: 'PROFILE_COMPLETE',
+      profile: {
+        create: { displayName: 'مهمان ساختگی', cityId: fixture.tehranId, birthYear: 1995 },
+      },
+    },
+    select: { id: true },
+  });
+  await prisma.eventParticipant.create({
+    data: {
+      eventId: event.id,
+      userId: guest.id,
+      status: 'ACCEPTED',
+      requestedAt: NOW,
+      decidedAt: NOW,
+      acceptedAt: NOW,
+    },
+  });
+}
+
 async function seedUser(
   displayName: string,
   options: { bio?: string; status?: 'ACTIVE' | 'SUSPENDED' | 'BANNED' } = {},
@@ -159,6 +191,25 @@ describe('the dashboard', () => {
   });
 
   /**
+   * A marketing seed event's guests are synthetic and live until their event is
+   * over, which can be days. Not one number a shift reads growth from may move
+   * because of them.
+   */
+  it('does not count a seed event’s synthetic guests as users', async () => {
+    const host = await seedUser('میزبان');
+    await seedSyntheticGuest(host.id);
+    await seedSyntheticGuest(host.id);
+
+    const dashboard = await insight.dashboard(SUPER);
+
+    expect(dashboard.users.total).toBe(1);
+    expect(dashboard.users.byStatus).toEqual({ ACTIVE: 1 });
+    expect(dashboard.users.newLast7Days).toBe(1);
+    // Both guests hold a seat requested this week; neither is an active user.
+    expect(dashboard.users.activeLast7Days).toBe(1);
+  });
+
+  /**
    * A sparse tally, not a dense one. A status with no rows is absent rather than
    * zero, so the panel can tell "nobody is waitlisted" from "this deployment has
    * no waitlist" — and inventing zeros would remove that distinction for good.
@@ -211,6 +262,18 @@ describe('finding a user', () => {
 
     expect(page.total).toBe(1);
     expect(page.rows[0]?.publicId).toBe(user.publicId);
+  });
+
+  it('never lists a synthetic guest, however it is searched for', async () => {
+    const host = await seedUser('میزبان');
+    await seedSyntheticGuest(host.id);
+
+    const everyone = await insight.listUsers(SUPER, {});
+    const byName = await insight.listUsers(SUPER, { query: 'مهمان ساختگی' });
+
+    expect(everyone.total).toBe(1);
+    expect(everyone.rows.map((row) => row.publicId)).toEqual([host.publicId]);
+    expect(byName.total).toBe(0);
   });
 
   it('filters by account status and reports the total behind the page', async () => {

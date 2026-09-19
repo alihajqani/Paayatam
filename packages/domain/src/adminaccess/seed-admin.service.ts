@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
+import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
 import type { CitySeedConfigView, UpdateCitySeedConfigRequest } from '@payetam/shared';
 import { AuditService } from '../audit/audit.service';
+import { upcomingEventsWhere } from '../seeding/seed-floor';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
 import { PERMISSIONS } from './permissions';
 
@@ -20,6 +22,7 @@ import { PERMISSIONS } from './permissions';
 export class SeedAdminService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CLOCK) private readonly clock: Clock,
     private readonly access: AdminAccessService,
     private readonly audit: AuditService,
   ) {}
@@ -46,12 +49,7 @@ export class SeedAdminService {
       orderBy: { sortOrder: 'asc' },
     });
 
-    const fillingCounts = await this.prisma.event.groupBy({
-      by: ['cityId'],
-      where: { isSeeded: true, status: 'PUBLISHED' },
-      _count: { _all: true },
-    });
-    const fillingByCity = new Map(fillingCounts.map((row) => [row.cityId, row._count._all]));
+    const counts = await this.countsByCity();
 
     return cities.map((city) => ({
       cityId: city.id,
@@ -63,7 +61,8 @@ export class SeedAdminService {
       fillMinutes: city.seedConfig?.fillMinutes ?? 5,
       hostUserPublicId: city.seedConfig?.host.publicId ?? null,
       hostDisplayName: city.seedConfig?.host.profile?.displayName ?? null,
-      fillingEventCount: fillingByCity.get(city.id) ?? 0,
+      fillingEventCount: counts.get(city.id)?.filling ?? 0,
+      upcomingEventCount: counts.get(city.id)?.upcoming ?? 0,
     }));
   }
 
@@ -137,6 +136,8 @@ export class SeedAdminService {
       },
     });
 
+    const counts = await this.countsByCity();
+
     return {
       cityId,
       cityNameFa: city.nameFa,
@@ -147,7 +148,48 @@ export class SeedAdminService {
       fillMinutes: saved.fillMinutes,
       hostUserPublicId: saved.host.publicId,
       hostDisplayName: saved.host.profile?.displayName ?? null,
-      fillingEventCount: 0,
+      fillingEventCount: counts.get(cityId)?.filling ?? 0,
+      upcomingEventCount: counts.get(cityId)?.upcoming ?? 0,
     };
+  }
+
+  /**
+   * Two different questions, so two counts. `filling` is how many seed events
+   * are still short of capacity; `upcoming` is what the floor is compared with
+   * (`upcomingEventsWhere`), and includes real events and full seed events. A
+   * city with neither has no entry.
+   *
+   * The filling count is done in memory because Prisma cannot compare two
+   * columns (`accepted_count < capacity`), and there are only ever a handful of
+   * seed events in flight.
+   */
+  private async countsByCity(): Promise<Map<string, { filling: number; upcoming: number }>> {
+    const now = this.clock.now();
+    const [upcomingByCity, seededPublished] = await Promise.all([
+      this.prisma.event.groupBy({
+        by: ['cityId'],
+        where: upcomingEventsWhere(now),
+        _count: { _all: true },
+      }),
+      this.prisma.event.findMany({
+        where: { isSeeded: true, status: 'PUBLISHED' },
+        select: { cityId: true, capacity: true, acceptedCount: true },
+      }),
+    ]);
+
+    const counts = new Map<string, { filling: number; upcoming: number }>();
+    const entry = (cityId: string): { filling: number; upcoming: number } => {
+      let existing = counts.get(cityId);
+      if (existing === undefined) {
+        existing = { filling: 0, upcoming: 0 };
+        counts.set(cityId, existing);
+      }
+      return existing;
+    };
+    for (const row of upcomingByCity) entry(row.cityId).upcoming = row._count._all;
+    for (const event of seededPublished) {
+      if (event.acceptedCount < event.capacity) entry(event.cityId).filling += 1;
+    }
+    return counts;
   }
 }

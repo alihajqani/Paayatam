@@ -135,6 +135,7 @@ export class ComebackService {
       LEFT JOIN "trust_score" t ON t."user_id" = u."id"
       WHERE u."status" = 'ACTIVE'
         AND u."deleted_at" IS NULL
+        AND u."is_seed" = false
         AND COALESCE(a."balance", 0) < ${joinCost}
         AND COALESCE(t."score", ${initialTrust}) >= ${minTrust}
         AND (

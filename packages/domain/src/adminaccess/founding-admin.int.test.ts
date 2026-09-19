@@ -176,6 +176,22 @@ describe('the report', () => {
     expect(tehran).toMatchObject({ members: 1, profiles: 2, isLaunched: true });
   });
 
+  it('does not count a synthetic guest among the profiles behind a city', async () => {
+    await member(tehranId, true);
+    await prisma.user.create({
+      data: {
+        isSeed: true,
+        onboardingState: 'PROFILE_COMPLETE',
+        profile: { create: { displayName: 'مهمان ساختگی', cityId: tehranId, birthYear: 1995 } },
+      },
+    });
+
+    const report = await admin.report(SUPER);
+
+    const tehran = report.cities.find((row) => row.slug === 'tehran');
+    expect(tehran).toMatchObject({ members: 1, profiles: 1 });
+  });
+
   it('queues a closed city by how close it is, and leaves an open one out', async () => {
     await member(shirazId, true);
     await member(tehranId, true);

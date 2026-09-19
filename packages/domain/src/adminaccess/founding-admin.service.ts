@@ -196,6 +196,7 @@ export class FoundingAdminService {
                  COUNT(*) FILTER (WHERE fm."user_id" IS NOT NULL) AS members,
                  COUNT(*)                                          AS profiles
           FROM "user_profile" p
+          JOIN "user" u ON u."id" = p."user_id" AND u."is_seed" = false
           JOIN "city" c ON c."id" = p."city_id"
           LEFT JOIN "founding_member" fm ON fm."user_id" = p."user_id"
           GROUP BY c."slug", c."name_fa", c."is_launched"

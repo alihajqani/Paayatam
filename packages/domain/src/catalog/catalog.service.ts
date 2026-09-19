@@ -245,7 +245,7 @@ export class CatalogService {
     }
 
     const [waiting, threshold] = await Promise.all([
-      tx.userProfile.count({ where: { cityId } }),
+      tx.userProfile.count({ where: { cityId, user: { isSeed: false } } }),
       this.settings.getInt('city.launch_threshold', tx),
     ]);
 

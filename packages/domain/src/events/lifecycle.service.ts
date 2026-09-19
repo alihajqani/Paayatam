@@ -575,7 +575,13 @@ export class EventLifecycleService {
 
         const attendees = await tx.eventParticipant.findMany({
           where: { eventId: locked.id, status: 'ACCEPTED' },
-          select: { id: true, publicId: true, userId: true, status: true },
+          select: {
+            id: true,
+            publicId: true,
+            userId: true,
+            status: true,
+            user: { select: { isSeed: true } },
+          },
         });
 
         const ids: string[] = [];
@@ -587,23 +593,37 @@ export class EventLifecycleService {
             data: { status: 'COMPLETED', attended: true, version: { increment: 1 } },
           });
 
-          await this.creditAttendance(tx, attendee.userId, attendee.id, now);
-
           /**
-           * The review window opens here, in the transaction that decided somebody
-           * attended (M11).
+           * A marketing seed guest is settled like anybody else — the row must not
+           * be left ACCEPTED — but earns and owes nothing.
            *
-           * This placement is what makes "you may only review an evening you were
-           * actually at" structural rather than a check somebody has to remember:
-           * a participation that completed always has a pair, and one that was
-           * cancelled or reported as a no-show never gets one. Reviewing somebody
-           * for not turning up is what the no-show penalty already is.
+           * Its identity is deleted after the event
+           * (`SeedSchedulerService.purge`), and `trust_score_ledger` is
+           * append-only by trigger: one credit here would make that identity
+           * undeletable for ever. Nor is there anybody to review, so no pair is
+           * opened for the real host to be asked about. In practice the purge runs
+           * hours before this does; this is for a worker that was down long
+           * enough for the two to run in the other order.
            */
-          await this.reviews.openForParticipant(tx, {
-            participantId: attendee.id,
-            eventId: locked.id,
-            endsAt: ends.endsAt,
-          });
+          if (!attendee.user.isSeed) {
+            await this.creditAttendance(tx, attendee.userId, attendee.id, now);
+
+            /**
+             * The review window opens here, in the transaction that decided somebody
+             * attended (M11).
+             *
+             * This placement is what makes "you may only review an evening you were
+             * actually at" structural rather than a check somebody has to remember:
+             * a participation that completed always has a pair, and one that was
+             * cancelled or reported as a no-show never gets one. Reviewing somebody
+             * for not turning up is what the no-show penalty already is.
+             */
+            await this.reviews.openForParticipant(tx, {
+              participantId: attendee.id,
+              eventId: locked.id,
+              endsAt: ends.endsAt,
+            });
+          }
 
           await this.audit.record(
             {
@@ -617,7 +637,7 @@ export class EventLifecycleService {
             tx,
           );
 
-          ids.push(attendee.userId);
+          if (!attendee.user.isSeed) ids.push(attendee.userId);
         }
 
         return ids;

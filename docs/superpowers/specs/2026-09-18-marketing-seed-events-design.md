@@ -1,6 +1,11 @@
 # Marketing seed events — design
 
 - **Status:** Approved (2026-09-18)
+- **Amended 2026-09-19** by [2026-09-19-seed-event-floor-and-purge-design.md](2026-09-19-seed-event-floor-and-purge-design.md):
+  the floor now counts every upcoming event in the city (not only seed events still filling),
+  events vary in category, topic, day and hour, seed events are exempt from the host quota,
+  and the synthetic guests are deleted after the event. Sections below that say otherwise
+  (the floor cap of 3, the quota "confirmed constraint", the guests living on) are superseded.
 - **Scope:** Admin-configurable, automatic creation of fake ("seed") events in
   open cities that fill to capacity quickly, so early browsers see an active
   marketplace instead of an empty one.

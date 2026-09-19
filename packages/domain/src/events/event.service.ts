@@ -63,6 +63,21 @@ export interface CreateEventInput {
 export type UpdateEventInput = Partial<CreateEventInput>;
 
 /**
+ * What only the system, never a host, may ask of `create`.
+ *
+ * `seeded` marks a marketing seed event (see
+ * docs/superpowers/specs/2026-09-19-seed-event-floor-and-purge-design.md). Such
+ * an event is system-made content in a dedicated team account, and it neither
+ * consumes nor is limited by the per-host quotas: a city's floor can be ten
+ * events, and a host allowed three at a time could never reach it. The coin
+ * charge and every other rule still apply — it is a real event in every other
+ * respect, which is the point.
+ */
+export interface CreateEventOptions {
+  seeded?: boolean;
+}
+
+/**
  * A host's standing against both creation quotas, at one instant.
  *
  * Two counts and two limits rather than one boolean, because the two quotas are
@@ -321,7 +336,11 @@ export class EventService {
    * Zero means free and writes no ledger row at all: `coin_ledger.amount` may not
    * be zero, and a row claiming somebody paid nothing is worse than no row.
    */
-  async create(hostUserId: string, input: CreateEventInput): Promise<EventDetail> {
+  async create(
+    hostUserId: string,
+    input: CreateEventInput,
+    options: CreateEventOptions = {},
+  ): Promise<EventDetail> {
     const now = this.clock.now();
     this.assertScheduleSane(input.startsAt, input.endsAt, now);
     await this.assertHostCanAuthor(hostUserId);
@@ -337,7 +356,7 @@ export class EventService {
     ]);
 
     const created = await this.prisma.$transaction(async (tx) => {
-      await this.assertWithinQuota(tx, hostUserId, now);
+      if (options.seeded !== true) await this.assertWithinQuota(tx, hostUserId, now);
 
       // `requireLaunched`, because an activity in a city the product has not
       // opened is one nobody can be found for (v0.10.0). Profile completion
@@ -399,6 +418,7 @@ export class EventService {
           externalLink: input.externalLink ?? null,
           status: 'DRAFT',
           moderationStatus: 'PENDING',
+          isSeeded: options.seeded === true,
         },
         select: { id: true, publicId: true },
       });
@@ -1279,10 +1299,14 @@ export class EventService {
 
     const since = startOfDayIn(now, this.env.APP_TIMEZONE);
     const [createdToday, activeCount] = await Promise.all([
-      tx.event.count({ where: { hostUserId, createdAt: { gte: since } } }),
+      // Seed events are excluded from both counts, for the same reason `create`
+      // skips the check for them: they are system content, and a team account
+      // that also hosts real evenings must not be locked out by its own seeds.
+      tx.event.count({ where: { hostUserId, isSeeded: false, createdAt: { gte: since } } }),
       tx.event.count({
         where: {
           hostUserId,
+          isSeeded: false,
           deletedAt: null,
           status: { in: [...ACTIVE_EVENT_STATUSES] },
           startsAt: { gt: now },
