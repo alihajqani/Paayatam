@@ -1847,6 +1847,11 @@ model DirectMessage {
   /// may reply to it.
   parentId String? @map("parent_id")
 
+  /// The Telegram `message_id` this was typed as, in the sender's own chat
+  /// (migration 0060). An answer to it is sent as a Telegram reply to that
+  /// message. Null for anything written before the typed message was kept.
+  senderMessageId Int? @map("sender_message_id")
+
   /// When the recipient opened it. The sender is told, which is the whole of the
   /// «دیده شد» half of the flow.
   seenAt DateTime? @map("seen_at") @db.Timestamptz(3)

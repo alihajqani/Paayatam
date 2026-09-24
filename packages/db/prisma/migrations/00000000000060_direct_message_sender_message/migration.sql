@@ -1,0 +1,20 @@
+-- Migration 0060: the message a direct message was typed as (v0.18.5).
+--
+-- ── What was missing ────────────────────────────────────────────────────────
+--
+-- A direct message is typed into the compose form, and the bot used to delete
+-- every typed form answer once the form had it. So the question a guest asked
+-- vanished from their own chat the moment it was sent, and the answer that came
+-- back later had nothing in that chat to point at.
+--
+-- The typed message is kept now, and an answer is sent as a Telegram reply to
+-- it. That needs its `message_id` in the author's chat, which exists only when
+-- the update arrives, so it is recorded here, on the row it became.
+--
+-- ── Why nullable, and why no backfill ───────────────────────────────────────
+--
+-- Every message before this migration has no id to record: it was deleted when
+-- it was sent. NULL means "nothing to reply to", and an answer to such a message
+-- arrives as it always did. Telegram numbers messages per chat, so the value
+-- means nothing without the author — which is this row's `sender_user_id`.
+ALTER TABLE "direct_message" ADD COLUMN IF NOT EXISTS "sender_message_id" INTEGER;

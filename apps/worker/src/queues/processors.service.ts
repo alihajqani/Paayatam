@@ -389,6 +389,7 @@ export class Processors implements OnModuleInit {
       {
         parseMode: 'HTML',
         moderator: await this.drawsModerationButton(notification.telegramUserId, message.keyboard),
+        replyTo: message.replyTo,
       },
     );
 
