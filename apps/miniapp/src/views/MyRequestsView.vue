@@ -89,7 +89,7 @@ onMounted(load);
     <StateBlock
       :state="state"
       :error-text="loadError"
-      empty-text="هنوز به هیچ فعالیتی «پایتم» نگفته‌اید."
+      empty-text="هنوز به هیچ رویدادی «پایتم» نگفته‌اید."
       @retry="load"
     >
       <template #empty-action>

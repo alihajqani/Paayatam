@@ -47,7 +47,7 @@ export const REPORT_REASON_CHOICES: readonly { reason: ReportReasonValue; label:
 
 /** What the target of a report is called, for the question above the buttons. */
 const TARGET_FA: Record<string, string> = {
-  e: 'این فعالیت',
+  e: 'این رویداد',
   c: 'این گفتگو',
   u: 'این کاربر',
   v: 'این نظر',

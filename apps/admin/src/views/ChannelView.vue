@@ -73,9 +73,9 @@ const ACTION_LABELS: Record<GatedActionView, string> = {
   // First in the list because it is the widest: it stops the Mini App opening at
   // all, rather than refusing one operation inside it.
   APP_ACCESS: 'ورود به برنامه (کل مینی‌اپ)',
-  EVENT_CREATE: 'ساخت فعالیت',
-  EVENT_JOIN: '«پایتم» گفتن به فعالیت',
-  EVENT_CHANNEL_SEND: 'انتشار فعالیت در کانال',
+  EVENT_CREATE: 'ساخت رویداد',
+  EVENT_JOIN: '«پایتم» گفتن به رویداد',
+  EVENT_CHANNEL_SEND: 'انتشار رویداد در کانال',
   EVENT_INVITE: 'ارسال دعوت‌نامه',
 };
 

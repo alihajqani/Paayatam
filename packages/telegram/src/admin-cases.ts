@@ -44,11 +44,11 @@ export interface AdminCaseLine {
 }
 
 export const CASE_SUBJECT_FA: Record<string, string> = {
-  EVENT: 'فعالیت',
+  EVENT: 'رویداد',
   USER: 'کاربر',
   MESSAGE: 'گفتگو',
   REVIEW: 'نظر',
-  PARTICIPATION: 'حضور در فعالیت',
+  PARTICIPATION: 'حضور در رویداد',
 };
 
 export const CASE_TRIGGER_FA: Record<string, string> = {

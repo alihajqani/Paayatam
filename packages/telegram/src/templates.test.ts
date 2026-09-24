@@ -182,7 +182,7 @@ describe('the hosting settlement', () => {
 
   it('omits the deposit line when it was already returned', () => {
     const message = render(TEMPLATES.HOST_SETTLED, { ...payload, refund: 0 });
-    expect(message?.text).not.toContain('سپردهٔ ثبت فعالیت');
+    expect(message?.text).not.toContain('سپردهٔ ثبت رویداد');
     expect(message?.text).toContain('۸ سکه');
   });
 

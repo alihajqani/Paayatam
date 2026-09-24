@@ -12,7 +12,7 @@ import type { ParticipantStatus } from './contracts/participation';
  * catalogue, the channel renderer and the admin panel — and `shared` is the only
  * package all of them already depend on.
  *
- * Wording follows `docs/glossary-fa.md`: «فعالیت», polite plural, no exclamation
+ * Wording follows `docs/glossary-fa.md`: «رویداد», polite plural, no exclamation
  * marks.
  */
 
@@ -38,12 +38,12 @@ import type { ParticipantStatus } from './contracts/participation';
  * other.
  */
 export const EVENT_DISCLAIMER_FA =
-  'پایه‌تَم هیچ مسئولیتی در قبال برگزاری این فعالیت و آنچه در آن رخ می‌دهد ندارد. ' +
+  'پایه‌تَم هیچ مسئولیتی در قبال برگزاری این رویداد و آنچه در آن رخ می‌دهد ندارد. ' +
   'مسئولیت حضور و تصمیم‌گیری با خود شماست؛ لطفاً احتیاط کنید.';
 
 /** The one-line form, for a channel post and anywhere else space is the constraint. */
 export const EVENT_DISCLAIMER_SHORT_FA =
-  '⚠️ پایه‌تَم مسئولیتی در قبال این فعالیت ندارد؛ لطفاً احتیاط کنید.';
+  '⚠️ پایه‌تَم مسئولیتی در قبال این رویداد ندارد؛ لطفاً احتیاط کنید.';
 
 /**
  * What each participation status is called, in Persian — **from each side**.

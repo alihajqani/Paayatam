@@ -216,7 +216,7 @@ describe('the moderation digest', () => {
     const text = formatModerationDigest(summary, NOW);
     expect(text).toContain('۳ پرونده');
     expect(text).toContain('۲ ساعت');
-    expect(text).toContain('فعالیت ۲');
+    expect(text).toContain('رویداد ۲');
     expect(text).toContain('کاربر ۱');
   });
 

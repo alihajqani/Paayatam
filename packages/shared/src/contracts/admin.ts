@@ -149,7 +149,7 @@ export type DecideCaseRequest = z.infer<typeof decideCaseRequest>;
  * One case, with everything a decision is actually made from (v0.7.0).
  *
  * The queue used to render a subject *type*, a trigger and a count — «دربارهٔ
- * فعالیت · رسیدن به آستانهٔ گزارش · ۳ گزارش» — beside two buttons that decide it.
+ * رویداد · رسیدن به آستانهٔ گزارش · ۳ گزارش» — beside two buttons that decide it.
  * A moderator was being asked to judge content they could not see, on complaints
  * they could not read, about an account they could not identify. What the panel
  * offered was a decision, not a review.

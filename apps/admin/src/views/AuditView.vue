@@ -123,7 +123,7 @@ const FAMILIES = [
   { prefix: 'coin.', label: 'اصلاح سکه' },
   { prefix: 'trust.', label: 'اصلاح امتیاز اعتماد' },
   { prefix: 'user.', label: 'وضعیت حساب کاربران' },
-  { prefix: 'event.', label: 'بررسی فعالیت‌ها' },
+  { prefix: 'event.', label: 'بررسی رویدادها' },
   { prefix: 'report.', label: 'گزارش‌های تخلف' },
   { prefix: 'moderation.', label: 'پرونده‌های بررسی' },
   { prefix: 'chat.', label: 'دسترسی اضطراری به گفت‌وگو' },

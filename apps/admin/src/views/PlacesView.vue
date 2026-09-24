@@ -33,7 +33,7 @@ import { useSessionStore } from '@/stores/session';
  *
  * A city with profiles or events in it cannot be switched off in one click. The
  * first attempt comes back `CITY_HAS_REFERENCES` with the counts, and the panel
- * turns that into a confirmation naming them — «۲۳۴ پروفایل و ۱۲ فعالیت» rather
+ * turns that into a confirmation naming them — «۲۳۴ پروفایل و ۱۲ رویداد» rather
  * than «مطمئنید؟». The second attempt carries `confirmReferences`.
  */
 const session = useSessionStore();
@@ -174,7 +174,7 @@ async function setLaunched(city: AdminCityView, isLaunched: boolean): Promise<vo
       updated.isLaunched !== isLaunched
         ? `وضعیت «${city.nameFa}» تغییر نکرد.`
         : isLaunched
-          ? `«${city.nameFa}» باز شد — از این پس می‌توان اینجا فعالیت ساخت.`
+          ? `«${city.nameFa}» باز شد — از این پس می‌توان اینجا رویداد ساخت.`
           : `«${city.nameFa}» بسته شد. نمایه‌ها دست‌نخورده می‌مانند و در فهرست انتظار شمرده می‌شوند.`;
     await loadCities();
   } catch (cause) {
@@ -195,7 +195,7 @@ async function setActive(city: AdminCityView, isActive: boolean, confirm = false
     pendingDeactivation.value = null;
     notice.value = isActive
       ? `«${city.nameFa}» فعال شد و از این پس در فهرست کاربران دیده می‌شود.`
-      : `«${city.nameFa}» غیرفعال شد. پروفایل‌ها و فعالیت‌های موجود دست‌نخورده‌اند.`;
+      : `«${city.nameFa}» غیرفعال شد. پروفایل‌ها و رویدادهای موجود دست‌نخورده‌اند.`;
     await loadCities();
   } catch (cause) {
     const details = detailsOf(cause);
@@ -217,8 +217,8 @@ const deactivationBody = computed(() => {
   if (pending === null) return '';
   return (
     `«${pending.city.nameFa}» هم‌اکنون ${formatNumber(pending.profileCount)} پروفایل و ` +
-    `${formatNumber(pending.eventCount)} فعالیت دارد. غیرفعال کردن، این شهر را از فهرست ` +
-    'انتخاب کاربران حذف می‌کند؛ داده‌های موجود پاک نمی‌شوند و فعالیت‌های ثبت‌شده سر جای خود ' +
+    `${formatNumber(pending.eventCount)} رویداد دارد. غیرفعال کردن، این شهر را از فهرست ` +
+    'انتخاب کاربران حذف می‌کند؛ داده‌های موجود پاک نمی‌شوند و رویدادهای ثبت‌شده سر جای خود ' +
     'می‌مانند. کاربران ساکن این شهر تا زمانی که شهر دیگری انتخاب نکنند، همان شهر را در ' +
     'پروفایل خود می‌بینند.'
   );
@@ -475,7 +475,7 @@ onMounted(load);
               <th class="p-2 text-start">استان</th>
               <th class="p-2 text-start">مناطق</th>
               <th class="p-2 text-start">پروفایل</th>
-              <th class="p-2 text-start">فعالیت</th>
+              <th class="p-2 text-start">رویداد</th>
               <th class="p-2 text-start">وضعیت</th>
               <th class="p-2 text-start"></th>
             </tr>
@@ -511,8 +511,8 @@ onMounted(load);
                     :class="city.isLaunched ? 'bg-good-soft text-good' : 'bg-warn-soft text-warn'"
                     :title="
                       city.isLaunched
-                        ? 'پایه‌تَم اینجا فعالیت دارد'
-                        : 'قابل انتخاب است، ولی هنوز فعالیتی اینجا نیست — نمایه‌ها در فهرست انتظار می‌شمارند'
+                        ? 'پایه‌تَم اینجا رویداد دارد'
+                        : 'قابل انتخاب است، ولی هنوز رویدادی اینجا نیست — نمایه‌ها در فهرست انتظار می‌شمارند'
                     "
                   >
                     {{ city.isLaunched ? 'باز' : 'بسته' }}

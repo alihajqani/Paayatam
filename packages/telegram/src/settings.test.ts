@@ -47,7 +47,7 @@ describe('the settings board', () => {
     const chat = buttons(base).find((button) => button.text.includes('پیام‌های مستقیم'));
     expect(parseSettingCallback(chat?.callbackData ?? '')).toEqual({ field: 'c', value: false });
 
-    const events = buttons(base).find((button) => button.text.includes('فعالیت‌ها'));
+    const events = buttons(base).find((button) => button.text.includes('رویدادها'));
     expect(parseSettingCallback(events?.callbackData ?? '')).toEqual({ field: 'e', value: false });
   });
 

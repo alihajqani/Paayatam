@@ -376,11 +376,11 @@ describe('one user cannot reach another’s draft', () => {
     await conversations.start(userId, 'CREATE_EVENT', 1);
     await conversations.start(other, 'CREATE_EVENT', 2);
 
-    await conversations.handle(userId, 3, { kind: 'text', value: 'فعالیت اول' });
+    await conversations.handle(userId, 3, { kind: 'text', value: 'رویداد اول' });
 
     expect(await conversations.current(other)).toMatchObject({ step: 'title', form: {} });
     const mine = asCreateEventForm((await conversations.current(userId))!.form);
-    expect(mine.title).toBe('فعالیت اول');
+    expect(mine.title).toBe('رویداد اول');
   });
 
   /** Each conversation carries its own idempotency high-water mark. */
@@ -391,7 +391,7 @@ describe('one user cannot reach another’s draft', () => {
     await conversations.start(other, 'CREATE_EVENT', 1);
 
     // An update id far below the *other* user's, but new for this one.
-    const outcome = await conversations.handle(other, 2, { kind: 'text', value: 'فعالیت دوم' });
+    const outcome = await conversations.handle(other, 2, { kind: 'text', value: 'رویداد دوم' });
 
     expect(outcome?.kind).toBe('step');
     expect(await conversations.current(other)).toMatchObject({ step: 'desc' });
@@ -426,7 +426,7 @@ describe('a tap from a keyboard the wizard has moved past', () => {
    * broken». Every step used to send a *new* message, so the chat filled with
    * old keyboards; tapping one sent a callback for a step long since left, and
    * the current step refused it with a message about an entirely different
-   * field — «رایگان» answering «نام فعالیت را بنویسید».
+   * field — «رایگان» answering «نام رویداد را بنویسید».
    */
   it('re-renders the current step instead of refusing', async () => {
     await conversations.start(userId, 'CREATE_EVENT', 1);

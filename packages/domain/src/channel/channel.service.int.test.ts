@@ -730,7 +730,7 @@ describe('a post whose seats line has gone stale', () => {
   });
 
   it('edits at most a bounded number per pass', async () => {
-    for (const title of ['فعالیت اول', 'فعالیت دوم', 'فعالیت سوم']) {
+    for (const title of ['رویداد اول', 'رویداد دوم', 'رویداد سوم']) {
       await livePost({ capacity: 6, acceptedCount: 6, title });
     }
 

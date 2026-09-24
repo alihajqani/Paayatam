@@ -85,7 +85,7 @@ describe('the guest reminder', () => {
   });
 
   /** Every reminder is about something the reader can open. */
-  it('opens «فعالیت‌های من»', () => {
+  it('opens «رویدادهای من»', () => {
     expect(guest()?.deepLink).toBe('my-events');
   });
 });

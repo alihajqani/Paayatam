@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderSummary } from './render';
 
 const LINES = [
-  { label: 'نام فعالیت', value: 'قهوه و بازی' },
+  { label: 'نام رویداد', value: 'قهوه و بازی' },
   { label: 'شهر', value: 'تهران' },
 ];
 
@@ -17,7 +17,7 @@ const LINES = [
  */
 describe('renderSummary', () => {
   it('puts the note above the commit instruction, not under the fields', () => {
-    const screen = renderSummary(LINES, false, 'ثبت فعالیت', 'ثبت فعالیت ۲۵ سکه است.');
+    const screen = renderSummary(LINES, false, 'ثبت رویداد', 'ثبت رویداد ۲۵ سکه است.');
     // The order is the point: it is the last thing read before the button, not a
     // footnote under a form somebody has already scrolled past.
     expect(screen.text.indexOf('۲۵ سکه')).toBeGreaterThan(screen.text.indexOf('قهوه و بازی'));
@@ -35,7 +35,7 @@ describe('renderSummary', () => {
     // It is assembled at the call site from settings, so it is not a stranger's
     // text today — but every other value on this screen is escaped, and the one
     // exception is always the one that later carries user input.
-    const screen = renderSummary(LINES, false, 'ثبت فعالیت', '<b>x</b>');
+    const screen = renderSummary(LINES, false, 'ثبت رویداد', '<b>x</b>');
     expect(screen.text).toContain('&lt;b&gt;x&lt;/b&gt;');
   });
 });

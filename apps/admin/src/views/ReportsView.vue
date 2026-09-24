@@ -131,7 +131,7 @@ const REASONS: Record<ReportReason, string> = {
 };
 
 const TARGETS: Record<ReportTargetType, string> = {
-  EVENT: 'فعالیت',
+  EVENT: 'رویداد',
   USER: 'کاربر',
   MESSAGE: 'گفت‌وگو',
   REVIEW: 'بازخورد',
@@ -288,7 +288,7 @@ onMounted(load);
     :title="pending?.decision === 'ACTIONED' ? 'ثبت اقدام روی گزارش' : 'رد کردن گزارش'"
     :body="
       pending?.decision === 'ACTIONED'
-        ? 'گزارش بسته می‌شود. اقدام روی خودِ مورد — پنهان کردن فعالیت یا محدود کردن حساب — کار جداگانه‌ای در صفحهٔ مربوط به آن است.'
+        ? 'گزارش بسته می‌شود. اقدام روی خودِ مورد — پنهان کردن رویداد یا محدود کردن حساب — کار جداگانه‌ای در صفحهٔ مربوط به آن است.'
         : 'گزارش بدون اقدام بسته می‌شود. گزارش‌دهنده از این تصمیم باخبر نمی‌شود.'
     "
     :confirm-label="pending?.decision === 'ACTIONED' ? 'اقدام شد' : 'رد گزارش'"

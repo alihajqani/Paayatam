@@ -16,11 +16,11 @@ import { MAIN_MENU_LABEL, menuPathFor } from './keyboards';
  */
 export function cityLaunchAnnouncement(cityNameFa: string): string {
   const city = escapeHtml(cityNameFa);
-  const path = menuPathFor('discover') ?? 'فعالیت‌ها';
+  const path = menuPathFor('discover') ?? 'رویدادها';
   return (
     `<b>📍 پایه‌تَم در ${city} باز شد!</b>\n\n` +
-    `از امروز می‌توانید فعالیت‌های ${city} را ببینید، به آن‌ها بپیوندید ` +
-    `یا خودتان فعالیتی بسازید.\n\n` +
+    `از امروز می‌توانید رویدادهای ${city} را ببینید، به آن‌ها بپیوندید ` +
+    `یا خودتان رویدادی بسازید.\n\n` +
     `«${escapeHtml(MAIN_MENU_LABEL)}» ← «${escapeHtml(path)}»`
   );
 }

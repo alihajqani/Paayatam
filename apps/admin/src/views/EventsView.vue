@@ -61,7 +61,7 @@ async function load(): Promise<void> {
     total.value = page.total;
     loaded.value = true;
   } catch (cause) {
-    error.value = messageOf(cause, 'فهرست فعالیت‌ها بارگذاری نشد.');
+    error.value = messageOf(cause, 'فهرست رویدادها بارگذاری نشد.');
   } finally {
     loading.value = false;
   }
@@ -82,17 +82,17 @@ type Action = 'HIDE' | 'PUBLISH' | 'REJECT';
 const ACTIONS: Record<Action, { label: string; body: string; tone: 'danger' | 'default' }> = {
   HIDE: {
     label: 'پنهان کردن',
-    body: 'فعالیت از فهرست‌ها برداشته می‌شود. درخواست‌ها و گفت‌وگوهای موجود دست‌نخورده می‌مانند و این کار برگشت‌پذیر است.',
+    body: 'رویداد از فهرست‌ها برداشته می‌شود. درخواست‌ها و گفت‌وگوهای موجود دست‌نخورده می‌مانند و این کار برگشت‌پذیر است.',
     tone: 'danger',
   },
   PUBLISH: {
     label: 'بازگرداندن به انتشار',
-    body: 'فعالیت دوباره در فهرست‌ها دیده می‌شود.',
+    body: 'رویداد دوباره در فهرست‌ها دیده می‌شود.',
     tone: 'default',
   },
   REJECT: {
     label: 'تأیید نکردن',
-    body: 'فعالیت تأیید نشده علامت می‌خورد و منتشر نمی‌شود.',
+    body: 'رویداد تأیید نشده علامت می‌خورد و منتشر نمی‌شود.',
     tone: 'danger',
   },
 };
@@ -110,11 +110,11 @@ async function moderate(reason: string): Promise<void> {
       method: 'POST',
       body: { action: pending.value.action, reason },
     });
-    notice.value = 'وضعیت فعالیت تغییر کرد و در گزارش رخدادها ثبت شد.';
+    notice.value = 'وضعیت رویداد تغییر کرد و در گزارش رخدادها ثبت شد.';
     pending.value = null;
     await load();
   } catch (cause) {
-    actionError.value = messageOf(cause, 'تغییر وضعیت فعالیت انجام نشد.');
+    actionError.value = messageOf(cause, 'تغییر وضعیت رویداد انجام نشد.');
   } finally {
     acting.value = false;
   }
@@ -171,7 +171,7 @@ onMounted(load);
     <StateBlock
       :state="state"
       :error-text="error"
-      empty-text="فعالیتی با این مشخصات پیدا نشد."
+      empty-text="رویدادی با این مشخصات پیدا نشد."
       @retry="load"
     >
       <div class="overflow-x-auto rounded-xl border border-line bg-surface">

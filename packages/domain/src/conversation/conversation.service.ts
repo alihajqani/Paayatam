@@ -357,7 +357,7 @@ export class ConversationService {
      *
      * Handing that to the current step produces a refusal *about the wrong
      * field*: tapping «رایگان» from an old cost keyboard while the wizard sits on
-     * the title step answers «نام فعالیت را بنویسید و بفرستید», which is
+     * the title step answers «نام رویداد را بنویسید و بفرستید», which is
      * bewildering. Production did exactly this, and it read as «the Free button
      * is broken».
      *

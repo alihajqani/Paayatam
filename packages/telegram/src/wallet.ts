@@ -33,7 +33,7 @@ import { formatJalali } from './wizard/jalali';
  *
  * Five fits above the fold with the balance still visible, and «قبلی»/«بعدی»
  * reach the rest. The page is a **callback on the same message**, like the
- * discovery list and «فعالیت‌های من» — a second message per page would rebuild
+ * discovery list and «رویدادهای من» — a second message per page would rebuild
  * exactly the wall this is removing.
  */
 export interface WalletLine {
@@ -70,9 +70,9 @@ const LEDGER_TYPE_FA: Record<string, string> = {
   REFERRAL_REWARD: 'پاداش معرفی',
   REVIEW_REWARD: 'پاداش نظر',
   GIFT_CODE_REDEEM: 'کد هدیه',
-  BOOST_SPEND: 'ارتقای فعالیت',
+  BOOST_SPEND: 'ارتقای رویداد',
   VIP_SPEND: 'اشتراک ویژه',
-  EVENT_CREATE_SPEND: 'ساختن فعالیت',
+  EVENT_CREATE_SPEND: 'ساختن رویداد',
   CHANNEL_POST_SPEND: 'انتشار در کانال',
   INVITE_SPEND: 'دعوت از افراد',
   EVENT_JOIN_SPEND: 'درخواست شرکت',
@@ -86,7 +86,7 @@ const LEDGER_TYPE_FA: Record<string, string> = {
   // Persian reader. `labelFor` falling back to the raw value is what kept that
   // from being a crash, and it is also what kept it from being noticed.
   FOUNDING_REWARD: 'پاداش بنیان‌گذاری',
-  EVENT_DEPOSIT_REFUND: 'بازگشت سپردهٔ فعالیت',
+  EVENT_DEPOSIT_REFUND: 'بازگشت سپردهٔ رویداد',
   HOST_REWARD: 'پاداش میزبانی',
   COMEBACK_GRANT: 'سکهٔ بازگشت',
 };

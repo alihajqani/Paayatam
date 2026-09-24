@@ -18,7 +18,7 @@ describe('the coins-short message', () => {
   });
 
   it('points at the buttons, not at commands, when it has them', () => {
-    const text = insufficientCoinsNotice('ثبت فعالیت', 25, 3, true);
+    const text = insufficientCoinsNotice('ثبت رویداد', 25, 3, true);
     expect(text).not.toContain('/gift');
     expect(text).not.toContain('/referral');
     expect(text).toContain('دکمه');

@@ -88,7 +88,7 @@ export function formatPendingReviews(lines: readonly PendingReviewLine[]): strin
      * the condition instead.
      */
     empty:
-      'نظر منتظری ندارید. پس از پایان هر فعالیتی که در آن شرکت کرده‌اید و ' +
+      'نظر منتظری ندارید. پس از پایان هر رویدادی که در آن شرکت کرده‌اید و ' +
       'گذشتن چند ساعت، فرصت نوشتن نظر باز می‌شود و همین‌جا نشان داده می‌شود.',
     entries,
   });

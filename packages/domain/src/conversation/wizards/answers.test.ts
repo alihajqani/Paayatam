@@ -12,13 +12,13 @@ const photo = { kind: 'photo' as const, value: 'AgACAgQ' };
  */
 describe('a refused text answer', () => {
   it('quotes what arrived, and its length, when it is too short', () => {
-    const result = acceptText(text('ab'), 3, 80, 'نام فعالیت');
+    const result = acceptText(text('ab'), 3, 80, 'نام رویداد');
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain('«ab»');
     expect(result.error).toContain('۲ نویسه');
-    expect(result.error).toContain('نام فعالیت');
+    expect(result.error).toContain('نام رویداد');
   });
 
   /**
@@ -27,7 +27,7 @@ describe('a refused text answer', () => {
    * would be the bot showing them nothing and calling it their answer.
    */
   it('says nothing arrived rather than quoting an empty string', () => {
-    const result = acceptText(text('   '), 3, 80, 'نام فعالیت');
+    const result = acceptText(text('   '), 3, 80, 'نام رویداد');
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -49,21 +49,21 @@ describe('a refused text answer', () => {
 
   /**
    * Three shapes reach a step and only one is text, so a step that wants text
-   * has three things to say. Answering a stale tap with «نام فعالیت را بنویسید»
+   * has three things to say. Answering a stale tap with «نام رویداد را بنویسید»
    * is advice about a question the user is not looking at — which is what made
    * «رایگان» look broken in production.
    */
   it('tells a tap and a photo apart', () => {
-    expect(wrongShape(tap('FREE'), 'نام فعالیت')).toContain('دکمه');
-    expect(wrongShape(photo, 'نام فعالیت')).toContain('تصویر');
+    expect(wrongShape(tap('FREE'), 'نام رویداد')).toContain('دکمه');
+    expect(wrongShape(photo, 'نام رویداد')).toContain('تصویر');
   });
 
   it('refuses a tap where text was asked for', () => {
-    expect(acceptText(tap('FREE'), 3, 80, 'نام فعالیت').ok).toBe(false);
+    expect(acceptText(tap('FREE'), 3, 80, 'نام رویداد').ok).toBe(false);
   });
 
   it('trims before measuring, so padding does not buy length', () => {
-    expect(acceptText(text('  کوه  '), 3, 80, 'نام فعالیت')).toEqual({
+    expect(acceptText(text('  کوه  '), 3, 80, 'نام رویداد')).toEqual({
       ok: true,
       value: 'کوه',
     });

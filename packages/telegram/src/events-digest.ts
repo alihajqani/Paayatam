@@ -39,7 +39,7 @@ export interface MyEventLine {
 }
 
 /**
- * «فعالیت‌های من» — what the sender is hosting, newest first.
+ * «رویدادهای من» — what the sender is hosting, newest first.
  *
  * ── Why this stopped being a console ────────────────────────────────────────
  *
@@ -69,8 +69,8 @@ export function formatMyEvents(
 ): string {
   if (lines.length === 0) {
     return (
-      `<b>فعالیت‌های من</b>\n\n` +
-      `هنوز فعالیتی نساخته‌اید. با دکمهٔ «➕ ساختن فعالیت» اولی را بسازید.`
+      `<b>رویدادهای من</b>\n\n` +
+      `هنوز رویدادی نساخته‌اید. با دکمهٔ «➕ ساختن رویداد» اولی را بسازید.`
     );
   }
 
@@ -102,7 +102,7 @@ export function formatMyEvents(
     );
   });
 
-  return `<b>فعالیت‌های من</b>\n\n${entries.join(`\n${ENTRY_SEPARATOR}\n`)}`;
+  return `<b>رویدادهای من</b>\n\n${entries.join(`\n${ENTRY_SEPARATOR}\n`)}`;
 }
 
 /**

@@ -199,7 +199,7 @@ onMounted(load);
             </span>
             <span class="text-xs opacity-90">
               دعوت‌نامه فقط برای کسانی فرستاده می‌شود که <b>در همان شهر رویداد</b> هستند و بیشترین
-              احتمال شرکت را دارند — بر پایهٔ علاقه‌مندی‌ها و سابقهٔ شرکت در فعالیت‌های مشابه. کسانی
+              احتمال شرکت را دارند — بر پایهٔ علاقه‌مندی‌ها و سابقهٔ شرکت در رویدادهای مشابه. کسانی
               که دریافت دعوت‌نامه را خاموش کرده‌اند هرگز دعوت نمی‌شوند.
             </span>
           </button>
@@ -236,7 +236,7 @@ onMounted(load);
                 <li>{{ toPersianDigits(preview.reasons.interestMatch) }} نفر با علاقهٔ مرتبط</li>
                 <li>
                   {{ toPersianDigits(preview.reasons.categoryHistory) }} نفر با سابقهٔ شرکت در
-                  فعالیت مشابه
+                  رویداد مشابه
                 </li>
                 <li>
                   {{ toPersianDigits(preview.reasons.recentlyActive) }} نفر فعال در هفته‌های اخیر

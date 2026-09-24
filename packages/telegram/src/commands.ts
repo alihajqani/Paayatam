@@ -49,8 +49,8 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'start', description: 'شروع دوباره و باز کردن منوی اصلی' },
   { command: 'menu', description: 'فهرست دستورها به‌صورت دکمه' },
   { command: 'help', description: 'راهنمای کار با ربات' },
-  { command: 'create_event', description: 'ساختن فعالیت تازه' },
-  { command: 'discover', description: 'فعالیت‌های نزدیک شما' },
+  { command: 'create_event', description: 'ساختن رویداد تازه' },
+  { command: 'discover', description: 'رویدادهای نزدیک شما' },
   { command: 'balance', description: 'موجودی سکه‌های شما' },
   { command: 'wallet', description: 'کیف پول و تراکنش‌ها' },
   { command: 'referral', description: 'کد معرفی و پاداش‌ها' },
@@ -112,9 +112,9 @@ export function helpCommandLines(): string {
  *
  * ── Why the groups are these groups ─────────────────────────────────────────
  *
- * By the question being asked, not by the subsystem answering it. «فعالیت‌ها»
+ * By the question being asked, not by the subsystem answering it. «رویدادها»
  * holds everything about activities whether the user is hosting or attending,
- * because somebody looking for «فعالیت‌های من» is not thinking about which side
+ * because somebody looking for «رویدادهای من» is not thinking about which side
  * of the marketplace they are on. `/requests` and `/myevents` are the two halves
  * of the same question and sit together for that reason.
  *
@@ -139,8 +139,8 @@ export interface CommandGroup {
 export const COMMAND_GROUPS: readonly CommandGroup[] = [
   {
     key: 'ev',
-    label: '🎟 فعالیت‌ها',
-    hint: 'ساختن، پیدا کردن و اداره کردن فعالیت‌ها',
+    label: '🎟 رویدادها',
+    hint: 'ساختن، پیدا کردن و اداره کردن رویدادها',
     commands: ['create_event', 'discover', 'myevents', 'requests'],
   },
   {

@@ -438,7 +438,7 @@ export class ReferralService {
        * something, which is what stops a farm — accounts are free, an evening in
        * a café is not (T6). What was missing was anybody being *told* when the
        * condition was met: `/start <code>` promised coins «پس از شرکت در نخستین
-       * فعالیت» and then nothing ever said it had happened, so both parties found
+       * رویداد» and then nothing ever said it had happened, so both parties found
        * out by checking a balance, or reported it as a bug.
        *
        * Emitted inside the transaction that pays, like every other user-visible

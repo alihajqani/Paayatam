@@ -333,7 +333,7 @@ describe('the threshold (plan §11: three distinct reporters)', () => {
    * Reporting the **host** is a different subject, and does not move the
    * activity's count.
    *
-   * Worth pinning because the bot offers «گزارش فعالیت» and «گزارش میزبان» side
+   * Worth pinning because the bot offers «گزارش رویداد» and «گزارش میزبان» side
    * by side, so four people objecting to one evening can easily be two of each —
    * and neither target reaches three. That is correct (they are complaints about
    * different things) and it is the most likely reading of an activity that "was

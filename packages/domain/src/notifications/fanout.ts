@@ -275,7 +275,7 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
      *
      * A host was told when their activity was hidden and then told nothing when
      * it came back, so the only way to learn a case had gone their way was to
-     * notice the activity in «فعالیت‌های من» again. Half a conversation is worse
+     * notice the activity in «رویدادهای من» again. Half a conversation is worse
      * than none: the message that arrives is the accusation and the one that
      * never arrives is the exoneration.
      */

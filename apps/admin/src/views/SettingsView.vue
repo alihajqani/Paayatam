@@ -78,7 +78,7 @@ const GROUP_LABELS: Record<string, string> = {
   referral: 'معرفی دوستان',
   giftcode: 'کدهای هدیه',
   profile: 'پروفایل',
-  events: 'فعالیت‌ها',
+  events: 'رویدادها',
   participation: 'درخواست‌های شرکت',
   waitlist: 'لیست انتظار',
   cancellation: 'لغو و جریمه',

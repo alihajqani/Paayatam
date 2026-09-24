@@ -187,7 +187,7 @@ onMounted(load);
 
       <section class="grid gap-4 lg:grid-cols-2">
         <article class="rounded-xl border border-line bg-surface p-4">
-          <h2 class="text-sm font-semibold">فعالیت‌ها بر اساس وضعیت</h2>
+          <h2 class="text-sm font-semibold">رویدادها بر اساس وضعیت</h2>
           <ul class="mt-3 flex flex-col gap-2">
             <li
               v-for="[status, count] in ordered(data.events.byStatus, EVENT_STATUSES)"
