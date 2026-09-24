@@ -286,6 +286,60 @@ describe('answering one', () => {
     expect((emitted[1]?.payload as Record<string, unknown>)['isReply']).toBe(true);
   });
 
+  /**
+   * An answer points at the message it answers, in the asker's chat only
+   * (v0.18.5).
+   *
+   * Telegram numbers messages per chat, so the parent's id means something to
+   * the parent's author and nothing to anybody else — the writer re-reading
+   * their own answer must not be handed it, or their copy would quote some
+   * unrelated message of theirs.
+   */
+  it('points an answer at the question it answers, for the asker only', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'ماشین دارید؟', 41);
+    const answer = await directs.reply(hostId, first, 'بله', 7);
+
+    // Looked up by id rather than ordered: both were written at the same instant.
+    const typedAs = async (publicId: string): Promise<number | null> =>
+      (
+        await prisma.directMessage.findUniqueOrThrow({
+          where: { publicId },
+          select: { senderMessageId: true },
+        })
+      ).senderMessageId;
+    await expect(typedAs(first)).resolves.toBe(41);
+    await expect(typedAs(answer)).resolves.toBe(7);
+
+    const emitted = await prisma.outboxEvent.findMany({
+      where: { eventType: 'direct.message_sent' },
+      select: { payload: true },
+    });
+    const announced = (publicId: string): Record<string, unknown> | undefined =>
+      emitted
+        .map((row) => row.payload as Record<string, unknown>)
+        .find((payload) => payload['messagePublicId'] === publicId);
+    expect(announced(first)).not.toHaveProperty('replyToMessageId');
+    expect(announced(answer)?.['replyToMessageId']).toBe(41);
+
+    await expect(directs.view(guestId, answer)).resolves.toMatchObject({ replyToMessageId: 41 });
+    await expect(directs.view(hostId, answer)).resolves.toMatchObject({ replyToMessageId: null });
+    // The first message answers nothing.
+    await expect(directs.view(hostId, first)).resolves.toMatchObject({ replyToMessageId: null });
+  });
+
+  /** A message from before the id was recorded is answered exactly as it always was. */
+  it('answers a message with no recorded id without pointing anywhere', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام');
+    const answer = await directs.reply(hostId, first, 'سلام، بله');
+
+    const emitted = await prisma.outboxEvent.findMany({
+      where: { eventType: 'direct.message_sent' },
+      select: { payload: true },
+    });
+    expect(emitted.every((row) => !('replyToMessageId' in (row.payload as object)))).toBe(true);
+    await expect(directs.view(guestId, answer)).resolves.toMatchObject({ replyToMessageId: null });
+  });
+
   /** A thread can run in both directions, indefinitely. */
   it('lets the two of them go back and forth', async () => {
     const a = await directs.send(guestId, eventPublicId, 'یک');

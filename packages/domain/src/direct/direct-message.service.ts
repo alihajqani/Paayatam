@@ -24,6 +24,13 @@ export interface DirectMessageDetail {
   createdAt: Date;
   /** Whether the reader of this detail is the one who received it. */
   viewerIsRecipient: boolean;
+  /**
+   * The Telegram `message_id`, in the reader's own chat, of the message this one
+   * answers — so the bot can show it as a reply to it (v0.18.5). Null when the
+   * reader is not the one being answered, or the answered message predates the
+   * column. Never leaves the bot: it is an id in somebody's chat, not an identity.
+   */
+  replyToMessageId: number | null;
 }
 
 /**
@@ -94,7 +101,13 @@ export class DirectMessageService {
    * caller to tamper with. A host writing to their own activity is refused with
    * the same code the join path uses for the same mistake.
    */
-  async send(senderUserId: string, eventPublicId: string, body: string): Promise<string> {
+  async send(
+    senderUserId: string,
+    eventPublicId: string,
+    body: string,
+    /** The Telegram `message_id` the body was typed as, when there is one. */
+    senderMessageId?: number,
+  ): Promise<string> {
     const text = normalizeBody(body);
 
     const event = await this.prisma.event.findUnique({
@@ -113,6 +126,7 @@ export class DirectMessageService {
       eventTitle: event.title,
       body: text,
       parentId: null,
+      senderMessageId,
     });
   }
 
@@ -131,6 +145,7 @@ export class DirectMessageService {
     hostUserId: string,
     participantPublicId: string,
     body: string,
+    senderMessageId?: number,
   ): Promise<string> {
     const text = normalizeBody(body);
 
@@ -161,6 +176,7 @@ export class DirectMessageService {
       eventTitle: participant.event.title,
       body: text,
       parentId: null,
+      senderMessageId,
     });
   }
 
@@ -171,7 +187,12 @@ export class DirectMessageService {
    * write it — which is what keeps a thread between the two people it started
    * between, and what makes a public id useless to anybody else.
    */
-  async reply(senderUserId: string, parentPublicId: string, body: string): Promise<string> {
+  async reply(
+    senderUserId: string,
+    parentPublicId: string,
+    body: string,
+    senderMessageId?: number,
+  ): Promise<string> {
     const text = normalizeBody(body);
 
     const parent = await this.prisma.directMessage.findUnique({
@@ -180,6 +201,7 @@ export class DirectMessageService {
         id: true,
         senderUserId: true,
         recipientUserId: true,
+        senderMessageId: true,
         event: { select: { id: true, publicId: true, title: true } },
       },
     });
@@ -196,6 +218,8 @@ export class DirectMessageService {
       eventTitle: parent.event.title,
       body: text,
       parentId: parent.id,
+      senderMessageId,
+      replyToMessageId: parent.senderMessageId,
     });
   }
 
@@ -224,6 +248,7 @@ export class DirectMessageService {
           createdAt: true,
           event: { select: { publicId: true, title: true } },
           sender: { select: { publicId: true, profile: { select: { displayName: true } } } },
+          parent: { select: { senderMessageId: true } },
         },
       });
       // A message belongs to exactly two accounts. Everybody else is told it does
@@ -278,6 +303,12 @@ export class DirectMessageService {
         seenAt: firstRead ? now : row.seenAt,
         createdAt: row.createdAt,
         viewerIsRecipient,
+        /**
+         * Only for the recipient: an answer's recipient is the parent's sender,
+         * so the parent's message id is in *their* chat. In the writer's chat
+         * it would name some unrelated message.
+         */
+        replyToMessageId: viewerIsRecipient ? (row.parent?.senderMessageId ?? null) : null,
       };
     });
   }
@@ -297,6 +328,9 @@ export class DirectMessageService {
     eventTitle: string;
     body: string;
     parentId: string | null;
+    senderMessageId?: number | undefined;
+    /** The answered message's id in the recipient's chat, when it was recorded. */
+    replyToMessageId?: number | null;
   }): Promise<string> {
     const now = this.clock.now();
     const sealed = this.cipher.encrypt(input.body);
@@ -311,6 +345,7 @@ export class DirectMessageService {
           bodyNonce: new Uint8Array(sealed.nonce),
           keyVersion: sealed.keyVersion,
           parentId: input.parentId,
+          senderMessageId: input.senderMessageId ?? null,
           createdAt: now,
         },
         select: { id: true, publicId: true },
@@ -347,6 +382,14 @@ export class DirectMessageService {
             recipientUserPublicId: await publicIdOf(tx, input.recipientUserId),
             senderDisplayName: await displayNameOf(tx, input.senderUserId),
             isReply: input.parentId !== null,
+            /**
+             * So the notice of an answer is a Telegram reply to the question it
+             * answers (v0.18.5). A message id, not an identity: it is only
+             * meaningful inside the recipient's own chat.
+             */
+            ...(typeof input.replyToMessageId === 'number'
+              ? { replyToMessageId: input.replyToMessageId }
+              : {}),
           },
         },
         tx,

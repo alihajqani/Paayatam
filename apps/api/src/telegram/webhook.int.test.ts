@@ -3490,6 +3490,70 @@ describe('POST /telegram/:secret — direct messages', () => {
   });
 
   /**
+   * What somebody wrote stays where they wrote it, and the answer arrives under
+   * it (v0.18.5).
+   *
+   * The body is typed as a wizard answer, and every wizard answer used to be
+   * deleted once the form had it — so a guest's question vanished from their own
+   * chat the moment it was sent, and the answer that came back a day later had
+   * nothing to point at. The typed message is kept now, and the notice of an
+   * answer and the answer itself are both sent as Telegram replies to it.
+   */
+  it('keeps the message the guest wrote, and threads the answer under it', async () => {
+    const sendQueue = app.get(QueueService).queue(QUEUES.TELEGRAM_SEND);
+    await sendQueue.obliterate({ force: true });
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان');
+
+    await tap(GUEST_TELEGRAM_ID, `dm:write:${eventPublicId}`);
+    await type(GUEST_TELEGRAM_ID, 'سلام، ماشین دارید؟');
+    const written = telegramMessageSequence;
+
+    await expect(sendQueue.getJob(jobId('tidy', guestId, String(written)))).resolves.toBe(
+      undefined,
+    );
+
+    const question = await prisma.directMessage.findFirstOrThrow({ select: { publicId: true } });
+    await tap(HOST_TELEGRAM_ID, `dm:reply:${question.publicId}`);
+    await type(HOST_TELEGRAM_ID, 'بله، یک جای خالی داریم.');
+
+    const notice = render(
+      TEMPLATES.DIRECT_MESSAGE_RECEIVED,
+      await latest(TEMPLATES.DIRECT_MESSAGE_RECEIVED),
+    );
+    expect(notice?.text).toContain('پاسخ تازه');
+    expect(notice?.replyTo).toBe(written);
+
+    const answer = await prisma.directMessage.findFirstOrThrow({
+      where: { parentId: { not: null } },
+      select: { publicId: true },
+    });
+    await tap(GUEST_TELEGRAM_ID, `dm:view:${answer.publicId}`);
+    const opened = render(TEMPLATES.BOT_DIRECT_MESSAGE, await latest(TEMPLATES.BOT_DIRECT_MESSAGE));
+    expect(opened?.text).toContain('یک جای خالی');
+    expect(opened?.replyTo).toBe(written);
+  });
+
+  /**
+   * The exception is the direct message alone: an answer to any other form is
+   * still taken out of the chat. Also what proves the job id above is the one
+   * `tidy` writes, so its absence there means something.
+   */
+  it('still takes an answer to any other form out of the chat', async () => {
+    const sendQueue = app.get(QueueService).queue(QUEUES.TELEGRAM_SEND);
+    await sendQueue.obliterate({ force: true });
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'نام');
+
+    await type(GUEST_TELEGRAM_ID, '/edit_profile');
+    await tap(GUEST_TELEGRAM_ID, 'pf:name:x');
+    await type(GUEST_TELEGRAM_ID, 'نام تازه');
+
+    await expect(
+      sendQueue.getJob(jobId('tidy', guestId, String(telegramMessageSequence))),
+    ).resolves.toBeDefined();
+  });
+
+  /**
    * The compose form claims what is typed into it.
    *
    * Without that, a message meant for the host would be handed to `onText` and

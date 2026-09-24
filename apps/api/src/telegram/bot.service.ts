@@ -1815,7 +1815,16 @@ export class BotService {
          * answer is something the user meant to keep, and deleting it would take
          * it away. `handle` returning non-null is exactly the line between the
          * two.
+         *
+         * **Except a direct message (v0.18.5).** Its one answer is a message to
+         * another person, and deleting it took the question out of the chat of
+         * the person who asked it — so the answer that came back had nothing to
+         * point at. It stays, and its id travels to the send, which records it
+         * so an answer can be a Telegram reply to it.
          */
+        if (wizard.kind !== 'cancelled' && wizard.snapshot.kind === 'DIRECT_MESSAGE') {
+          return this.drawWizard(updateId, user, wizard, undefined, message.telegramMessageId);
+        }
         await this.tidy(user, message.telegramMessageId);
         return this.drawWizard(updateId, user, wizard);
       }
@@ -4399,6 +4408,11 @@ export class BotService {
               createdAt: message.createdAt,
             }),
             ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+            // An answer, shown as a Telegram reply to the question it answers —
+            // which is still in this chat, because it is no longer deleted.
+            ...(message.replyToMessageId !== null
+              ? { replyToMessageId: message.replyToMessageId }
+              : {}),
           });
         }
 
@@ -4458,6 +4472,8 @@ export class BotService {
     updateId: number,
     user: BotUser,
     snapshot: ConversationSnapshot,
+    /** The message the body was typed as, kept in the writer's chat (v0.18.5). */
+    typedMessageId?: number,
   ): Promise<void> {
     const form = snapshot.form as DirectMessageForm;
     const targetPublicId = snapshot.targetPublicId;
@@ -4491,11 +4507,11 @@ export class BotService {
 
     try {
       if (form.mode === 'reply') {
-        await this.directs.reply(user.id, targetPublicId, form.body);
+        await this.directs.reply(user.id, targetPublicId, form.body, typedMessageId);
       } else if (form.mode === 'guest') {
-        await this.directs.sendToGuest(user.id, targetPublicId, form.body);
+        await this.directs.sendToGuest(user.id, targetPublicId, form.body, typedMessageId);
       } else {
-        await this.directs.send(user.id, targetPublicId, form.body);
+        await this.directs.send(user.id, targetPublicId, form.body, typedMessageId);
       }
       return this.notice(
         updateId,
@@ -5379,6 +5395,8 @@ export class BotService {
     user: BotUser,
     outcome: ConversationOutcome,
     callback?: { action: string; value: string },
+    /** The typed message that produced this outcome, when a direct message keeps it. */
+    typedMessageId?: number,
   ): Promise<void> {
     switch (outcome.kind) {
       case 'cancelled':
@@ -5417,7 +5435,7 @@ export class BotService {
           case 'REDEEM_CODE':
             return this.submitCode(updateId, user, outcome.snapshot.form);
           case 'DIRECT_MESSAGE':
-            await this.submitDirectMessage(updateId, user, outcome.snapshot);
+            await this.submitDirectMessage(updateId, user, outcome.snapshot, typedMessageId);
             return;
           case 'NO_SHOW_CLAIM':
             return this.submitNoShowClaim(updateId, user, outcome.snapshot);
@@ -5454,7 +5472,7 @@ export class BotService {
          * the natural gesture after writing a message is that it is sent.
          */
         if (outcome.snapshot.kind === 'DIRECT_MESSAGE') {
-          return this.submitDirectMessage(updateId, user, outcome.snapshot);
+          return this.submitDirectMessage(updateId, user, outcome.snapshot, typedMessageId);
         }
         // One field, still on screen — the same reason as the two above (plan 08).
         if (outcome.snapshot.kind === 'NO_SHOW_CLAIM') {

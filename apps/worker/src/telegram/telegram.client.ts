@@ -185,7 +185,12 @@ export class TelegramClient {
     chatId: bigint,
     text: string,
     keyboard?: InlineKeyboard,
-    options: { parseMode?: 'HTML' | undefined; moderator?: boolean } = { parseMode: 'HTML' },
+    options: {
+      parseMode?: 'HTML' | undefined;
+      moderator?: boolean;
+      /** A message in this chat to send this as a reply to (v0.18.5). */
+      replyTo?: number | undefined;
+    } = { parseMode: 'HTML' },
   ): Promise<SendOutcome> {
     if (!this.bot) return { kind: 'RETRY', reason: 'TELEGRAM_BOT_TOKEN is not configured' };
 
@@ -224,6 +229,14 @@ export class TelegramClient {
       const message = await this.bot.api.sendMessage(Number(chatId), text, {
         ...(options.parseMode !== undefined ? { parse_mode: options.parseMode } : {}),
         link_preview_options: { is_disabled: true },
+        /**
+         * `allow_sending_without_reply`, because the message being answered is
+         * the user's own and they may have deleted it since. Without it Telegram
+         * refuses the whole send, and an answer would be lost over a quote.
+         */
+        ...(options.replyTo !== undefined
+          ? { reply_parameters: { message_id: options.replyTo, allow_sending_without_reply: true } }
+          : {}),
         ...markup,
       });
       return { kind: 'SENT', messageId: message.message_id };

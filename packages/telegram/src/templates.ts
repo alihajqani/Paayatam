@@ -324,6 +324,12 @@ export interface RenderedMessage {
   deepLink?: string;
   /** Buttons under the message, already built (see `keyboards.ts`). */
   keyboard?: InlineKeyboard;
+  /**
+   * A message in the recipient's own chat that this one answers, sent as a
+   * Telegram reply to it (v0.18.5). Only a direct message has one: the question
+   * its author typed, which the bot now leaves in their chat.
+   */
+  replyTo?: number;
 }
 
 type Payload = Record<string, unknown>;
@@ -427,6 +433,21 @@ function num(payload: Payload, key: string): string {
  */
 function bool(payload: Payload, key: string): boolean {
   return payload[key] === true;
+}
+
+/**
+ * `replyTo`, from a payload's `replyToMessageId`, or nothing at all.
+ *
+ * A spread rather than a value, so a payload without one — every notification
+ * but an answer to a recorded message — renders exactly as it did before. A
+ * Telegram message id is a positive integer; anything else is dropped rather
+ * than sent for Telegram to refuse.
+ */
+function replyTo(payload: Payload): { replyTo?: number } {
+  const value = payload['replyToMessageId'];
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? { replyTo: value }
+    : {};
 }
 
 /**
@@ -1008,6 +1029,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
               ],
             }
           : {}),
+        ...replyTo(payload),
       };
     }
 
@@ -1763,6 +1785,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return {
         text: prerendered(payload),
         keyboard: keyboard ?? menuOpenerKeyboard(),
+        ...replyTo(payload),
       };
     }
 
