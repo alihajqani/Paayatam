@@ -14,6 +14,52 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.18.3] — 2026-09-24
+
+Nobody could finish signing up while a channel was required. Of 47 real accounts in
+production, 33 were still `NEW` and every one had been shown the terms: the `APP_ACCESS`
+channel gate ran before the wizard in the callback handler, so tapping «✅ می‌پذیرم» drew the
+channel screen instead and **the acceptance was never written**. «🔄 بررسی دوباره» then said
+«حالا می‌توانید از پایه‌تَم استفاده کنید» and opened nothing, so nobody reached the profile form.
+
+**No migration, no setting, no command-menu change.**
+
+### ⚠️ What a deploy changes for people
+
+- Until the terms are accepted and the profile is complete, **the menu and every button answer
+  with the step still owed** (terms, channel, then profile). `/help`, `/bug` and «بررسی دوباره»
+  still work, and linked moderators are not gated.
+- The usual release broadcast goes to every user once. It asks them to press `/start`, and
+  `/start` now reopens whatever onboarding step they still owe, so the stranded accounts are
+  brought back into the flow by it.
+
+### Fixed
+
+- «می‌پذیرم» is recorded even while a channel is required; the channel screen comes after it.
+- A confirmed «بررسی دوباره» continues to the terms or the profile form instead of claiming the
+  user is done.
+- `/start` for somebody who accepted the terms and stopped opens the profile form; it used to send
+  the welcome and nothing else. An invite link (`/start <code>`) and a channel-post link also
+  continue into onboarding; the invite link used to skip the terms entirely.
+
+### Changed
+
+- One onboarding gate replaces the v0.17.0 profile gate. It runs before `APP_ACCESS` on every
+  command, typed text and tap, lets answers to the open form through, and resumes a half-filled
+  profile form at the question it was left on (`ConversationService.resume`), as a new message.
+- The welcome, the post-acceptance notice and the "form closed" notice say plainly that the menu
+  will not work until onboarding is finished.
+
+### Deploy script (no runtime change)
+
+- `deploy-remote.sh` no longer fails a release at random on the "CHANGELOG has an entry" check,
+  and can no longer miss a `DROP` in the destructive-migration scan: both used `git show | grep -q`
+  under `pipefail`, which a SIGPIPE turns into a false result.
+- New `deploy-remote.sh --diagnose`, also run when the server does not answer: tells a downed
+  server from a broken path instead of blaming the local tunnel.
+- It never opens the SSH alias's own `LocalForward`s (`ClearAllForwardings=yes`), which printed
+  "Address already in use" into every poll.
+
 ## [v0.18.2] — 2026-09-19
 
 The first release shipped with `scripts/deploy-remote.sh`: one command, run from your own
