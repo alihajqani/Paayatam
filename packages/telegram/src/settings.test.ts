@@ -102,7 +102,7 @@ describe('the settings board', () => {
     // A switch that exists to be refused is worse than the button that fixes it.
     expect(fields).not.toContain(SETTING_PRIVACY);
     expect(fields).toContain(SETTING_PROFILE);
-    expect(formatSettings(state)).toContain('پس از تکمیل نمایه');
+    expect(formatSettings(state)).toContain('پس از تکمیل پروفایل');
   });
 
   it('keeps the language row tappable even though there is one language', () => {

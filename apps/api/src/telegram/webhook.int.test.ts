@@ -506,7 +506,7 @@ describe('/start', () => {
      * A channel post outlives the activity it advertises, so a stale tap is the
      * common case — and the answer is that the activity is gone, not a profile
      * form for one that no longer exists. `join` checks the caller before the
-     * event, so without resolving the event first «نمایه‌تان را کامل کنید» would
+     * event, so without resolving the event first «پروفایلتان را کامل کنید» would
      * be the answer to a dead link.
      */
     it('says the activity is gone rather than handing out a form for it', async () => {
@@ -2184,7 +2184,7 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
     const text = await bodyOf(TEMPLATES.BOT_TRUST);
     expect(text).toContain('امتیاز اعتماد شما');
     // The movement, in the language the user reads rather than the enum.
-    expect(text).toContain('کامل کردن نمایه');
+    expect(text).toContain('کامل کردن پروفایل');
     expect(text).not.toContain('PROFILE_COMPLETE');
   });
 
@@ -3679,6 +3679,55 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
 
     state = await prisma.conversationState.findFirstOrThrow();
     expect(state.step).toBe('tags');
+  });
+
+  /**
+   * The card's edit button draws the board `/edit_profile` draws (v0.18.5).
+   *
+   * It carries `st:n1:x`, the settings board's action, and that handler opened
+   * the whole seven-question form for everybody — so somebody who only wanted a
+   * new name was walked through their gender, year, city, bio and interests
+   * again, from the one button labelled «edit».
+   */
+  it('opens the field board from the profile card, not the whole form', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID, 'نام');
+
+    await type(GUEST_TELEGRAM_ID, '/profile');
+    const card = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_PROFILE },
+      select: { payload: true },
+    });
+    const keyboard = JSON.parse(String((card.payload as Record<string, unknown>)['keyboard'])) as {
+      text: string;
+      callbackData: string;
+    }[][];
+    const edit = keyboard.flat().find((button) => button.text.includes('ویرایش پروفایل'));
+    expect(edit).toBeDefined();
+
+    await tap(GUEST_TELEGRAM_ID, edit?.callbackData ?? '');
+
+    expect(await prisma.conversationState.count({ where: { userId } })).toBe(0);
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_PROFILE_EDIT } }),
+    ).toBe(1);
+  });
+
+  /** Where there is nothing to pick a field of, the same button still opens the walk. */
+  it('opens the whole form from the same button for somebody with no profile', async () => {
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: BigInt(NEWCOMER_TELEGRAM_ID) },
+      select: { userId: true },
+    });
+
+    await tap(NEWCOMER_TELEGRAM_ID, 'st:n1:x');
+
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: account.userId } }),
+    ).toMatchObject({ kind: 'EDIT_PROFILE', step: 'name' });
+    expect(
+      await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_PROFILE_EDIT } }),
+    ).toBe(0);
   });
 
   it('changes only the fields that were answered', async () => {

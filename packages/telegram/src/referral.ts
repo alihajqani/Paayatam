@@ -64,6 +64,6 @@ function foundingProgressLine(founding: FoundingProgressLine | undefined): strin
   const max = toPersianDigits(String(founding.max));
   return (
     `🏅 ${awarded} از ${max} جای «${max} نفر اول» پر شده. ` +
-    `دوستی که پیش از پر شدن نمایه‌اش را کامل کند، نشان همیشگی و سکه می‌گیرد.\n\n`
+    `دوستی که پیش از پر شدن پروفایلش را کامل کند، نشان همیشگی و سکه می‌گیرد.\n\n`
   );
 }

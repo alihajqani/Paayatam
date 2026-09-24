@@ -1062,7 +1062,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ هر چیزی که می‌خواهید طرف ` +
           `مقابل بداند، خودتان در پیام می‌نویسید.` +
           (bool(payload, 'onboarding')
-            ? `\n\n<b>پیش از شروع:</b> قوانین را بپذیرید و نمایه‌تان را بسازید. ` +
+            ? `\n\n<b>پیش از شروع:</b> قوانین را بپذیرید و پروفایلتان را بسازید. ` +
               `چند دقیقه بیشتر طول نمی‌کشد و تا تمام نشود، منو و دکمه‌های ربات کار نمی‌کنند. 👇`
             : ''),
         `home`,
@@ -1198,7 +1198,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `<b>بقیهٔ کارها</b>\n` +
           `لازم نیست چیزی تایپ کنید: دکمهٔ «${MAIN_MENU_LABEL}» زیر صفحهٔ نوشتن همه‌چیز ` +
           `را باز می‌کند — ساختن و پیدا کردن رویداد در «${menuPathFor('discover') ?? 'رویدادها'}»، ` +
-          `نمایه و تنظیمات در «${menuPathFor('settings') ?? 'حساب من'}». ` +
+          `پروفایل و تنظیمات در «${menuPathFor('settings') ?? 'حساب من'}». ` +
           `فرمان‌های بالا هم کار می‌کنند، برای وقتی که تایپ کردن سریع‌تر است.`,
         `home`,
       );
@@ -1413,7 +1413,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const medal = typeof tier === 'number' ? `${foundingTierMedal(tier)} ` : '';
       return {
         text:
-          `<b>نمایه شما</b>\n\n` +
+          `<b>پروفایل شما</b>\n\n` +
           `${str(payload, 'displayName')}\n` +
           `📍 ${str(payload, 'cityName')}\n` +
           `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰\n` +

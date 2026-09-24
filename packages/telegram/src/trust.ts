@@ -47,7 +47,7 @@ export interface TrustLine {
 
 const TRUST_TYPE_FA: Record<string, string> = {
   INITIAL: 'امتیاز آغازین',
-  PROFILE_COMPLETE: 'کامل کردن نمایه',
+  PROFILE_COMPLETE: 'کامل کردن پروفایل',
   ATTENDANCE: 'شرکت در رویداد',
   REVIEW: 'نظری که دریافت کردید',
   CANCELLATION: 'لغو درخواست',

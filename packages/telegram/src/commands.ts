@@ -59,9 +59,9 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
   { command: 'myevents', description: 'رویدادهایی که ساخته‌اید' },
   { command: 'reviews', description: 'نظرهایی که هنوز ننوشته‌اید' },
   { command: 'myreviews', description: 'نظرهایی که درباره شما نوشته‌اند' },
-  { command: 'profile', description: 'نمایه و امتیاز اعتماد شما' },
+  { command: 'profile', description: 'پروفایل و امتیاز اعتماد شما' },
   { command: 'trust', description: 'امتیاز اعتماد و تغییرهای آن' },
-  { command: 'edit_profile', description: 'ویرایش نمایه' },
+  { command: 'edit_profile', description: 'ویرایش پروفایل' },
   /**
    * The interests, on their own (v0.8.1).
    *
@@ -158,7 +158,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
   {
     key: 'ac',
     label: '👤 حساب من',
-    hint: 'نمایه، امتیاز اعتماد، تنظیمات و قوانین',
+    hint: 'پروفایل، امتیاز اعتماد، تنظیمات و قوانین',
     commands: ['profile', 'trust', 'edit_profile', 'interests', 'settings', 'terms'],
   },
   {

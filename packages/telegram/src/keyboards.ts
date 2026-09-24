@@ -186,7 +186,7 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['🔎 دیدن رویدادها', 'discover'],
   ['🎟 رویدادهای من', 'myevents'],
   ['📨 درخواست‌های من', 'requests'],
-  ['👤 نمایه من', 'profile'],
+  ['👤 پروفایل من', 'profile'],
   ['⚙️ تنظیمات', 'settings'],
   ['🐞 گزارش مشکل', 'bug'],
   // The same three as drawn before v0.18.4 called an event «فعالیت». Kept after
@@ -195,6 +195,8 @@ export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['➕ ساختن فعالیت', 'create_event'],
   ['🔎 دیدن فعالیت‌ها', 'discover'],
   ['🎟 فعالیت‌های من', 'myevents'],
+  // And the profile label from before v0.18.5 called it «نمایه», for the same reason.
+  ['👤 نمایه من', 'profile'],
 ]);
 
 /**
@@ -328,7 +330,7 @@ export function menuCommandFor(text: string): string | null {
  */
 /** The heading over the board. One line: the buttons say the rest. */
 export function profileEditText(): string {
-  return '<b>ویرایش نمایه</b>\n\nکدام بخش را می‌خواهید عوض کنید؟';
+  return '<b>ویرایش پروفایل</b>\n\nکدام بخش را می‌خواهید عوض کنید؟';
 }
 
 export function profileEditKeyboard(): InlineKeyboard {

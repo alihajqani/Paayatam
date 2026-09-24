@@ -28,7 +28,7 @@ import { BOT_COMMANDS, COMMAND_GROUPS, commandGroupFor } from './commands';
 describe('the bottom keyboard resolves every label it has ever drawn', () => {
   /** Report: `/profile` was reachable only by typing it. It resolves as a label. */
   it('resolves the profile', () => {
-    expect(menuCommandFor('👤 نمایه من')).toBe('profile');
+    expect(menuCommandFor('👤 پروفایل من')).toBe('profile');
   });
 
   it('resolves every label the keyboard ever drew', () => {
@@ -175,6 +175,12 @@ describe('menuLabelFor', () => {
     expect(menuCommandFor('➕ ساختن فعالیت')).toBe('create_event');
     expect(menuGroupKeyFor('🎟 فعالیت‌ها')).toBe('ev');
     expect(menuLabelFor('myevents')).toBe('🎟 رویدادهای من');
+  });
+
+  /** v0.18.5 did the same to «نمایه», which is «پروفایل» now. */
+  it('still resolves the profile label from before «پروفایل», and names the new one', () => {
+    expect(menuCommandFor('👤 نمایه من')).toBe('profile');
+    expect(menuLabelFor('profile')).toBe('👤 پروفایل من');
   });
 
   /**

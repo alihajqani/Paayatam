@@ -319,8 +319,9 @@ onMounted(() => void refresh());
           <div class="border-b border-line px-4 py-3">
             <h2 class="text-sm font-semibold">اعضا بر پایهٔ شهر</h2>
             <p class="mt-1 text-xs text-ink-faint">
-              «نمایه‌ها» همهٔ نمایه‌های کامل‌شدهٔ آن شهر است؛ «اعضا» فقط کسانی که رتبه گرفته‌اند.
-              فاصلهٔ این دو یعنی کسانی که وقتی کمپین خاموش بود یا سقف پر شده بود ثبت‌نام کرده‌اند.
+              «پروفایل‌ها» همهٔ پروفایل‌های کامل‌شدهٔ آن شهر است؛ «اعضا» فقط کسانی که رتبه
+              گرفته‌اند. فاصلهٔ این دو یعنی کسانی که وقتی کمپین خاموش بود یا سقف پر شده بود ثبت‌نام
+              کرده‌اند.
             </p>
           </div>
           <p v-if="report.cities.length === 0" class="px-4 py-6 text-sm text-ink-faint">
@@ -333,7 +334,7 @@ onMounted(() => void refresh());
                   <th class="px-4 py-3 text-start font-medium">شهر</th>
                   <th class="px-4 py-3 text-start font-medium">وضعیت</th>
                   <th class="px-4 py-3 text-start font-medium">اعضا</th>
-                  <th class="px-4 py-3 text-start font-medium">نمایه‌ها</th>
+                  <th class="px-4 py-3 text-start font-medium">پروفایل‌ها</th>
                 </tr>
               </thead>
               <tbody>
@@ -409,7 +410,7 @@ onMounted(() => void refresh());
             <div class="border-b border-line px-4 py-3">
               <h2 class="text-sm font-semibold">صف شهرهای بسته</h2>
               <p class="mt-1 text-xs text-ink-faint">
-                با <bdi>{{ formatNumber(report.waitlist.threshold) }}</bdi> نمایهٔ کامل، شهر باز
+                با <bdi>{{ formatNumber(report.waitlist.threshold) }}</bdi> پروفایل کامل، شهر باز
                 می‌شود. باز کردن در «شهرها و استان‌ها» انجام می‌شود.
               </p>
             </div>
