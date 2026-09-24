@@ -14,6 +14,52 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.18.5] — 2026-09-24
+
+A profile is called «پروفایل» everywhere now, and its edit button opens the board of fields
+rather than the whole form. A direct message stays in the chat it was written in, and the
+answer to it arrives as a Telegram reply to it.
+
+**One migration, additive.** 0060 adds `direct_message.sender_message_id` (nullable, no
+backfill). **No setting change. The bot's command menu changes** (the `/profile` and
+`/edit_profile` descriptions), so the deploy republishes it.
+
+### ⚠️ What a deploy changes for people
+
+- Every screen of the bot and the admin panel says «پروفایل» where it said «نمایه», including
+  «👤 پروفایل من», the command list, the settings board, and the panel's campaign, cities,
+  ledger and settings-guide text.
+- «✏️ ویرایش پروفایل» under `/profile` asks «کدام بخش را می‌خواهید عوض کنید؟» and offers the
+  fields, instead of walking through all seven questions.
+- The text of a direct message is no longer deleted from the sender's chat once it is sent.
+  When the other person answers, the «پاسخ تازه» notice and the answer itself both arrive as
+  replies to it, in both directions of a thread.
+- The usual release broadcast goes to every user once.
+
+### Fixed
+
+- The ✏️ button on the profile card carried the settings board's profile action, and that
+  handler opened the whole seven-question form for everybody. Changing a name meant answering
+  the gender, the year, the city, the bio and the interests again, and the gender answer was
+  then discarded, because an edit never writes it. The button now draws the field board when
+  there is a profile, and the whole form only when there is none, which is what `/edit_profile`
+  has done since v0.9.1. The settings board draws that row only for somebody with no profile,
+  so it behaves as before.
+- A direct message is typed as a form answer, and every form answer was deleted once the form
+  had it, so a guest's question vanished from their own chat the moment it was sent. Answers
+  to every other form are still taken out of the chat.
+
+### Changed
+
+- «نمایه» → «پروفایل» in every user-facing string, in all its forms (پروفایلتان، پروفایلی،
+  پروفایلش، پروفایل‌ها). The Mini App, the error catalogue and most of the admin panel already
+  said «پروفایل». The old «👤 نمایه من» label still works, because a reply keyboard stays on the
+  phone until it is replaced.
+- An answer to a direct message is sent as a Telegram reply to the message it answers, whose
+  id is now recorded on the row. It is sent with `allow_sending_without_reply`, so an answer
+  still arrives if the asker has deleted their message since. Messages sent before this release
+  have no recorded id, and answers to them arrive without a quote, as before.
+
 ## [v0.18.4] — 2026-09-24
 
 An event is called «رویداد» everywhere now, never «فعالیت». v0.18.3 was tagged and not deployed
