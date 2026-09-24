@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { PrismaClient } from '@payetam/db';
 import {
   CoinService,
+  MEMBERSHIP_PROBE,
   ParticipationService,
   OutboxRelayService,
   SETTING_DEFAULTS,
@@ -11,7 +12,12 @@ import {
   normalize,
 } from '@payetam/domain';
 import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
-import { TEMPLATES, encodeMenuCommand, render } from '@payetam/telegram';
+import {
+  TEMPLATES,
+  encodeChannelRecheckCallback,
+  encodeMenuCommand,
+  render,
+} from '@payetam/telegram';
 import { JOBS, QUEUES, QueueService, RedisService, jobId } from '@payetam/platform';
 import {
   TEST_CHAT_ENCRYPTION_KEY,
@@ -4645,6 +4651,245 @@ describe('POST /telegram/:secret — the channel requirement', () => {
     } finally {
       await release();
     }
+  });
+});
+
+/**
+ * Onboarding before anything else (v0.18.3).
+ *
+ * Production, 2026-09-24: of 47 real accounts, 33 were still `NEW` and every
+ * one of them had been shown the terms. Their message history was the same
+ * four lines — welcome, the terms, the channel screen, «عضویت شما تأیید شد ✅
+ * حالا می‌توانید از پایه‌تَم استفاده کنید» — because the `APP_ACCESS` gate ran
+ * before the wizard branch in `onCallback`: the «می‌پذیرم» tap was answered
+ * with the channel screen and the acceptance was never written. «بررسی دوباره»
+ * then congratulated them and opened nothing, so nobody ever reached the
+ * profile form.
+ */
+describe('POST /telegram/:secret — onboarding before anything else', () => {
+  const CHAT = '@payetam_onboarding_test';
+  let sequence = 13_000;
+
+  async function requirePolicies(): Promise<void> {
+    for (const type of ['TERMS', 'PRIVACY'] as const) {
+      await prisma.policyVersion.updateMany({
+        where: { type, isCurrent: true },
+        data: { isCurrent: false },
+      });
+      await prisma.policyVersion.create({
+        data: {
+          type,
+          version: 1,
+          status: 'PUBLISHED',
+          isCurrent: true,
+          titleFa: type === 'TERMS' ? 'قوانین' : 'حریم خصوصی',
+          summaryFa: 'خلاصهٔ سند',
+          contentMd: '# سند',
+        },
+      });
+    }
+  }
+
+  /**
+   * Require one channel for `APP_ACCESS`, and say the newcomer is not in it.
+   *
+   * The probe's cache is the whole of what the test controls: `invalidate` is
+   * stubbed so «بررسی دوباره» re-reads the cached standing instead of calling
+   * Telegram with the test's fake token.
+   */
+  async function requireChannel(telegramUserId: number): Promise<{
+    join: () => Promise<void>;
+    release: () => Promise<void>;
+  }> {
+    const data = {
+      membershipRequired: true,
+      requiredActions: ['APP_ACCESS'],
+      verifyViaTelegram: true,
+    };
+    await prisma.eventChannelConfig.upsert({
+      where: { id: 'default' },
+      create: { id: 'default', ...data },
+      update: data,
+    });
+    await prisma.requiredChannel.create({
+      data: {
+        title: 'کانال پایه‌تم',
+        chatIdentifier: CHAT,
+        inviteUrl: 'https://t.me/payetam_onboarding_test',
+      },
+    });
+
+    const key = `channel-member:${CHAT}:${String(telegramUserId)}`;
+    const redis = app.get(RedisService).client;
+    await redis.set(key, 'NOT_MEMBER', 'EX', 120);
+    const probe = app.get<{ invalidate?: () => Promise<void> }>(MEMBERSHIP_PROBE, {
+      strict: false,
+    });
+    const invalidate = vi.spyOn(probe as { invalidate: () => Promise<void> }, 'invalidate');
+    invalidate.mockResolvedValue();
+
+    return {
+      join: async () => {
+        await redis.set(key, 'MEMBER', 'EX', 120);
+      },
+      release: async () => {
+        invalidate.mockRestore();
+        await redis.del(key);
+      },
+    };
+  }
+
+  async function type(telegramUserId: number, text: string): Promise<void> {
+    sequence += 1;
+    await post(update({ update_id: sequence, message: textMessage(sender(telegramUserId), text) }));
+  }
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function newcomer(): Promise<{ id: string; onboardingState: string }> {
+    const account = await prisma.telegramAccount.findUniqueOrThrow({
+      where: { telegramUserId: BigInt(NEWCOMER_TELEGRAM_ID) },
+      select: { user: { select: { id: true, onboardingState: true } } },
+    });
+    return account.user;
+  }
+
+  async function wizardsSent(): Promise<number> {
+    const replies = await replyTo(NEWCOMER_TELEGRAM_ID);
+    return replies.filter((reply) => reply.templateKey === TEMPLATES.BOT_WIZARD).length;
+  }
+
+  it('records «می‌پذیرم» even while a channel is required', async () => {
+    await requirePolicies();
+    const channel = await requireChannel(NEWCOMER_TELEGRAM_ID);
+    try {
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+      await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+
+      const user = await newcomer();
+      expect(await prisma.consent.count({ where: { userId: user.id } })).toBe(2);
+      expect(user.onboardingState).toBe('TERMS_ACCEPTED');
+      // The channel comes next, once the terms are on record.
+      const replies = await replyTo(NEWCOMER_TELEGRAM_ID);
+      expect(replies.map((reply) => reply.templateKey)).toContain(TEMPLATES.BOT_CHANNEL_GATE);
+    } finally {
+      await channel.release();
+    }
+  });
+
+  it('carries on to the profile form once the channel is joined', async () => {
+    await requirePolicies();
+    const channel = await requireChannel(NEWCOMER_TELEGRAM_ID);
+    try {
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+      await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+      await channel.join();
+      await tap(NEWCOMER_TELEGRAM_ID, encodeChannelRecheckCallback());
+
+      const user = await newcomer();
+      expect(
+        await prisma.conversationState.findUniqueOrThrow({ where: { userId: user.id } }),
+      ).toMatchObject({ kind: 'EDIT_PROFILE', step: 'name' });
+      const texts = (await replyTo(NEWCOMER_TELEGRAM_ID)).map((reply) => reply.text);
+      expect(texts.join('\n')).not.toContain('حالا می‌توانید از پایه‌تَم استفاده کنید');
+    } finally {
+      await channel.release();
+    }
+  });
+
+  /** The 33 accounts already stranded: the channel screen is on theirs. */
+  it('takes somebody who never got past the terms back to them', async () => {
+    await requirePolicies();
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+    const channel = await requireChannel(NEWCOMER_TELEGRAM_ID);
+    try {
+      await channel.join();
+      const before = await wizardsSent();
+      await tap(NEWCOMER_TELEGRAM_ID, encodeChannelRecheckCallback());
+
+      expect(await wizardsSent()).toBe(before + 1);
+      const user = await newcomer();
+      expect(
+        await prisma.conversationState.findUniqueOrThrow({ where: { userId: user.id } }),
+      ).toMatchObject({ kind: 'ACCEPT_POLICIES' });
+    } finally {
+      await channel.release();
+    }
+  });
+
+  it('answers a command before the terms with the terms', async () => {
+    await requirePolicies();
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+    const before = await wizardsSent();
+
+    await type(NEWCOMER_TELEGRAM_ID, '/discover');
+
+    const templates = (await replyTo(NEWCOMER_TELEGRAM_ID)).map((reply) => reply.templateKey);
+    expect(templates).not.toContain(TEMPLATES.BOT_DISCOVER);
+    expect(await wizardsSent()).toBe(before + 1);
+  });
+
+  it('lets nothing but the profile form work until it is complete', async () => {
+    await requirePolicies();
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+    const user = await newcomer();
+    await type(NEWCOMER_TELEGRAM_ID, 'شوماخر'); // name — an answer still reaches the form
+
+    const before = await wizardsSent();
+    await type(NEWCOMER_TELEGRAM_ID, '/discover');
+    await type(NEWCOMER_TELEGRAM_ID, '/wallet');
+    await tap(NEWCOMER_TELEGRAM_ID, encodeMenuCommand('discover'));
+
+    const templates = (await replyTo(NEWCOMER_TELEGRAM_ID)).map((reply) => reply.templateKey);
+    expect(templates).not.toContain(TEMPLATES.BOT_DISCOVER);
+    expect(templates).not.toContain(TEMPLATES.BOT_WALLET);
+    // Each one is answered with the form again, where it was left.
+    expect(await wizardsSent()).toBe(before + 3);
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: user.id } }),
+    ).toMatchObject({ kind: 'EDIT_PROFILE', step: 'gender' });
+  });
+
+  it('still answers /help before the profile is complete', async () => {
+    await requirePolicies();
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+    await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+
+    await type(NEWCOMER_TELEGRAM_ID, '/help');
+
+    const templates = (await replyTo(NEWCOMER_TELEGRAM_ID)).map((reply) => reply.templateKey);
+    expect(templates).toContain(TEMPLATES.BOT_HELP);
+  });
+
+  /** A returning user with accepted terms and no profile used to get the welcome and nothing. */
+  it('opens the profile form on /start for somebody who accepted and stopped', async () => {
+    const user = await prisma.user.create({
+      data: {
+        onboardingState: 'TERMS_ACCEPTED',
+        telegramAccount: { create: { telegramUserId: BigInt(NEWCOMER_TELEGRAM_ID) } },
+      },
+      select: { id: true },
+    });
+
+    await type(NEWCOMER_TELEGRAM_ID, '/start');
+
+    expect(
+      await prisma.conversationState.findUniqueOrThrow({ where: { userId: user.id } }),
+    ).toMatchObject({ kind: 'EDIT_PROFILE' });
   });
 });
 

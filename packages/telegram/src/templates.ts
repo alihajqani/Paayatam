@@ -1048,6 +1048,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * — and v0.8.0 removed that. What is true of the product today is that
      * nothing about somebody is published until they send it themselves, which is
      * a narrower promise and one no feature can quietly break.
+     *
+     * `onboarding` (v0.18.3) adds what the first message has to say to somebody
+     * who has not finished signing up: what is left, and that the menu drawn
+     * under this very message will not work until it is done. Without it, most
+     * new users in production tapped the menu instead of the terms below it.
      */
     case TEMPLATES.BOT_WELCOME:
       return openedWithMenu(
@@ -1055,7 +1060,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `اینجا برای فعالیت‌های گروهی کوچک — کافه و بازی، پیاده‌روی و کوهنوردی — ` +
           `همراه پیدا می‌کنید.\n\n` +
           `نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ هر چیزی که می‌خواهید طرف ` +
-          `مقابل بداند، خودتان در پیام می‌نویسید.`,
+          `مقابل بداند، خودتان در پیام می‌نویسید.` +
+          (bool(payload, 'onboarding')
+            ? `\n\n<b>پیش از شروع:</b> قوانین را بپذیرید و نمایه‌تان را بسازید. ` +
+              `چند دقیقه بیشتر طول نمی‌کشد و تا تمام نشود، منو و دکمه‌های ربات کار نمی‌کنند. 👇`
+            : ''),
         `home`,
       );
 

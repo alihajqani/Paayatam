@@ -488,6 +488,32 @@ export class ConversationService {
     return merged;
   }
 
+  /**
+   * The step the open conversation is on, to draw again — nothing advances.
+   *
+   * For the onboarding gate (v0.18.3): somebody half-way through the profile
+   * form who taps the menu instead is answered with *that* form, at the
+   * question they left, rather than a fresh one that throws away the answers
+   * they already gave. `last_update_id` is not touched, because no answer was
+   * applied — the next real answer must still be accepted.
+   *
+   * Null when there is no conversation, or when it belongs to a wizard or a
+   * step this build no longer has; `handle` clears those on the next answer.
+   */
+  async resume(userId: string): Promise<ConversationOutcome | null> {
+    const row = await this.prisma.conversationState.findUnique({ where: { userId } });
+    if (row === null) return null;
+
+    const snapshot = this.toSnapshot(row);
+    const definition = this.definitionFor(snapshot.kind);
+    if (definition === null) return null;
+    const step = stepByKey(definition, snapshot.step);
+    if (step === null) return null;
+
+    const { position, total } = progressOf(definition, step.key, snapshot.form);
+    return { kind: 'step', step, snapshot, position, total };
+  }
+
   /** Record which message the wizard is drawn on, so the next step edits it. */
   async rememberMessage(userId: string, telegramMessageId: number): Promise<void> {
     await this.prisma.conversationState.updateMany({
