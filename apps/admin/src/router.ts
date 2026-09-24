@@ -86,7 +86,7 @@ const routes: RouteRecordRaw[] = [
     path: '/events',
     name: 'events',
     component: () => import('@/views/EventsView.vue'),
-    meta: { title: 'فعالیت‌ها', permission: PERMISSIONS.EVENT_MODERATE, group: 'moderation' },
+    meta: { title: 'رویدادها', permission: PERMISSIONS.EVENT_MODERATE, group: 'moderation' },
   },
   {
     path: '/reports',

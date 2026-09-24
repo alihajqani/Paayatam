@@ -76,7 +76,7 @@ describe('formatPendingReviews', () => {
 
   /** And the empty screen says *why* it is empty rather than only that it is. */
   it('names the condition that opens a window', () => {
-    expect(formatPendingReviews([])).toContain('پس از پایان هر فعالیتی');
+    expect(formatPendingReviews([])).toContain('پس از پایان هر رویدادی');
   });
 
   it('escapes markup in a name and a title', () => {

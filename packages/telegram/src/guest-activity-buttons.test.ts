@@ -4,7 +4,7 @@ import { TEMPLATES, render } from './templates';
 /**
  * The guest who was just let in has to be able to reach the activity (review H2).
  *
- * The acceptance said «از صفحهٔ فعالیت پیام بدهید» and carried no button, and
+ * The acceptance said «از صفحهٔ رویداد پیام بدهید» and carried no button, and
  * nothing else the guest holds opens that screen: `/requests` lists titles, and
  * `/discover` shows only their own city. So the one step the product exists for —
  * agreeing where to meet — started with a hunt.

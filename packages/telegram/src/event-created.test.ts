@@ -5,9 +5,9 @@ const EVENT = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
 const SHARE = `https://t.me/share/url?url=https%3A%2F%2Ft.me%2Fpayetam_bot%3Fstart%3Devent_${EVENT}`;
 
 /**
- * «فعالیت ثبت شد» leads somewhere (plan 11).
+ * «رویداد ثبت شد» leads somewhere (plan 11).
  *
- * It said the host could manage the activity «از بخش فعالیت‌های من» — a menu, a
+ * It said the host could manage the activity «از بخش رویدادهای من» — a menu, a
  * group and a list away — at the moment they most want to look at it or send it
  * to somebody.
  */

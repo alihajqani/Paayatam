@@ -48,7 +48,7 @@ export interface TrustLine {
 const TRUST_TYPE_FA: Record<string, string> = {
   INITIAL: 'امتیاز آغازین',
   PROFILE_COMPLETE: 'کامل کردن نمایه',
-  ATTENDANCE: 'شرکت در فعالیت',
+  ATTENDANCE: 'شرکت در رویداد',
   REVIEW: 'نظری که دریافت کردید',
   CANCELLATION: 'لغو درخواست',
   NO_SHOW: 'غیبت بدون اطلاع',
@@ -83,7 +83,7 @@ export function formatTrust(
 
   const heading =
     `<b>امتیاز اعتماد شما</b>\n\n⭐️ ${toPersianDigits(String(score))} از ۱۰۰\n\n` +
-    `<i>این امتیاز با شرکت در فعالیت‌ها و نظرهایی که می‌گیرید بالا می‌رود، ` +
+    `<i>این امتیاز با شرکت در رویدادها و نظرهایی که می‌گیرید بالا می‌رود، ` +
     `و با لغو دیرهنگام یا غیبت پایین می‌آید.</i>`;
 
   /**

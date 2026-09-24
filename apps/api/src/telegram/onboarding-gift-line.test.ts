@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { foundingLine, onboardingGiftLine } from './bot.service';
 
 /**
- * «۳۵ سکه هدیه گرفتید — تقریباً دو بار شرکت در فعالیت.»
+ * «۳۵ سکه هدیه گرفتید — تقریباً دو بار شرکت در رویداد.»
  *
  * ── Why this line has a test of its own ─────────────────────────────────────
  *

@@ -301,7 +301,7 @@ describe('the host decision keyboard', () => {
  */
 describe('BOT_WIZARD', () => {
   const screen = renderStep({
-    prompt: 'نام فعالیت؟',
+    prompt: 'نام رویداد؟',
     ui: 'text',
     stepKey: 'title',
     position: 1,

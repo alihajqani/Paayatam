@@ -644,7 +644,7 @@ describe('commands', () => {
       select: { payload: true },
     });
 
-    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز فعالیتی نساخته‌اید');
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز رویدادی نساخته‌اید');
   });
 
   /** The seats are the point: "do I still need people" without opening anything. */
@@ -787,7 +787,7 @@ describe('commands', () => {
     expect(text).toContain(EVENT_DISCLAIMER_SHORT_FA);
   });
 
-  /** No profile means no city, and «فعالیتی پیدا نشد» would be a false answer. */
+  /** No profile means no city, and «رویدادی پیدا نشد» would be a false answer. */
   it('asks for a profile before answering /discover without one', async () => {
     await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/start') }));
     await post(update({ message: textMessage(sender(GUEST_TELEGRAM_ID), '/discover') }));
@@ -1296,7 +1296,7 @@ describe('POST /telegram/:secret — creating an event in the chat', () => {
     await participation.join(guestId, eventPublicId);
 
     await type(GUEST_TELEGRAM_ID, '/create_event');
-    await type(GUEST_TELEGRAM_ID, 'این نام فعالیت است، نه پیام');
+    await type(GUEST_TELEGRAM_ID, 'این نام رویداد است، نه پیام');
 
     expect(await prisma.chatMessage.count({ where: { kind: 'TEXT' } })).toBe(0);
   });
@@ -1797,7 +1797,7 @@ describe('POST /telegram/:secret — acting on your own events', () => {
   });
 
   /**
-   * Plan 18 item 4. «فعالیت ثبت شد» carried the share sheet and the console did
+   * Plan 18 item 4. «رویداد ثبت شد» carried the share sheet and the console did
    * not, so a host who wanted to share an activity a day later had nothing to
    * tap.
    */
@@ -1914,7 +1914,7 @@ describe('POST /telegram/:secret — acting on your own events', () => {
 
   /**
    * The page knows who is reading it (plan 12, review M7). An accepted guest
-   * arriving from the acceptance's «📄 صفحهٔ فعالیت» sees their seat and the way
+   * arriving from the acceptance's «📄 صفحهٔ رویداد» sees their seat and the way
    * to give it up, not «پایتم» again.
    */
   it('shows an accepted guest their seat and «لغو», not «پایتم»', async () => {
@@ -4602,7 +4602,7 @@ describe('POST /telegram/:secret — the channel requirement', () => {
 
   /**
    * Review M8. The quota and the price were already asked before the form; the
-   * channel was asked only at «ثبت فعالیت», eleven answers later, by
+   * channel was asked only at «ثبت رویداد», eleven answers later, by
    * `EventService.create`. That refusal is still the authority — this only moves
    * the answer to where a host can act on it.
    */

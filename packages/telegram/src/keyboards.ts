@@ -59,7 +59,7 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
 /**
  * Under a message that puts a guest on an activity: the host, and the activity.
  *
- * The acceptance used to say «از صفحهٔ فعالیت پیام بدهید» and carry nothing, and
+ * The acceptance used to say «از صفحهٔ رویداد پیام بدهید» and carry nothing, and
  * nothing else a guest holds opens that screen — `/requests` lists titles and
  * `/discover` shows only their own city. So agreeing where to meet, which is the
  * step the whole product leads up to, began with a hunt (review H2).
@@ -70,7 +70,7 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
  */
 export function guestEventKeyboard(eventPublicId: string, withHost = true): InlineKeyboard {
   const page = {
-    text: '📄 صفحهٔ فعالیت',
+    text: '📄 صفحهٔ رویداد',
     callbackData: encodeEventCallback('show', eventPublicId),
   };
   return withHost
@@ -164,7 +164,7 @@ export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): Re
  *
  * v0.7.0 drew none of these and v0.8.1 draws exactly one of them — two for a
  * moderator, whose second button is deliberately not in this map — and the map
- * still carries all eight. That is the whole reason it was ever separate from the
+ * still carries every one of them. That is the whole reason it was ever separate from the
  * layout: a reply keyboard lives on the *client*, so until a user receives a
  * message from this build they are still holding whichever one they were given.
  * A label this build could not resolve would fall through `onText` to the
@@ -177,18 +177,24 @@ export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): Re
  * ── Why the labels are not the commands ─────────────────────────────────────
  *
  * A reply-keyboard tap sends its label as an ordinary text message, so «ساختن
- * فعالیت» arrives as that text and not as `/create_event`. That is what makes
+ * رویداد» arrives as that text and not as `/create_event`. That is what makes
  * the resolution necessary rather than incidental.
  */
 export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   [MAIN_MENU_LABEL, 'menu'],
-  ['➕ ساختن فعالیت', 'create_event'],
-  ['🔎 دیدن فعالیت‌ها', 'discover'],
-  ['🎟 فعالیت‌های من', 'myevents'],
+  ['➕ ساختن رویداد', 'create_event'],
+  ['🔎 دیدن رویدادها', 'discover'],
+  ['🎟 رویدادهای من', 'myevents'],
   ['📨 درخواست‌های من', 'requests'],
   ['👤 نمایه من', 'profile'],
   ['⚙️ تنظیمات', 'settings'],
   ['🐞 گزارش مشکل', 'bug'],
+  // The same three as drawn before v0.18.4 called an event «فعالیت». Kept after
+  // the new ones, so `menuLabelFor` answers with the new wording, and kept at
+  // all because a reply keyboard lives on the client (see above).
+  ['➕ ساختن فعالیت', 'create_event'],
+  ['🔎 دیدن فعالیت‌ها', 'discover'],
+  ['🎟 فعالیت‌های من', 'myevents'],
 ]);
 
 /**
@@ -220,22 +226,33 @@ export const MODERATION_MENU_COMMAND = 'moderate';
  */
 export function menuGroupKeyFor(text: string): string | null {
   const trimmed = text.trim();
-  return COMMAND_GROUPS.find((group) => group.label === trimmed)?.key ?? null;
+  return (
+    COMMAND_GROUPS.find((group) => group.label === trimmed)?.key ??
+    LEGACY_GROUP_LABELS.get(trimmed) ??
+    null
+  );
 }
+
+/**
+ * Group labels as they read before v0.18.4 renamed «فعالیت» to «رویداد», still
+ * resolved for the same reason `MENU_COMMANDS` keeps old labels: text a client
+ * may still be holding must not fall through to «پیام شما را دریافت کردم».
+ */
+const LEGACY_GROUP_LABELS: ReadonlyMap<string, string> = new Map([['🎟 فعالیت‌ها', 'ev']]);
 
 /**
  * Whether a plain text message is a menu tap rather than something to relay.
  *
  * Returns the command it stands for, or null. The distinction matters: a menu
  * label reaching `onText` would otherwise be relayed into an anonymous chat, and
- * the other party would receive «🎟 فعالیت‌های من» from a stranger.
+ * the other party would receive «🎟 رویدادهای من» from a stranger.
  */
 /**
  * The menu button that stands for a command, for copy that has to name one.
  *
  * ── Why guidance names a button and not a command ───────────────────────────
  *
- * The bot's own advice used to read «با /discover یک فعالیت پیدا کنید» — a
+ * The bot's own advice used to read «با /discover یک رویداد پیدا کنید» — a
  * sentence telling somebody to type something, in a product whose whole point is
  * that they never have to. It is the same shape as the settings board's «برای
  * تغییر این مورد، /edit_profile را بفرستید», and it is worse here: the advice is
@@ -268,7 +285,7 @@ export function menuLabelFor(command: string): string | null {
  * This answers the question copy actually asks: **where do I tap?** It is the
  * category the command lives in, which is one tap inside «☰ منوی اصلی».
  *
- * It used to return «➕ ساختن فعالیت» and «🔎 دیدن فعالیت‌ها» for the two verbs,
+ * It used to return «➕ ساختن رویداد» and «🔎 دیدن رویدادها» for the two verbs,
  * on the grounds that they kept buttons of their own. They stopped being drawn
  * in v0.8.1 and the copy kept naming them (review M2).
  *

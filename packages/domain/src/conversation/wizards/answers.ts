@@ -10,7 +10,7 @@ import type { WizardInput } from '../wizard';
  * and it is easy to lose one step at a time. A refusal has to say three things:
  * **which question** was refused, **what the rule is**, and **what the bot
  * actually received**. Production reported the third missing everywhere — «نام
- * فعالیت باید دست‌کم ۳ نویسه باشد» is a rule restated at somebody who believes
+ * رویداد باید دست‌کم ۳ نویسه باشد» is a rule restated at somebody who believes
  * they satisfied it, and it does not tell them that the two spaces they typed
  * were trimmed away, or that the button they tapped was not an answer to this
  * question at all.
@@ -55,7 +55,7 @@ function characters(count: number): string {
  * Three shapes reach a step and only one of them is text, so a step that wants
  * text has three different things to say. Saying the same sentence to all three
  * is what made «رایگان» look broken: a tap left over from a keyboard the wizard
- * had moved past was answered with «نام فعالیت را بنویسید», which is advice
+ * had moved past was answered with «نام رویداد را بنویسید», which is advice
  * about a question the user was not looking at.
  */
 export function wrongShape(input: WizardInput, what: string): string {

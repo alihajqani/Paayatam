@@ -243,7 +243,7 @@ interface BotUser {
 /**
  * «پایتم» — the word the product is named for, on the button that joins.
  *
- * It said «➕ پیوستن به این فعالیت», and every other surface said something
+ * It said «➕ پیوستن به این رویداد», and every other surface said something
  * slightly different: «✅ شرکت می‌کنم» on a channel post, «درخواست پیوستن» in
  * the Mini App. Three phrasings for one action, none of them the product's own
  * word. «پایه‌تَم» is what somebody actually says when they are in — so that is
@@ -251,7 +251,7 @@ interface BotUser {
  *
  * Two constants because the two read differently in place: the button is a
  * label, and `affordBlocked` puts the other at the head of a sentence — «پایتم
- * گفتن به این فعالیت ۵ سکه هزینه دارد».
+ * گفتن به این رویداد ۵ سکه هزینه دارد».
  */
 const JOIN_BUTTON_FA = '🤝 پایتم';
 
@@ -264,7 +264,7 @@ const JOIN_BUTTON_FA = '🤝 پایتم';
  * activities, and the button on one says what it is.
  */
 const WAITLIST_BUTTON_FA = '⏳ ثبت در نوبت انتظار';
-const JOIN_ACTION_FA = 'پایتم گفتن به این فعالیت';
+const JOIN_ACTION_FA = 'پایتم گفتن به این رویداد';
 
 /**
  * The button that writes to the host, saying who it reaches.
@@ -1174,7 +1174,7 @@ export class BotService {
        * `DiscoveryService`'s — the bot chooses no events, it only renders the
        * ones the same search the Mini App runs returns.
        *
-       * Somebody with no profile has no city, and «فعالیتی پیدا نشد» would be a
+       * Somebody with no profile has no city, and «رویدادی پیدا نشد» would be a
        * false answer to a question that was never asked properly.
        */
       /**
@@ -1291,7 +1291,7 @@ export class BotService {
          * `EventService.create` has always enforced this and still does — it is
          * the authority and this is not a second one. What was wrong was *when*
          * the user found out: the wizard asks fourteen questions, and a host who
-         * had reached the limit answered all of them, pressed «ثبت فعالیت» and
+         * had reached the limit answered all of them, pressed «ثبت رویداد» and
          * was told they could not create an event today. The refusal was correct
          * and arrived after every possible opportunity to act on it.
          */
@@ -1312,7 +1312,7 @@ export class BotService {
          * choice they are being offered, so quoting it would be describing an
          * internal boundary.
          */
-        if (await this.affordBlocked(updateId, user, await this.registrationCost(), 'ثبت فعالیت')) {
+        if (await this.affordBlocked(updateId, user, await this.registrationCost(), 'ثبت رویداد')) {
           return;
         }
         const outcome = await this.conversations.start(user.id, 'CREATE_EVENT', updateId);
@@ -1712,7 +1712,7 @@ export class BotService {
       return this.openProfileForm(
         updateId,
         user,
-        'برای پایتم گفتن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
+        'برای پایتم گفتن به رویدادها نخست نمایه‌تان را کامل کنید.',
       );
     }
 
@@ -1767,7 +1767,7 @@ export class BotService {
      * A tap on the persistent menu is a command, not a message.
      *
      * A reply-keyboard button sends its **label** as ordinary text, so «🎟
-     * فعالیت‌های من» arrives here indistinguishable from something somebody
+     * رویدادهای من» arrives here indistinguishable from something somebody
      * typed. Without this it would be handed to the wizard as an answer — a
      * user's own escape hatch swallowed by the form they are trying to leave.
      *
@@ -1837,7 +1837,7 @@ export class BotService {
       updateId,
       user,
       `پیام شما را دریافت کردم، ولی همین‌طوری جایی فرستاده نمی‌شود.\n\n` +
-        `برای نوشتن به میزبان، صفحهٔ همان فعالیت را باز کنید و «پیام مستقیم به میزبان» را بزنید. ` +
+        `برای نوشتن به میزبان، صفحهٔ همان رویداد را باز کنید و «پیام مستقیم به میزبان» را بزنید. ` +
         `برای بقیهٔ کارها دکمهٔ «${MAIN_MENU_LABEL}» را بزنید.`,
     );
   }
@@ -2162,7 +2162,7 @@ export class BotService {
     }
 
     /**
-     * A page of «فعالیت‌های من», redrawn over the list it was tapped on.
+     * A page of «رویدادهای من», redrawn over the list it was tapped on.
      *
      * A read, like the discovery paging beside it, so no `mayWrite`.
      */
@@ -2561,7 +2561,7 @@ export class BotService {
           return this.confirmSpend(
             updateId,
             user,
-            `<b>لغو شرکت در این فعالیت</b>\n\n` +
+            `<b>لغو شرکت در این رویداد</b>\n\n` +
               `${cost}\n\n` +
               `اگر پذیرفته شده بودید، جای شما به نفر بعدی در نوبت انتظار می‌رسد و ` +
               `میزبان خبردار می‌شود.`,
@@ -2572,7 +2572,7 @@ export class BotService {
 
         case 'cancelyes':
           await this.participation.cancel(user.id, callback.id);
-          await this.answer(callbackQueryId, 'شرکت شما در این فعالیت لغو شد.');
+          await this.answer(callbackQueryId, 'شرکت شما در این رویداد لغو شد.');
           return;
 
         /**
@@ -2689,9 +2689,9 @@ export class BotService {
             updateId,
             user,
             `<b>انتشار دوباره در کانال</b>\n\n` +
-              `این فعالیت دوباره در کانال پایه‌تَم منتشر می‌شود تا از نو دیده شود، و ` +
+              `این رویداد دوباره در کانال پایه‌تَم منتشر می‌شود تا از نو دیده شود، و ` +
               `<b>${toPersianDigits(String(cost))} سکه</b> از موجودی شما کم می‌شود.\n` +
-              `پست قبلی برداشته می‌شود تا کانال دو نسخه از یک فعالیت نداشته باشد.`,
+              `پست قبلی برداشته می‌شود تا کانال دو نسخه از یک رویداد نداشته باشد.`,
             '🔄 بله، دوباره منتشر کن',
             encodeEventCallback('postyes', callback.id),
           );
@@ -2768,7 +2768,7 @@ export class BotService {
           return this.confirmSpend(
             updateId,
             user,
-            `<b>لغو فعالیت</b>\n\n` +
+            `<b>لغو رویداد</b>\n\n` +
               `${toPersianDigits(String(preview.affected))} نفر پذیرفته شده‌اند و ` +
               `به همه اطلاع داده می‌شود.\n\n<i>این کار برگشت‌پذیر نیست.</i>`,
             '✖️ بله، لغو کن',
@@ -2778,7 +2778,7 @@ export class BotService {
 
         case 'dropyes':
           await this.events.cancelByHost(user.id, callback.id);
-          await this.answer(callbackQueryId, 'فعالیت لغو شد');
+          await this.answer(callbackQueryId, 'رویداد لغو شد');
           return;
 
         /**
@@ -2880,7 +2880,7 @@ export class BotService {
         await this.openProfileForm(
           updateId,
           user,
-          'برای پایتم گفتن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
+          'برای پایتم گفتن به رویدادها نخست نمایه‌تان را کامل کنید.',
         );
       }
     }
@@ -3539,7 +3539,7 @@ export class BotService {
                   ]
                 : []),
               [
-                { text: '🚩 گزارش فعالیت', callbackData: encodeReportAsk('e', eventPublicId) },
+                { text: '🚩 گزارش رویداد', callbackData: encodeReportAsk('e', eventPublicId) },
                 ...(isPublicId(event.hostPublicId)
                   ? [
                       {
@@ -3556,7 +3556,7 @@ export class BotService {
   }
 
   /**
-   * «فعالیت‌های من» — the host's own activities, one page at a time.
+   * «رویدادهای من» — the host's own activities, one page at a time.
    *
    * ── Why this is a list and not the console it was ───────────────────────────
    *
@@ -3712,7 +3712,7 @@ export class BotService {
       [
         { text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) },
         /**
-         * The share sheet «فعالیت ثبت شد» already carries (plan 18 item 4), for
+         * The share sheet «رویداد ثبت شد» already carries (plan 18 item 4), for
          * the host who wants to share a day later. `PUBLISHED` only, not every
          * open status: the link opens `/event_…`, which answers «پیدا نشد» for a
          * draft, and a share that lands a friend on a refusal is worse than none.
@@ -3748,7 +3748,7 @@ export class BotService {
         },
       ]);
       rows.push([
-        { text: '✖️ لغو فعالیت', callbackData: encodeEventCallback('drop', event.publicId) },
+        { text: '✖️ لغو رویداد', callbackData: encodeEventCallback('drop', event.publicId) },
       ]);
     }
     rows.push([
@@ -4148,7 +4148,7 @@ export class BotService {
    * thing. The status is read rather than assumed because `claim` settles
    * immediately for somebody who has *already* attended an event — an unusual
    * order but a real one — and `BOT_REFERRAL_ACCEPTED` would then promise «۰ سکه
-   * پس از شرکت در نخستین فعالیت» to somebody whose coins had just landed.
+   * پس از شرکت در نخستین رویداد» to somebody whose coins had just landed.
    */
   private async announceReferralClaim(
     updateId: number,
@@ -4839,7 +4839,7 @@ export class BotService {
    *
    * ── Why the filters are named in the body ───────────────────────────────────
    *
-   * «فعالیتی پیدا نشد» under an active filter reads as "your city is empty",
+   * «رویدادی پیدا نشد» under an active filter reads as "your city is empty",
    * which is a different and much more discouraging claim than "nothing free
    * today". The digest says what it searched for whenever that is not
    * everything.
@@ -4867,7 +4867,7 @@ export class BotService {
       return this.openProfileForm(
         updateId,
         user,
-        'برای دیدن فعالیت‌های نزدیک، نخست نمایه‌تان را کامل کنید.',
+        'برای دیدن رویدادهای نزدیک، نخست نمایه‌تان را کامل کنید.',
       );
     }
 
@@ -4876,7 +4876,7 @@ export class BotService {
      *
      * Before the search rather than after it, and not as an "if there were no
      * results" fallback: an empty list in a city the product has not opened is
-     * not a quiet week, it is a permanent state — and rendering «فعالیتی پیدا
+     * not a quiet week, it is a permanent state — and rendering «رویدادی پیدا
      * نشد» for it tells somebody to come back tomorrow to see the same nothing.
      *
      * There is genuinely nothing to search, because nothing can be created
@@ -5213,7 +5213,7 @@ export class BotService {
    * confirmation cannot drift apart.
    */
   /**
-   * «ثبت فعالیت ۲۵ سکه سپرده است؛ اگر برگزار شود برمی‌گردد.»
+   * «ثبت رویداد ۲۵ سکه سپرده است؛ اگر برگزار شود برمی‌گردد.»
    *
    * Every number in it is read at render time from the same settings the service
    * will charge and refund against, so it cannot quote a price nobody is charged
@@ -5230,7 +5230,7 @@ export class BotService {
       this.settings.getInt('economy.host_deposit_refund_coins'),
     ]);
 
-    const price = `ثبت فعالیت ${toPersianDigits(String(cost))} سکه است.`;
+    const price = `ثبت رویداد ${toPersianDigits(String(cost))} سکه است.`;
     if (refund <= 0) return price;
 
     // The conditions `HostRewardService.assess` checks for the deposit, including
@@ -5238,7 +5238,7 @@ export class BotService {
     // (review H5). The attendee threshold gates only the bonus since plan 10, so
     // it is not a condition here.
     return (
-      `${price} این مبلغ سپرده است: اگر فعالیت برگزار شود، دست‌کم یک مهمان پذیرفته‌شده ` +
+      `${price} این مبلغ سپرده است: اگر رویداد برگزار شود، دست‌کم یک مهمان پذیرفته‌شده ` +
       `داشته باشد و شما برای همهٔ مهمان‌هایی که آمدند نظر بنویسید، ` +
       `${toPersianDigits(String(Math.min(refund, cost)))} سکه به شما برمی‌گردد.`
     );
@@ -5539,7 +5539,7 @@ export class BotService {
         const screen = renderSummary(
           await this.summaryLines(form),
           form.wantsDetails !== true,
-          'ثبت فعالیت',
+          'ثبت رویداد',
           /**
            * The deposit sentence, read live at the moment it is shown.
            *
@@ -5762,7 +5762,7 @@ export class BotService {
         updateId,
         user,
         'قوانین پذیرفته شد ✅\n\n' +
-          'قدم آخر: نمایه‌تان را کامل کنید تا بتوانید فعالیت بسازید و در فعالیت‌های نزدیک شرکت کنید. ' +
+          'قدم آخر: نمایه‌تان را کامل کنید تا بتوانید رویداد بسازید و در رویدادهای نزدیک شرکت کنید. ' +
           'چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
       );
       const outcome = await this.startProfileWizard(user.id, updateId);
@@ -5949,7 +5949,7 @@ export class BotService {
        *
        * `create` succeeds for a BLOCKed activity — the row exists, in
        * `PENDING_MODERATION`, with a case open on it — so this path used to
-       * answer «فعالیت ثبت شد ✅ … در کانال پایه‌تَم منتشر می‌شود», which was two
+       * answer «رویداد ثبت شد ✅ … در کانال پایه‌تَم منتشر می‌شود», which was two
        * false statements and an offer to sell reach for something in a queue.
        * The host then watched an activity that never appeared anywhere and had
        * no way of finding out why.
@@ -6208,8 +6208,8 @@ export class BotService {
            * that was already complete.
            */
           onboardingGiftLine(completion.rewardCoins, completion.joinCost, completion.reviewReward) +
-          `حالا دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ در «${menuPathFor('discover') ?? 'فعالیت‌ها'}» ` +
-          `هم فعالیت‌های نزدیک هست و هم ساختن فعالیت تازه.`,
+          `حالا دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ در «${menuPathFor('discover') ?? 'رویدادها'}» ` +
+          `هم رویدادهای نزدیک هست و هم ساختن رویداد تازه.`,
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -6719,7 +6719,7 @@ const MY_EVENTS_LIMIT = 5;
  *
  * Built here rather than taken from `ERROR_MESSAGES_FA` because that catalogue is
  * static strings keyed by code and cannot interpolate — and a message that says
- * «سقف ۵ فعالیت» when the operator has set thirty is the thing that made a
+ * «سقف ۵ رویداد» when the operator has set thirty is the thing that made a
  * working setting look broken.
  */
 /**
@@ -6742,18 +6742,18 @@ function whereOf(event: {
 
 function quotaMessage(quota: HostQuotaStatus): string {
   return quota.blockedBy === 'per_day'
-    ? `امروز به سقف ساخت فعالیت رسیده‌اید ` +
-        `(${toPersianDigits(String(quota.maxPerDay))} فعالیت در روز). ` +
-        `فردا دوباره می‌توانید فعالیت تازه‌ای بسازید.`
-    : `به سقف فعالیت‌های همزمان رسیده‌اید ` +
-        `(${toPersianDigits(String(quota.maxConcurrentActive))} فعالیت در پیش رو). ` +
-        `یکی از فعالیت‌های خود را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.`;
+    ? `امروز به سقف ساخت رویداد رسیده‌اید ` +
+        `(${toPersianDigits(String(quota.maxPerDay))} رویداد در روز). ` +
+        `فردا دوباره می‌توانید رویداد تازه‌ای بسازید.`
+    : `به سقف رویدادهای همزمان رسیده‌اید ` +
+        `(${toPersianDigits(String(quota.maxConcurrentActive))} رویداد در پیش رو). ` +
+        `یکی از رویدادهای خود را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.`;
 }
 
 function suspendedNotice(supportContact: string | undefined): string {
   const base =
     `حساب شما موقتاً تعلیق شده است و امکان انجام این کار وجود ندارد.\n\n` +
-    `همچنان می‌توانید فعالیت‌ها و گفتگوهای خود را ببینید.`;
+    `همچنان می‌توانید رویدادها و گفتگوهای خود را ببینید.`;
   return supportContact === undefined
     ? base
     : `${base} برای پیگیری با پشتیبانی در ارتباط باشید: ${supportContact}`;
@@ -6965,7 +6965,7 @@ function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
  * answered it on.
  */
 const FIELD_LABELS_FA: Record<string, string> = {
-  title: 'نام فعالیت',
+  title: 'نام رویداد',
   description: 'توضیح',
   categoryId: 'دسته',
   cityId: 'شهر',
@@ -7014,7 +7014,7 @@ function validationFields(error: AppError): string[] {
 
 function missingFields(form: CreateEventForm): string[] {
   const missing: string[] = [];
-  if (form.title === undefined) missing.push('نام فعالیت');
+  if (form.title === undefined) missing.push('نام رویداد');
   if (form.description === undefined) missing.push('توضیح');
   if (form.categoryId === undefined) missing.push('دسته');
   if (form.cityId === undefined) missing.push('شهر');
@@ -7059,7 +7059,7 @@ export function cityQueueLine(status: CityLaunchStatus | null): string {
   const position = toPersianDigits(String(status.waiting));
   const threshold = toPersianDigits(String(status.threshold));
   return (
-    `📍 پایه‌تَم هنوز در ${status.cityNameFa} فعالیت ندارد.\n` +
+    `📍 پایه‌تَم هنوز در ${status.cityNameFa} رویداد ندارد.\n` +
     `شما نفر ${position} از ${status.cityNameFa} هستید — با ${threshold} نفر، ` +
     `${status.cityNameFa} آمادهٔ باز شدن می‌شود.\n` +
     `هر هم‌شهری که دعوت کنید، این عدد را جلو می‌برد.\n\n`
@@ -7067,7 +7067,7 @@ export function cityQueueLine(status: CityLaunchStatus | null): string {
 }
 
 /**
- * «۳۵ سکه هدیه گرفتید — تقریباً دو بار شرکت در فعالیت.»
+ * «۳۵ سکه هدیه گرفتید — تقریباً دو بار شرکت در رویداد.»
  *
  * ── Why the second half is the whole line ───────────────────────────────────
  *
@@ -7107,7 +7107,7 @@ export function onboardingGiftLine(coins: number, joinCost: number, reviewReward
 
   return (
     `🎁 ${amount} سکه هدیه گرفتید — تقریباً ` +
-    `${toPersianDigits(String(activities))} بار شرکت در فعالیت.\n\n`
+    `${toPersianDigits(String(activities))} بار شرکت در رویداد.\n\n`
   );
 }
 

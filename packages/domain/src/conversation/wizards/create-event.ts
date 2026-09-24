@@ -21,7 +21,7 @@ import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
  *
  * So the flow is **core, then confirm, then extras on request**. Everything the
  * server requires is asked (title, description, category, where, when, how many,
- * what it costs); then the summary appears with «ثبت فعالیت» beside «افزودن
+ * what it costs); then the summary appears with «ثبت رویداد» beside «افزودن
  * جزئیات بیشتر». Somebody who wants a simple event is done in eight taps and two
  * short texts. Somebody who wants an age range presses one more button and is
  * asked. The optional steps are not removed — they are moved off the critical
@@ -220,9 +220,9 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'title',
     ui: 'text',
-    prompt: () => 'نام فعالیت را بنویسید.\nمثال: «کوهنوردی صبح جمعه — درکه»',
+    prompt: () => 'نام رویداد را بنویسید.\nمثال: «کوهنوردی صبح جمعه — درکه»',
     accept: (input) => {
-      const result = text(input, 3, 80, 'نام فعالیت');
+      const result = text(input, 3, 80, 'نام رویداد');
       return result.ok ? { ok: true, patch: { title: result.value } } : result;
     },
   },
@@ -238,7 +238,7 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'cat',
     ui: 'choice',
-    prompt: () => 'این فعالیت در کدام دسته می‌گنجد؟',
+    prompt: () => 'این رویداد در کدام دسته می‌گنجد؟',
     load: (_form, deps) => deps.categories(),
     accept: (input) => {
       const id = chosenId(input);

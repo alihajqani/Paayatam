@@ -10,14 +10,14 @@ import { insufficientCoinsNotice } from './notices';
  */
 describe('a notice body', () => {
   it('carries no markup for the escaper to turn into text', () => {
-    const text = insufficientCoinsNotice('ثبت فعالیت', 15, 0);
+    const text = insufficientCoinsNotice('ثبت رویداد', 15, 0);
     expect(text).not.toMatch(/[<>&]/);
   });
 
   it('names both the price and the balance, in Persian digits', () => {
-    const text = insufficientCoinsNotice('ثبت فعالیت', 15, 3);
+    const text = insufficientCoinsNotice('ثبت رویداد', 15, 3);
     expect(text).toContain('۱۵ سکه');
     expect(text).toContain('۳ سکه');
-    expect(text).toContain('ثبت فعالیت');
+    expect(text).toContain('ثبت رویداد');
   });
 });

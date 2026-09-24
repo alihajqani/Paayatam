@@ -181,16 +181,16 @@ export interface SummaryLine {
  *
  * ── Why the commit label is a parameter ─────────────────────────────────────
  *
- * It was the constant «ثبت فعالیت», and three wizards reach this screen. So
+ * It was the constant «ثبت رویداد», and three wizards reach this screen. So
  * somebody who had just answered a name, a gender, a birth year and a city was
- * shown their profile back under «اگر همه‌چیز درست است، «ثبت فعالیت» را بزنید» —
+ * shown their profile back under «اگر همه‌چیز درست است، «ثبت رویداد» را بزنید» —
  * the product asking them to submit an *event* they had not filled in. The
  * caller knows what is being submitted; this screen did not.
  */
 export function renderSummary(
   lines: readonly SummaryLine[],
   canAddDetails: boolean,
-  commitLabel = 'ثبت فعالیت',
+  commitLabel = 'ثبت رویداد',
   note?: string,
 ): WizardScreen {
   const body = lines

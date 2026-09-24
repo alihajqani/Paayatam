@@ -29,8 +29,8 @@ describe('formatMyEvents', () => {
   it('points at the way to make the first one', () => {
     const text = formatMyEvents([]);
 
-    expect(text).toContain('هنوز فعالیتی نساخته‌اید');
-    expect(text).toContain('ساختن فعالیت');
+    expect(text).toContain('هنوز رویدادی نساخته‌اید');
+    expect(text).toContain('ساختن رویداد');
   });
 
   /** Seats are the number a host checks; «۳ از ۶» is the answer to "do I need people?". */

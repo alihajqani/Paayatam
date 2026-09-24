@@ -69,7 +69,7 @@ const STATUS_ACTIONS: Array<{
   {
     status: 'SUSPENDED',
     label: 'تعلیق حساب',
-    body: 'کاربر تا رفع تعلیق نمی‌تواند فعالیت تازه‌ای انجام دهد. این کار برگشت‌پذیر است.',
+    body: 'کاربر تا رفع تعلیق نمی‌تواند کار تازه‌ای انجام دهد. این کار برگشت‌پذیر است.',
     tone: 'danger',
   },
   {
@@ -717,7 +717,7 @@ onMounted(load);
           </p>
         </article>
         <article class="rounded-xl border border-line bg-surface p-4">
-          <p class="text-sm text-ink-soft">فعالیت‌های میزبانی‌شده</p>
+          <p class="text-sm text-ink-soft">رویدادهای میزبانی‌شده</p>
           <p class="mt-1 text-xl font-bold tabular-nums">
             <bdi>{{ formatNumber(detail.events.hosted) }}</bdi>
           </p>

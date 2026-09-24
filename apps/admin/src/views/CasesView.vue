@@ -33,7 +33,7 @@ import { useSessionStore } from '@/stores/session';
  *
  * ── What this screen was, and what was wrong with it (v0.7.0) ────────────────
  *
- * A row said «دربارهٔ فعالیت · رسیدن به آستانهٔ گزارش · ۳ گزارش» and printed an
+ * A row said «دربارهٔ رویداد · رسیدن به آستانهٔ گزارش · ۳ گزارش» and printed an
  * internal id, beside two buttons that decide the case. So a moderator was being
  * asked to judge content they could not see, on complaints they could not read,
  * about an account they could not identify — with no way to say "I am working
@@ -245,7 +245,7 @@ const disputeBody = computed(() => {
   }
   return aboutHost
     ? 'میزبان جریمهٔ عدم‌حضور می‌پردازد و اعتمادش کم می‌شود؛ ورودیِ همهٔ مهمان‌های پذیرفته برمی‌گردد؛ ' +
-        'غیبت‌هایی که این میزبان برای آن شب ثبت کرده برداشته می‌شوند؛ و سپردهٔ ثبت فعالیت برنمی‌گردد ' +
+        'غیبت‌هایی که این میزبان برای آن شب ثبت کرده برداشته می‌شوند؛ و سپردهٔ ثبت رویداد برنمی‌گردد ' +
         '(اگر برگشته، پس گرفته می‌شود). این کار برگشت‌پذیر نیست.'
     : 'جریمهٔ غیبت و اعتماد کم‌شدهٔ مهمان برمی‌گردد و حضورش ثبت می‌شود. به مهمان و میزبان خبر داده می‌شود.';
 });
@@ -257,11 +257,11 @@ const CLAIM_KINDS: Record<string, string> = {
 };
 
 const SUBJECTS: Record<string, string> = {
-  EVENT: 'فعالیت',
+  EVENT: 'رویداد',
   USER: 'کاربر',
   MESSAGE: 'گفت‌وگو',
   REVIEW: 'بازخورد',
-  PARTICIPATION: 'حضور در فعالیت',
+  PARTICIPATION: 'حضور در رویداد',
 };
 
 const TRIGGERS: Record<string, string> = {
@@ -419,7 +419,7 @@ onMounted(load);
               <p class="font-medium">{{ opened.eventTitle }}</p>
               <p class="whitespace-pre-line text-ink-soft">{{ opened.eventDescription }}</p>
               <p class="text-xs text-ink-faint">
-                وضعیت فعلی فعالیت:
+                وضعیت فعلی رویداد:
                 {{ EVENT_STATUS[opened.eventStatus ?? ''] ?? opened.eventStatus }}
               </p>
             </div>
@@ -496,7 +496,7 @@ onMounted(load);
                 :to="{ name: 'events', query: { q: opened.eventTitle ?? '' } }"
                 class="underline"
               >
-                رفتن به فعالیت
+                رفتن به رویداد
               </RouterLink>
               <RouterLink
                 v-if="opened.ownerUserPublicId !== null"
@@ -521,7 +521,7 @@ onMounted(load);
     :title="pending?.decision === 'APPROVED' ? 'بستن پرونده بدون اقدام' : 'تأیید نکردن مورد'"
     :body="
       pending?.decision === 'APPROVED'
-        ? 'اگر مورد یک فعالیت پنهان‌شده باشد، دوباره منتشر می‌شود. همهٔ گزارش‌های این پرونده بسته می‌شوند.'
+        ? 'اگر مورد یک رویداد پنهان‌شده باشد، دوباره منتشر می‌شود. همهٔ گزارش‌های این پرونده بسته می‌شوند.'
         : 'مورد پنهان می‌ماند و گزارش‌های این پرونده «اقدام شد» علامت می‌خورند.'
     "
     :confirm-label="pending?.decision === 'APPROVED' ? 'ایرادی ندارد' : 'تأیید نمی‌شود'"

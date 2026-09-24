@@ -23,7 +23,7 @@ const clock = new FakeClock(NOW);
 const audit = new AuditService(service, clock);
 const bugReports = new BugReportService(service, clock, audit);
 
-const DESCRIPTION = 'دکمهٔ پیوستن در صفحهٔ فعالیت هیچ کاری نمی‌کند.';
+const DESCRIPTION = 'دکمهٔ پیوستن در صفحهٔ رویداد هیچ کاری نمی‌کند.';
 
 let userId: string;
 

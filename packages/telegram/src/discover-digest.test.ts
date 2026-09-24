@@ -18,7 +18,7 @@ function line(over: Partial<DiscoverLine> = {}): DiscoverLine {
 
 describe('formatDiscovered', () => {
   /**
-   * «فعلاً فعالیتی در شهر شما ثبت نشده» was a false answer under an active
+   * «فعلاً رویدادی در شهر شما ثبت نشده» was a false answer under an active
    * filter — it reads as "your city is empty", which is a much more discouraging
    * claim than "nothing free today". The filters are where to go next, and the
    * empty message says so.
@@ -69,7 +69,7 @@ describe('formatDiscovered', () => {
 
   /**
    * The reader's «۳» has to be the third thing they can see. Numbering every
-   * page from one would put three «۱»s in a chat and make «فعالیت شمارهٔ ۲»
+   * page from one would put three «۱»s in a chat and make «رویداد شمارهٔ ۲»
    * ambiguous the moment somebody mentions it.
    */
   it('numbers from the top of the page, not of the list', () => {

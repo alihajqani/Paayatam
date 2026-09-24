@@ -508,7 +508,7 @@ describe('EventService.create — quotas (plan §11)', () => {
  * The bot's create-event wizard asks fourteen questions. Until v0.6.5 the quota
  * was discovered by `create` at the end of them: a host who had already reached
  * the limit filled in a title, a description, a category, a place, a date, a
- * capacity and a price, pressed «ثبت فعالیت», and was told they could not create
+ * capacity and a price, pressed «ثبت رویداد», and was told they could not create
  * an event today. The refusal was correct and arrived after every opportunity to
  * act on it had passed.
  *

@@ -46,7 +46,7 @@ export function formatReferral(
     `✅ فعال‌شده: ${toPersianDigits(String(summary.qualified))}\n` +
     `💰 سکهٔ دریافتی: ${toPersianDigits(String(summary.coinsEarned))}\n\n` +
     foundingProgressLine(founding) +
-    `<i>وقتی کسی با این پیوند بیاید و در فعالیتی شرکت کند، هر دو سکه می‌گیرید.</i>`
+    `<i>وقتی کسی با این پیوند بیاید و در رویدادی شرکت کند، هر دو سکه می‌گیرید.</i>`
   );
 }
 

@@ -89,7 +89,7 @@ export function eventCommandFor(publicId: string): string | null {
   return code === null ? null : `/${EVENT_COMMAND}${code}`;
 }
 
-/** `/myevent_01a05d3478`, for a line of «فعالیت‌های من». */
+/** `/myevent_01a05d3478`, for a line of «رویدادهای من». */
 export function myEventCommandFor(publicId: string): string | null {
   const code = eventCodeOf(publicId);
   return code === null ? null : `/${MY_EVENT_COMMAND}${code}`;

@@ -46,8 +46,8 @@ describe('the bottom keyboard resolves every label it has ever drawn', () => {
   });
 
   it('tells a category apart from a command', () => {
-    expect(menuGroupKeyFor('➕ ساختن فعالیت')).toBeNull();
-    expect(menuCommandFor('🎟 فعالیت‌ها')).toBeNull();
+    expect(menuGroupKeyFor('➕ ساختن رویداد')).toBeNull();
+    expect(menuCommandFor('🎟 رویدادها')).toBeNull();
     expect(menuGroupKeyFor('سلام')).toBeNull();
   });
 
@@ -61,7 +61,7 @@ describe('the bottom keyboard resolves every label it has ever drawn', () => {
   });
 
   it('tolerates the whitespace a client may add', () => {
-    expect(menuCommandFor('  ➕ ساختن فعالیت  ')).toBe('create_event');
+    expect(menuCommandFor('  ➕ ساختن رویداد  ')).toBe('create_event');
   });
 
   it('is null for anything somebody actually typed', () => {
@@ -82,7 +82,7 @@ describe('the bottom keyboard resolves every label it has ever drawn', () => {
 /**
  * Guidance names a **button**, not a command.
  *
- * The bot's own advice used to read «با /discover یک فعالیت پیدا کنید» — a
+ * The bot's own advice used to read «با /discover یک رویداد پیدا کنید» — a
  * sentence telling somebody to type something, in a product whose whole point is
  * that they never have to, given at the exact moment they are stuck.
  *
@@ -94,14 +94,14 @@ describe('menuPathFor', () => {
   const inlineMenuLabels = new Set(COMMAND_GROUPS.map((group) => group.label));
 
   /**
-   * «➕ ساختن فعالیت» and «🔎 دیدن فعالیت‌ها» have not been drawn anywhere since
+   * «➕ ساختن رویداد» and «🔎 دیدن رویدادها» have not been drawn anywhere since
    * v0.8.1 — the bottom keyboard is one button and the menu names these two by
    * their descriptions (review M2). A sentence built from those labels sent a new
    * user looking for buttons that do not exist, on the first screen they read.
    */
   it('names the category for the two verbs too, because their buttons are gone', () => {
-    expect(menuPathFor('create_event')).toBe('🎟 فعالیت‌ها');
-    expect(menuPathFor('discover')).toBe('🎟 فعالیت‌ها');
+    expect(menuPathFor('create_event')).toBe('🎟 رویدادها');
+    expect(menuPathFor('discover')).toBe('🎟 رویدادها');
   });
 
   /**
@@ -139,7 +139,7 @@ describe('menuPathFor', () => {
  * added later is covered without anybody remembering to list it.
  */
 describe('the copy names only buttons that are drawn', () => {
-  const retired = ['➕ ساختن فعالیت', '🔎 دیدن فعالیت‌ها', 'دکمه‌های پایین صفحه'];
+  const retired = ['➕ ساختن رویداد', '🔎 دیدن رویدادها', 'دکمه‌های پایین صفحه'];
 
   it('in every template', () => {
     for (const key of Object.values(TEMPLATES)) {
@@ -160,9 +160,21 @@ describe('the copy names only buttons that are drawn', () => {
 describe('menuLabelFor', () => {
   it('round-trips with menuCommandFor for every button', () => {
     for (const [label, command] of MENU_COMMANDS) {
-      expect(menuLabelFor(command)).toBe(label);
       expect(menuCommandFor(label)).toBe(command);
+      const current = menuLabelFor(command);
+      expect(current === null ? null : menuCommandFor(current)).toBe(command);
     }
+  });
+
+  /**
+   * v0.18.4 renamed «فعالیت» to «رویداد». A reply keyboard lives on the client,
+   * so the old labels still resolve — and the copy names the new ones.
+   */
+  it('still resolves the labels from before «رویداد», and names the new ones', () => {
+    expect(menuCommandFor('🎟 فعالیت‌های من')).toBe('myevents');
+    expect(menuCommandFor('➕ ساختن فعالیت')).toBe('create_event');
+    expect(menuGroupKeyFor('🎟 فعالیت‌ها')).toBe('ev');
+    expect(menuLabelFor('myevents')).toBe('🎟 رویدادهای من');
   });
 
   /**

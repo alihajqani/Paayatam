@@ -65,7 +65,7 @@ export function formatMyRequests(lines: readonly MyRequestLine[]): string {
 
   return buildDigest({
     title: 'درخواست‌های شما',
-    empty: `هنوز درخواستی نداده‌اید. از «${MAIN_MENU_LABEL}» ← «${menuPathFor('discover') ?? 'فعالیت‌ها'}» شروع کنید.`,
+    empty: `هنوز درخواستی نداده‌اید. از «${MAIN_MENU_LABEL}» ← «${menuPathFor('discover') ?? 'رویدادها'}» شروع کنید.`,
     entries,
   });
 }

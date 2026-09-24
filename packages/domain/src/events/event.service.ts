@@ -1224,7 +1224,7 @@ export class EventService {
    * create-event wizard is fourteen questions, and until v0.6.5 the quota was
    * discovered by `create` at the end of them: a host filled in a title, a
    * description, a category, a place, a date, a capacity and a price, pressed
-   * «ثبت فعالیت», and was told they had reached a limit that had been reached
+   * «ثبت رویداد», and was told they had reached a limit that had been reached
    * before they started. The check has to be available where the flow *begins*,
    * and it has to be the same check, which is why `assertWithinQuota` is written
    * in terms of this rather than beside it.
@@ -1252,7 +1252,7 @@ export class EventService {
    * ── Two quotas, two error codes ─────────────────────────────────────────────
    *
    * Both used to raise `EVENT_QUOTA_EXCEEDED`, whose Persian is «به سقف ساخت
-   * فعالیت در روز رسیده‌اید» — *the daily limit*. So a host stopped by the
+   * رویداد در روز رسیده‌اید» — *the daily limit*. So a host stopped by the
    * **concurrency** quota was told the wrong thing, and an operator who went to
    * the panel and raised `events.max_per_day` from 5 to 30 watched the product
    * carry on refusing and reasonably concluded the setting did not work. The

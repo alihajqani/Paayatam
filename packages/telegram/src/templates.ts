@@ -115,7 +115,7 @@ export const TEMPLATES = {
    *
    * A host was told when their activity was hidden and then told nothing when it
    * came back, so the only way to learn a case had gone their way was to notice
-   * the activity in «فعالیت‌های من» again. Half a conversation is worse than
+   * the activity in «رویدادهای من» again. Half a conversation is worse than
    * none: the message that arrives is the accusation, and the one that never
    * arrives is the exoneration.
    */
@@ -528,7 +528,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         text:
           `درخواست شما برای «${str(payload, 'eventTitle')}» پذیرفته نشد.` +
           `${refund}\n` +
-          `فعالیت‌های دیگری هم هست — سری بزنید.`,
+          `رویدادهای دیگری هم هست — سری بزنید.`,
       };
     }
 
@@ -552,7 +552,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `<b>مهلت پاسخ میزبان گذشت</b>\n\n` +
           `میزبان «${str(payload, 'eventTitle')}» در مهلت تعیین‌شده پاسخی نداد، ` +
           `بنابراین درخواست شما بسته شد.${refund}\n` +
-          `فعالیت‌های دیگری هم هست — سری بزنید.`,
+          `رویدادهای دیگری هم هست — سری بزنید.`,
       };
     }
 
@@ -605,7 +605,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.EVENT_CANCELLED:
       return {
         text:
-          `<b>این فعالیت لغو شد</b>\n\n` +
+          `<b>این رویداد لغو شد</b>\n\n` +
           `«${str(payload, 'eventTitle')}» توسط میزبان لغو شده است. ` +
           `اگر بابت شرکت در آن سکه‌ای پرداخت کرده بودید، به حساب شما بازگشته است.`,
       };
@@ -653,7 +653,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           ? [
               [
                 { text: '✖️ لغو شرکت', callbackData: encodeEventCallback('cancel', participant) },
-                { text: '📄 صفحهٔ فعالیت', callbackData: encodeEventCallback('show', event) },
+                { text: '📄 صفحهٔ رویداد', callbackData: encodeEventCallback('show', event) },
               ],
             ]
           : undefined,
@@ -742,7 +742,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
             : `نظرتان دربارهٔ <b>${other}</b> در «${str(payload, 'eventTitle')}» چیست؟ ` +
               `تا ${num(payload, 'daysLeft')} روز آینده می‌توانید با ستاره‌های زیر ثبتش کنید.`) +
           (role === 'HOST'
-            ? `\n\n<i>سپردهٔ ثبت فعالیت وقتی برمی‌گردد که برای همهٔ مهمان‌هایی که آمدند نظر نوشته باشید.</i>`
+            ? `\n\n<i>سپردهٔ ثبت رویداد وقتی برمی‌گردد که برای همهٔ مهمان‌هایی که آمدند نظر نوشته باشید.</i>`
             : ''),
         `reviews/pending`,
         participant === null
@@ -852,7 +852,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return {
         text:
           `<b>گزارشی دربارهٔ حضور شما</b>\n\n` +
-          `دربارهٔ «${str(payload, 'eventTitle')}» گزارش شده که شما به فعالیت نیامده‌اید.\n\n` +
+          `دربارهٔ «${str(payload, 'eventTitle')}» گزارش شده که شما به رویداد نیامده‌اید.\n\n` +
           `پیش از تصمیم داور، ${deadline}می‌توانید توضیح بدهید. تا تصمیم، هیچ سکه‌ای ` +
           `جابه‌جا نمی‌شود.`,
         ...(event !== null
@@ -905,7 +905,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
             ? `<b>نیامدن شما ثبت شد</b>\n\n` +
               `پس از بررسی، داور نتیجه گرفت که شما در «${title}» حاضر نبودید.` +
               (coins === null ? '' : `\n<b>${coins} سکه</b> جریمه از حسابتان کم شد.`) +
-              `\nسپردهٔ ثبت این فعالیت برنمی‌گردد و ورودی مهمان‌ها به آن‌ها برگشت.`
+              `\nسپردهٔ ثبت این رویداد برنمی‌گردد و ورودی مهمان‌ها به آن‌ها برگشت.`
             : `<b>گزارش پذیرفته نشد ✅</b>\n\n` +
               `گزارشی که دربارهٔ حضور شما در «${title}» ثبت شده بود بررسی شد و ` +
               `پذیرفته نشد. هیچ چیزی از حساب شما کم نشد.`,
@@ -976,7 +976,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       }
       return {
         text:
-          `<b>فعالیت شما موقتاً پنهان شد</b>\n\n` +
+          `<b>رویداد شما موقتاً پنهان شد</b>\n\n` +
           `تعدادی گزارش دربارهٔ آن ثبت شده و در حال بررسی توسط تیم ماست. ` +
           `تا پایان بررسی در فهرست‌ها و کانال دیده نمی‌شود و کسی نمی‌تواند به آن ` +
           `بپیوندد.\n\n` +
@@ -1035,8 +1035,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.CONTENT_RESTORED:
       return {
         text:
-          `<b>فعالیت شما دوباره نمایش داده می‌شود</b> ✅\n\n` +
-          `بررسی تمام شد و موردی پیدا نشد. فعالیت از همین حالا دوباره در فهرست‌ها ` +
+          `<b>رویداد شما دوباره نمایش داده می‌شود</b> ✅\n\n` +
+          `بررسی تمام شد و موردی پیدا نشد. رویداد از همین حالا دوباره در فهرست‌ها ` +
           `دیده می‌شود و می‌توان به آن پیوست.`,
       };
 
@@ -1057,7 +1057,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_WELCOME:
       return openedWithMenu(
         `<b>به پایه‌تم خوش آمدید</b> 👋\n\n` +
-          `اینجا برای فعالیت‌های گروهی کوچک — کافه و بازی، پیاده‌روی و کوهنوردی — ` +
+          `اینجا برای رویدادهای گروهی کوچک — کافه و بازی، پیاده‌روی و کوهنوردی — ` +
           `همراه پیدا می‌کنید.\n\n` +
           `نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ هر چیزی که می‌خواهید طرف ` +
           `مقابل بداند، خودتان در پیام می‌نویسید.` +
@@ -1071,7 +1071,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     /**
      * `/start <code>`: the invite worked, and the condition is stated in full.
      *
-     * It used to say «پس از شرکت در نخستین فعالیت» and stop, which somebody
+     * It used to say «پس از شرکت در نخستین رویداد» and stop, which somebody
      * reasonably read as "after I press join". The reward lands when the
      * *activity has happened* and the product has settled who attended — so a
      * guest who joined, was accepted, and then watched their balance not move had
@@ -1080,9 +1080,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_REFERRAL_ACCEPTED:
       return opened(
         `<b>کد دعوت ثبت شد</b> ✅\n\n` +
-          `${num(payload, 'pendingCoins')} سکه پس از نخستین فعالیتی که در آن شرکت کنید ` +
+          `${num(payload, 'pendingCoins')} سکه پس از نخستین رویدادی که در آن شرکت کنید ` +
           `به حساب شما اضافه می‌شود.\n\n` +
-          `<i>یعنی: به فعالیتی «پایتم» بگویید، میزبان بپذیردتان، فعالیت برگزار شود و ` +
+          `<i>یعنی: به رویدادی «پایتم» بگویید، میزبان بپذیردتان، رویداد برگزار شود و ` +
           `چند ساعت از پایانش بگذرد. آن‌وقت سکه‌ها را می‌گیرید و همین‌جا خبرتان می‌کنیم.</i>`,
         `home`,
       );
@@ -1097,7 +1097,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return {
         text:
           `<b>پاداش دعوت شما رسید</b> 🎁\n\n` +
-          `کسی که با کد شما آمده بود در نخستین فعالیتش شرکت کرد، و ` +
+          `کسی که با کد شما آمده بود در نخستین رویدادش شرکت کرد، و ` +
           `${num(payload, 'referrerCoins')} سکه به حساب شما اضافه شد.`,
       };
 
@@ -1112,7 +1112,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return {
         text:
           `<b>دعوت شما به نتیجه رسید</b> ✅\n\n` +
-          `کسی که با کد شما آمده بود در نخستین فعالیتش شرکت کرد.\n\n` +
+          `کسی که با کد شما آمده بود در نخستین رویدادش شرکت کرد.\n\n` +
           `<i>سقف سکهٔ دعوت در این ماه پر شده، پس این‌بار سکه‌ای اضافه نشد. ` +
           `دعوت‌های بعدی دوباره سکه می‌گیرند.</i>`,
       };
@@ -1122,7 +1122,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return {
         text:
           `<b>پاداش کد دعوت رسید</b> 🎁\n\n` +
-          `در نخستین فعالیتتان شرکت کردید، پس ${num(payload, 'referredCoins')} سکه ` +
+          `در نخستین رویدادتان شرکت کردید، پس ${num(payload, 'referredCoins')} سکه ` +
           `به حساب شما اضافه شد.`,
       };
 
@@ -1143,14 +1143,14 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const refund = num(payload, 'refund');
       const bonus = num(payload, 'bonus');
       const lines = [
-        `<b>فعالیت شما تسویه شد</b> 🎉`,
+        `<b>رویداد شما تسویه شد</b> 🎉`,
         ``,
         `«${str(payload, 'eventTitle')}» با ${num(payload, 'attendees')} مهمان برگزار شد.`,
         ``,
       ];
-      if (refund !== '۰') lines.push(`• سپردهٔ ثبت فعالیت: ${refund} سکه برگشت`);
+      if (refund !== '۰') lines.push(`• سپردهٔ ثبت رویداد: ${refund} سکه برگشت`);
       if (bonus !== '۰') lines.push(`• پاداش میزبانی: ${bonus} سکه`);
-      lines.push(``, `<i>میزبانی که فعالیتش را برگزار می‌کند، در سکه ضرر نمی‌کند.</i>`);
+      lines.push(``, `<i>میزبانی که رویدادش را برگزار می‌کند، در سکه ضرر نمی‌کند.</i>`);
       return { text: lines.join('\n') };
     }
 
@@ -1164,7 +1164,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.COMEBACK_GRANTED:
       return opened(
         `<b>${num(payload, 'coins')} سکه برایتان کنار گذاشتیم</b> 🎁\n\n` +
-          `چند فعالیت رفته‌اید و موجودی‌تان تمام شده. این سکه‌ها هدیهٔ ماست ` +
+          `چند رویداد رفته‌اید و موجودی‌تان تمام شده. این سکه‌ها هدیهٔ ماست ` +
           `تا یکی دیگر را از دست ندهید.\n\n` +
           `موجودی شما: ${num(payload, 'balance')} سکه`,
         `discover`,
@@ -1189,7 +1189,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           // start drifting apart.
           `${helpCommandLines()}\n\n` +
           `<b>پیام به میزبان</b>\n` +
-          `از صفحهٔ هر فعالیت، دکمهٔ «پیام مستقیم به میزبان» را بزنید. ` +
+          `از صفحهٔ هر رویداد، دکمهٔ «پیام مستقیم به میزبان» را بزنید. ` +
           `میزبان هم از «👥 مهمان‌ها»، کنار هر مهمانِ پذیرفته‌شده «✉️ پیام» را می‌زند. ` +
           `پاسخ‌ها با دکمهٔ «مشاهدهٔ پیام» و «پاسخ به این پیام» در همین‌جا رد و بدل می‌شود.\n\n` +
           `<b>درخواست‌ها</b>\n` +
@@ -1197,7 +1197,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `لازم نیست چیزی را باز کنید.\n\n` +
           `<b>بقیهٔ کارها</b>\n` +
           `لازم نیست چیزی تایپ کنید: دکمهٔ «${MAIN_MENU_LABEL}» زیر صفحهٔ نوشتن همه‌چیز ` +
-          `را باز می‌کند — ساختن و پیدا کردن فعالیت در «${menuPathFor('discover') ?? 'فعالیت‌ها'}»، ` +
+          `را باز می‌کند — ساختن و پیدا کردن رویداد در «${menuPathFor('discover') ?? 'رویدادها'}»، ` +
           `نمایه و تنظیمات در «${menuPathFor('settings') ?? 'حساب من'}». ` +
           `فرمان‌های بالا هم کار می‌کنند، برای وقتی که تایپ کردن سریع‌تر است.`,
         `home`,
@@ -1458,8 +1458,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return opened(
         `<b>ثبت شد</b> ✅\n\n` +
           `حالا می‌توانید از پایه‌تم استفاده کنید. دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ ` +
-          `در «${menuPathFor('discover') ?? 'فعالیت‌ها'}» هم فعالیت‌های نزدیک شما هست ` +
-          `و هم ساختن فعالیت تازه.`,
+          `در «${menuPathFor('discover') ?? 'رویدادها'}» هم رویدادهای نزدیک شما هست ` +
+          `و هم ساختن رویداد تازه.`,
         `home`,
       );
 
@@ -1525,10 +1525,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_EVENT_HELD:
       return {
         text:
-          `<b>فعالیت شما در انتظار بررسی است</b> ⏳\n\n` +
+          `<b>رویداد شما در انتظار بررسی است</b> ⏳\n\n` +
           `«${str(payload, 'title')}» ثبت شد، اما هنوز منتشر نشده است: ` +
           `متن آن نیاز به بررسی انسانی دارد.\n\n` +
-          `بیشتر وقت‌ها دلیلش کلمه‌ای است که در فهرست فعالیت‌ها مجاز نیست — ` +
+          `بیشتر وقت‌ها دلیلش کلمه‌ای است که در فهرست رویدادها مجاز نیست — ` +
           `الکل، مواد، شرط‌بندی، سلاح یا پیشنهادهای غیرمجاز. ` +
           `اگر فکر می‌کنید اشتباه شده، منتظر بمانید؛ نتیجه به شما اطلاع داده می‌شود.\n\n` +
           `<i>سکه‌ای بابت انتشار در کانال از شما کم نشده است.</i>`,
@@ -1551,23 +1551,23 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const share = raw(payload, 'shareUrl');
       const inChannel = bool(payload, 'publishedToChannel');
       return opened(
-        `<b>فعالیت ثبت شد</b> ✅\n\n` +
+        `<b>رویداد ثبت شد</b> ✅\n\n` +
           (inChannel
             ? `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n`
             : `«${str(payload, 'title')}» ساخته شد.\n`) +
           (manage === null
-            ? `از دکمهٔ «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `
-            : `با ${manage} یا از «${menuPathFor('myevents') ?? 'فعالیت‌ها'}» می‌توانید `) +
+            ? `از دکمهٔ «${menuPathFor('myevents') ?? 'رویدادها'}» می‌توانید `
+            : `با ${manage} یا از «${menuPathFor('myevents') ?? 'رویدادها'}» می‌توانید `) +
           `درخواست‌ها را ببینید و پاسخ بدهید.\n\n` +
           `<b>اگر بخواهید بیشتر دیده شود:</b>\n` +
-          `📨 <b>دعوت ویژه</b> — فعالیت شما با پیام اختصاصی برای حداکثر ` +
+          `📨 <b>دعوت ویژه</b> — رویداد شما با پیام اختصاصی برای حداکثر ` +
           `${str(payload, 'inviteRecipients')} نفر از مناسب‌ترین کاربران فرستاده می‌شود ` +
           `(${str(payload, 'inviteCost')} سکه).\n` +
           (inChannel
-            ? `🔄 <b>انتشار دوباره</b> — فعالیت دوباره در کانال منتشر می‌شود تا از نو دیده شود ` +
+            ? `🔄 <b>انتشار دوباره</b> — رویداد دوباره در کانال منتشر می‌شود تا از نو دیده شود ` +
               `(${str(payload, 'republishCost')} سکه).\n\n` +
-              `<i>هر دو از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`
-            : `\n<i>از همان بخش «فعالیت‌های من»، زیر همین فعالیت.</i>`),
+              `<i>هر دو از همان بخش «رویدادهای من»، زیر همین رویداد.</i>`
+            : `\n<i>از همان بخش «رویدادهای من»، زیر همین رویداد.</i>`),
         `my-events`,
         share.startsWith(SHARE_URL_PREFIX)
           ? [[{ text: '🔗 اشتراک‌گذاری', url: share }]]

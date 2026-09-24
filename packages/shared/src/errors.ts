@@ -232,7 +232,7 @@ export const ErrorCode = {
    * Deactivating a city that profiles or events point at, without confirming.
    *
    * Not a refusal — a **second step**. The details carry the counts so the panel
-   * can say «۲۳۴ پروفایل و ۱۲ فعالیت» rather than «مطمئنید؟», and the same request
+   * can say «۲۳۴ پروفایل و ۱۲ رویداد» rather than «مطمئنید؟», and the same request
    * with `confirmReferences` goes through. Turning a city off is a real operation
    * with real consequences for people already in it, and finding that out from the
    * support queue is the failure this exists to prevent (M22 phase 9).
@@ -275,28 +275,28 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   // Reworded in M21: the product serves 1,252 cities, and a message naming
   // Tehran would now be wrong in 1,251 of them.
   CITY_NOT_AVAILABLE: 'پایه‌تَم هنوز در شهر انتخاب‌شده فعال نیست.',
-  CITY_NOT_LAUNCHED: 'پایه‌تَم هنوز در شهر شما فعالیت ندارد — ولی می‌توانید در فهرست انتظار باشید.',
+  CITY_NOT_LAUNCHED: 'پایه‌تَم هنوز در شهر شما رویداد ندارد — ولی می‌توانید در فهرست انتظار باشید.',
   INVALID_DISTRICT: 'منطقهٔ انتخاب‌شده با شهر انتخابی هم‌خوانی ندارد.',
   CUSTOM_LABEL_NOT_ALLOWED: 'برای این دستهٔ تفریح نمی‌توان عنوان دلخواه ثبت کرد.',
   CUSTOM_LABEL_REQUIRED: 'برای دستهٔ «سایر» باید نوع تفریح را بنویسید.',
 
-  EVENT_NOT_FOUND: 'این فعالیت یافت نشد.',
-  EVENT_NOT_JOINABLE: 'امکان ثبت درخواست برای این فعالیت وجود ندارد.',
-  EVENT_QUOTA_EXCEEDED: 'به سقف ساخت فعالیت در روز رسیده‌اید. فردا دوباره تلاش کنید.',
+  EVENT_NOT_FOUND: 'این رویداد یافت نشد.',
+  EVENT_NOT_JOINABLE: 'امکان ثبت درخواست برای این رویداد وجود ندارد.',
+  EVENT_QUOTA_EXCEEDED: 'به سقف ساخت رویداد در روز رسیده‌اید. فردا دوباره تلاش کنید.',
   EVENT_ACTIVE_QUOTA_EXCEEDED:
-    'به سقف فعالیت‌های همزمان رسیده‌اید. یکی از فعالیت‌های در پیش رو را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.',
+    'به سقف رویدادهای همزمان رسیده‌اید. یکی از رویدادهای در پیش رو را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.',
   CONTENT_BLOCKED: 'متن واردشده با قوانین انتشار مطابقت ندارد. لطفاً آن را ویرایش کنید.',
   CAPACITY_BELOW_ACCEPTED: 'ظرفیت نمی‌تواند کمتر از تعداد افراد پذیرفته‌شده باشد.',
   CONFLICT_STALE_VERSION: 'این مورد در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
-  EVENT_ALREADY_STARTED: 'این فعالیت شروع شده است و دیگر نمی‌توان آن را لغو کرد.',
+  EVENT_ALREADY_STARTED: 'این رویداد شروع شده است و دیگر نمی‌توان آن را لغو کرد.',
 
-  DUPLICATE_REQUEST: 'شما قبلاً برای این فعالیت درخواست داده‌اید.',
-  HOST_CANNOT_JOIN: 'شما میزبان این فعالیت هستید.',
-  EVENT_FULL_NO_WAITLIST: 'ظرفیت این فعالیت تکمیل شده است.',
+  DUPLICATE_REQUEST: 'شما قبلاً برای این رویداد درخواست داده‌اید.',
+  HOST_CANNOT_JOIN: 'شما میزبان این رویداد هستید.',
+  EVENT_FULL_NO_WAITLIST: 'ظرفیت این رویداد تکمیل شده است.',
   CAPACITY_EXCEEDED: 'متأسفانه آخرین ظرفیت هم‌زمان توسط فرد دیگری پر شد.',
-  NOT_ELIGIBLE_GENDER: 'این فعالیت برای گروه دیگری در نظر گرفته شده است.',
-  NOT_ELIGIBLE_AGE: 'سن شما در محدودهٔ تعیین‌شده برای این فعالیت نیست.',
-  TRUST_TOO_LOW: 'امتیاز اعتماد شما برای شرکت در این فعالیت کافی نیست.',
+  NOT_ELIGIBLE_GENDER: 'این رویداد برای گروه دیگری در نظر گرفته شده است.',
+  NOT_ELIGIBLE_AGE: 'سن شما در محدودهٔ تعیین‌شده برای این رویداد نیست.',
+  TRUST_TOO_LOW: 'امتیاز اعتماد شما برای شرکت در این رویداد کافی نیست.',
   INVALID_STATE_TRANSITION: 'این عملیات در وضعیت فعلی امکان‌پذیر نیست.',
 
   CHAT_MEDIA_UNSUPPORTED: 'در این نسخه فقط ارسال متن امکان‌پذیر است.',
@@ -307,10 +307,10 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   ALREADY_REFERRED: 'شما پیش‌تر کد معرف ثبت کرده‌اید. هر حساب فقط یک بار و فقط یک کد می‌پذیرد.',
   REFERRAL_WINDOW_CLOSED:
     'کد دعوت فقط در روزهای نخست پس از ساختن حساب پذیرفته می‌شود و این مهلت برای حساب شما گذشته است.',
-  EVENT_NOT_BOOSTABLE: 'این فعالیت قابل نردبان کردن نیست.',
+  EVENT_NOT_BOOSTABLE: 'این رویداد قابل نردبان کردن نیست.',
   EVENT_NOT_INVITABLE:
-    'برای این فعالیت نمی‌توان دعوت‌نامه فرستاد. فعالیت باید منتشر شده و هنوز شروع نشده باشد.',
-  EVENT_ALREADY_IN_CHANNEL: 'این فعالیت پیش‌تر برای انتشار در کانال ثبت شده است.',
+    'برای این رویداد نمی‌توان دعوت‌نامه فرستاد. رویداد باید منتشر شده و هنوز شروع نشده باشد.',
+  EVENT_ALREADY_IN_CHANNEL: 'این رویداد پیش‌تر برای انتشار در کانال ثبت شده است.',
   CHANNEL_UNAVAILABLE: 'انتشار در کانال پایه‌تَم در حال حاضر ممکن نیست. سکه‌ای از شما کم نشد.',
   GIFT_CODE_INVALID: 'این کد هدیه معتبر نیست.',
   GIFT_CODE_EXPIRED: 'مهلت استفاده از این کد هدیه به پایان رسیده است.',
@@ -327,7 +327,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   CANNOT_REPORT_OWN_CONTENT: 'نمی‌توانید محتوای خودتان را گزارش کنید.',
   CLAIM_WINDOW_CLOSED:
     'مهلت ثبت این مورد تمام شده است. اگر هنوز فکر می‌کنید اشتباهی رخ داده، با پشتیبانی در تماس باشید.',
-  ALREADY_CLAIMED: 'شما پیش‌تر دربارهٔ این فعالیت نوشته‌اید و در حال بررسی است.',
+  ALREADY_CLAIMED: 'شما پیش‌تر دربارهٔ این رویداد نوشته‌اید و در حال بررسی است.',
   WRONG_CASE_DECISION: 'این پرونده با این نوع تصمیم بسته نمی‌شود.',
 
   INVALID_CREDENTIALS: 'ایمیل، رمز عبور یا کد تأیید نادرست است.',
@@ -362,9 +362,9 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
 
   CATALOG_SLUG_TAKEN: 'این شناسه پیش‌تر برای تفریح دیگری ثبت شده است.',
   CATALOG_TAG_IN_USE:
-    'این تفریح در فعالیت‌های ثبت‌شده استفاده شده است؛ به‌جای حذف، آن را غیرفعال کنید.',
+    'این تفریح در رویدادهای ثبت‌شده استفاده شده است؛ به‌جای حذف، آن را غیرفعال کنید.',
   CITY_HAS_REFERENCES:
-    'این شهر در پروفایل‌ها یا فعالیت‌های ثبت‌شده استفاده شده است. برای غیرفعال کردن، تأیید کنید.',
+    'این شهر در پروفایل‌ها یا رویدادهای ثبت‌شده استفاده شده است. برای غیرفعال کردن، تأیید کنید.',
 
   FORBIDDEN: 'شما به این بخش دسترسی ندارید.',
   NOT_FOUND: 'مورد درخواستی یافت نشد.',

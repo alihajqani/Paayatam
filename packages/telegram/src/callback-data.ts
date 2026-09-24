@@ -585,7 +585,7 @@ export function parseDiscoverCallback(data: string): DiscoverFilters | null {
  *
  * ── Why the list is named ───────────────────────────────────────────────────
  *
- * `d` and `m` are the discovery list and «فعالیت‌های من», and they are different
+ * `d` and `m` are the discovery list and «رویدادهای من», and they are different
  * messages further up the chat. Nothing is redrawn — both lists are still
  * there — but the letter is what a future "and refresh it" would need, and a
  * protocol that cannot say which list it came from is one that has to guess.
@@ -628,7 +628,7 @@ export function parseBackCallback(data: string): BackCallback | null {
 }
 
 /**
- * Paging «فعالیت‌های من»: `mv:<page>:x`.
+ * Paging «رویدادهای من»: `mv:<page>:x`.
  *
  * ── Why it is not the discovery codec ───────────────────────────────────────
  *
@@ -725,7 +725,7 @@ export function parseDirectCallback(data: string): DirectCallback | null {
 /**
  * Paging the wallet ledger: `wl:<page>:x`.
  *
- * The same shape as «فعالیت‌های من», and a separate prefix for the same reason
+ * The same shape as «رویدادهای من», and a separate prefix for the same reason
  * `ev:` is separate from `chat:`: a parser that accepted both would be one
  * mistake away from redrawing the wrong screen from the right number.
  *
