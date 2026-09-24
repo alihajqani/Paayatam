@@ -233,7 +233,7 @@ interface BotUser {
    */
   status: 'ACTIVE' | 'SUSPENDED';
   /**
-   * Carried for `profileGateOwed` (v0.17.0), for the same reason `status` is:
+   * Carried for `onboardingGate` (v0.18.3), for the same reason `status` is:
    * a second read of something `knownUser` already selected would be a query
    * per update rather than per write.
    */
@@ -287,6 +287,58 @@ const DIRECT_BUTTON_FA = '✉️ پیام مستقیم به میزبان';
  * control, not the permission.
  */
 const DIRECT_REPLY_BUTTON_FA = '✍️ پاسخ به این پیام';
+
+/**
+ * The sentence above an onboarding form, by why it is being shown (v0.18.3).
+ *
+ * Every one of them says the same two things: what to do next, and that the
+ * menu will not work until it is done. The second half is the one that was
+ * missing — the welcome message draws the menu button under the terms screen,
+ * and in production most new users tapped the menu instead of «می‌پذیرم».
+ */
+const ONBOARDING_LEAD_FA = {
+  /** Somebody who tried to do something else first. */
+  gate: {
+    terms:
+      'برای شروع، اول قوانین پایه‌تَم را بخوانید و «✅ می‌پذیرم» را بزنید.\n' +
+      'تا این کار انجام نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
+    profile:
+      '⚠️ هنوز نمایه‌تان کامل نشده است.\n' +
+      'تا نمایه کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند. به سؤال زیر پاسخ دهید تا ادامه دهیم.',
+  },
+  /** Right after «بررسی دوباره» found them in every channel. */
+  channel: {
+    terms:
+      'عضویت شما تأیید شد ✅\n\n' +
+      'یک کار دیگر مانده: قوانین زیر را بخوانید و «✅ می‌پذیرم» را بزنید.',
+    profile:
+      'عضویت شما تأیید شد ✅\n\n' +
+      'قدم آخر: نمایه‌تان را کامل کنید. چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
+  },
+} as const;
+
+/**
+ * Whether an update could be an answer to an open form (v0.18.3).
+ *
+ * The onboarding gate lets these through to the form and answers everything
+ * else with it. A menu label arrives as text and is a command, not an answer —
+ * `onText` treats it the same way, for the same reason.
+ */
+function answersAForm(intent: ParsedUpdate['intent']): boolean {
+  switch (intent.kind) {
+    case 'TEXT':
+      return (
+        menuCommandFor(intent.message.text) === null &&
+        menuGroupKeyFor(intent.message.text) === null
+      );
+    case 'PHOTO':
+      return true;
+    case 'CALLBACK':
+      return parseWizardCallback(intent.data) !== null;
+    default:
+      return false;
+  }
+}
 
 /**
  * The bot's receiving half (plan §6: `/start`, `callback_query`, `message:text`,
@@ -423,6 +475,19 @@ export class BotService {
         if (user === null) return;
 
         /**
+         * Onboarding first — terms, then channels, then the profile (v0.18.3).
+         *
+         * Before `APP_ACCESS`, and the order is the bug this fixes. The channel
+         * gate used to run first, so a `NEW` user's answer to the terms screen
+         * was replaced by the channel screen and the acceptance was never
+         * written. `onboardingGate` owns the whole order itself — including the
+         * channel step, between the terms and the profile — so an answer to the
+         * onboarding form skips `APP_ACCESS` rather than being refused by it.
+         */
+        const onboarding = await this.onboardingGate(update.updateId, user, intent);
+        if (onboarding === 'drawn') return;
+
+        /**
          * `APP_ACCESS`, enforced here because nothing else was enforcing it.
          *
          * `GATED_ACTIONS` has five members. Four of them — create, join, send to
@@ -445,44 +510,10 @@ export class BotService {
          * come back through, which is the same trap `AuthGuard` avoids by not
          * gating `/me`.
          */
-        if (await this.appAccessBlocked(update.updateId, user, intent)) return;
-
-        /**
-         * The profile-completion gate (v0.17.0), for commands and text.
-         *
-         * `finishConsent` already hands a new user the profile wizard the
-         * moment they accept the terms, but nothing stopped them cancelling it
-         * or tapping the persistent menu instead — after which only a handful
-         * of *writes* re-asked for a profile (`PROFILE_INCOMPLETE`, checked
-         * inside the service that owns the action) and every read worked with
-         * none at all. That is the bug this closes: somebody with an accepted
-         * consent and no profile gets this instead of whatever they typed,
-         * until they finish it.
-         *
-         * Same shape as `appAccessBlocked` above, and applied right after it
-         * for the same reason — this is the one point every command and every
-         * typed message passes through. `profileGateOwed` itself excludes an
-         * open wizard, so answering the very form this redirects to still
-         * reaches it.
-         *
-         * **Deliberately not applied to callback taps** (`onCallback`, a
-         * separate top-level case above). A profile-incomplete user reaches
-         * this branch on their next command or typed message — including a
-         * persistent-keyboard tap, which arrives as text — before any
-         * inline-button screen exists for them to tap instead, so the gap a
-         * callback-side gate would close is already small; extending it there
-         * would also have to thread through every read (paging, settings) and
-         * every admin/moderation callback this router carries, each with its
-         * own reasons not to be gated on a *user's* onboarding state.
-         */
         if (
-          !(
-            intent.kind === 'COMMAND' &&
-            BotService.UNGATED_COMMANDS.has(intent.command.toLowerCase())
-          ) &&
-          (await this.profileGateOwed(user))
+          onboarding === 'clear' &&
+          (await this.appAccessBlocked(update.updateId, user, intent))
         ) {
-          await this.openProfileGate(update.updateId, user);
           return;
         }
 
@@ -551,6 +582,10 @@ export class BotService {
    * most likely thing they want to report — a misconfigured invite link is
    * precisely the state where the gate cannot be cleared and the operator has no
    * way of finding out. A bug report changes nothing and costs nothing to allow.
+   *
+   * The onboarding gate (v0.18.3) lets the same three through, for the same
+   * reasons: somebody stuck on the terms or the profile form is exactly who
+   * needs to read the help or report that the form is broken.
    */
   private static readonly UNGATED_COMMANDS = new Set(['help', 'bug', 'bugreport']);
 
@@ -583,36 +618,134 @@ export class BotService {
   }
 
   /**
-   * Whether the profile-completion gate applies to this user right now
-   * (v0.17.0).
+   * Whether this user still owes a step of onboarding (v0.18.3).
    *
-   * Exactly `onboardingState === 'TERMS_ACCEPTED'` — the terms are accepted (a
-   * `NEW` user is `ConsentService`'s job, not this one: opening the profile
-   * wizard before that would let somebody fill it in and then fail at submit
-   * with `TERMS_NOT_ACCEPTED`) and there is no profile yet (the state moves to
-   * `PROFILE_COMPLETE` in the same transaction `ProfileService.complete`
-   * writes the row in, so the two facts are one column, not two reads).
+   * `onboardingState`, not `ConsentService.hasAcceptedCurrentPolicies`: the
+   * latter answers `true` for everybody when no policy is published, which
+   * reads as "terms accepted" for a `NEW` user who has done nothing of the
+   * sort. The column is what both steps actually move, and `ProfileService.
+   * complete` sets `PROFILE_COMPLETE` in the same transaction that writes the
+   * profile, so "has a profile" and "is onboarded" are one fact.
    *
-   * **Not `ConsentService.hasAcceptedCurrentPolicies`**, which was tried first
-   * and is wrong here: it answers `true` whenever `requiredPolicies()` is
-   * empty, which is a legitimate state for an environment with no policy rows
-   * seeded — and reads as "terms accepted" for a `NEW` user who has done
-   * nothing of the sort. `onboardingState` is the one column both gates
-   * actually move.
-   *
-   * The second check is a wizard already open, so this does not interrupt the
-   * very form it would open — including the one it opened a moment ago.
+   * Off with the wizards: the bot cannot onboard anybody without its forms,
+   * and a gate with no way through it would brick the bot on top of degrading
+   * it.
    */
-  private async profileGateOwed(user: BotUser): Promise<boolean> {
-    if (!this.env.ENABLE_CONVERSATION_WIZARD) return false;
-    if (user.onboardingState !== 'TERMS_ACCEPTED') return false;
-    return (await this.conversations.current(user.id)) === null;
+  private onboardingOwed(user: BotUser): boolean {
+    return this.env.ENABLE_CONVERSATION_WIZARD && user.onboardingState !== 'PROFILE_COMPLETE';
   }
 
-  /** Open the mandatory, full profile wizard — the one `profileGateOwed` owes. */
-  private async openProfileGate(updateId: number, user: BotUser): Promise<void> {
+  /**
+   * The onboarding gate: nothing works until the terms are accepted and the
+   * profile is complete (v0.18.3).
+   *
+   * ── What it replaced ────────────────────────────────────────────────────────
+   *
+   * v0.17.0 gated commands and typed text for `TERMS_ACCEPTED` only, skipped
+   * itself whenever any form was open, and left every button alone. So a new
+   * user could browse `/discover` with the profile form open, tap any menu
+   * button at any time, and — worst — a `NEW` user's «می‌پذیرم» met the
+   * `APP_ACCESS` channel gate first and was answered with the channel screen.
+   * In production that stranded 33 of 47 accounts before the terms.
+   *
+   * ── What it lets through ────────────────────────────────────────────────────
+   *
+   * - An **answer to the form on screen**: typed text that is not a menu label,
+   *   a photo, a `wz:` button. Returned as `'answer'`, and the caller then skips
+   *   `APP_ACCESS`: this gate owns the order (terms, channels, profile), so the
+   *   channel requirement must not refuse the terms screen's own button.
+   * - `/help`, `/bug` and «بررسی دوباره», typed or tapped — the same three
+   *   `APP_ACCESS` exempts, for the same reasons.
+   * - A linked moderator (ADR-0018). A moderator working a queue is not acting
+   *   as a user, and the consent gate already stays out of their way.
+   *
+   * Everything else — every command, menu label, menu tap and inline button —
+   * is answered with the step the user owes instead (`resumeOnboarding`).
+   */
+  private async onboardingGate(
+    updateId: number,
+    user: BotUser,
+    intent: ParsedUpdate['intent'],
+  ): Promise<'drawn' | 'answer' | 'clear'> {
+    if (!this.onboardingOwed(user)) return 'clear';
+
+    switch (intent.kind) {
+      // An edit is answered with silence everywhere (see `route`); a form on top
+      // of it would be the bot arguing with somebody about their own typing.
+      case 'EDITED_TEXT':
+        return 'clear';
+      case 'COMMAND':
+        if (BotService.UNGATED_COMMANDS.has(intent.command.toLowerCase())) return 'clear';
+        break;
+      case 'CALLBACK': {
+        if (isChannelRecheckCallback(intent.data)) return 'clear';
+        const menu = decodeMenuCallback(intent.data);
+        if (menu?.kind === 'command' && BotService.UNGATED_COMMANDS.has(menu.command)) {
+          return 'clear';
+        }
+        break;
+      }
+      default:
+        break;
+    }
+
+    if ((await this.adminTelegram.sessionFor(user.telegramUserId)) !== null) return 'clear';
+
+    if (answersAForm(intent) && (await this.conversations.current(user.id)) !== null) {
+      return 'answer';
+    }
+
+    return (await this.resumeOnboarding(updateId, user)) ? 'drawn' : 'clear';
+  }
+
+  /**
+   * Put somebody back on the onboarding step they owe, and say why.
+   *
+   * The order is `finishConsent`'s: the terms, then the channels (a check, drawn
+   * only while the requirement stands), then the profile. A profile form already
+   * open is **resumed at the question it was left on** rather than restarted,
+   * and sent as a new message rather than edited in place: whatever the user
+   * tapped instead is below the old form, and an edit up there is a change
+   * nobody sees.
+   *
+   * `lead` is the sentence above the form: `'gate'` for somebody who tried to
+   * do something else, `'channel'` right after «بررسی دوباره» confirmed them,
+   * and `null` where the message before it already said it (the welcome).
+   *
+   * Returns false only when there is nothing to ask: a `NEW` user where no
+   * required policy is published. `acceptPolicies` refuses an empty set, so a
+   * gate there would refuse everything forever (`PROJECT_MEMORY` §7, trap 2).
+   */
+  private async resumeOnboarding(
+    updateId: number,
+    user: BotUser,
+    lead: keyof typeof ONBOARDING_LEAD_FA | null = 'gate',
+  ): Promise<boolean> {
+    if (!this.onboardingOwed(user)) return false;
+
+    if (user.onboardingState === 'NEW') {
+      if ((await this.consent.requiredPolicies()).length === 0) return false;
+      if (lead !== null) await this.notice(updateId, user, ONBOARDING_LEAD_FA[lead].terms);
+      const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
+      await this.drawWizard(updateId, user, outcome);
+      return true;
+    }
+
+    if (await this.channelsBlock(updateId, user)) return true;
+
+    if (lead !== null) await this.notice(updateId, user, ONBOARDING_LEAD_FA[lead].profile);
+    const open = await this.conversations.resume(user.id);
+    if (open?.kind === 'step' && open.snapshot.kind === 'EDIT_PROFILE') {
+      await this.drawWizard(updateId, user, {
+        ...open,
+        snapshot: { ...open.snapshot, lastMessageId: null },
+      });
+      return true;
+    }
+
     const outcome = await this.startProfileWizard(user.id, updateId);
     await this.drawWizard(updateId, user, outcome);
+    return true;
   }
 
   /**
@@ -1428,6 +1561,11 @@ export class BotService {
       try {
         const claim = await this.referrals.claim(userId, stripReferralPrefix(payload));
         await this.announceReferralClaim(updateId, userId, claim);
+        // An invite link is how most people arrive, and it used to end here: a
+        // new user was told their code counted and was never shown the terms.
+        // No lead — the announcement may itself be a `BOT_NOTICE`, and a second
+        // one in this update would be deduped away (trap 17).
+        await this.resumeOnboarding(updateId, user, null);
         return;
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
@@ -1435,7 +1573,19 @@ export class BotService {
       }
     }
 
-    await this.reply(updateId, userId, TEMPLATES.BOT_WELCOME, {});
+    const onboarding = this.onboardingOwed(user);
+    await this.reply(updateId, userId, TEMPLATES.BOT_WELCOME, onboarding ? { onboarding } : {});
+
+    /**
+     * The whole of onboarding, immediately after the welcome (v0.18.3).
+     *
+     * The terms for a `NEW` user, and — what was missing — the profile form for
+     * somebody who accepted the terms on an earlier visit and stopped there. They
+     * used to get the welcome and nothing else, so `/start`, the one command a
+     * lost user is told to send, never showed them what they still owed. No lead
+     * sentence: the welcome carries the same one (`onboarding` in its payload).
+     */
+    if (onboarding && (await this.resumeOnboarding(updateId, user, null))) return;
 
     /**
      * The gate, immediately after the welcome (v0.4.2).
@@ -1501,7 +1651,10 @@ export class BotService {
    */
   private async onStartLink(updateId: number, user: BotUser, link: StartLink): Promise<void> {
     const consented = await this.consent.hasAcceptedCurrentPolicies(user.id);
-    if (!consented) await this.reply(updateId, user.id, TEMPLATES.BOT_WELCOME, {});
+    const onboarding = this.onboardingOwed(user);
+    if (!consented) {
+      await this.reply(updateId, user.id, TEMPLATES.BOT_WELCOME, onboarding ? { onboarding } : {});
+    }
 
     /**
      * The activity is resolved first, and it decides whether anything else is
@@ -1562,6 +1715,14 @@ export class BotService {
         'برای پایتم گفتن به فعالیت‌ها نخست نمایه‌تان را کامل کنید.',
       );
     }
+
+    /**
+     * Under the activity, whatever onboarding is still owed (v0.18.3) — the
+     * terms, or the profile for somebody who accepted and stopped. The activity
+     * stays on screen above it with its button, so finishing is one more tap
+     * away from what they came for.
+     */
+    if (onboarding && (await this.resumeOnboarding(updateId, user))) return;
     if (!consented) await this.gateAfterWelcome(updateId, user);
   }
 
@@ -1782,6 +1943,16 @@ export class BotService {
       const missing = state.channels.filter((channel) => !channel.allowed);
       if (missing.length === 0) {
         await this.answer(callbackQueryId, 'عضویت تأیید شد ✅');
+        /**
+         * And onboarding carries on from here (v0.18.3).
+         *
+         * This said «حالا می‌توانید از پایه‌تَم استفاده کنید» to everybody, and
+         * for somebody mid-onboarding it was false: the profile form was never
+         * opened, and for anyone whose «می‌پذیرم» had been swallowed by the
+         * channel screen the terms were not even on record. It is now the step
+         * they actually owe, and the sentence is kept for those who owe none.
+         */
+        if (await this.resumeOnboarding(update.updateId, user, 'channel')) return;
         return this.notice(
           update.updateId,
           user,
@@ -1823,7 +1994,20 @@ export class BotService {
       return this.onMenuCallback(update, user, ungatedMenuTap);
     }
 
-    if (await this.channelsBlock(update.updateId, user, 'APP_ACCESS')) {
+    /**
+     * Onboarding first, for taps too (v0.18.3) — and before `APP_ACCESS`,
+     * which is the bug this ordering fixes: that gate used to answer a `NEW`
+     * user's «می‌پذیرم» with the channel screen, so the acceptance was never
+     * written. See `onboardingGate` for what gets through; everything else is
+     * answered with the step still owed.
+     */
+    const onboarding = await this.onboardingGate(update.updateId, user, update.intent);
+    if (onboarding === 'drawn') {
+      await this.answer(callbackQueryId, 'اول ثبت‌نام را تمام کنید 👇');
+      return;
+    }
+
+    if (onboarding === 'clear' && (await this.channelsBlock(update.updateId, user, 'APP_ACCESS'))) {
       await this.answer(callbackQueryId, 'برای ادامه باید در کانال‌های اعلام‌شده عضو شوید.');
       return;
     }
@@ -1897,7 +2081,7 @@ export class BotService {
      * gate refusing the person whose job is to fix things.
      */
     /**
-     * The command menu, before everything else and behind no gate.
+     * The command menu, behind no gate of its own.
      *
      * Navigating a menu is a read: opening a group draws a list of the bot's own
      * commands and nothing else. Putting it behind `mayWrite` would mean somebody
@@ -1906,6 +2090,10 @@ export class BotService {
      * that moment. Running a command from the menu is dispatched through the same
      * `switch` a typed one goes through, so every gate that command carries still
      * applies where it always did.
+     *
+     * The onboarding gate above does reach it (v0.18.3): until the profile is
+     * complete the menu answers with the form, except `/help` and `/bug`, which
+     * are handled before either gate.
      */
     const menuCallback = decodeMenuCallback(data);
     if (menuCallback !== null) {
@@ -5180,6 +5368,20 @@ export class BotService {
   ): Promise<void> {
     switch (outcome.kind) {
       case 'cancelled':
+        /**
+         * Pointing somebody mid-onboarding at the menu would send them to a
+         * button that answers with this same form (v0.18.3), so they are told
+         * that instead of being told to go somewhere that will not work.
+         */
+        if (this.onboardingOwed(user)) {
+          return this.notice(
+            updateId,
+            user,
+            'فرم بسته شد.\n\n' +
+              'تا ثبت‌نام‌تان تمام نشود، منو و دکمه‌های ربات کار نمی‌کنند. ' +
+              'هر وقت آماده بودید، یک پیام بفرستید تا فرم دوباره باز شود.',
+          );
+        }
         return this.notice(
           updateId,
           user,
@@ -5559,7 +5761,9 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        'قوانین پذیرفته شد ✅\n\nیک قدم مانده: نمایه‌تان را کامل کنید تا بتوانید فعالیت بسازید و در فعالیت‌های نزدیک شرکت کنید.',
+        'قوانین پذیرفته شد ✅\n\n' +
+          'قدم آخر: نمایه‌تان را کامل کنید تا بتوانید فعالیت بسازید و در فعالیت‌های نزدیک شرکت کنید. ' +
+          'چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
       );
       const outcome = await this.startProfileWizard(user.id, updateId);
       return this.drawWizard(updateId, user, outcome);

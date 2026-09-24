@@ -244,6 +244,36 @@ describe('a multi-select step', () => {
   });
 });
 
+/**
+ * `resume` redraws where somebody left a form (v0.18.3) — the onboarding gate
+ * answers a menu tap with the profile form at the question it was left on.
+ */
+describe('resuming', () => {
+  it('returns the current step and its answers, and advances nothing', async () => {
+    await conversations.start(userId, 'CREATE_EVENT', 10);
+    await conversations.handle(userId, 11, { kind: 'text', value: 'کوهنوردی درکه' });
+
+    const resumed = await conversations.resume(userId);
+
+    expect(resumed?.kind).toBe('step');
+    if (resumed?.kind === 'step') {
+      expect(resumed.step.key).toBe('desc');
+      expect(resumed.snapshot.form).toMatchObject({ title: 'کوهنوردی درکه' });
+      expect(resumed.position).toBe(2);
+    }
+    // Not an update: the next real answer is still accepted, not a redelivery.
+    const next = await conversations.handle(userId, 12, {
+      kind: 'text',
+      value: 'یک صعود آرام تا شیرپلا، با صبحانه در پناهگاه.',
+    });
+    expect(next?.kind).not.toBe('redelivery');
+  });
+
+  it('is null for somebody who is not in a wizard', async () => {
+    expect(await conversations.resume(userId)).toBeNull();
+  });
+});
+
 describe('idempotency', () => {
   /**
    * The property ADR-0017 puts in place of "the bot has no memory". Telegram
