@@ -14,6 +14,30 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.18.4] — 2026-09-24
+
+An event is called «رویداد» everywhere now, never «فعالیت». v0.18.3 was tagged and not deployed
+on its own, so this release also carries the onboarding fix below: read its notes too.
+
+**No migration, no setting change. The bot's command menu changes** (two command descriptions),
+so the deploy republishes it.
+
+### ⚠️ What a deploy changes for people
+
+- Everything listed under v0.18.3 below.
+- Every screen of the bot, the admin panel and the Mini App says «رویداد»/«رویدادها» where it
+  said «فعالیت»/«فعالیت‌ها», including the menu («🎟 رویدادها», «رویدادهای من») and the
+  command list.
+- The usual release broadcast goes to every user once.
+
+### Changed
+
+- «فعالیت» → «رویداد» in every user-facing string, in all its forms. Not changed: the numbered
+  migrations (frozen) and the seeded policy text, which is legal wording and changes only by
+  publishing a new version from the admin panel.
+- The old menu labels («➕ ساختن فعالیت», «🔎 دیدن فعالیت‌ها», «🎟 فعالیت‌های من», «🎟 فعالیت‌ها»)
+  still work, because a reply keyboard stays on the phone until it is replaced.
+
 ## [v0.18.3] — 2026-09-24
 
 Nobody could finish signing up while a channel was required. Of 47 real accounts in
