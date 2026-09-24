@@ -1107,8 +1107,9 @@ export class BotService {
          * The edit is a button on the card, not a command under it.
          *
          * `st:n1:x` is the same action the settings board's profile row carries,
-         * and it is one action rather than two on purpose — «open the profile
-         * form» has one meaning and should have one button, wherever it appears.
+         * and it is one action rather than two on purpose — «edit my profile»
+         * has one meaning and should have one button, wherever it appears. Here
+         * there is always a profile, so it draws the field board (v0.18.5).
          *
          * Offered only when the wizards are on: a button whose handler answers
          * «این بخش موقتاً در دسترس نیست» is worse than no button.
@@ -4272,7 +4273,20 @@ export class BotService {
         return;
       }
       /**
-       * The board, for somebody who has a profile to pick a fieldoutcome = await this.startProfileWizard(user.id, updateId);
+       * The board, for somebody who has a profile to pick a field of (v0.18.5).
+       *
+       * This is also the ✏️ button on the `/profile` card, and it opened the
+       * whole seven-question form for everybody — so changing a name meant
+       * answering gender, year, city, bio and interests again. The same rule
+       * as `/edit_profile`: the walk is only for a profile that does not exist
+       * yet, which is the one case the settings board draws this row for.
+       */
+      if ((await this.profiles.find(user.id)) !== null) {
+        await this.answer(callbackQueryId, '');
+        return this.reply(updateId, user.id, TEMPLATES.BOT_PROFILE_EDIT, {});
+      }
+      await this.answer(callbackQueryId, 'فرم پروفایل باز شد');
+      const outcome = await this.startProfileWizard(user.id, updateId);
       return this.drawWizard(updateId, user, outcome);
     }
 
