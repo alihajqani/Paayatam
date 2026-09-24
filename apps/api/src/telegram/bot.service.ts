@@ -303,8 +303,8 @@ const ONBOARDING_LEAD_FA = {
       'برای شروع، اول قوانین پایه‌تَم را بخوانید و «✅ می‌پذیرم» را بزنید.\n' +
       'تا این کار انجام نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
     profile:
-      '⚠️ هنوز نمایه‌تان کامل نشده است.\n' +
-      'تا نمایه کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند. به سؤال زیر پاسخ دهید تا ادامه دهیم.',
+      '⚠️ هنوز پروفایلتان کامل نشده است.\n' +
+      'تا پروفایل کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند. به سؤال زیر پاسخ دهید تا ادامه دهیم.',
   },
   /** Right after «بررسی دوباره» found them in every channel. */
   channel: {
@@ -313,7 +313,7 @@ const ONBOARDING_LEAD_FA = {
       'یک کار دیگر مانده: قوانین زیر را بخوانید و «✅ می‌پذیرم» را بزنید.',
     profile:
       'عضویت شما تأیید شد ✅\n\n' +
-      'قدم آخر: نمایه‌تان را کامل کنید. چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
+      'قدم آخر: پروفایلتان را کامل کنید. چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
   },
 } as const;
 
@@ -1140,7 +1140,7 @@ export class BotService {
                 keyboard: JSON.stringify([
                   [
                     {
-                      text: '✏️ ویرایش نمایه',
+                      text: '✏️ ویرایش پروفایل',
                       callbackData: encodeSettingCallback(SETTING_PROFILE, true),
                     },
                   ],
@@ -1393,7 +1393,7 @@ export class BotService {
           return this.openProfileForm(
             updateId,
             user,
-            'هنوز نمایه‌ای نساخته‌اید. بیایید کاملش کنیم.',
+            'هنوز پروفایلی نساخته‌اید. بیایید کاملش کنیم.',
           );
         }
         return this.reply(updateId, user.id, TEMPLATES.BOT_PROFILE_EDIT, {});
@@ -1433,7 +1433,7 @@ export class BotService {
           return this.openProfileForm(
             updateId,
             user,
-            'هنوز نمایه‌ای نساخته‌اید. ابتدا نمایه‌تان را کامل کنید؛ علاقه‌مندی‌ها هم در همین فرم پرسیده می‌شود.',
+            'هنوز پروفایلی نساخته‌اید. ابتدا پروفایلتان را کامل کنید؛ علاقه‌مندی‌ها هم در همین فرم پرسیده می‌شود.',
           );
         }
         const outcome = await this.startProfileWizard(user.id, updateId, 'tags');
@@ -1664,7 +1664,7 @@ export class BotService {
      * they advertise — and somebody who taps one should be told the activity is
      * gone, not handed a form for one that no longer exists. Refusing early also
      * means `join`'s own ordering (which checks the caller before the event)
-     * cannot make «نمایه‌تان را کامل کنید» the answer to a dead link.
+     * cannot make «پروفایلتان را کامل کنید» the answer to a dead link.
      */
     const event = await this.findEventOr(updateId, user, link.id);
     if (event === null) return;
@@ -1712,7 +1712,7 @@ export class BotService {
       return this.openProfileForm(
         updateId,
         user,
-        'برای پایتم گفتن به رویدادها نخست نمایه‌تان را کامل کنید.',
+        'برای پایتم گفتن به رویدادها نخست پروفایلتان را کامل کنید.',
       );
     }
 
@@ -2880,7 +2880,7 @@ export class BotService {
         await this.openProfileForm(
           updateId,
           user,
-          'برای پایتم گفتن به رویدادها نخست نمایه‌تان را کامل کنید.',
+          'برای پایتم گفتن به رویدادها نخست پروفایلتان را کامل کنید.',
         );
       }
     }
@@ -4271,8 +4271,8 @@ export class BotService {
         await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
         return;
       }
-      await this.answer(callbackQueryId, 'فرم نمایه باز شد');
-      const outcome = await this.startProfileWizard(user.id, updateId);
+      /**
+       * The board, for somebody who has a profile to pick a fieldoutcome = await this.startProfileWizard(user.id, updateId);
       return this.drawWizard(updateId, user, outcome);
     }
 
@@ -4867,7 +4867,7 @@ export class BotService {
       return this.openProfileForm(
         updateId,
         user,
-        'برای دیدن رویدادهای نزدیک، نخست نمایه‌تان را کامل کنید.',
+        'برای دیدن رویدادهای نزدیک، نخست پروفایلتان را کامل کنید.',
       );
     }
 
@@ -4888,7 +4888,7 @@ export class BotService {
         updateId,
         user,
         cityQueueLine(launch) +
-          'به‌محض باز شدن، همین‌جا خبرتان می‌کنیم. تا آن موقع می‌توانید نمایه‌تان را کامل نگه دارید.',
+          'به‌محض باز شدن، همین‌جا خبرتان می‌کنیم. تا آن موقع می‌توانید پروفایلتان را کامل نگه دارید.',
       );
     }
 
@@ -5451,7 +5451,7 @@ export class BotService {
           const screen = renderSummary(
             await this.profileSummaryLines(profile, touchedFields(outcome.snapshot.form)),
             false,
-            'ثبت نمایه',
+            'ثبت پروفایل',
           );
           return this.paint(updateId, user, outcome.snapshot.lastMessageId, screen);
         }
@@ -5762,7 +5762,7 @@ export class BotService {
         updateId,
         user,
         'قوانین پذیرفته شد ✅\n\n' +
-          'قدم آخر: نمایه‌تان را کامل کنید تا بتوانید رویداد بسازید و در رویدادهای نزدیک شرکت کنید. ' +
+          'قدم آخر: پروفایلتان را کامل کنید تا بتوانید رویداد بسازید و در رویدادهای نزدیک شرکت کنید. ' +
           'چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
       );
       const outcome = await this.startProfileWizard(user.id, updateId);
@@ -6068,7 +6068,7 @@ export class BotService {
       return this.notice(
         updateId,
         user,
-        'تعداد ویرایش‌های نمایه در یک ساعت گذشته زیاد بوده است. کمی بعد دوباره تلاش کنید.',
+        'تعداد ویرایش‌های پروفایل در یک ساعت گذشته زیاد بوده است. کمی بعد دوباره تلاش کنید.',
       );
     }
 
@@ -6106,7 +6106,7 @@ export class BotService {
         { kind: 'USER' },
       );
       await this.conversations.clear(user.id);
-      await this.notice(updateId, user, 'نمایه شما به‌روز شد ✅');
+      await this.notice(updateId, user, 'پروفایل شما به‌روز شد ✅');
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       // The draft survives, for the reason it survives a refused event.
@@ -6160,7 +6160,7 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        `برای ساختن نمایه به این مورد${missing.length > 1 ? 'ها' : ''} هم نیاز داریم: ` +
+        `برای ساختن پروفایل به این مورد${missing.length > 1 ? 'ها' : ''} هم نیاز داریم: ` +
           `${missing.join('، ')}.\n\nروی «ویرایش» بزنید و کامل کنید.`,
       );
       return;
@@ -6186,7 +6186,7 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        'نمایه شما ساخته شد ✅\n\n' +
+        'پروفایل شما ساخته شد ✅\n\n' +
           // Ahead of the menu hints on purpose: the rank is the one thing in this
           // message that is true only for this person and only once, and burying
           // it under two button names would waste the only moment it lands.
@@ -7120,7 +7120,7 @@ export function foundingLine(award: FoundingAward | null, max: number): string {
   const total = toPersianDigits(String(max));
   return (
     `${foundingTierMedal(award.tier)} شما نفر ${rank} از ${total} نفر اولِ پایه‌تم هستید.\n` +
-    `نشان «${foundingTierName(award.tier)}» برای همیشه روی نمایه شما می‌ماند.\n\n`
+    `نشان «${foundingTierName(award.tier)}» برای همیشه روی پروفایل شما می‌ماند.\n\n`
   );
 }
 

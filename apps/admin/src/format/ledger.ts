@@ -15,7 +15,7 @@
  * still better than a blank.
  */
 export const LEDGER_TYPE_LABELS: Record<string, string> = {
-  ONBOARDING_REWARD: 'پاداش تکمیل نمایه',
+  ONBOARDING_REWARD: 'پاداش تکمیل پروفایل',
   FOUNDING_REWARD: 'هدیهٔ کمپین هزار نفر',
   REFERRAL_REWARD: 'پاداش معرفی دوستان',
   REVIEW_REWARD: 'پاداش نوشتن نظر',

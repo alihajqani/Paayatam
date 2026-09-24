@@ -26,9 +26,9 @@ describe('renderSummary', () => {
 
   it('renders exactly as before when there is no note', () => {
     // Four other wizards reach this screen and none of them has a price.
-    const screen = renderSummary(LINES, false, 'ثبت نمایه');
+    const screen = renderSummary(LINES, false, 'ثبت پروفایل');
     expect(screen.text).toContain('بازبینی نهایی');
-    expect(screen.text).toContain('«ثبت نمایه» را بزنید');
+    expect(screen.text).toContain('«ثبت پروفایل» را بزنید');
   });
 
   it('escapes the note', () => {

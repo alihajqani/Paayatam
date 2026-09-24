@@ -96,7 +96,7 @@ export function formatSettings(state: SettingsState): string {
     `<b>حریم خصوصی</b>\n` +
     (state.hasProfile
       ? `✉️ دریافت دعوت از میزبان‌ها: ${onOff(!state.inviteOptOut)}\n\n`
-      : `✉️ دریافت دعوت از میزبان‌ها: پس از تکمیل نمایه\n\n`) +
+      : `✉️ دریافت دعوت از میزبان‌ها: پس از تکمیل پروفایل\n\n`) +
     `<b>زبان</b>\n` +
     `🌐 ${LOCALE_FA[state.locale] ?? state.locale}\n\n` +
     `<i>اعلان‌های مربوط به قوانین، تصمیم‌های پشتیبانی و پاسخ به دستورهای خودتان ` +
@@ -144,7 +144,7 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
   } else {
     rows.push([
       {
-        text: '👤 تکمیل نمایه، برای تنظیم دعوت‌ها',
+        text: '👤 تکمیل پروفایل، برای تنظیم دعوت‌ها',
         callbackData: encodeSettingCallback(SETTING_PROFILE, true),
       },
     ]);

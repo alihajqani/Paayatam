@@ -506,7 +506,7 @@ describe('/start', () => {
      * A channel post outlives the activity it advertises, so a stale tap is the
      * common case — and the answer is that the activity is gone, not a profile
      * form for one that no longer exists. `join` checks the caller before the
-     * event, so without resolving the event first «نمایه‌تان را کامل کنید» would
+     * event, so without resolving the event first «پروفایلتان را کامل کنید» would
      * be the answer to a dead link.
      */
     it('says the activity is gone rather than handing out a form for it', async () => {
@@ -2184,7 +2184,7 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
     const text = await bodyOf(TEMPLATES.BOT_TRUST);
     expect(text).toContain('امتیاز اعتماد شما');
     // The movement, in the language the user reads rather than the enum.
-    expect(text).toContain('کامل کردن نمایه');
+    expect(text).toContain('کامل کردن پروفایل');
     expect(text).not.toContain('PROFILE_COMPLETE');
   });
 
