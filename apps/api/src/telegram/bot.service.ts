@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DEFAULT_BOT_USERNAME, type Env } from '@payetam/config';
 import {
+  acquisitionFor,
   CatalogService,
   ChannelMembershipService,
   ConsentService,
@@ -119,7 +120,9 @@ import {
   parseCodeCallback,
   encodeCodeCallback,
   parseSettingCallback,
+  parseCampaignTag,
   parseStartPayload,
+  stripReferralPrefix,
   adminQueueRows,
   formatAdminCasePrompt,
   formatAdminQueue,
@@ -1527,13 +1530,17 @@ export class BotService {
    * taps race to insert against a UNIQUE `telegram_user_id`, and the loser re-reads
    * rather than creating a second account.
    *
-   * The payload is a referral code (T6). A failed claim **does not stop the
+   * The payload is an event link, an ad's campaign tag, or a referral code (T6),
+   * and whichever it is, it is recorded as where a new account came from
+   * (`user_acquisition`). A failed claim **does not stop the
    * welcome**: somebody arriving on a stale invite link should be greeted by a
    * product rather than by an error, and `ALREADY_REFERRED` — which is what pressing
    * a start link twice produces — is not something to apologise for.
    */
   private async onStart(updateId: number, from: BotSender, payload: string | null): Promise<void> {
-    const created = await this.users.findOrCreateByTelegram(from);
+    // Where they came from, recorded only if this tap is what creates the
+    // account — `findOrCreateByTelegram` writes it in the same INSERT.
+    const created = await this.users.findOrCreateByTelegram(from, acquisitionFor(payload));
     const userId = await this.users.resolveInternalId(created.publicId);
     const user: BotUser = {
       id: userId,
@@ -1558,9 +1565,16 @@ export class BotService {
       if (link !== null) return this.onStartLink(updateId, user, link);
     }
 
-    if (payload !== null) {
+    /**
+     * An ad link (`src_<tag>`) has done its whole job by now: it was recorded
+     * when the account was created. It is not a referral code, and handing it to
+     * the claim would log a refusal for every tap on every ad.
+     */
+    const referralPayload = payload !== null && parseCampaignTag(payload) === null ? payload : null;
+
+    if (referralPayload !== null) {
       try {
-        const claim = await this.referrals.claim(userId, stripReferralPrefix(payload));
+        const claim = await this.referrals.claim(userId, stripReferralPrefix(referralPayload));
         await this.announceReferralClaim(updateId, userId, claim);
         // An invite link is how most people arrive, and it used to end here: a
         // new user was told their code counted and was never shown the terms.
@@ -6914,17 +6928,6 @@ function isReportTarget(value: string): value is ReportTargetLetter {
  * zone here would let a deploy silently move every event a host has scheduled.
  */
 const TEHRAN = 'Asia/Tehran';
-
-/**
- * `/start ref_ABCD2345` and `/start ABCD2345` are the same invitation.
- *
- * A prefix is what a link generator naturally adds. `normalizeCode` in the domain
- * strips whitespace and hyphens but not this, and it is stripped here — where the
- * link format is known — rather than by loosening a validator the API also uses.
- */
-function stripReferralPrefix(payload: string): string {
-  return payload.replace(/^ref[_-]/i, '');
-}
 
 /**
  * The assembled form, as the contract wants it — or null when it is not finished.

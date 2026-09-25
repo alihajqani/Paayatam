@@ -1095,6 +1095,14 @@ beforeAll(async () => {
     { method: 'GET', url: '/admin/v1/economy', admin: true },
 
     /**
+     * Where users come from (migration 0061). Aggregates again, but the query
+     * joins `telegram_account` for `bot_blocked` — one widened projection away
+     * from the id this scan exists to catch.
+     */
+    { method: 'GET', url: '/admin/v1/acquisition', admin: true },
+    { method: 'GET', url: '/admin/v1/acquisition?days=7', admin: true },
+
+    /**
      * M19's referral review. The queue is a screen full of *other people's*
      * relationships, which makes it exactly the kind of admin surface a Telegram
      * identifier would be least surprising and most damaging on.

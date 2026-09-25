@@ -23,6 +23,7 @@ import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
+import { AcquisitionReportService } from './acquisition-report.service';
 import { EconomyReportService } from './economy-report.service';
 import { FoundingAdminService } from './founding-admin.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
@@ -137,6 +138,7 @@ const referrals = new ReferralAdminService(service, clock, access, audit);
 const insight = new AdminInsightService(service, clock, access);
 const foundingAdmin = new FoundingAdminService(service, clock, access, settings);
 const economyReport = new EconomyReportService(service, clock, access, settings);
+const acquisitionReport = new AcquisitionReportService(service, clock, access, {} as Env);
 const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
@@ -367,6 +369,13 @@ const OPERATIONS: Operation[] = [
     name: 'GET /admin/v1/economy',
     permission: PERMISSIONS.DASHBOARD_READ,
     run: (session) => economyReport.report(session),
+  },
+  // Where users come from (migration 0061). Aggregates again; campaign tags and
+  // event ids name links, not people.
+  {
+    name: 'GET /admin/v1/acquisition',
+    permission: PERMISSIONS.DASHBOARD_READ,
+    run: (session) => acquisitionReport.report(session),
   },
   {
     name: 'GET /admin/v1/users',
@@ -663,7 +672,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(73);
+    expect(OPERATIONS).toHaveLength(74);
   });
 
   for (const role of ROLES) {

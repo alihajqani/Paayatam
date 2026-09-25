@@ -304,6 +304,11 @@ jobs:
           check_index      channel_post_event_id_kind_key
           check_constraint channel_post_posted_has_message_id
           check_constraint channel_post_deleted_after_posted
+          # Acquisition (migration 0061). The report groups on `ref` per source
+          # without asking whether a row is malformed, and a campaign tag stored
+          # in two spellings would split one ad across two rows.
+          check_constraint user_acquisition_ref_is_payload
+          check_constraint user_acquisition_ref_matches_source
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

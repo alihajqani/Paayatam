@@ -71,6 +71,19 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'کمپین هزار نفر', permission: PERMISSIONS.DASHBOARD_READ, group: 'overview' },
   },
   {
+    /**
+     * Where users come from (migration 0061).
+     *
+     * `dashboard.read` for the campaign report's reason: every number on it is an
+     * aggregate. Beside it under «نمای کلی», because both answer "is growth
+     * happening, and from where" — this one per ad rather than per city.
+     */
+    path: '/acquisition',
+    name: 'acquisition',
+    component: () => import('@/views/AcquisitionView.vue'),
+    meta: { title: 'منابع ورود', permission: PERMISSIONS.DASHBOARD_READ, group: 'overview' },
+  },
+  {
     path: '/users',
     name: 'users',
     component: () => import('@/views/UsersView.vue'),

@@ -5,9 +5,13 @@ export { CHANNEL_EXPIRY_NOTE, categoryHashtag, renderChannelPost } from './chann
 export {
   START_ACTIONS,
   botStartUrl,
+  encodeCampaignPayload,
   encodeStartPayload,
+  isStartPayload,
+  parseCampaignTag,
   parseStartPayload,
   shareUrl,
+  stripReferralPrefix,
 } from './deep-link';
 export type { StartAction, StartLink } from './deep-link';
 export type { ChannelPostContent, RenderedChannelPost } from './channel';

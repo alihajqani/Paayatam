@@ -31,6 +31,8 @@
  * the link decides is which screen opens, never who may open it.
  */
 
+import { CAMPAIGN_START_PREFIX, normalizeCampaignTag } from '@payetam/shared';
+
 /**
  * What a `?start=` payload can ask for.
  *
@@ -102,4 +104,41 @@ export function parseStartPayload(payload: string): StartLink | null {
 
   const id = payload.slice(separator + 1);
   return PUBLIC_ID.test(id) ? { action, id } : null;
+}
+
+/** Whether a payload is one Telegram itself could have put in a `?start=` link. */
+export function isStartPayload(payload: string): boolean {
+  return START_PAYLOAD.test(payload);
+}
+
+/**
+ * `?start=src_<tag>` — a link an operator puts on an ad (acquisition tracking).
+ *
+ * The third shape `/start` carries, beside the event links above and referral
+ * codes. Told apart by its prefix, which neither of the others can produce:
+ * `src` is not a `StartAction`, and a referral code has no underscore.
+ */
+export function encodeCampaignPayload(tag: string): string {
+  const normalized = normalizeCampaignTag(tag);
+  if (normalized === null) {
+    throw new Error(`campaign tag is not one Telegram accepts: ${tag}`);
+  }
+  return `${CAMPAIGN_START_PREFIX}${normalized}`;
+}
+
+/** The campaign tag a payload names, lower-cased — or null when it names none. */
+export function parseCampaignTag(payload: string): string | null {
+  if (!payload.toLowerCase().startsWith(CAMPAIGN_START_PREFIX)) return null;
+  return normalizeCampaignTag(payload.slice(CAMPAIGN_START_PREFIX.length));
+}
+
+/**
+ * `/start ref_ABCD2345` and `/start ABCD2345` are the same invitation.
+ *
+ * A prefix is what a link generator naturally adds. `normalizeCode` in the domain
+ * strips whitespace and hyphens but not this, and it is stripped here — where the
+ * link format is known — rather than by loosening a validator the API also uses.
+ */
+export function stripReferralPrefix(payload: string): string {
+  return payload.replace(/^ref[_-]/i, '');
 }

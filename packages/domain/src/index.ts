@@ -7,6 +7,8 @@ export type { SessionTokens, AccessTokenClaims } from './identity/session.servic
 
 export { UserService, isUniqueViolation } from './identity/user.service';
 export type { PublicUser } from './identity/user.service';
+export { acquisitionFor } from './identity/acquisition';
+export type { Acquisition } from './identity/acquisition';
 
 export { ConsentService, policyLabel } from './identity/consent.service';
 export type { CurrentPolicy, ConsentContextInfo, PolicyStanding } from './identity/consent.service';
@@ -69,6 +71,7 @@ export {
   REFERRAL_REFERRED_REASON,
   CODE_ALPHABET,
   generateCode,
+  isReferralCodeShape,
   normalizeCode,
   referredRewardKey,
   referrerRewardKey,
@@ -378,6 +381,11 @@ export type {
   UserSummary,
 } from './adminaccess/admin-insight.service';
 export { FoundingAdminService } from './adminaccess/founding-admin.service';
+export { AcquisitionReportService } from './adminaccess/acquisition-report.service';
+export type {
+  AcquisitionReport,
+  AcquisitionReportRow,
+} from './adminaccess/acquisition-report.service';
 export { EconomyReportService } from './adminaccess/economy-report.service';
 export type {
   EconomyReport,

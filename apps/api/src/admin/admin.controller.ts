@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
+  AcquisitionReportService,
   AdminAccessService,
   AdminInsightService,
   BugReportService,
@@ -72,6 +73,7 @@ import {
   adminReportListQuery,
   adminUserListQuery,
   foundingMemberListQuery,
+  acquisitionReportQuery,
   analyticsWindowQuery,
   bulkCreateGiftCodesRequest,
   createGiftCodeRequest,
@@ -153,6 +155,8 @@ import {
   type FoundingMemberListResponse,
   type FoundingMemberView,
   type FoundingReportResponse,
+  type AcquisitionReportQuery,
+  type AcquisitionReportResponse,
   type EconomyReportResponse,
   type AdminEventListQuery,
   type AdminEventListResponse,
@@ -259,6 +263,8 @@ export class AdminController {
     private readonly insight: AdminInsightService,
     /** The launch campaign's report. Read-only: the lever lives in settings. */
     private readonly founding: FoundingAdminService,
+    /** Where users come from. Read-only: its only input is a link on an ad. */
+    private readonly acquisition: AcquisitionReportService,
     /**
      * The coin economy's health. Read-only for the same reason, and doubly so:
      * every lever on it is a row in `app_setting` with a screen of its own.
@@ -981,6 +987,33 @@ export class AdminController {
       ...(query.offset !== undefined ? { offset: query.offset } : {}),
     });
     return { members: page.rows.map(toFoundingMemberView), total: page.total };
+  }
+
+  // ── Where users come from ──────────────────────────────────────────────────
+
+  /**
+   * Acquisition, by source and campaign tag, with how far each one's people got.
+   *
+   * `dashboard.read`, asserted in the service, for the reason the campaign
+   * report is: every number is an aggregate. No write lives here — a campaign is
+   * nothing more than a `?start=src_<tag>` link, and the screen builds those in
+   * the browser.
+   */
+  @Get('acquisition')
+  async acquisitionReport(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(acquisitionReportQuery)) query: AcquisitionReportQuery,
+  ): Promise<AcquisitionReportResponse> {
+    const report = await this.acquisition.report(admin, query.days);
+    return {
+      windowDays: report.windowDays,
+      since: report.since?.toISOString() ?? null,
+      trackingSince: report.trackingSince?.toISOString() ?? null,
+      totals: report.totals,
+      rows: report.rows,
+      omittedRows: report.omittedRows,
+      botUsername: report.botUsername,
+    };
   }
 
   // ── The coin economy ───────────────────────────────────────────────────────
