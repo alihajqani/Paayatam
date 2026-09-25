@@ -540,6 +540,20 @@ export function normalizeCode(raw: string): string {
   return raw.trim().toUpperCase().replaceAll(/[\s-]/g, '');
 }
 
+const CODE_SHAPE = new RegExp(`^[${CODE_ALPHABET}]{${CODE_LENGTH}}$`);
+
+/**
+ * Whether a string could be a code `generateCode` produced — not whether one
+ * exists.
+ *
+ * For attribution, which has to decide what a `/start` payload *is* before the
+ * claim says whether it worked: a mistyped invite is still an invite, and a
+ * payload no code could ever be is somebody's link built for something else.
+ */
+export function isReferralCodeShape(raw: string): boolean {
+  return CODE_SHAPE.test(normalizeCode(raw));
+}
+
 /**
  * `length` characters drawn uniformly from `CODE_ALPHABET`.
  *

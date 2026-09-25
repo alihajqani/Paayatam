@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { AppError, ErrorCode } from '@payetam/shared';
+import type { Acquisition } from './acquisition';
 import type { InitDataUser } from './init-data.validator';
 
 /** The safe projection of a user. Contains nothing that could identify them on Telegram. */
@@ -30,8 +31,17 @@ export class UserService {
    *
    * Also refreshes the cached Telegram profile fields, which are the only place a
    * username is stored and are never returned to a client.
+   *
+   * `acquisition` is written **only when this call creates the account**, in the
+   * same INSERT — so it is first touch by construction rather than by a check,
+   * and the loser of the insert race writes nothing because it creates nothing.
+   * An existing user who taps an ad link is not re-attributed: they were already
+   * here. Omitted (the Mini App's sign-in), the account simply has no row.
    */
-  async findOrCreateByTelegram(telegramUser: InitDataUser): Promise<PublicUser> {
+  async findOrCreateByTelegram(
+    telegramUser: InitDataUser,
+    acquisition?: Acquisition,
+  ): Promise<PublicUser> {
     const now = this.clock.now();
 
     const existing = await this.prisma.telegramAccount.findUnique({
@@ -68,6 +78,9 @@ export class UserService {
               lastSeenAt: now,
             },
           },
+          ...(acquisition !== undefined
+            ? { acquisition: { create: { source: acquisition.source, ref: acquisition.ref } } }
+            : {}),
         },
       });
       return this.assertUsable(toPublicUser(created));

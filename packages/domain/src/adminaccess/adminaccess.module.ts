@@ -6,6 +6,7 @@ import { EconomyModule } from '../economy/economy.module';
 import { IdentityModule } from '../identity/identity.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { ProfileModule } from '../profile/profile.module';
+import { AcquisitionReportService } from './acquisition-report.service';
 import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
 import { AdminInsightService } from './admin-insight.service';
@@ -60,6 +61,7 @@ import { SeedAdminService } from './seed-admin.service';
     AdminTelegramService,
     AdminInsightService,
     FoundingAdminService,
+    AcquisitionReportService,
     EconomyReportService,
     GiftCodeAdminService,
     ReferralAdminService,
@@ -79,6 +81,7 @@ import { SeedAdminService } from './seed-admin.service';
     AdminTelegramService,
     AdminInsightService,
     FoundingAdminService,
+    AcquisitionReportService,
     EconomyReportService,
     GiftCodeAdminService,
     ReferralAdminService,

@@ -12,6 +12,27 @@ export {
 } from './copy';
 
 export {
+  ACQUISITION_SOURCES,
+  ACQUISITION_SOURCE_FA,
+  UNATTRIBUTED_FA,
+  CAMPAIGN_START_PREFIX,
+  CAMPAIGN_TAG_MAX_LENGTH,
+  normalizeCampaignTag,
+  acquisitionSource,
+  acquisitionReportQuery,
+  acquisitionFunnel,
+  acquisitionRow,
+  acquisitionReportResponse,
+} from './contracts/acquisition';
+export type {
+  AcquisitionSource,
+  AcquisitionReportQuery,
+  AcquisitionFunnel,
+  AcquisitionRow,
+  AcquisitionReportResponse,
+} from './contracts/acquisition';
+
+export {
   telegramAuthRequest,
   refreshRequest,
   onboardingState,

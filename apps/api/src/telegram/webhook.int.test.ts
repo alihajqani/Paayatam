@@ -356,6 +356,8 @@ describe('/start', () => {
 
     expect(await prisma.user.count()).toBe(1);
     expect(await prisma.telegramAccount.count()).toBe(1);
+    // Written in the INSERT that won, so the losers wrote nothing.
+    expect(await prisma.userAcquisition.count()).toBe(1);
   });
 
   /**
@@ -403,6 +405,89 @@ describe('/start', () => {
     expect((await replyTo(HOST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
       TEMPLATES.BOT_WELCOME,
     ]);
+  });
+
+  /**
+   * Where a new account came from (migration 0061).
+   *
+   * Asserted through the webhook rather than on `acquisitionFor` alone, because
+   * the property that matters is where the row is written: in the INSERT that
+   * creates the account, so an account that already exists is never
+   * re-attributed by the next link it taps.
+   */
+  describe('where a new account came from', () => {
+    async function acquisitionOf(telegramUserId: number) {
+      const account = await prisma.telegramAccount.findUniqueOrThrow({
+        where: { telegramUserId: BigInt(telegramUserId) },
+        select: { user: { select: { acquisition: { select: { source: true, ref: true } } } } },
+      });
+      return account.user.acquisition;
+    }
+
+    it('records a bare /start as direct', async () => {
+      await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+
+      expect(await acquisitionOf(HOST_TELEGRAM_ID)).toEqual({ source: 'DIRECT', ref: null });
+    });
+
+    /**
+     * An ad link is recorded and then left alone: it is not a referral code, and
+     * the newcomer gets the ordinary welcome rather than a refused invitation.
+     */
+    it('records an ad link under its tag, and welcomes without trying it as a referral', async () => {
+      await post(
+        update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start src_TgAds_Anon1') }),
+      );
+
+      expect(await acquisitionOf(HOST_TELEGRAM_ID)).toEqual({
+        source: 'CAMPAIGN',
+        ref: 'tgads_anon1',
+      });
+      expect(await prisma.referral.count()).toBe(0);
+      expect((await replyTo(HOST_TELEGRAM_ID)).map((row) => row.templateKey)).toContain(
+        TEMPLATES.BOT_WELCOME,
+      );
+    });
+
+    it('records an invite link as a referral', async () => {
+      const referrerId = await seedGuest(700_111_222, 'دعوت‌کننده');
+      await prisma.user.update({ where: { id: referrerId }, data: { referralCode: 'ABCD2345' } });
+
+      await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start ref_ABCD2345') }));
+
+      expect(await acquisitionOf(HOST_TELEGRAM_ID)).toEqual({ source: 'REFERRAL', ref: null });
+    });
+
+    it('records a channel post button under the event it named', async () => {
+      const { eventPublicId } = await seedHostAndEvent();
+
+      await post(
+        update({
+          message: textMessage(sender(NEWCOMER_TELEGRAM_ID), `/start event_${eventPublicId}`),
+        }),
+      );
+
+      expect(await acquisitionOf(NEWCOMER_TELEGRAM_ID)).toEqual({
+        source: 'EVENT_LINK',
+        ref: eventPublicId,
+      });
+    });
+
+    /** An ad link built without the prefix, which is what this row exists to catch. */
+    it('keeps a link it does not recognise under its own name', async () => {
+      await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start tgads1') }));
+
+      expect(await acquisitionOf(HOST_TELEGRAM_ID)).toEqual({ source: 'OTHER', ref: 'tgads1' });
+    });
+
+    it('never re-attributes somebody who was already here', async () => {
+      await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+      await post(
+        update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start src_tgads_anon1') }),
+      );
+
+      expect(await acquisitionOf(HOST_TELEGRAM_ID)).toEqual({ source: 'DIRECT', ref: null });
+    });
   });
 
   /**

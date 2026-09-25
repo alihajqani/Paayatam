@@ -140,6 +140,13 @@ describe('a session that cannot open a page', () => {
 
     expect(router.currentRoute.value.name).toBe('campaign');
   });
+
+  /** Where users come from: aggregates too, and campaign tags name links, not people. */
+  it('opens the acquisition report, which is aggregates', async () => {
+    await router.push('/acquisition');
+
+    expect(router.currentRoute.value.name).toBe('acquisition');
+  });
 });
 
 describe('a signed-in operator', () => {
@@ -163,6 +170,7 @@ describe('a signed-in operator', () => {
     for (const path of [
       '/',
       '/campaign',
+      '/acquisition',
       '/users',
       '/events',
       '/reports',

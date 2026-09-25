@@ -109,6 +109,7 @@ model User {
   directsReceived     DirectMessage[]      @relation("DirectMessagesReceived")
   noShowClaims        NoShowClaim[]        @relation("NoShowClaimsAuthored")
   seedConfigsHosted   CitySeedConfig[]
+  acquisition         UserAcquisition?
 
   @@index([status])
   @@index([createdAt])
@@ -141,6 +142,46 @@ model TelegramAccount {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("telegram_account")
+}
+
+/// How a `/start` payload brought an account in. See `@payetam/shared`'s
+/// `ACQUISITION_SOURCES` for what each value means.
+enum AcquisitionSource {
+  DIRECT
+  CAMPAIGN
+  REFERRAL
+  EVENT_LINK
+  OTHER
+
+  @@map("acquisition_source")
+}
+
+/// Where an account came from: first touch, written once, in the same INSERT
+/// that creates the account (migration 0061).
+///
+/// Its own table rather than columns on `user`, for the reason `founding_member`
+/// is: the row is written once and never updated, and the PRIMARY KEY on
+/// `user_id` is what makes "one source per person, for life" a rule the database
+/// holds rather than one `/start` remembers. Accounts created before this table
+/// existed have no row, and the report calls them «پیش از ردیابی».
+///
+/// Not personal data: a source and a campaign tag describe the link that was
+/// tapped, not the person who tapped it. Anonymisation leaves the row, so the
+/// historical counts still add up after an account is deleted.
+model UserAcquisition {
+  userId    String            @id @map("user_id")
+  source    AcquisitionSource
+  /// The campaign tag for `CAMPAIGN`, the event public id for `EVENT_LINK`, the
+  /// payload itself for `OTHER` when it is one Telegram could carry. Null for the
+  /// other two, which a CHECK enforces.
+  ref       String?
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "How did campaign X do?" — the report groups on exactly these two.
+  @@index([source, ref])
+  @@map("user_acquisition")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
