@@ -14,6 +14,45 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.19.0] — 2026-09-25
+
+Every new account now records the link that brought it in (an ad, an invite, a channel post,
+or none), and the admin panel reports, per source and per ad, how far those people got.
+
+**One migration, additive.** 0061 adds the `acquisition_source` type and the
+`user_acquisition` table; nothing existing changes. **No setting change. The bot's command
+menu does not change.**
+
+### ⚠️ What a deploy changes for people
+
+- Nothing users can see. A `/start` from an ad link (`?start=src_<tag>`) gets the ordinary
+  welcome, as any unrecognised link did before.
+- The admin panel has a new page, «منابع ورود», under «نمای کلی», open to every staff role
+  (`dashboard.read`: it is aggregates only).
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- `user_acquisition`: one row per account created from this release on, written in the same
+  INSERT that creates the account, so it is first touch by construction and an existing user
+  who taps an ad later is never re-attributed. The source is read from the `/start` payload's
+  shape: `CAMPAIGN` for `src_<tag>` (the tag lower-cased), `EVENT_LINK` for a channel post
+  button or a shared event (with the event's public id), `REFERRAL` for anything shaped like
+  an invite code (whether or not the claim then succeeds), `DIRECT` for a bare `/start`, and
+  `OTHER`, keeping the payload, for everything else, so an ad link built without the prefix
+  still shows up under its own name. Accounts from before this release have no row and are
+  reported as «پیش از ردیابی»; a Mini App sign-in writes none.
+- `GET /admin/v1/acquisition?days=` and the «منابع ورود» page: per source, and per campaign
+  tag, the accounts created, then how many of them accepted the terms, completed a profile,
+  asked to join an event, attended one, hosted one (seeded events excluded) and blocked the
+  bot, each also as a share of that row. A 7, 30 or 90 day window or all time, and a builder
+  that turns a tag into `https://t.me/<bot>?start=src_<tag>`.
+
+### Changed
+
+- A `src_` payload is no longer handed to the referral claim, which used to log a refusal for
+  every tap on an ad link.
+
 ## [v0.18.5] — 2026-09-24
 
 A profile is called «پروفایل» everywhere now, and its edit button opens the board of fields
