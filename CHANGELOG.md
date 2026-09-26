@@ -14,6 +14,79 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.21.0] — 2026-09-27
+
+An in-bot guide: «📖 راهنما» beside «☰ منوی اصلی» and `/help` open eleven sections, read page
+by page in one message, written from the channel posts and checked against the code. Its text is
+editable from a new panel page, and every number in it is filled from the live settings. A
+waiting-list place that no seat reached by the time the activity started now gives its coins
+back. And an account whose Telegram account was deleted is no longer anonymised: v0.20.0's
+automatic anonymisation is removed (it was fixed on a branch as v0.20.1 and never deployed on
+its own; this release carries it).
+
+**One migration, additive.** 0063 adds the `help_guide` table (edited sections only; the
+defaults are code). **No setting change. The bot's command menu does not change** (`/help` keeps
+its name and description).
+
+### ⚠️ What a deploy changes for people
+
+- The bottom keyboard gains «📖 راهنما» on the same row as «☰ منوی اصلی». It works before
+  signing up, like `/help`.
+- `/help` opens the guide's contents instead of printing the command list; the list is one tap
+  inside it («⌨️ فهرست دستورها»).
+- Finishing a profile for the first time now ends with a line suggesting the guide and a
+  «📖 خواندن راهنمای پایتم» button.
+- **Waiting-list refunds, retroactively.** Within a minute of the deploy, every place still
+  WAITLISTED on an activity that has already started is closed, its join charge refunded, and
+  its owner sent «جایی در «…» باز نشد» with the amount — including activities from before this
+  release.
+- The worker stops anonymising accounts on «user is deactivated»; such an account is marked
+  bot-blocked and kept as it is. Accounts v0.20.0 already anonymised stay anonymised.
+- The legal documents are not published by the deploy. `pnpm draft-policies` (run once, below)
+  puts `docs/legal/` into the panel as drafts; publishing them asks every user to accept again.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- The guide: `HELP_GUIDE_DEFAULTS` (eleven sections, `{{setting.key}}` placeholders plus two
+  derived sums, `|abs` for negative settings), `HelpGuideService`, the `gd:` callbacks (handled
+  before both onboarding gates), and the reply-keyboard label resolving to `help` — exempted from
+  the onboarding and channel gates as typed text.
+- `GET /admin/v1/help-guides`, `PUT` and `DELETE /admin/v1/help-guides/:slug`, behind
+  `policy.read` / `policy.manage`, audited as `help_guide.updated` / `help_guide.reset`. The
+  «راهنمای ربات» page: title, text, hide, live preview, placeholder list with today's values,
+  reset to default. Unknown placeholders and over-long text are refused.
+- `ParticipationService.expireWaitlisted`, run by the minute job beside `expireOverdue`:
+  WAITLISTED → EXPIRED under the event lock once the activity has started, the charge reversed
+  under `participation.waitlist_refund`, `waitlist.expired` audited, and the guest notified.
+- `tools/draft-policies.ts` (`pnpm draft-policies`): drafts TERMS, PRIVACY and COMMUNITY from
+  `docs/legal/`, updating an open draft rather than opening a second; never publishes; audited.
+  `.dockerignore` lets `docs/legal/*.md` into the image for it.
+
+### Changed
+
+- The guide's text corrects the channel posts where the code disagreed: the join charge is a
+  price refunded when you do not get in (not a deposit), the event fee is one sum, a full
+  event's button is «⏳ ثبت در نوبت انتظار», and «سایر» takes no name of your own.
+- `docs/legal/`: dated ۱۴۰۵/۰۷/۰۵; the terms (§3, §6) say a waiting-list place that never opens
+  is refunded.
+
+### Removed
+
+- Automatic anonymisation of deactivated Telegram accounts (`forgetIfDeactivated`). Deleting a
+  Telegram account must not wipe the record of somebody a report or a moderation case may still
+  need; privacy §10 now says an account is not deleted, on request or otherwise.
+
+### Deploying
+
+After `scripts/deploy-remote.sh v0.21.0`, on the server:
+
+```bash
+PAYETAM_VERSION=v0.21.0 ./scripts/compose.sh --profile tools run --rm tools pnpm draft-policies
+```
+
+then publish the three drafts from «اسناد حقوقی».
+
 ## [v0.20.0] — 2026-09-26
 
 The consent screen shows the documents it asks people to accept, however long they are: a
