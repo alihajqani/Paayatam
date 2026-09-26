@@ -374,6 +374,10 @@ export {
   directThreadQuery,
   directMessageAdminView,
   directThreadResponse,
+  helpGuideAdminView,
+  helpGuidePlaceholderView,
+  helpGuideListResponse,
+  updateHelpGuideRequest,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -521,6 +525,10 @@ export type {
   DirectThreadQuery,
   DirectMessageAdminView,
   DirectThreadResponse,
+  HelpGuideAdminView,
+  HelpGuidePlaceholderView,
+  HelpGuideListResponse,
+  UpdateHelpGuideRequest,
 } from './contracts/admin';
 
 export { foldForSearch, foldedIncludes } from './search-fold';

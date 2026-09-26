@@ -84,9 +84,13 @@ export {
   MAX_POLICY_PAGE,
   POLICY_DOC_LETTERS,
   encodePolicyCallback,
+  encodeGuideCallback,
+  encodeGuideCommands,
+  encodeGuideIndex,
+  parseGuideCallback,
   parsePolicyCallback,
 } from './callback-data';
-export type { PolicyCallback, PolicyDocLetter } from './callback-data';
+export type { GuideCallback, PolicyCallback, PolicyDocLetter } from './callback-data';
 export { MAX_TRUST_PAGE, encodeTrustCallback, parseTrustCallback } from './callback-data';
 export { encodeDirectCallback, parseDirectCallback } from './callback-data';
 export type { DirectCallback, DirectCallbackAction } from './callback-data';
@@ -137,6 +141,7 @@ export {
   formatStanding,
   paginatePolicy,
   policyPageRows,
+  renderLightMarkdown,
   policyReadRows,
   policyTypeFor,
 } from './policies';
@@ -244,6 +249,16 @@ export type { ReviewCallback, ReviewRating } from './callback-data';
 
 export { hostDecisionKeyboard } from './keyboards';
 export type { MenuStatus } from './keyboards';
-export { MAIN_MENU_LABEL, mainMenuReplyKeyboard } from './keyboards';
+export { HELP_BUTTON_LABEL, MAIN_MENU_LABEL, mainMenuReplyKeyboard } from './keyboards';
+export {
+  commandListRows,
+  formatCommandList,
+  formatGuideGone,
+  formatGuideIndex,
+  formatGuidePage,
+  guideIndexRows,
+  guidePageRows,
+  readGuideRow,
+} from './help-guides';
 export type { ReplyKeyboard } from './keyboards';
 export type { InlineButton, InlineKeyboard } from './keyboards';

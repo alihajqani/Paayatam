@@ -21,3 +21,8 @@ backups
 # the build context is a megabyte over the wire on every uncached build for
 # nothing.
 logo.png
+
+# The legal documents, back in (v0.21.0): `pnpm draft-policies` runs in the
+# tools image and drafts exactly the text the repository holds. Only these —
+# the rest of `docs/` stays out of the build context.
+!docs/legal/*.md

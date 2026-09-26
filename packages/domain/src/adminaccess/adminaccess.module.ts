@@ -22,6 +22,7 @@ import { GeographyAdminService } from './geography-admin.service';
 import { MessagingAdminService } from './messaging-admin.service';
 import { ModerationDigestService } from './moderation-digest.service';
 import { GiftCodeAdminService } from './gift-code-admin.service';
+import { HelpGuideAdminService } from './help-guide-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import { SeedAdminService } from './seed-admin.service';
@@ -72,6 +73,7 @@ import { SeedAdminService } from './seed-admin.service';
     GeographyAdminService,
     MessagingAdminService,
     PolicyAdminService,
+    HelpGuideAdminService,
     ModerationDigestService,
     SeedAdminService,
   ],
@@ -93,6 +95,7 @@ import { SeedAdminService } from './seed-admin.service';
     GeographyAdminService,
     MessagingAdminService,
     PolicyAdminService,
+    HelpGuideAdminService,
     ModerationDigestService,
     SeedAdminService,
   ],

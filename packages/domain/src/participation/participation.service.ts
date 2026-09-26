@@ -51,6 +51,16 @@ export const EVENT_JOIN_REFUND_REASON = 'participation.rejected_refund';
 export const EVENT_JOIN_EXPIRY_REFUND_REASON = 'participation.expired_refund';
 
 /**
+ * The same refund, for a waiting-list place no seat ever reached (v0.21.0).
+ *
+ * Its own code for the reason the two above are separate: «nobody left, so the
+ * queue never moved» is a third answer to "why did this number move", and an
+ * operator counting how often the waiting list fails people should not have to
+ * join back to `event_participant` to tell it from an unanswered request.
+ */
+export const EVENT_JOIN_WAITLIST_REFUND_REASON = 'participation.waitlist_refund';
+
+/**
  * The exactly-once key for a join charge.
  *
  * `(event, user)` rather than the participant id, because it has to be
@@ -743,6 +753,110 @@ export class ParticipationService {
       if (await this.expireOne(publicId, now)) expired += 1;
     }
     return expired;
+  }
+
+  /**
+   * Close every waiting-list place whose activity has started, and give back
+   * what joining the list cost (v0.21.0).
+   *
+   * ── Why at the start, and not earlier ───────────────────────────────────────
+   *
+   * A place is promotable until the moment the activity begins: a seat freed an
+   * hour before still goes to the first in line (`fillFreedSeats`), with a host
+   * deadline squeezed to fit. So the start is the first instant at which "no seat
+   * will come" is a fact rather than a forecast — refunding earlier would take a
+   * place from somebody who might still have got in.
+   *
+   * ── Why it is refunded at all ───────────────────────────────────────────────
+   *
+   * v0.8.1 refunded a rejected request and an unanswered one on one principle:
+   * the product must not keep a payment for something the payer never received.
+   * A waiting-list place that never became a seat is the plainest case of that,
+   * and until now it kept the coins — the WAITLISTED row simply stayed WAITLISTED
+   * after the activity was over. Only the guest's own withdrawal keeps the charge.
+   *
+   * One transaction per participant under its event's lock, the shape
+   * `expireOverdue` has and for the same reason. Rows of activities that started
+   * before this existed are swept too: they paid for the same nothing.
+   */
+  async expireWaitlisted(limit = 200): Promise<number> {
+    const now = this.clock.now();
+
+    const stranded = await this.prisma.eventParticipant.findMany({
+      where: { status: 'WAITLISTED', event: { startsAt: { lte: now } } },
+      select: { publicId: true },
+      orderBy: [{ requestedAt: 'asc' }, { id: 'asc' }],
+      take: limit,
+    });
+
+    let expired = 0;
+    for (const { publicId } of stranded) {
+      if (await this.expireWaitlistedOne(publicId, now)) expired += 1;
+    }
+    return expired;
+  }
+
+  private async expireWaitlistedOne(participantPublicId: string, now: Date): Promise<boolean> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const event = await lockEventByParticipantPublicIdForUpdate(tx, participantPublicId);
+        if (!event || event.startsAt > now) return false;
+
+        const participant = await this.readParticipantByPublicId(tx, participantPublicId);
+        // Re-read under the lock: a last-second promotion or withdrawal may have
+        // moved it between the scan and the lock being granted.
+        if (participant.status !== 'WAITLISTED') return false;
+
+        assertParticipantTransition(participant.status, 'EXPIRED', participant.id);
+        // Nothing to release: a waiting-list place holds neither a seat nor a slot.
+        await tx.eventParticipant.update({
+          where: { id: participant.id },
+          data: { status: 'EXPIRED', version: { increment: 1 } },
+        });
+
+        const refunded = await this.refundJoinCharge(tx, participant.id, {
+          reasonCode: EVENT_JOIN_WAITLIST_REFUND_REASON,
+          actorType: 'SYSTEM',
+        });
+
+        await this.audit.record(
+          {
+            actorType: 'SYSTEM',
+            action: 'waitlist.expired',
+            targetType: 'event_participant',
+            targetId: participant.id,
+            before: { status: 'WAITLISTED' },
+            after: { status: 'EXPIRED', coinsRefunded: refunded },
+          },
+          tx,
+        );
+
+        /**
+         * The guest is told, for the reason an unanswered request is: a refund
+         * with no message is a balance that moves for a reason nobody can see.
+         * The same event type, with `waitlisted` saying which sentence to use.
+         */
+        await this.outbox.emit(
+          {
+            aggregateType: 'event_participant',
+            aggregateId: participant.id,
+            eventType: 'participation.expired',
+            payload: {
+              participantPublicId: participant.publicId,
+              eventPublicId: event.publicId,
+              eventTitle: event.title,
+              participantUserPublicId: await this.publicIdOf(tx, participant.userId),
+              coinsRefunded: refunded,
+              waitlisted: true,
+            },
+          },
+          tx,
+        );
+
+        return true;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
   }
 
   /**

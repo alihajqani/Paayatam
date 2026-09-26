@@ -75,7 +75,7 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
       "trust_score_ledger", "trust_score", "coin_ledger",
       "coin_account", "consent", "telegram_account", "audit_log", "user",
       "policy_version", "interest", "category", "district", "city",
-      "app_setting", "feature_flag", "province", "event_channel_config"
+      "app_setting", "feature_flag", "province", "event_channel_config", "help_guide"
     RESTART IDENTITY CASCADE
   `;
 

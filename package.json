@@ -34,6 +34,7 @@
     "create-admin": "tsx --env-file-if-exists=.env tools/create-admin.ts",
     "link-admin-telegram": "tsx --env-file-if-exists=.env tools/link-admin-telegram.ts",
     "set-bot-commands": "tsx --env-file=.env tools/set-bot-commands.ts",
+    "draft-policies": "tsx --env-file=.env tools/draft-policies.ts",
     "bot-walkthrough": "tsx tools/bot-walkthrough.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },

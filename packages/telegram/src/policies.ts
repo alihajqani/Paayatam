@@ -71,6 +71,16 @@ type Row = { text: string; callbackData: string }[];
  * part of reading it. A horizontal rule is dropped: pages already separate what
  * it would have.
  */
+/**
+ * The same light markdown, for text that is not a policy (the in-bot guide):
+ * headings and `**bold**` become `<b>`, bullets become «•», everything else is
+ * escaped. One renderer, so a guide and a policy cannot disagree about what
+ * `**` means.
+ */
+export function renderLightMarkdown(markdown: string): string {
+  return flatten(markdown);
+}
+
 function flatten(markdown: string): string {
   const lines = markdown
     .split('\n')

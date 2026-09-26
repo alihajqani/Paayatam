@@ -72,6 +72,20 @@ describe('an expired request', () => {
       expect(message?.text).not.toContain('سکه');
     }
   });
+  /**
+   * A waiting-list place the activity started without reaching (v0.21.0).
+   * Nobody decided anything, so no host is said to have failed to answer.
+   */
+  it('says no seat opened for a waiting-list place, and names the refund', () => {
+    const text = String(
+      render(TEMPLATES.PARTICIPATION_EXPIRED, { ...payload, waitlisted: true, coinsRefunded: 20 })
+        ?.text,
+    );
+    expect(text).toContain('باز نشد');
+    expect(text).toContain('لیست انتظار');
+    expect(text).toContain('۲۰ سکه');
+    expect(text).not.toContain('پاسخی نداد');
+  });
 });
 
 /**

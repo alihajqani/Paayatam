@@ -2,7 +2,6 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
   AdminTelegramService,
-  AnonymizationService,
   AuditService,
   CHANNEL_POST_UNDELETABLE_ACTION,
   ChannelService,
@@ -160,38 +159,7 @@ export class Processors implements OnModuleInit {
     private readonly noShowClaims: NoShowClaimService,
     /** Marketing seed events: create and fill fake events per city (SUPER_ADMIN-configured). */
     private readonly seedScheduler: SeedSchedulerService,
-    /**
-     * For one case only: Telegram saying an account was deleted (ADR-0020's
-     * companion rule in the terms). The product offers no «delete my account»;
-     * a person who deletes their Telegram account is the one deletion it honours.
-     */
-    private readonly anonymization: AnonymizationService,
   ) {}
-
-  /**
-   * Anonymise an account whose Telegram account has been deleted.
-   *
-   * Telegram answers a send to a deleted account with 403 «Forbidden: user is
-   * deactivated» — the same status as a blocked bot, told apart only by its
-   * description. A block is a choice somebody can reverse by pressing /start;
-   * a deactivation is not, there is nobody left to come back, and the terms
-   * promise that this is the case in which an account's personal data goes.
-   *
-   * Never throws. The send it is attached to has already been settled as
-   * undeliverable, and a failure here must not turn that into a retry that
-   * sends again.
-   */
-  private async forgetIfDeactivated(userId: string, reason: string): Promise<void> {
-    if (!/user is deactivated/i.test(reason)) return;
-    try {
-      await this.anonymization.anonymize(userId);
-      this.logger.log('A recipient deleted their Telegram account; their data was anonymised');
-    } catch (error) {
-      this.logger.error(
-        `Could not anonymise a deactivated account: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
 
   /**
    * Consecutive sweeps in which every channel post attempt failed.
@@ -448,10 +416,16 @@ export class Processors implements OnModuleInit {
         }
         return;
 
+      /**
+       * Blocked, or the Telegram account was deleted («user is deactivated»).
+       * Either way the account is **kept as it is**, never anonymised: the
+       * operator decided (v0.20.1) that deleting a Telegram account must not
+       * wipe the record of somebody a report or a moderation case may still
+       * need — v0.20.0 anonymised here, and was reverted for that reason.
+       */
       case 'BLOCKED':
         await this.notifications.markUndeliverable(notification.id, notification.userId);
         this.logger.log(`Notification ${notification.id}: recipient has blocked the bot`);
-        await this.forgetIfDeactivated(notification.userId, outcome.reason);
         return;
 
       case 'RETRY':
@@ -594,8 +568,14 @@ export class Processors implements OnModuleInit {
 
       case JOBS.EXPIRE_PENDING: {
         const expired = await this.participation.expireOverdue();
-        if (expired > 0) {
-          this.logger.log(`Expired ${String(expired)} overdue requests`);
+        // And the waiting-list places of activities that have started, with
+        // their coins back (v0.21.0). The same cadence: both are "a deadline
+        // passed and somebody is owed a refund and a message".
+        const closed = await this.participation.expireWaitlisted();
+        if (expired + closed > 0) {
+          this.logger.log(
+            `Expired ${String(expired)} overdue requests, ${String(closed)} waiting-list places`,
+          );
           await this.onDomainEvent(job);
         }
         return;
@@ -1061,7 +1041,6 @@ export class Processors implements OnModuleInit {
           error: outcome.reason,
         });
         await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'BLOCKED');
-        await this.forgetIfDeactivated(target.userId, outcome.reason);
         return;
 
       case 'RATE_LIMITED': {

@@ -274,6 +274,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'اسناد حقوقی', permission: PERMISSIONS.POLICY_READ, group: 'system' },
   },
   {
+    path: '/help-guides',
+    name: 'help-guides',
+    component: () => import('@/views/HelpGuidesView.vue'),
+    meta: { title: 'راهنمای ربات', permission: PERMISSIONS.POLICY_READ, group: 'system' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),

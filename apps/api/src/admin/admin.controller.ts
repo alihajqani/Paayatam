@@ -27,6 +27,10 @@ import {
   AdminOperationsService,
   ChatUnsealService,
   DirectAdminService,
+  HelpGuideAdminService,
+  HELP_GUIDE_BODY_MAX,
+  HELP_GUIDE_TITLE_MAX,
+  type HelpGuideEntry,
   FoundingAdminService,
   EconomyReportService,
   GeographyAdminService,
@@ -63,6 +67,10 @@ import {
   directThreadListQuery,
   directThreadQuery,
   updateBugReportRequest,
+  updateHelpGuideRequest,
+  type HelpGuideAdminView,
+  type HelpGuideListResponse,
+  type UpdateHelpGuideRequest,
   type DirectPartyView,
   type DirectThreadListQuery,
   type DirectThreadListResponse,
@@ -305,6 +313,8 @@ export class AdminController {
     private readonly seedAdmin: SeedAdminService,
     /** Direct messages, read as conversations (ADR-0020). */
     private readonly directs: DirectAdminService,
+    /** The in-bot guide's text (migration 0063). */
+    private readonly helpGuides: HelpGuideAdminService,
     /** Only for the release string; nothing else in this controller reads it. */
     @Inject(ENV) env: Env,
   ) {
@@ -1698,6 +1708,43 @@ export class AdminController {
     return toDirectThreadResponse(await this.directs.readThread(admin, query));
   }
 
+  // ── The in-bot guide (migration 0063) ─────────────────────────────────────
+
+  /**
+   * Every section of the guide, with its default beside it, and every
+   * placeholder the text may use with today's value — so the editor can preview
+   * a page exactly as the bot will draw it.
+   */
+  @Get('help-guides')
+  async listHelpGuides(@CurrentAdmin() admin: AdminSession): Promise<HelpGuideListResponse> {
+    const { guides, placeholders } = await this.helpGuides.list(admin);
+    return {
+      guides: guides.map(toHelpGuideAdminView),
+      placeholders,
+      titleMax: HELP_GUIDE_TITLE_MAX,
+      bodyMax: HELP_GUIDE_BODY_MAX,
+    };
+  }
+
+  /** Save one section: its title, its text, and whether users see it. */
+  @Put('help-guides/:slug')
+  async updateHelpGuide(
+    @Param('slug') slug: string,
+    @Body(new ZodValidationPipe(updateHelpGuideRequest)) body: UpdateHelpGuideRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<HelpGuideAdminView> {
+    return toHelpGuideAdminView(await this.helpGuides.update(admin, slug, body));
+  }
+
+  /** Back to the text the code ships with. */
+  @Delete('help-guides/:slug')
+  async resetHelpGuide(
+    @Param('slug') slug: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<HelpGuideAdminView> {
+    return toHelpGuideAdminView(await this.helpGuides.reset(admin, slug));
+  }
+
   // ── The event channel (M22 phase 6) ────────────────────────────────────────
 
   /**
@@ -2356,6 +2403,21 @@ function toMessageCampaignView(campaign: MessageCampaignSummary): MessageCampaig
 
 /** The Telegram id as a string — see the contract for why that is deliberate. */
 /** An allowlist, never a spread, like every other view here. */
+function toHelpGuideAdminView(entry: HelpGuideEntry): HelpGuideAdminView {
+  return {
+    slug: entry.slug,
+    position: entry.position,
+    title: entry.title,
+    body: entry.body,
+    hidden: entry.hidden,
+    defaultTitle: entry.defaultTitle,
+    defaultBody: entry.defaultBody,
+    titleCustomized: entry.titleCustomized,
+    bodyCustomized: entry.bodyCustomized,
+    updatedAt: entry.updatedAt?.toISOString() ?? null,
+  };
+}
+
 function toDirectPartyView(party: DirectParty): DirectPartyView {
   return { publicId: party.publicId, displayName: party.displayName, isHost: party.isHost };
 }

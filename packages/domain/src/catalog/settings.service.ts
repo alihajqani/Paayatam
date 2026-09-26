@@ -230,7 +230,9 @@ export const SETTING_DEFAULTS = {
    *
    * **A rejected or expired request is refunded** — `refundJoinCharge` in
    * `ParticipationService`, since v0.8.1. This paragraph used to say the opposite
-   * and was stale; only the guest's own withdrawal keeps the charge now. A
+   * and was stale; only the guest's own withdrawal keeps the charge now. So is a
+   * waiting-list place no seat reached by the time the activity started
+   * (`expireWaitlisted`, v0.21.0): the ask was paid for, and nothing came of it. A
    * **host** cancelling the whole activity refunds it too, through
    * `PenaltyService.refundParticipant`, which reverses every charge whose subject
    * is that participation.

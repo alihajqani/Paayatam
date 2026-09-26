@@ -655,3 +655,90 @@ describe('the host decision window has a floor', () => {
     expect(row.hostDeadlineAt).toEqual(new Date(inFiveHours.getTime() - 3 * 60 * 60 * 1000));
   });
 });
+
+/**
+ * A waiting-list place no seat reached (v0.21.0).
+ *
+ * It used to stay WAITLISTED after the activity was over, with the join charge
+ * kept — a payment for something the payer never received, which is the one
+ * thing v0.8.1 said the product must not do.
+ */
+describe('the waiting list closes when the activity starts', () => {
+  const JOIN = SETTING_DEFAULTS['economy.event_join_coins'];
+
+  async function waitlistedGuest(): Promise<{
+    eventPublicId: string;
+    guest: string;
+    publicId: string;
+  }> {
+    const eventPublicId = await createEvent(1);
+    const [holder, guest] = await Promise.all([createJoiner(), createJoiner()]);
+    const rows = await joinInOrder(eventPublicId, [holder, guest]);
+    expect(rows[1]?.status).toBe('WAITLISTED');
+    return { eventPublicId, guest, publicId: rows[1]!.publicId };
+  }
+
+  it('refunds the place and says so, once the activity has started', async () => {
+    const { guest, publicId } = await waitlistedGuest();
+    expect(await coins.balanceOf(guest)).toBe(JOIN_BUDGET - JOIN);
+
+    clock.set(STARTS_AT);
+    expect(await participation.expireWaitlisted()).toBe(1);
+
+    expect(await statusOf(publicId)).toBe('EXPIRED');
+    expect(await coins.balanceOf(guest)).toBe(JOIN_BUDGET);
+    expect(
+      await prisma.coinLedger.count({
+        where: { userId: guest, reasonCode: 'participation.waitlist_refund', amount: JOIN },
+      }),
+    ).toBe(1);
+
+    const events = await prisma.outboxEvent.findMany({
+      where: { eventType: 'participation.expired' },
+      select: { payload: true },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({ waitlisted: true, coinsRefunded: JOIN });
+  });
+
+  it('leaves the place alone while the activity has not started', async () => {
+    const { guest, publicId } = await waitlistedGuest();
+
+    clock.set(new Date(STARTS_AT.getTime() - 60_000));
+    expect(await participation.expireWaitlisted()).toBe(0);
+
+    expect(await statusOf(publicId)).toBe('WAITLISTED');
+    expect(await coins.balanceOf(guest)).toBe(JOIN_BUDGET - JOIN);
+  });
+
+  it('refunds once, however often the job runs', async () => {
+    const { guest } = await waitlistedGuest();
+
+    clock.set(STARTS_AT);
+    await participation.expireWaitlisted();
+    expect(await participation.expireWaitlisted()).toBe(0);
+
+    expect(await coins.balanceOf(guest)).toBe(JOIN_BUDGET);
+  });
+
+  /** Only the waiting list: a PENDING or ACCEPTED row at the start is not this sweep's. */
+  it('touches nobody who held a place', async () => {
+    const eventPublicId = await createEvent(1);
+    const holder = await createJoiner();
+    const [row] = await joinInOrder(eventPublicId, [holder]);
+
+    clock.set(STARTS_AT);
+    expect(await participation.expireWaitlisted()).toBe(0);
+    expect(await statusOf(row!.publicId)).toBe('PENDING');
+  });
+
+  /** A guest who left the list themselves keeps paying for the ask, as before. */
+  it('does not refund a place the guest withdrew from', async () => {
+    const { guest, publicId } = await waitlistedGuest();
+    await participation.cancel(guest, publicId);
+
+    clock.set(STARTS_AT);
+    expect(await participation.expireWaitlisted()).toBe(0);
+    expect(await coins.balanceOf(guest)).toBe(JOIN_BUDGET - JOIN);
+  });
+});

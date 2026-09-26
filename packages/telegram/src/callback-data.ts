@@ -781,6 +781,48 @@ export function parsePolicyCallback(data: string): PolicyCallback | null {
 }
 
 /**
+ * The in-bot guide: `gd:i` for its contents, `gd:k` for the command list, and
+ * `gd:g:<slug>` for one section (migration 0063).
+ *
+ * By slug rather than by position, so a button drawn before an operator hid or
+ * reordered a section still opens the section it named. The slug is latin and
+ * at most forty characters, which keeps the whole string far inside sixty-four
+ * bytes.
+ *
+ * **Behind no gate**, like `pl:`: reading how the product works writes nothing,
+ * and somebody who has not finished signing up is exactly who needs it.
+ */
+export type GuideCallback =
+  { kind: 'index' } | { kind: 'commands' } | { kind: 'guide'; slug: string };
+
+const GUIDE_PREFIX = 'gd';
+const GUIDE_SLUG = /^[a-z0-9_-]{1,40}$/;
+
+export function encodeGuideIndex(): string {
+  return `${GUIDE_PREFIX}:i`;
+}
+
+export function encodeGuideCommands(): string {
+  return `${GUIDE_PREFIX}:k`;
+}
+
+export function encodeGuideCallback(slug: string): string {
+  return `${GUIDE_PREFIX}:g:${slug}`;
+}
+
+export function parseGuideCallback(data: string): GuideCallback | null {
+  const parts = data.split(':');
+  if (parts[0] !== GUIDE_PREFIX) return null;
+  if (parts.length === 2 && parts[1] === 'i') return { kind: 'index' };
+  if (parts.length === 2 && parts[1] === 'k') return { kind: 'commands' };
+  const slug = parts[2];
+  if (parts.length === 3 && parts[1] === 'g' && slug !== undefined && GUIDE_SLUG.test(slug)) {
+    return { kind: 'guide', slug };
+  }
+  return null;
+}
+
+/**
  * Paging the wallet ledger: `wl:<page>:x`.
  *
  * The same shape as «رویدادهای من», and a separate prefix for the same reason

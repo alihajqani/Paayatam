@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CatalogService } from './catalog.service';
+import { HelpGuideService } from './help-guide.service';
 import { SettingsService } from './settings.service';
 
 /**
@@ -11,7 +12,7 @@ import { SettingsService } from './settings.service';
  * the onboarding reward.
  */
 @Module({
-  providers: [CatalogService, SettingsService],
-  exports: [CatalogService, SettingsService],
+  providers: [CatalogService, SettingsService, HelpGuideService],
+  exports: [CatalogService, SettingsService, HelpGuideService],
 })
 export class CatalogModule {}
