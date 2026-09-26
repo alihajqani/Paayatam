@@ -568,8 +568,14 @@ export class Processors implements OnModuleInit {
 
       case JOBS.EXPIRE_PENDING: {
         const expired = await this.participation.expireOverdue();
-        if (expired > 0) {
-          this.logger.log(`Expired ${String(expired)} overdue requests`);
+        // And the waiting-list places of activities that have started, with
+        // their coins back (v0.21.0). The same cadence: both are "a deadline
+        // passed and somebody is owed a refund and a message".
+        const closed = await this.participation.expireWaitlisted();
+        if (expired + closed > 0) {
+          this.logger.log(
+            `Expired ${String(expired)} overdue requests, ${String(closed)} waiting-list places`,
+          );
           await this.onDomainEvent(job);
         }
         return;

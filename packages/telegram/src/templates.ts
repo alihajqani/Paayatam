@@ -569,6 +569,19 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         typeof refunded === 'number' && refunded > 0
           ? `\n<b>${toPersianDigits(refunded)} سکه</b> بابت این درخواست به شما بازگشت.`
           : '';
+      /**
+       * The waiting list that never moved (v0.21.0): the activity started with
+       * no seat freed. Nobody decided anything, so nobody is named.
+       */
+      if (bool(payload, 'waitlisted')) {
+        return {
+          text:
+            `<b>جایی در «${str(payload, 'eventTitle')}» باز نشد</b>\n\n` +
+            `رویداد شروع شد و تا آن لحظه کسی انصراف نداد، بنابراین جای شما در ` +
+            `لیست انتظار بسته شد.${refund}\n` +
+            `رویدادهای دیگری هم هست؛ سری بزنید.`,
+        };
+      }
       return {
         text:
           `<b>مهلت پاسخ میزبان گذشت</b>\n\n` +
