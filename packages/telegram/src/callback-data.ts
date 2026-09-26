@@ -688,15 +688,29 @@ export function parseMyEventsCallback(data: string): number | null {
  * carries a **participant** public id, and `DirectMessageService.sendToGuest`
  * resolves the addressee from it — only for the host of that activity and only
  * for a seat that was accepted.
+ *
+ * `block` and `unblock` are ADR-0020's. `block` carries the **direct-message**
+ * id it sits under — only that message's recipient may block its sender.
+ * `unblock` carries the blocked **user's** public id, because the message may be
+ * purged long before the block is lifted; it can only ever remove a block the
+ * caller made. `dm:unblock:<uuid>` is 47 bytes.
  */
-export const DIRECT_CALLBACK_ACTIONS = ['write', 'view', 'reply', 'guest'] as const;
+export const DIRECT_CALLBACK_ACTIONS = [
+  'write',
+  'view',
+  'reply',
+  'guest',
+  'block',
+  'unblock',
+] as const;
 export type DirectCallbackAction = (typeof DIRECT_CALLBACK_ACTIONS)[number];
 
 export interface DirectCallback {
   action: DirectCallbackAction;
   /**
-   * An event public id for `write`, a participant public id for `guest`, and a
-   * direct-message public id for `view` and `reply`.
+   * An event public id for `write`, a participant public id for `guest`, a
+   * direct-message public id for `view`, `reply` and `block`, and a user public
+   * id for `unblock`.
    */
   id: string;
 }
@@ -720,6 +734,50 @@ export function parseDirectCallback(data: string): DirectCallback | null {
   if (!DIRECT_CALLBACK_ACTIONS.some((candidate) => candidate === action)) return null;
 
   return { action: action as DirectCallbackAction, id };
+}
+
+/**
+ * Reading the policies: `pl:<document>:<page>` (ADR-0017's consent gate, paged).
+ *
+ * `s` is the summary screen and `t`, `p`, `c` are the three documents — terms,
+ * privacy, and the code of conduct. The page is base-36 in one character, the
+ * ceiling every other pager here has; a document longer than 36 pages of three
+ * thousand characters is not a document anybody reads in a chat.
+ *
+ * **Behind no gate.** Reading what you are about to agree to is the one thing
+ * the consent gate must never refuse, so the bot handles this before either
+ * onboarding gate — the same reason «بررسی دوباره» is exempt from the channel
+ * requirement. It writes nothing; the acceptance is a separate `wz:` button.
+ */
+export const POLICY_DOC_LETTERS = ['s', 't', 'p', 'c'] as const;
+export type PolicyDocLetter = (typeof POLICY_DOC_LETTERS)[number];
+
+export interface PolicyCallback {
+  doc: PolicyDocLetter;
+  page: number;
+}
+
+const POLICY_PREFIX = 'pl';
+
+/** The same base-36 ceiling as every other pager in this file. */
+export const MAX_POLICY_PAGE = 35;
+
+export function encodePolicyCallback(doc: PolicyDocLetter, page = 0): string {
+  const clamped = Math.min(Math.max(Math.trunc(page), 0), MAX_POLICY_PAGE);
+  return `${POLICY_PREFIX}:${doc}:${clamped.toString(36)}`;
+}
+
+export function parsePolicyCallback(data: string): PolicyCallback | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, doc, page] = parts;
+  if (prefix !== POLICY_PREFIX || page === undefined || !/^[0-9a-z]$/.test(page)) return null;
+  const letter = POLICY_DOC_LETTERS.find((candidate) => candidate === doc);
+  if (letter === undefined) return null;
+
+  const value = Number.parseInt(page, 36);
+  return value > MAX_POLICY_PAGE ? null : { doc: letter, page: value };
 }
 
 /**
@@ -842,12 +900,19 @@ export const SETTING_PRIVACY = 'p';
 export const SETTING_LANGUAGE = 'g';
 /** Finishing a profile, offered where the privacy switch would be if there were one. */
 export const SETTING_PROFILE = 'n';
+/**
+ * The people this user has blocked from direct messages (ADR-0020). `b1` opens
+ * the list in place of the board and `b0` goes back to it — the value is a
+ * direction, not a switch, because there is nothing to turn on or off here.
+ */
+export const SETTING_BLOCKED = 'b';
 
 export const SETTING_LETTERS = [
   ...(Object.keys(SETTING_FIELDS) as SettingFieldLetter[]),
   SETTING_PRIVACY,
   SETTING_LANGUAGE,
   SETTING_PROFILE,
+  SETTING_BLOCKED,
 ] as const;
 
 export type SettingLetter = (typeof SETTING_LETTERS)[number];

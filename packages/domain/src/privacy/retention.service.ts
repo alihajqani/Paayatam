@@ -5,6 +5,7 @@ import { CLOCK, type Clock } from '@payetam/platform';
 export interface PurgeResult {
   chatMessages: number;
   chats: number;
+  directMessages: number;
   notifications: number;
   auditRows: number;
   outboxRows: number;
@@ -44,6 +45,14 @@ export const RETENTION = {
   CHAT_DAYS: 90,
   /** §4.6: notifications, six months. */
   NOTIFICATION_DAYS: 180,
+  /**
+   * Direct messages, 180 days **after they were written** (ADR-0020).
+   *
+   * From `created_at` rather than from a thread's last message: a thread has no
+   * row of its own to carry an expiry, and a rule the privacy notice can state
+   * in one sentence is worth more than one that keeps a live thread whole.
+   */
+  DIRECT_MESSAGE_DAYS: 180,
   /** §8: the audit trail, 24 months. */
   AUDIT_DAYS: 730,
   /**
@@ -74,20 +83,13 @@ export const RETENTION = {
  * Deleted in dependency order, so nothing is ever orphaned mid-purge — see
  * `CHAT_DEPENDENTS`, which is the part a first reading gets wrong.
  *
- * ── What is deliberately absent: `direct_message` (v0.8.0) ──────────────────
+ * ── `direct_message`: 180 days, by age (ADR-0020) ───────────────────────────
  *
- * The chat's ninety-day clock existed because the chat was **anonymous**: two
- * strangers wrote under aliases, and what made that safe was the transcript not
- * outliving the conversation. «پیام مستقیم به میزبان» is the opposite
- * arrangement — nobody is anonymous, contact details are deliberately not
- * masked, and what people use it for is arranging to meet. A thread that
- * disappeared on a timer would take the address with it, and the person who
- * needed it would have no way to get it back.
- *
- * So no query below touches `direct_message`, and `retention.int.test.ts` seeds
- * one older than every window in §8 and asserts it survives — an absence is the
- * kind of thing that gets reintroduced by somebody adding "one more table" to
- * the purge.
+ * v0.8.0 left direct messages out of the purge entirely, on the argument that a
+ * thread arranging a meeting must not lose the address halfway through. That
+ * holds for days, not for years, and "forever" is not a promise a privacy
+ * notice can make. So they go 180 days after they were written — long after any
+ * meeting they arranged.
  */
 @Injectable()
 export class RetentionService {
@@ -104,6 +106,7 @@ export class RetentionService {
     const result: PurgeResult = {
       chatMessages: 0,
       chats: 0,
+      directMessages: 0,
       notifications: 0,
       auditRows: 0,
       outboxRows: 0,
@@ -166,6 +169,10 @@ export class RetentionService {
       await this.prisma.chatMessage.deleteMany({ where: { retentionExpiresAt: { lte: now } } })
     ).count;
 
+    result.directMessages = await this.purgeDirectMessages(
+      daysAgo(now, RETENTION.DIRECT_MESSAGE_DAYS),
+    );
+
     result.notifications = (
       await this.prisma.notification.deleteMany({
         where: { createdAt: { lte: daysAgo(now, RETENTION.NOTIFICATION_DAYS) } },
@@ -205,10 +212,48 @@ export class RetentionService {
 
     this.logger.log(
       `Purge: ${String(result.chatMessages)} messages, ${String(result.chats)} chats, ` +
+        `${String(result.directMessages)} direct, ` +
         `${String(result.notifications)} notifications, ${String(result.outboxRows)} outbox, ` +
         `${String(result.idempotencyKeys)} idempotency, ${String(result.auditRows)} audit`,
     );
     return result;
+  }
+
+  /**
+   * Direct messages written on or before `before` (ADR-0020).
+   *
+   * **Replies are unhooked first.** `parent_id` is RESTRICT, and an expired
+   * message is routinely the parent of one that has not expired — a question
+   * asked in January and answered in February. The answer survives; its link to
+   * a question that no longer exists is cleared, which is the truth about it.
+   * Clearing every child of an expired row, expired or not, also means the
+   * delete never depends on the order Postgres happens to visit a thread in.
+   *
+   * In batches, inside one transaction each, so a first run against months of
+   * backlog neither holds one enormous lock nor leaves a reply pointing at a
+   * row that is half-way through going.
+   */
+  private async purgeDirectMessages(before: Date): Promise<number> {
+    let total = 0;
+    for (;;) {
+      const batch = await this.prisma.directMessage.findMany({
+        where: { createdAt: { lte: before } },
+        select: { id: true },
+        take: DIRECT_PURGE_BATCH,
+      });
+      if (batch.length === 0) return total;
+
+      const ids = batch.map((row) => row.id);
+      total += await this.prisma.$transaction(async (tx) => {
+        await tx.directMessage.updateMany({
+          where: { parentId: { in: ids } },
+          data: { parentId: null },
+        });
+        return (await tx.directMessage.deleteMany({ where: { id: { in: ids } } })).count;
+      });
+
+      if (batch.length < DIRECT_PURGE_BATCH) return total;
+    }
   }
 
   /**
@@ -235,6 +280,9 @@ export class RetentionService {
     });
   }
 }
+
+/** How many direct messages one purge transaction removes. */
+const DIRECT_PURGE_BATCH = 1000;
 
 function daysAgo(now: Date, days: number): Date {
   return new Date(now.getTime() - days * 24 * 3_600_000);

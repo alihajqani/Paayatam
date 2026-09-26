@@ -21,6 +21,11 @@ import {
   tehranToday,
   type Choice,
   type InlineKeyboard,
+  formatPolicyPage,
+  formatPolicySummary,
+  paginatePolicy,
+  policyPageRows,
+  policyReadRows,
 } from '@payetam/telegram';
 
 /**
@@ -252,10 +257,7 @@ async function main(): Promise<void> {
     `\n\n${'═'.repeat(72)}\n  CONSENT GATE — what a new user meets first\n${'═'.repeat(72)}`,
   );
   const gate = renderStep({
-    prompt:
-      'برای استفاده از پایه‌تم، لازم است قوانین و سیاست حریم خصوصی را بپذیرید.\n\n' +
-      '• قوانین\n  نسخهٔ ۱ — شرایط استفاده از سرویس\n' +
-      '• حریم خصوصی\n  نسخهٔ ۱ — چه داده‌هایی نگه داشته می‌شود',
+    prompt: 'برای استفاده از ربات پایتم، لازم است سندهای زیر را بخوانید و بپذیرید.',
     ui: 'confirm',
     stepKey: 'review',
     actions: [[{ text: '✅ می‌پذیرم', callbackData: 'wz:agree:' }]],
@@ -265,7 +267,36 @@ async function main(): Promise<void> {
     optional: false,
     cancellable: false,
   });
-  screen('consent · step "review"', gate.text, gate.keyboard);
+  screen('consent · step "review"', `${gate.text}\n\n${formatPolicySummary({ mode: 'accept' })}`, [
+    ...policyReadRows(['TERMS', 'PRIVACY', 'COMMUNITY']),
+    ...gate.keyboard,
+  ]);
+
+  // A document, read page by page in the same message.
+  const sample = [
+    '# قوانین و شرایط استفاده',
+    '',
+    ...Array.from(
+      { length: 8 },
+      (_, index) => `## ${String(index + 1)}. بخش\n\n${'متن بند. '.repeat(70)}`,
+    ),
+  ].join('\n');
+  const pages = paginatePolicy(sample);
+  screen(
+    `consent · terms, page 2 of ${String(pages.length)}`,
+    formatPolicyPage({
+      title: 'قوانین و شرایط استفاده',
+      body: pages[1] ?? '',
+      page: 1,
+      pages: pages.length,
+    }),
+    policyPageRows({
+      type: 'TERMS',
+      page: 1,
+      pages: pages.length,
+      acceptCallbackData: 'wz:agree:',
+    }),
+  );
 
   // ── 2. The calendar on its own, both months ──────────────────────────────
   console.log(

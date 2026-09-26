@@ -107,6 +107,8 @@ model User {
   conversation        ConversationState?
   directsSent         DirectMessage[]      @relation("DirectMessagesSent")
   directsReceived     DirectMessage[]      @relation("DirectMessagesReceived")
+  directBlocksMade    DirectMessageBlock[] @relation("DirectBlocksMade")
+  directBlocksReceived DirectMessageBlock[] @relation("DirectBlocksReceived")
   noShowClaims        NoShowClaim[]        @relation("NoShowClaimsAuthored")
   seedConfigsHosted   CitySeedConfig[]
   acquisition         UserAcquisition?
@@ -1909,7 +1911,35 @@ model DirectMessage {
   @@index([recipientUserId, createdAt(sort: Desc)], map: "direct_message_inbox_idx")
   /// Everything said about one activity, for a moderator reading a report.
   @@index([eventId, createdAt], map: "direct_message_event_idx")
+  /// The 180-day retention purge (migration 0062): everything written before a
+  /// cutoff, whoever it is between.
+  @@index([createdAt], map: "direct_message_created_idx")
   @@map("direct_message")
+}
+
+/// One person refusing direct messages from another (migration 0062).
+///
+/// A row per direction: blocking somebody does not block you from them, it
+/// stops them writing to you. `DirectMessageService.write` refuses a message
+/// either way round, so a blocker cannot keep writing to somebody who can no
+/// longer answer — that would be a conversation with one side gagged.
+///
+/// Deleted, not flagged, on unblock. It is a preference, not evidence: the
+/// audit trail records both the block and its removal.
+model DirectMessageBlock {
+  id            String   @id @default(uuid(7))
+  blockerUserId String   @map("blocker_user_id")
+  blockedUserId String   @map("blocked_user_id")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  blocker User @relation("DirectBlocksMade", fields: [blockerUserId], references: [id], onDelete: Restrict)
+  blocked User @relation("DirectBlocksReceived", fields: [blockedUserId], references: [id], onDelete: Restrict)
+
+  /// Blocking twice is one block.
+  @@unique([blockerUserId, blockedUserId])
+  /// "Has anybody blocked this sender?" — the other half of the write check.
+  @@index([blockedUserId])
+  @@map("direct_message_block")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

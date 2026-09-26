@@ -309,6 +309,9 @@ jobs:
           # in two spellings would split one ad across two rows.
           check_constraint user_acquisition_ref_is_payload
           check_constraint user_acquisition_ref_matches_source
+          # Direct-message blocks (migration 0062, ADR-0020). A self-block would
+          # make "who has blocked this sender?" answer with the sender.
+          check_constraint direct_message_block_not_self
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

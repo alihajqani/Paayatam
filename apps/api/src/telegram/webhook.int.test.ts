@@ -3465,6 +3465,50 @@ describe('POST /telegram/:secret — direct messages', () => {
     expect(typeof ownKeyboard === 'string' ? ownKeyboard : '').not.toContain('rp:ask');
   });
 
+  /**
+   * Blocking a sender from under their message (ADR-0020), and lifting it from
+   * «تنظیمات». What the recipient sees is the point: the button is under the
+   * message they read, the block holds when the sender tries again, and the
+   * list is where it comes off.
+   */
+  it('lets the recipient block the sender, and lift it from the settings list', async () => {
+    const { eventPublicId } = await seedHostAndEvent();
+    const guestId = await seedGuest(GUEST_TELEGRAM_ID, 'میهمان');
+    await tap(GUEST_TELEGRAM_ID, `dm:write:${eventPublicId}`);
+    await type(GUEST_TELEGRAM_ID, 'سلام، ساعت دقیق چند است؟');
+    const message = await prisma.directMessage.findFirstOrThrow({ select: { publicId: true } });
+    const guest = await prisma.user.findUniqueOrThrow({
+      where: { id: guestId },
+      select: { publicId: true },
+    });
+
+    await tap(HOST_TELEGRAM_ID, `dm:view:${message.publicId}`);
+    const hostView = await latest(TEMPLATES.BOT_DIRECT_MESSAGE);
+    expect(String(hostView['keyboard'])).toContain(`dm:block:${message.publicId}`);
+
+    await tap(HOST_TELEGRAM_ID, `dm:block:${message.publicId}`);
+    await expect(prisma.directMessageBlock.count()).resolves.toBe(1);
+    const notice = await latest(TEMPLATES.BOT_DIRECT_MESSAGE);
+    expect(String(notice['text'])).toContain('مسدود شد');
+    expect(String(notice['keyboard'])).toContain(`dm:unblock:${guest.publicId}`);
+
+    // The sender tries again and is refused; nothing is written.
+    await tap(GUEST_TELEGRAM_ID, `dm:write:${eventPublicId}`);
+    await type(GUEST_TELEGRAM_ID, 'دوباره سلام، جواب نمی‌دهید؟');
+    await expect(prisma.directMessage.count()).resolves.toBe(1);
+
+    // Re-read, the message now offers the way back instead.
+    await tap(HOST_TELEGRAM_ID, `dm:view:${message.publicId}`);
+    expect(String((await latest(TEMPLATES.BOT_DIRECT_MESSAGE))['keyboard'])).toContain(
+      `dm:unblock:${guest.publicId}`,
+    );
+
+    await tap(HOST_TELEGRAM_ID, `dm:unblock:${guest.publicId}`);
+    await expect(prisma.directMessageBlock.count()).resolves.toBe(0);
+    const list = await latest(TEMPLATES.BOT_SETTINGS);
+    expect(String(list['text'])).toContain('کسی را مسدود نکرده‌اید');
+  });
+
   it('carries a message from a guest to the host and a reply back', async () => {
     const { eventPublicId } = await seedHostAndEvent();
     await seedGuest(GUEST_TELEGRAM_ID);
@@ -5071,6 +5115,126 @@ describe('POST /telegram/:secret — onboarding before anything else', () => {
 
     const templates = (await replyTo(NEWCOMER_TELEGRAM_ID)).map((reply) => reply.templateKey);
     expect(templates).toContain(TEMPLATES.BOT_HELP);
+  });
+
+  /**
+   * Reading the documents page by page before accepting (v0.20.0).
+   *
+   * The published documents are each longer than one Telegram message, and the
+   * screen that printed them inline dropped every one that did not fit — so
+   * somebody was asked to accept text they had not been shown. Now the consent
+   * screen carries a button per document, a page redraws the message it is on,
+   * and «می‌پذیرم» is on every page.
+   *
+   * A page is an edit, so it is read back from the `BOT_EDIT_MESSAGE` job
+   * rather than from a `notification` row — the pattern «sealing the request
+   * notification» uses.
+   */
+  describe('reading the policies before accepting them', () => {
+    const sendQueue = (): ReturnType<QueueService['queue']> =>
+      app.get(QueueService).queue(QUEUES.TELEGRAM_SEND);
+    const PAGE_MESSAGE_ID = 4242;
+
+    beforeEach(async () => {
+      await sendQueue().obliterate({ force: true });
+    });
+
+    /** A long TERMS: twelve sections, each a few hundred characters. */
+    async function requireLongTerms(): Promise<void> {
+      await requirePolicies();
+      const long = [
+        '# قوانین',
+        ...Array.from(
+          { length: 12 },
+          (_, index) => `## ${String(index + 1)}. بخش\n\n${'متن این بند. '.repeat(50)}`,
+        ),
+      ].join('\n');
+      await prisma.policyVersion.updateMany({
+        where: { type: 'TERMS', isCurrent: true },
+        data: { contentMd: long },
+      });
+    }
+
+    async function tapPage(data: string): Promise<{ text: string; keyboard: string }> {
+      sequence += 1;
+      const updateId = sequence;
+      await post(
+        update({
+          update_id: updateId,
+          callback_query: {
+            id: `cb-${String(updateId)}`,
+            from: sender(NEWCOMER_TELEGRAM_ID),
+            message: {
+              message_id: PAGE_MESSAGE_ID,
+              chat: { id: NEWCOMER_TELEGRAM_ID, type: 'private' },
+            },
+            data,
+          },
+        }),
+      );
+      const job = await sendQueue().getJob(
+        jobId('repaint', String(updateId), String(PAGE_MESSAGE_ID)),
+      );
+      const payload = (job?.data ?? {}) as { text?: string; keyboard?: unknown };
+      return { text: payload.text ?? '', keyboard: JSON.stringify(payload.keyboard ?? []) };
+    }
+
+    it('offers each document from the consent screen, with the key points above them', async () => {
+      await requirePolicies();
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+
+      const wizard = await prisma.notification.findFirstOrThrow({
+        where: { templateKey: TEMPLATES.BOT_WIZARD },
+        orderBy: { createdAt: 'desc' },
+        select: { payload: true },
+      });
+      const payload = wizard.payload as { text: string; keyboard: string };
+      expect(payload.text).toContain('پیام مستقیم ناشناس نیست');
+      expect(payload.keyboard).toContain('pl:t:0');
+      expect(payload.keyboard).toContain('pl:p:0');
+      expect(payload.keyboard).toContain('wz:agree:');
+    });
+
+    it('pages through a long document in one message, with «می‌پذیرم» on every page', async () => {
+      await requireLongTerms();
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+
+      const first = await tapPage('pl:t:0');
+      expect(first.text).toContain('بخش ۱ از');
+      expect(first.text).toContain('<b>1. بخش</b>');
+      expect(first.keyboard).toContain('pl:t:1');
+      expect(first.keyboard).toContain('wz:agree:');
+
+      const second = await tapPage('pl:t:1');
+      expect(second.text).toContain('بخش ۲ از');
+      expect(second.keyboard).toContain('pl:t:0');
+      expect(second.keyboard).toContain('wz:agree:');
+
+      // Nothing was accepted by reading.
+      expect((await newcomer()).onboardingState).toBe('NEW');
+    });
+
+    it('records the acceptance when «می‌پذیرم» is pressed on a page', async () => {
+      await requireLongTerms();
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+      await tapPage('pl:t:1');
+
+      await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+
+      const user = await newcomer();
+      expect(await prisma.consent.count({ where: { userId: user.id } })).toBe(2);
+      expect(user.onboardingState).toBe('TERMS_ACCEPTED');
+    });
+
+    it('still shows the text after acceptance, without an acceptance to press', async () => {
+      await requireLongTerms();
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+      await tap(NEWCOMER_TELEGRAM_ID, 'wz:agree:');
+
+      const page = await tapPage('pl:t:0');
+      expect(page.text).toContain('<b>1. بخش</b>');
+      expect(page.keyboard).not.toContain('wz:agree:');
+    });
   });
 
   /** A returning user with accepted terms and no profile used to get the welcome and nothing. */

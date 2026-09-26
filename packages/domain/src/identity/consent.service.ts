@@ -32,13 +32,16 @@ export interface PolicyStanding {
 }
 
 /**
- * The two document types a user must accept before using the product.
+ * The document types a user must accept before using the product.
  *
- * `COMMUNITY` is deliberately absent: it exists in the enum and can be published
- * and read, but it does not gate anything. A third mandatory document is a product
- * decision, not a consequence of somebody adding an enum member.
+ * `COMMUNITY` joined in v0.20.0, and it was a product decision rather than a
+ * consequence of somebody adding an enum member: the code of conduct is now one
+ * of the three documents the consent screen offers, the terms say it is part of
+ * what is agreed to, and a code of conduct nobody accepted is one nobody can be
+ * held to. It gates **only while published** — `requiredPolicies` filters the
+ * current set, so a deployment with no community document asks for two.
  */
-const REQUIRED_TYPES: readonly string[] = ['TERMS', 'PRIVACY'];
+const REQUIRED_TYPES: readonly string[] = ['TERMS', 'PRIVACY', 'COMMUNITY'];
 
 /** `TERMS v3` — the exact identifier a consent record snapshots. */
 export function policyLabel(type: string, version: number): string {
@@ -99,12 +102,11 @@ export class ConsentService {
    * `acceptPolicies` will take.
    *
    * Public, because the callers that build an acceptance have to submit exactly
-   * this set. `currentPolicies()` is wider by design — it includes `COMMUNITY`,
-   * which is publishable and gates nothing — and a caller that submitted the wide
-   * set was refused with `POLICY_VERSION_STALE` by the loop below. The bot did
-   * exactly that, so the day an operator published a community guideline, the
-   * consent gate would have become unclearable for **every** user at once: the
-   * screen that exists to accept the terms would refuse the acceptance.
+   * this set. Since `COMMUNITY` became required it equals `currentPolicies()`,
+   * but the two stay separate names: a caller that submitted a wider set than
+   * the required one was once refused with `POLICY_VERSION_STALE` for **every**
+   * user at once, and the day a fourth, optional type exists the difference
+   * matters again.
    */
   async requiredPolicies(): Promise<CurrentPolicy[]> {
     const current = await this.currentPolicies();
@@ -298,11 +300,10 @@ export class ConsentService {
   /**
    * What this user still owes, and what they have already agreed to (M22).
    *
-   * `pending` covers **every** current document, not only the required two: a
-   * published community guideline should be shown to somebody who has not seen it,
-   * even though refusing it does not lock them out. The *gate* reads
-   * `hasAcceptedCurrentPolicies`, which is the required subset — so the screen can
-   * be more informative than the enforcement without the two disagreeing.
+   * `pending` covers **every** current document, not only the required ones.
+   * Today the two sets are the same; the *gate* still reads
+   * `hasAcceptedCurrentPolicies`, which is the required subset, so a future
+   * optional document can be shown without locking anybody out.
    */
   async standingFor(userId: string): Promise<PolicyStanding> {
     const current = await this.currentPolicies();

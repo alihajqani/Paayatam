@@ -25,6 +25,7 @@ one.** Superseding is done by writing a new record that says so.
 | [0017](0017-conversation-wizards-and-bot-state.md) | Forms move into the chat: an explicit step machine in Postgres, not grammY `conversations`; consent and profile move first, the Mini App retires last | — | A step is reachable only by its owner; a redelivered update advances it once |
 | [0018](0018-admin-moderation-in-the-bot.md) | A moderator's Telegram identity: a granted, audited link that opens a moderation queue in the bot and nothing else | — | The bot's admin session is a role's permissions ∩ a hard-coded allowlist (amends 0010) |
 | [0019](0019-coin-purchase-by-bank-transfer.md) | Coins are bought from a person by bank transfer: the bot shows a price list and records no order; a gateway is deferred until 400 transactions a month | — | — (bound by 7, 10, 12; amends the "never toman in the product" position) |
+| [0020](0020-direct-message-retention-reading-and-blocking.md) | Direct messages: purged 180 days after they were written, read by staff in the panel under `direct.read` (audited, not break-glass), and blockable by the recipient | — | — (bound by 9, 10, 12; amends 0010's break-glass for direct messages only) |
 
 ## The twelve invariants
 

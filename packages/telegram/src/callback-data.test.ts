@@ -9,6 +9,8 @@ import {
   parseChatCallback,
   parseCodeCallback,
   parseDirectCallback,
+  encodePolicyCallback,
+  parsePolicyCallback,
   PROFILE_FIELD_KEYS,
   encodeProfileFieldCallback,
   parseProfileFieldCallback,
@@ -177,5 +179,33 @@ describe('the direct message protocol', () => {
   it('round-trips a host writing to a guest', () => {
     expect(encodeDirectCallback('guest', P)).toBe(`dm:guest:${P}`);
     expect(parseDirectCallback(`dm:guest:${P}`)).toEqual({ action: 'guest', id: P });
+  });
+
+  /** ADR-0020: a block names the message, an unblock the person. */
+  it('round-trips a block and an unblock, inside 64 bytes', () => {
+    for (const action of ['block', 'unblock'] as const) {
+      const data = encodeDirectCallback(action, P);
+      expect(Buffer.byteLength(data, 'utf8')).toBeLessThanOrEqual(64);
+      expect(parseDirectCallback(data)).toEqual({ action, id: P });
+    }
+  });
+});
+
+/** Reading the policies (v0.20.0): the summary and three documents, paged. */
+describe('the policy protocol', () => {
+  it('round-trips every document and page', () => {
+    for (const doc of ['s', 't', 'p', 'c'] as const) {
+      expect(parsePolicyCallback(encodePolicyCallback(doc, 7))).toEqual({ doc, page: 7 });
+    }
+  });
+
+  it('clamps a page beyond the base-36 ceiling rather than emitting two characters', () => {
+    expect(encodePolicyCallback('t', 99)).toBe('pl:t:z');
+  });
+
+  it('refuses a document it does not know, and a malformed page', () => {
+    expect(parsePolicyCallback('pl:x:0')).toBeNull();
+    expect(parsePolicyCallback('pl:t:10')).toBeNull();
+    expect(parsePolicyCallback('pl:t')).toBeNull();
   });
 });

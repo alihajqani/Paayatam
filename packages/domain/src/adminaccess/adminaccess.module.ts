@@ -15,6 +15,7 @@ import { AdminTelegramService } from './admin-telegram.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { ChannelAdminService } from './channel-admin.service';
 import { ChatUnsealService } from './chat-unseal.service';
+import { DirectAdminService } from './direct-admin.service';
 import { EconomyReportService } from './economy-report.service';
 import { FoundingAdminService } from './founding-admin.service';
 import { GeographyAdminService } from './geography-admin.service';
@@ -57,6 +58,7 @@ import { SeedAdminService } from './seed-admin.service';
     AdminCredentials,
     AdminAccessService,
     ChatUnsealService,
+    DirectAdminService,
     AdminOperationsService,
     AdminTelegramService,
     AdminInsightService,
@@ -77,6 +79,7 @@ import { SeedAdminService } from './seed-admin.service';
     AdminCredentials,
     AdminAccessService,
     ChatUnsealService,
+    DirectAdminService,
     AdminOperationsService,
     AdminTelegramService,
     AdminInsightService,

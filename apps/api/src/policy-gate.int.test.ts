@@ -123,7 +123,7 @@ async function signedInUser(): Promise<{ token: string; userId: string }> {
 
 async function acceptCurrent(token: string): Promise<number> {
   const current = await prisma.policyVersion.findMany({
-    where: { isCurrent: true, type: { in: ['TERMS', 'PRIVACY'] } },
+    where: { isCurrent: true, type: { in: ['TERMS', 'PRIVACY', 'COMMUNITY'] } },
     select: { id: true },
   });
   const response = await app.inject({
@@ -311,15 +311,19 @@ describe('the re-acceptance gate', () => {
   });
 
   /**
-   * A `COMMUNITY` guideline is publishable and gates nothing, so publishing one
-   * must not disturb anybody. It used to be able to: the bot submitted every
-   * *current* document to `acceptPolicies`, which takes only the required ones
-   * and answers `POLICY_VERSION_STALE` for anything else — so the acceptance
-   * screen would have refused the acceptance for every user at once.
+   * The code of conduct is a required document once published (v0.20.0).
+   *
+   * It gated nothing until the consent screen offered it beside the terms and
+   * the terms named it as part of what is agreed to. So somebody who accepted
+   * the terms and the privacy notice before it was published owes it, exactly as
+   * they would owe a new version of either — and accepting it clears the gate.
    */
-  it('is unaffected by a published community guideline', async () => {
+  it('gates on a published community guideline until it is accepted', async () => {
     await publish('TERMS', 1);
     await publish('PRIVACY', 1);
+    const { token } = await signedInUser();
+    await expect(acceptCurrent(token)).resolves.toBe(200);
+
     await prisma.policyVersion.create({
       data: {
         type: 'COMMUNITY',
@@ -330,6 +334,16 @@ describe('the re-acceptance gate', () => {
         contentMd: CONTENT,
       },
     });
+
+    await expect(createEvent(token)).resolves.toMatchObject({ status: 403 });
+    await expect(acceptCurrent(token)).resolves.toBe(200);
+    await expect(createEvent(token)).resolves.toMatchObject({ status: 201 });
+  });
+
+  /** And with none published, the two that are still ask for nothing more. */
+  it('asks for two documents when no community guideline is published', async () => {
+    await publish('TERMS', 1);
+    await publish('PRIVACY', 1);
 
     const { token } = await signedInUser();
     await expect(acceptCurrent(token)).resolves.toBe(200);

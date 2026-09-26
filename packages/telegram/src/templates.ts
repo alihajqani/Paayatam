@@ -1512,8 +1512,13 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * though an operator is not an attacker — a title with an ampersand in it
      * should render, not break the message.
      */
+    /**
+     * `/terms`, and every page of a document read from it or from the consent
+     * screen. The buttons — one per document, or a page's navigation — are the
+     * point, so they are carried when the payload has them.
+     */
     case TEMPLATES.BOT_TERMS_STANDING:
-      return opened(prerendered(payload), `home`);
+      return opened(prerendered(payload), `home`, parseKeyboard(payload));
 
     /** The event exists, and here is the way to it. */
     /**

@@ -466,3 +466,101 @@ describe('a host writing to a guest', () => {
     expect(planned[0]?.payload['senderDisplayName']).toBe('میزبان');
   });
 });
+
+/**
+ * Blocking a sender (ADR-0020).
+ *
+ * A block stops messages **both ways** between the two, is made only by the
+ * recipient of a message, is lifted by the blocker alone, and leaves an audit
+ * row each way — without the words of any message.
+ */
+describe('blocking a sender', () => {
+  async function publicIdOf(userId: string): Promise<string> {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { publicId: true },
+    });
+    return user.publicId;
+  }
+
+  it('stops the blocked sender writing, and says why', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام، ماشین دارید؟');
+    const blocked = await directs.block(hostId, first);
+
+    expect(blocked).toEqual({ userPublicId: await publicIdOf(guestId), displayName: 'مهمان' });
+    await expect(directs.send(guestId, eventPublicId, 'دوباره سلام')).rejects.toMatchObject({
+      code: 'DIRECT_BLOCKED_BY_RECIPIENT',
+    });
+    await expect(prisma.directMessage.count()).resolves.toBe(1);
+  });
+
+  /** A blocker writing to somebody who cannot answer would be one side gagged. */
+  it('stops the blocker writing back too, with the sentence that tells them how to undo it', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام، ماشین دارید؟');
+    await directs.block(hostId, first);
+
+    await expect(directs.reply(hostId, first, 'بله دارم')).rejects.toMatchObject({
+      code: 'DIRECT_BLOCKED_BY_YOU',
+    });
+  });
+
+  it('is made only by the recipient of the message', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام، ماشین دارید؟');
+
+    // The sender cannot "block" the person they wrote to through their own message.
+    await expect(directs.block(guestId, first)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(prisma.directMessageBlock.count()).resolves.toBe(0);
+  });
+
+  it('is one block however many times it is made', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام، ماشین دارید؟');
+    await directs.block(hostId, first);
+    await directs.block(hostId, first);
+
+    await expect(prisma.directMessageBlock.count()).resolves.toBe(1);
+    await expect(
+      prisma.auditLog.count({ where: { action: 'direct.sender_blocked' } }),
+    ).resolves.toBe(1);
+  });
+
+  it('shows on the message the blocker reads, and nowhere else', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام، ماشین دارید؟');
+    await directs.block(hostId, first);
+
+    await expect(directs.view(hostId, first)).resolves.toMatchObject({ senderBlocked: true });
+    await expect(directs.view(guestId, first)).resolves.toMatchObject({ senderBlocked: false });
+  });
+
+  it('is listed for the blocker, and lifted by them alone', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام، ماشین دارید؟');
+    await directs.block(hostId, first);
+    const guestPublicId = await publicIdOf(guestId);
+
+    await expect(directs.listBlocked(hostId)).resolves.toMatchObject([
+      { userPublicId: guestPublicId, displayName: 'مهمان' },
+    ]);
+    await expect(directs.listBlocked(guestId)).resolves.toEqual([]);
+
+    // The blocked person "unblocking" removes nothing: it is not their block.
+    await directs.unblock(guestId, await publicIdOf(hostId));
+    await expect(prisma.directMessageBlock.count()).resolves.toBe(1);
+
+    await directs.unblock(hostId, guestPublicId);
+    await expect(prisma.directMessageBlock.count()).resolves.toBe(0);
+    await expect(directs.send(guestId, eventPublicId, 'دوباره سلام')).resolves.toBeTruthy();
+    await expect(
+      prisma.auditLog.count({ where: { action: 'direct.sender_unblocked' } }),
+    ).resolves.toBe(1);
+  });
+
+  it('records who blocked whom, never what was said', async () => {
+    const first = await directs.send(guestId, eventPublicId, 'سلام، ماشین دارید؟');
+    await directs.block(hostId, first);
+
+    const rows = await prisma.auditLog.findMany({
+      where: { action: { in: ['direct.sender_blocked'] } },
+    });
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).not.toContain('ماشین');
+  });
+});

@@ -92,6 +92,7 @@ import {
   encodeChannelRecheckCallback,
   isChannelRecheckCallback,
   formatDiscovered,
+  formatBlockedNotice,
   formatDirectMessage,
   formatEventDetail,
   insufficientCoinsNotice,
@@ -109,7 +110,16 @@ import {
   type MenuStatus,
   parseDiscoverCallback,
   formatJalali,
-  formatPolicies,
+  formatPolicyPage,
+  formatPolicySummary,
+  paginatePolicy,
+  parsePolicyCallback,
+  policyPageRows,
+  policyReadRows,
+  policyTypeFor,
+  POLICY_DEFAULT_TITLE,
+  type PolicyCallback,
+  type PolicyType,
   formatReceivedReviews,
   formatHostReviews,
   formatReferral,
@@ -135,6 +145,9 @@ import {
   SETTING_LANGUAGE,
   SETTING_PRIVACY,
   SETTING_PROFILE,
+  SETTING_BLOCKED,
+  blockedListRows,
+  formatBlockedList,
   formatStanding,
   formatTrust,
   formatWallet,
@@ -327,6 +340,16 @@ const ONBOARDING_LEAD_FA = {
  * else with it. A menu label arrives as text and is a command, not an answer —
  * `onText` treats it the same way, for the same reason.
  */
+/**
+ * What a policy is called on screen: the operator's title, or the document's
+ * default name — never the machine label «TERMS v1».
+ */
+function policyTitle(policy: { type: PolicyType; titleFa: string | null }): string {
+  return policy.titleFa !== null && policy.titleFa.trim() !== ''
+    ? policy.titleFa
+    : POLICY_DEFAULT_TITLE[policy.type];
+}
+
 function answersAForm(intent: ParsedUpdate['intent']): boolean {
   switch (intent.kind) {
     case 'TEXT':
@@ -1460,19 +1483,7 @@ export class BotService {
           return this.drawWizard(updateId, user, outcome);
         }
 
-        const standing = await this.consent.standingFor(user.id);
-
-        return this.reply(updateId, user.id, TEMPLATES.BOT_TERMS_STANDING, {
-          // Rendered by the package that owns the escaping rule, like every other
-          // pre-rendered body. Built here, it interpolated an operator's
-          // `title_fa` into a `<b>` tag unescaped — see `formatStanding`.
-          text: formatStanding(
-            standing.accepted.map((entry) => ({
-              title: entry.policy.titleFa ?? entry.policy.label,
-              acceptedAt: formatTehran(entry.acceptedAt),
-            })),
-          ),
-        });
+        return this.drawTermsStanding(updateId, user);
       }
 
       case 'cancel': {
@@ -2009,6 +2020,19 @@ export class BotService {
      * dispatched by `onCommand` directly, which does not pass through `route`,
      * so this is the only gate it meets.
      */
+    /**
+     * Reading the policies, before either onboarding gate (v0.20.0).
+     *
+     * Somebody who has not accepted the terms is exactly who needs to read
+     * them, so a `pl:` page is never answered with «اول ثبت‌نام را تمام کنید».
+     * It writes nothing; the acceptance is the consent form's own `wz:` button.
+     */
+    const policyCallback = parsePolicyCallback(data);
+    if (policyCallback !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.onPolicyCallback(update.updateId, user, policyCallback, messageId);
+    }
+
     const ungatedMenuTap = decodeMenuCallback(data);
     if (
       ungatedMenuTap?.kind === 'command' &&
@@ -4232,6 +4256,16 @@ export class BotService {
      */
     editMessageId?: number,
   ): Promise<void> {
+    /**
+     * «کاربران مسدودشده» (ADR-0020): `b1` opens the list over the board, `b0`
+     * goes back. A read, so it spends nothing and writes nothing.
+     */
+    if (callback.field === SETTING_BLOCKED) {
+      await this.answer(callbackQueryId, '');
+      if (!callback.value) return this.drawSettings(updateId, user, editMessageId);
+      return this.drawBlockedList(updateId, user, editMessageId);
+    }
+
     if (isNotificationField(callback.field)) {
       await this.userSettings.update(user.id, {
         [SETTING_FIELDS[callback.field]]: callback.value,
@@ -4409,6 +4443,22 @@ export class BotService {
                           callbackData: encodeReportAsk('u', message.senderPublicId),
                         },
                       ],
+                      /**
+                       * And the answer a recipient can give without a moderator
+                       * (ADR-0020). The row says what the tap does next: a
+                       * sender already blocked is offered the way back instead.
+                       */
+                      [
+                        message.senderBlocked
+                          ? {
+                              text: '✅ رفع مسدودی فرستنده',
+                              callbackData: encodeDirectCallback('unblock', message.senderPublicId),
+                            }
+                          : {
+                              text: '🚫 مسدود کردن فرستنده',
+                              callbackData: encodeDirectCallback('block', message.publicId),
+                            },
+                      ],
                     ]
                   : []),
               ]
@@ -4428,6 +4478,39 @@ export class BotService {
               ? { replyToMessageId: message.replyToMessageId }
               : {}),
           });
+        }
+
+        /**
+         * Block whoever wrote this message (ADR-0020).
+         *
+         * Only its recipient may; anybody else is told it does not exist. Said
+         * in a message rather than only a toast, because the sentence carries
+         * the way back — and a toast is gone before anybody reads a button.
+         */
+        case 'block': {
+          const blocked = await this.directs.block(user.id, callback.id);
+          await this.answer(callbackQueryId, 'مسدود شد');
+          const rows = isPublicId(blocked.userPublicId)
+            ? [
+                [
+                  {
+                    text: '✅ رفع مسدودی',
+                    callbackData: encodeDirectCallback('unblock', blocked.userPublicId),
+                  },
+                ],
+              ]
+            : [];
+          return this.reply(updateId, user.id, TEMPLATES.BOT_DIRECT_MESSAGE, {
+            text: formatBlockedNotice(blocked.displayName),
+            ...(rows.length > 0 ? { keyboard: JSON.stringify(rows) } : {}),
+          });
+        }
+
+        /** Lift a block this user made, from the message that made it or the list. */
+        case 'unblock': {
+          await this.directs.unblock(user.id, callback.id);
+          await this.answer(callbackQueryId, 'مسدودی برداشته شد');
+          return this.drawBlockedList(updateId, user);
         }
 
         /**
@@ -4815,6 +4898,31 @@ export class BotService {
    * is duplicated into a settings table, because a setting with two homes is a
    * setting that will disagree with itself.
    */
+  /**
+   * The people this user has blocked, each with a «رفع مسدودی» (ADR-0020).
+   *
+   * Drawn over the settings board when there is one, and as a message of its
+   * own after an unblock tapped from anywhere else.
+   */
+  private async drawBlockedList(
+    updateId: number,
+    user: BotUser,
+    editMessageId?: number,
+  ): Promise<void> {
+    const blocked = await this.directs.listBlocked(user.id);
+    const text = formatBlockedList(blocked);
+    const rows = blockedListRows(blocked);
+
+    if (editMessageId === undefined) {
+      await this.reply(updateId, user.id, TEMPLATES.BOT_SETTINGS, {
+        text,
+        keyboard: JSON.stringify(rows),
+      });
+      return;
+    }
+    await this.repaint(updateId, user, editMessageId, text, rows);
+  }
+
   private async drawSettings(
     updateId: number,
     user: BotUser,
@@ -5618,7 +5726,7 @@ export class BotService {
         // The consent gate draws itself: its buttons are an acceptance and a set
         // of channel links, neither of which is a choice from a list.
         if (outcome.snapshot.kind === 'ACCEPT_POLICIES') {
-          const screen = await this.consentScreen(outcomeToDraw);
+          const screen = await this.consentScreen(outcomeToDraw, user);
           return this.paint(updateId, user, outcomeToDraw.snapshot.lastMessageId, screen);
         }
 
@@ -5670,45 +5778,35 @@ export class BotService {
   }
 
   /**
-   * The consent gate's two screens.
+   * The consent screen: what somebody must know, a button per document, and
+   * «می‌پذیرم».
    *
    * **The policy text is not stored in the draft.** It is read here, live, so a
    * version published while somebody is mid-acceptance is the one they are shown
    * and the one they accept — a snapshot in `form_data` would let a user agree to
    * a document that had been superseded while they read it.
-   */
-  /**
-   * The consent screen.
    *
-   * **The policy text is not stored in the draft.** It is read here, live, so a
-   * version published while somebody is mid-acceptance is the one they are shown
-   * and the one they accept — a snapshot in `form_data` would let a user agree to
-   * a document that had been superseded while they read it.
+   * ── Why the documents are behind buttons now ────────────────────────────────
+   *
+   * They were printed inline, under a 3200-character budget shared by all of
+   * them. The published terms, privacy notice and code of conduct are each
+   * longer than that, and the budget's answer was to drop every document that
+   * did not fit — which, for these, is all of them: an acceptance asked for
+   * under a sentence saying the text was elsewhere. Each document is now read in
+   * full, page by page, in this same message (`onPolicyCallback`), and every
+   * page carries the acceptance.
    */
   private async consentScreen(
     outcome: Extract<ConversationOutcome, { kind: 'step' }>,
+    user: BotUser,
   ): Promise<WizardScreen> {
-    // The same set `finishConsent` submits, so the screen shows what «می‌پذیرم»
-    // actually records rather than a document the acceptance would not cover.
-    const pending = await this.consent.requiredPolicies();
-    /**
-     * The documents themselves, not their titles.
-     *
-     * The first version of this screen printed «TERMS v1 — قوانین استفاده از
-     * پایه‌تَم» and an «می‌پذیرم» button, which is a label rather than something
-     * anybody can agree to. `formatPolicies` renders the stored Markdown, and it
-     * is passed through `prompt` — which `renderStep` escapes — so it is
-     * assembled *after* that as pre-rendered HTML, the same arrangement
-     * `BOT_WIZARD` already uses.
-     */
-    const documents = formatPolicies(
-      pending.map((policy) => ({
-        // `title_fa` is empty on the deployed rows; `label` is «TERMS v1».
-        title: policy.titleFa !== null && policy.titleFa !== '' ? policy.titleFa : policy.label,
-        summary: policy.changeSummaryFa ?? policy.summaryFa,
-        contentMd: policy.contentMd,
-      })),
-    );
+    // The same set `finishConsent` submits, so the buttons offer exactly what
+    // «می‌پذیرم» records rather than a document the acceptance would not cover.
+    const [required, standing] = await Promise.all([
+      this.consent.requiredPolicies(),
+      this.consent.standingFor(user.id),
+    ]);
+    const reaccept = standing.accepted.length > 0;
 
     const screen = renderStep({
       prompt: outcome.step.prompt({}),
@@ -5730,9 +5828,146 @@ export class BotService {
       ...(outcome.error !== undefined ? { error: outcome.error } : {}),
     });
 
-    // Appended after `renderStep` because the documents are already HTML and the
+    const summary = formatPolicySummary({
+      mode: reaccept ? 'reaccept' : 'accept',
+      // Only what this person has not accepted yet: an unchanged document is
+      // not news to somebody who already agreed to it.
+      changes: standing.pending.map((policy) => ({
+        title: policyTitle(policy),
+        changeSummary: policy.changeSummaryFa,
+      })),
+    });
+
+    // Appended after `renderStep` because the summary is already HTML and the
     // renderer escapes what it is given.
-    return { ...screen, text: `${screen.text}\n\n${documents}` };
+    return {
+      text: `${screen.text}\n\n${summary}`,
+      keyboard: [...policyReadRows(required.map((policy) => policy.type)), ...screen.keyboard],
+    };
+  }
+
+  /**
+   * A `pl:` tap: the summary, or one page of one document (v0.20.0).
+   *
+   * **Behind no gate** — handled in `onCallback` before either onboarding gate —
+   * because reading what you are being asked to accept is the one thing the
+   * consent gate must never refuse. It writes nothing but, for somebody who
+   * still owes an acceptance, which message the consent form is drawn on.
+   *
+   * Always redraws the message the button is on, so reading a document is one
+   * message that changes rather than a column of pages in the chat.
+   */
+  private async onPolicyCallback(
+    updateId: number,
+    user: BotUser,
+    callback: PolicyCallback,
+    messageId?: number,
+  ): Promise<void> {
+    const acceptCallbackData = await this.openConsentFor(updateId, user, messageId);
+
+    if (callback.doc === 's') {
+      if (acceptCallbackData !== null) {
+        const open = await this.conversations.resume(user.id);
+        if (open?.kind === 'step' && open.snapshot.kind === 'ACCEPT_POLICIES') {
+          const screen = await this.consentScreen(open, user);
+          return this.paintPolicy(updateId, user, messageId, screen.text, screen.keyboard);
+        }
+      }
+      return this.drawTermsStanding(updateId, user, messageId);
+    }
+
+    const type = policyTypeFor(callback.doc);
+    const policy = (await this.consent.currentPolicies()).find(
+      (candidate) => candidate.type === type,
+    );
+    if (type === null || policy === undefined) {
+      return this.notice(updateId, user, 'این سند در حال حاضر منتشر نشده است.');
+    }
+
+    const pages = paginatePolicy(policy.contentMd);
+    // A page past the end is a button from a longer, older version.
+    const page = Math.min(callback.page, pages.length - 1);
+    const text = formatPolicyPage({
+      title: policyTitle(policy),
+      body: pages[page] ?? '',
+      page,
+      pages: pages.length,
+    });
+    const rows = policyPageRows({ type, page, pages: pages.length, acceptCallbackData });
+    return this.paintPolicy(updateId, user, messageId, text, rows);
+  }
+
+  /**
+   * For somebody who still owes an acceptance: make sure the consent form is the
+   * open one, drawn on this message, and hand back its «می‌پذیرم».
+   *
+   * Null for everybody else, which is what keeps the acceptance button off the
+   * pages somebody reads from `/terms` after agreeing. The form is (re)opened
+   * rather than assumed, because a reader can arrive here with it closed — from
+   * an old consent message, or after `/cancel` — and a «می‌پذیرم» wired to no
+   * form answers «این فرم دیگر باز نیست».
+   */
+  private async openConsentFor(
+    updateId: number,
+    user: BotUser,
+    messageId?: number,
+  ): Promise<string | null> {
+    if (!this.env.ENABLE_CONVERSATION_WIZARD) return null;
+    if ((await this.consent.requiredPolicies()).length === 0) return null;
+    if (await this.consent.hasAcceptedCurrentPolicies(user.id)) return null;
+
+    const current = await this.conversations.current(user.id);
+    if (current?.kind !== 'ACCEPT_POLICIES') {
+      await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
+    }
+    if (messageId !== undefined) await this.conversations.rememberMessage(user.id, messageId);
+
+    return encodeWizardCallback({ action: 'agree', value: '' });
+  }
+
+  /** `/terms` for somebody who owes nothing: what they accepted, and the way to read it. */
+  private async drawTermsStanding(
+    updateId: number,
+    user: BotUser,
+    editMessageId?: number,
+  ): Promise<void> {
+    const [standing, current] = await Promise.all([
+      this.consent.standingFor(user.id),
+      this.consent.currentPolicies(),
+    ]);
+    // Rendered by the package that owns the escaping rule, like every other
+    // pre-rendered body. Built here, it interpolated an operator's `title_fa`
+    // into a `<b>` tag unescaped — see `formatStanding`.
+    const text = formatStanding(
+      standing.accepted.map((entry) => ({
+        title: policyTitle(entry.policy),
+        acceptedAt: formatTehran(entry.acceptedAt),
+      })),
+    );
+    return this.paintPolicy(
+      updateId,
+      user,
+      editMessageId,
+      text,
+      policyReadRows(current.map((policy) => policy.type)),
+    );
+  }
+
+  /** Redraw the message a policy button is on, or send one when there is none. */
+  private async paintPolicy(
+    updateId: number,
+    user: BotUser,
+    editMessageId: number | undefined,
+    text: string,
+    rows: readonly (readonly { text: string; callbackData?: string; url?: string }[])[],
+  ): Promise<void> {
+    if (editMessageId !== undefined) {
+      return this.repaint(updateId, user, editMessageId, text, rows);
+    }
+    await this.reply(updateId, user.id, TEMPLATES.BOT_TERMS_STANDING, {
+      text,
+      keyboard: JSON.stringify(rows),
+    });
   }
 
   /**

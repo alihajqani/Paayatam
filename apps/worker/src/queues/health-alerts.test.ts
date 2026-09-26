@@ -65,6 +65,7 @@ function buildProcessors(overrides: { coins?: unknown; relay?: unknown }): Proce
     {} as never, // CityLaunchAnnouncementService
     {} as never, // NoShowClaimService
     {} as never, // SeedSchedulerService
+    {} as never, // AnonymizationService
   );
 }
 

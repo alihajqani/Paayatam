@@ -44,6 +44,7 @@ function build(prompted: number, offered = 0) {
     {} as never, // CityLaunchAnnouncementService
     noShowClaims as never,
     {} as never, // SeedSchedulerService
+    {} as never, // AnonymizationService
   );
 
   return { processors, lifecycle, noShowClaims, relay };

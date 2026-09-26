@@ -40,6 +40,14 @@ export const PERMISSIONS = {
   TRUST_ADJUST: 'trust.adjust',
   /** Break-glass: read a private conversation. Never sufficient on its own (T14). */
   CHAT_READ: 'chat.read',
+  /**
+   * Read direct messages in the panel, as conversations (ADR-0020).
+   *
+   * Not break-glass, unlike `chat.read`: direct messages carry names, and the
+   * privacy notice says staff may read them. `SUPER_ADMIN` alone, and every
+   * conversation opened writes an audit row naming it — never its words.
+   */
+  DIRECT_READ: 'direct.read',
   /** Cities, districts, categories, interests. */
   CATALOG_MANAGE: 'catalog.manage',
   /** Publish a new terms or privacy version. */

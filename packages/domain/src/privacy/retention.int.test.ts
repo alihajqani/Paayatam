@@ -376,22 +376,15 @@ describe('the audit trail, twenty-four months', () => {
 });
 
 /**
- * Direct messages are kept, and this is the test that says so on purpose.
+ * Direct messages: 180 days from when they were written (ADR-0020).
  *
- * The anonymous chat had a ninety-day clock because it was anonymous: two
- * strangers wrote to each other under aliases, and the promise that made that
- * safe was that the transcript did not outlive the conversation. «پیام مستقیم به
- * میزبان» is the opposite arrangement — it is not anonymous, contact details are
- * deliberately *not* masked, and what people use it for is arranging to meet.
- * A thread that vanished on a timer would take the address with it.
- *
- * So the row is absent from `PurgeResult` and from every query in `purge()`, and
- * absence is exactly the kind of thing that gets reintroduced by accident. This
- * seeds a message far older than the longest window in §8 and asserts it, and
- * its reply, are still there afterwards.
+ * They were kept forever until the privacy notice had to say how long. Two
+ * things are pinned here: the boundary, in both directions, and the case that
+ * breaks a naive delete — a reply that outlives the message it answers, whose
+ * `parent_id` is RESTRICT.
  */
-describe('direct messages are not on any retention schedule', () => {
-  it('keeps a message and its reply, however old', async () => {
+describe('direct messages expire 180 days after they were written', () => {
+  async function thread(): Promise<string> {
     const event = await prisma.event.create({
       data: {
         hostUserId: hostId,
@@ -401,43 +394,86 @@ describe('direct messages are not on any retention schedule', () => {
         descriptionNormalized: 'یک دورهمی دوستانه برای بازی رومیزی و گپ.',
         categoryId: fixture.categoryId,
         cityId: fixture.tehranId,
-        startsAt: daysAgo(2000),
-        endsAt: new Date(daysAgo(2000).getTime() + 3 * 3_600_000),
+        startsAt: daysAgo(200),
+        endsAt: new Date(daysAgo(200).getTime() + 3 * 3_600_000),
         capacity: 5,
         costType: 'FREE',
         status: 'COMPLETED',
         moderationStatus: 'APPROVED',
       },
     });
+    return event.id;
+  }
 
-    const first = await prisma.directMessage.create({
+  function message(
+    eventId: string,
+    createdAt: Date,
+    direction: 'ask' | 'answer',
+    parentId?: string,
+  ): Parameters<typeof prisma.directMessage.create>[0] {
+    return {
       data: {
-        eventId: event.id,
-        senderUserId: guestId,
-        recipientUserId: hostId,
+        eventId,
+        senderUserId: direction === 'ask' ? guestId : hostId,
+        recipientUserId: direction === 'ask' ? hostId : guestId,
+        ...(parentId !== undefined ? { parentId } : {}),
         bodyCiphertext: Buffer.alloc(16, 1),
         bodyNonce: Buffer.alloc(12, 2),
         keyVersion: 1,
-        createdAt: daysAgo(2000),
+        createdAt,
       },
-    });
+    };
+  }
 
-    await prisma.directMessage.create({
-      data: {
-        eventId: event.id,
-        senderUserId: hostId,
-        recipientUserId: guestId,
-        parentId: first.id,
-        bodyCiphertext: Buffer.alloc(16, 3),
-        bodyNonce: Buffer.alloc(12, 4),
-        keyVersion: 1,
-        createdAt: daysAgo(1999),
-      },
-    });
+  it('deletes what is past the window and keeps what is inside it', async () => {
+    const eventId = await thread();
+    const old = await prisma.directMessage.create(
+      message(eventId, daysAgo(RETENTION.DIRECT_MESSAGE_DAYS + 1), 'ask'),
+    );
+    const recent = await prisma.directMessage.create(
+      message(eventId, daysAgo(RETENTION.DIRECT_MESSAGE_DAYS - 1), 'ask'),
+    );
+
+    const result = await retention.purge();
+
+    expect(result.directMessages).toBe(1);
+    await expect(prisma.directMessage.findUnique({ where: { id: old.id } })).resolves.toBeNull();
+    await expect(
+      prisma.directMessage.findUnique({ where: { id: recent.id } }),
+    ).resolves.not.toBeNull();
+  });
+
+  it('keeps a younger reply to an expired question, unhooked from it', async () => {
+    const eventId = await thread();
+    const question = await prisma.directMessage.create(
+      message(eventId, daysAgo(RETENTION.DIRECT_MESSAGE_DAYS + 10), 'ask'),
+    );
+    const answer = await prisma.directMessage.create(
+      message(eventId, daysAgo(RETENTION.DIRECT_MESSAGE_DAYS - 10), 'answer', question.id),
+    );
 
     await retention.purge();
 
-    await expect(prisma.directMessage.count()).resolves.toBe(2);
+    await expect(
+      prisma.directMessage.findUnique({ where: { id: question.id } }),
+    ).resolves.toBeNull();
+    const kept = await prisma.directMessage.findUniqueOrThrow({ where: { id: answer.id } });
+    expect(kept.parentId).toBeNull();
+  });
+
+  it('deletes a whole expired thread in one pass, whatever order it is visited in', async () => {
+    const eventId = await thread();
+    const question = await prisma.directMessage.create(
+      message(eventId, daysAgo(RETENTION.DIRECT_MESSAGE_DAYS + 30), 'ask'),
+    );
+    await prisma.directMessage.create(
+      message(eventId, daysAgo(RETENTION.DIRECT_MESSAGE_DAYS + 29), 'answer', question.id),
+    );
+
+    const result = await retention.purge();
+
+    expect(result.directMessages).toBe(2);
+    await expect(prisma.directMessage.count()).resolves.toBe(0);
   });
 });
 
@@ -513,6 +549,7 @@ describe('running it on an empty database', () => {
     expect(await retention.purge()).toEqual({
       chatMessages: 0,
       chats: 0,
+      directMessages: 0,
       notifications: 0,
       auditRows: 0,
       outboxRows: 0,
@@ -531,6 +568,7 @@ describe('running it on an empty database', () => {
     expect(second).toEqual({
       chatMessages: 0,
       chats: 0,
+      directMessages: 0,
       notifications: 0,
       auditRows: 0,
       outboxRows: 0,
@@ -579,6 +617,8 @@ describe('the retention windows themselves', () => {
     expect(RETENTION).toEqual({
       CHAT_DAYS: 90,
       NOTIFICATION_DAYS: 180,
+      // ADR-0020: what the privacy notice promises for direct messages.
+      DIRECT_MESSAGE_DAYS: 180,
       AUDIT_DAYS: 730,
       OUTBOX_DAYS: 7,
     });

@@ -2214,3 +2214,75 @@ export const updateCitySeedConfigRequest = z.object({
   hostUserPublicId: z.string().optional(),
 });
 export type UpdateCitySeedConfigRequest = z.infer<typeof updateCitySeedConfigRequest>;
+
+// ── Direct messages, as conversations (ADR-0020) ─────────────────────────────
+
+/**
+ * One side of a conversation. By public id and display name only — the
+ * Telegram identity is behind `user.telegram.read`, not here (ADR-0009).
+ */
+export const directPartyView = z.object({
+  publicId: z.uuid(),
+  displayName: z.string(),
+  /** Whether this side hosts the activity the conversation is about. */
+  isHost: z.boolean(),
+});
+export type DirectPartyView = z.infer<typeof directPartyView>;
+
+/**
+ * A conversation is the messages between two accounts about one activity. It
+ * has no row of its own, so it is named by the three ids that define it.
+ */
+export const directThreadSummaryView = z.object({
+  eventPublicId: z.uuid(),
+  eventTitle: z.string(),
+  participants: z.tuple([directPartyView, directPartyView]),
+  messageCount: z.number().int().positive(),
+  firstMessageAt: z.iso.datetime(),
+  lastMessageAt: z.iso.datetime(),
+});
+export type DirectThreadSummaryView = z.infer<typeof directThreadSummaryView>;
+
+export const directThreadListQuery = z.object({
+  /** Only conversations this user is one side of. */
+  userPublicId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).max(100_000).optional(),
+});
+export type DirectThreadListQuery = z.infer<typeof directThreadListQuery>;
+
+export const directThreadListResponse = z.object({
+  threads: z.array(directThreadSummaryView),
+  total: z.number().int().nonnegative(),
+});
+export type DirectThreadListResponse = z.infer<typeof directThreadListResponse>;
+
+export const directThreadQuery = z.object({
+  eventPublicId: z.uuid(),
+  userPublicId: z.uuid(),
+  otherUserPublicId: z.uuid(),
+});
+export type DirectThreadQuery = z.infer<typeof directThreadQuery>;
+
+export const directMessageAdminView = z.object({
+  publicId: z.uuid(),
+  senderPublicId: z.uuid(),
+  /** The words exactly as they were sent, decrypted for this read. */
+  body: z.string(),
+  /** Whether it answered an earlier message rather than starting a thread. */
+  isReply: z.boolean(),
+  createdAt: z.iso.datetime(),
+  seenAt: z.iso.datetime().nullable(),
+});
+export type DirectMessageAdminView = z.infer<typeof directMessageAdminView>;
+
+export const directThreadResponse = z.object({
+  eventPublicId: z.uuid(),
+  eventTitle: z.string(),
+  participants: z.tuple([directPartyView, directPartyView]),
+  /** Oldest first, the way a conversation is read. */
+  messages: z.array(directMessageAdminView),
+  /** Which of the two, if either, has blocked the other. */
+  blockedBy: z.array(z.uuid()),
+});
+export type DirectThreadResponse = z.infer<typeof directThreadResponse>;

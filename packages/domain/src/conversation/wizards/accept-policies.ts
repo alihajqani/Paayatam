@@ -51,7 +51,7 @@ const steps: WizardStep<AcceptPoliciesForm>[] = [
     key: 'review',
     ui: 'confirm',
     cancellable: false,
-    prompt: () => 'برای استفاده از پایه‌تم، لازم است قوانین و سیاست حریم خصوصی را بپذیرید.',
+    prompt: () => 'برای استفاده از ربات پایتم، لازم است سندهای زیر را بخوانید و بپذیرید.',
     /**
      * Only «می‌پذیرم» advances. Anything else — a stray text message, a button
      * from an older build — leaves the step where it is, which is the correct
