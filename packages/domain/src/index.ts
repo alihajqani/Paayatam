@@ -455,6 +455,13 @@ export type { ProvinceSummary, CitySummary } from './adminaccess/geography-admin
 export { PolicyAdminService } from './adminaccess/policy-admin.service';
 export type { PolicySummary, ConsentRecord } from './adminaccess/policy-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
+export { DirectAdminService } from './adminaccess/direct-admin.service';
+export type {
+  DirectParty,
+  DirectThread,
+  DirectThreadMessage,
+  DirectThreadSummary,
+} from './adminaccess/direct-admin.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { SeedAdminService } from './adminaccess/seed-admin.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';
@@ -506,7 +513,11 @@ export { PrivacyModule } from './privacy/privacy.module';
 
 export { DirectModule } from './direct/direct.module';
 export { DirectMessageService } from './direct/direct-message.service';
-export type { DirectMessageDetail } from './direct/direct-message.service';
+export type {
+  BlockedSender,
+  BlockOutcome,
+  DirectMessageDetail,
+} from './direct/direct-message.service';
 export {
   directMessageWizard,
   isDirectMessageMode,

@@ -1,5 +1,9 @@
+import { escapeHtml } from './escape';
 import {
+  encodeDirectCallback,
   encodeSettingCallback,
+  isPublicId,
+  SETTING_BLOCKED,
   SETTING_LANGUAGE,
   SETTING_PRIVACY,
   SETTING_PROFILE,
@@ -152,10 +156,66 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
 
   rows.push([
     {
+      text: '🚫 کاربران مسدودشده',
+      callbackData: encodeSettingCallback(SETTING_BLOCKED, true),
+    },
+  ]);
+
+  rows.push([
+    {
       text: '🌐 زبان: فارسی',
       callbackData: encodeSettingCallback(SETTING_LANGUAGE, true),
     },
   ]);
 
+  return rows;
+}
+
+/** One person on the blocked list, as the settings screen names them. */
+export interface BlockedEntry {
+  userPublicId: string;
+  displayName: string;
+}
+
+/**
+ * «کاربران مسدودشده» (ADR-0020), drawn in place of the settings board.
+ *
+ * Names only. The list is the one place a block can be lifted once the message
+ * it was made from is gone, so it has to exist even when it is empty — an empty
+ * list says so rather than being a screen with nothing on it.
+ */
+export function formatBlockedList(blocked: readonly BlockedEntry[]): string {
+  if (blocked.length === 0) {
+    return (
+      `<b>🚫 کاربران مسدودشده</b>\n\n` +
+      `کسی را مسدود نکرده‌اید.\n\n` +
+      `<i>زیر هر پیام مستقیمی که دریافت می‌کنید، دکمهٔ «مسدود کردن فرستنده» هست.</i>`
+    );
+  }
+  const lines = blocked.map((entry) => `• ${escapeHtml(entry.displayName)}`).join('\n');
+  return (
+    `<b>🚫 کاربران مسدودشده</b>\n\n` +
+    `${lines}\n\n` +
+    `<i>این افراد نمی‌توانند به شما پیام مستقیم بدهند و شما هم به آن‌ها. ` +
+    `مسدود کردن روی درخواست‌ها و رویدادها اثری ندارد.</i>`
+  );
+}
+
+/** One «رفع مسدودی» per person, and the way back to the board. */
+export function blockedListRows(
+  blocked: readonly BlockedEntry[],
+): { text: string; callbackData: string }[][] {
+  const rows = blocked
+    // A payload that is not a public id costs a button, not a failed send.
+    .filter((entry) => isPublicId(entry.userPublicId))
+    .map((entry) => [
+      {
+        text: `✅ رفع مسدودی ${entry.displayName}`,
+        callbackData: encodeDirectCallback('unblock', entry.userPublicId),
+      },
+    ]);
+  rows.push([
+    { text: '↩️ بازگشت به تنظیمات', callbackData: encodeSettingCallback(SETTING_BLOCKED, false) },
+  ]);
   return rows;
 }

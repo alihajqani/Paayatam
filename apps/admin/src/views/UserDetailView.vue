@@ -851,6 +851,14 @@ onMounted(load);
           دیدن دفتر سکهٔ این کاربر ←
         </RouterLink>
       </p>
+      <p v-if="session.can(PERMISSIONS.DIRECT_READ)" class="text-sm">
+        <RouterLink
+          :to="{ name: 'directs', query: { userPublicId: detail.publicId } }"
+          class="text-brand"
+        >
+          دیدن پیام‌های مستقیم این کاربر ←
+        </RouterLink>
+      </p>
     </div>
   </StateBlock>
 

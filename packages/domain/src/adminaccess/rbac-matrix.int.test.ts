@@ -21,6 +21,7 @@ import { AdminAccessService, permissionsFor, type AdminSession } from './admin-a
 import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
+import { DirectAdminService } from './direct-admin.service';
 import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { AcquisitionReportService } from './acquisition-report.service';
@@ -148,6 +149,7 @@ const channelAdmin = new ChannelAdminService(
   new ChannelConfigService(service, clock, audit),
 );
 const messaging = new MessagingService(service, clock, audit);
+const directAdmin = new DirectAdminService(service, access, cipher, audit);
 const messagingAdmin = new MessagingAdminService(service, access, messaging, audit);
 
 /**
@@ -614,6 +616,22 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.USER_TELEGRAM_READ,
     run: (session) => messagingAdmin.telegramIdentity(session, NO_SUCH_ID),
   },
+  // Direct messages as conversations (ADR-0020): `SUPER_ADMIN` alone.
+  {
+    name: 'GET /admin/v1/directs',
+    permission: PERMISSIONS.DIRECT_READ,
+    run: (session) => directAdmin.listThreads(session, {}),
+  },
+  {
+    name: 'GET /admin/v1/directs/thread',
+    permission: PERMISSIONS.DIRECT_READ,
+    run: (session) =>
+      directAdmin.readThread(session, {
+        eventPublicId: NO_SUCH_ID,
+        userPublicId: NO_SUCH_ID,
+        otherUserPublicId: NO_SUCH_ID,
+      }),
+  },
   {
     name: 'GET /admin/v1/channel-config',
     permission: PERMISSIONS.CHANNEL_MANAGE,
@@ -672,7 +690,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(74);
+    expect(OPERATIONS).toHaveLength(76);
   });
 
   for (const role of ROLES) {

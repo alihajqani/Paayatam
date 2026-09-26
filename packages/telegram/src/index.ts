@@ -48,7 +48,7 @@ export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa, walletPageRow } from './wallet';
 export { buyCoinsRow, formatCoinPackages, type CoinPackage } from './coin-packages';
 export { capacityLabel, seatsFillEmoji, seatsLine, seatsLineFromRemaining } from './seats';
-export { formatDirectMessage } from './direct';
+export { formatBlockedNotice, formatDirectMessage } from './direct';
 export type { DirectMessageLine } from './direct';
 export { toPersianAmount } from './escape';
 export { formatTrust, trustLabelFa, trustPageRow } from './trust';
@@ -60,6 +60,7 @@ export {
   SETTING_LETTERS,
   SETTING_PRIVACY,
   SETTING_PROFILE,
+  SETTING_BLOCKED,
   encodeSettingCallback,
   isNotificationField,
   parseSettingCallback,
@@ -79,6 +80,13 @@ export type { ProfileFieldKey } from './callback-data';
 export { MAX_DISCOVER_PAGE } from './callback-data';
 export { MAX_MY_EVENTS_PAGE, encodeMyEventsCallback, parseMyEventsCallback } from './callback-data';
 export { MAX_WALLET_PAGE, encodeWalletCallback, parseWalletCallback } from './callback-data';
+export {
+  MAX_POLICY_PAGE,
+  POLICY_DOC_LETTERS,
+  encodePolicyCallback,
+  parsePolicyCallback,
+} from './callback-data';
+export type { PolicyCallback, PolicyDocLetter } from './callback-data';
 export { MAX_TRUST_PAGE, encodeTrustCallback, parseTrustCallback } from './callback-data';
 export { encodeDirectCallback, parseDirectCallback } from './callback-data';
 export type { DirectCallback, DirectCallbackAction } from './callback-data';
@@ -108,8 +116,8 @@ export {
   type ModerationDigestSummary,
 } from './admin-cases';
 export type { AdminCaseDetailLine, AdminCaseLine } from './admin-cases';
-export { formatSettings, settingsRows } from './settings';
-export type { SettingsState } from './settings';
+export { blockedListRows, formatBlockedList, formatSettings, settingsRows } from './settings';
+export type { BlockedEntry, SettingsState } from './settings';
 export type { NotificationCategory } from './notification-category';
 export { formatParticipants } from './participants';
 export { foundingBadge, foundingTierMedal, foundingTierName } from './founding';
@@ -120,9 +128,19 @@ export type { TrustLine } from './trust';
 export { formatReferral } from './referral';
 export type { ReferralSummaryLine } from './referral';
 export type { WalletLine } from './wallet';
-export { formatPolicies, formatStanding } from './policies';
-export type { AcceptedPolicy } from './policies';
-export type { PolicyDocument } from './policies';
+export {
+  PAGE_BUDGET,
+  POLICY_DEFAULT_TITLE,
+  POLICY_LETTER,
+  formatPolicyPage,
+  formatPolicySummary,
+  formatStanding,
+  paginatePolicy,
+  policyPageRows,
+  policyReadRows,
+  policyTypeFor,
+} from './policies';
+export type { AcceptedPolicy, PolicyChange, PolicyType } from './policies';
 export type { DigestInput } from './digest';
 export {
   BOT_COMMANDS,

@@ -122,6 +122,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'گزارش‌های مشکل', permission: PERMISSIONS.REPORT_REVIEW, group: 'moderation' },
   },
   {
+    /**
+     * Direct messages, as conversations (ADR-0020). `direct.read` is
+     * `SUPER_ADMIN`'s alone, and every conversation opened is audited.
+     */
+    path: '/directs',
+    name: 'directs',
+    component: () => import('@/views/DirectsView.vue'),
+    meta: { title: 'پیام‌های مستقیم', permission: PERMISSIONS.DIRECT_READ, group: 'moderation' },
+  },
+  {
     path: '/cases',
     name: 'cases',
     component: () => import('@/views/CasesView.vue'),

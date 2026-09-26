@@ -71,6 +71,13 @@ export const ErrorCode = {
   // Participation (ADR-0006)
   DUPLICATE_REQUEST: 'DUPLICATE_REQUEST',
   HOST_CANNOT_JOIN: 'HOST_CANNOT_JOIN',
+  /**
+   * A direct message between two people one of whom has blocked the other
+   * (ADR-0020). Two codes because the two people need different sentences: the
+   * blocked one cannot do anything about it, the blocker can unblock.
+   */
+  DIRECT_BLOCKED_BY_RECIPIENT: 'DIRECT_BLOCKED_BY_RECIPIENT',
+  DIRECT_BLOCKED_BY_YOU: 'DIRECT_BLOCKED_BY_YOU',
   EVENT_FULL_NO_WAITLIST: 'EVENT_FULL_NO_WAITLIST',
   CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',
   NOT_ELIGIBLE_GENDER: 'NOT_ELIGIBLE_GENDER',
@@ -292,6 +299,9 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
 
   DUPLICATE_REQUEST: 'شما قبلاً برای این رویداد درخواست داده‌اید.',
   HOST_CANNOT_JOIN: 'شما میزبان این رویداد هستید.',
+  DIRECT_BLOCKED_BY_RECIPIENT: 'این کاربر دریافت پیام از شما را مسدود کرده است.',
+  DIRECT_BLOCKED_BY_YOU:
+    'شما این کاربر را مسدود کرده‌اید. برای پیام دادن، اول از «تنظیمات» مسدودی را بردارید.',
   EVENT_FULL_NO_WAITLIST: 'ظرفیت این رویداد تکمیل شده است.',
   CAPACITY_EXCEEDED: 'متأسفانه آخرین ظرفیت هم‌زمان توسط فرد دیگری پر شد.',
   NOT_ELIGIBLE_GENDER: 'این رویداد برای گروه دیگری در نظر گرفته شده است.',
@@ -395,6 +405,8 @@ const HTTP_STATUS: Partial<Record<ErrorCode, number>> = {
   POLICY_VERSION_STALE: 403,
   FORBIDDEN: 403,
   HOST_CANNOT_JOIN: 403,
+  DIRECT_BLOCKED_BY_RECIPIENT: 403,
+  DIRECT_BLOCKED_BY_YOU: 403,
   TRUST_TOO_LOW: 403,
   NOT_FOUND: 404,
   EVENT_NOT_FOUND: 404,

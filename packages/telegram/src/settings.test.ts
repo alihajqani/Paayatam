@@ -5,7 +5,13 @@ import {
   SETTING_PROFILE,
   parseSettingCallback,
 } from './callback-data';
-import { formatSettings, settingsRows, type SettingsState } from './settings';
+import {
+  blockedListRows,
+  formatBlockedList,
+  formatSettings,
+  settingsRows,
+  type SettingsState,
+} from './settings';
 
 const base: SettingsState = {
   notifyChat: true,
@@ -37,9 +43,9 @@ describe('the settings board', () => {
   it('gives every row a button, so nothing on the board is decoration', () => {
     const data = buttons(base).map((button) => button.callbackData);
 
-    // Two notification switches, privacy, language. «تبلیغات» went in v0.7.0;
-    // the preference behind it did not.
-    expect(data).toHaveLength(4);
+    // Two notification switches, privacy, the blocked list (ADR-0020), language.
+    // «تبلیغات» went in v0.7.0; the preference behind it did not.
+    expect(data).toHaveLength(5);
     for (const value of data) expect(parseSettingCallback(value)).not.toBeNull();
   });
 
@@ -114,5 +120,32 @@ describe('the settings board', () => {
 
   it('renders an unknown locale as itself rather than blank', () => {
     expect(formatSettings({ ...base, locale: 'en-US' })).toContain('en-US');
+  });
+});
+
+/** «کاربران مسدودشده» (ADR-0020): the one place a block can be lifted later. */
+describe('the blocked list', () => {
+  const P = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+
+  it('opens from the board', () => {
+    const row = buttons(base).find((button) => button.text.includes('مسدودشده'));
+    expect(parseSettingCallback(row?.callbackData ?? '')).toEqual({ field: 'b', value: true });
+  });
+
+  it('says so when nobody is blocked, and still offers the way back', () => {
+    expect(formatBlockedList([])).toContain('کسی را مسدود نکرده‌اید');
+    const rows = blockedListRows([]).flat();
+    expect(rows).toHaveLength(1);
+    expect(parseSettingCallback(rows[0]?.callbackData ?? '')).toEqual({ field: 'b', value: false });
+  });
+
+  it('offers one unblock per person, by their public id', () => {
+    const rows = blockedListRows([{ userPublicId: P, displayName: 'سارا' }]).flat();
+    expect(rows[0]?.callbackData).toBe(`dm:unblock:${P}`);
+    expect(rows[0]?.text).toContain('سارا');
+  });
+
+  it('escapes the names in the body', () => {
+    expect(formatBlockedList([{ userPublicId: P, displayName: '<b>x' }])).toContain('&lt;b&gt;x');
   });
 });

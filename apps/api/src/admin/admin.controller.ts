@@ -26,6 +26,7 @@ import {
   ChannelAdminService,
   AdminOperationsService,
   ChatUnsealService,
+  DirectAdminService,
   FoundingAdminService,
   EconomyReportService,
   GeographyAdminService,
@@ -47,6 +48,9 @@ import {
   type PolicySummary,
   type ProvinceSummary,
   type TelegramIdentity,
+  type DirectParty,
+  type DirectThread,
+  type DirectThreadSummary,
   type ReferralReview,
   type UserSummary,
 } from '@payetam/domain';
@@ -56,7 +60,15 @@ import { ENV, JOBS, PiiHasher, QUEUES, QueueService, jobId } from '@payetam/plat
 import { AppError, ErrorCode, PERMISSIONS, resolveVersion } from '@payetam/shared';
 import {
   bugReportListQuery,
+  directThreadListQuery,
+  directThreadQuery,
   updateBugReportRequest,
+  type DirectPartyView,
+  type DirectThreadListQuery,
+  type DirectThreadListResponse,
+  type DirectThreadQuery,
+  type DirectThreadResponse,
+  type DirectThreadSummaryView,
   type BugReportListQuery,
   type BugReportListResponse,
   type BugReportView,
@@ -291,6 +303,8 @@ export class AdminController {
     private readonly noShowClaims: NoShowClaimService,
     /** The marketing seed-event scheduler's admin configuration. */
     private readonly seedAdmin: SeedAdminService,
+    /** Direct messages, read as conversations (ADR-0020). */
+    private readonly directs: DirectAdminService,
     /** Only for the release string; nothing else in this controller reads it. */
     @Inject(ENV) env: Env,
   ) {
@@ -1649,6 +1663,41 @@ export class AdminController {
     return toTelegramIdentityView(await this.messaging.telegramIdentity(admin, publicId));
   }
 
+  // ── Direct messages (ADR-0020) ─────────────────────────────────────────────
+
+  /**
+   * Conversations — who wrote to whom about which activity, and when — most
+   * recently active first. No message text: that is the next call, and the one
+   * that is audited.
+   *
+   * `direct.read` is asserted by `DirectAdminService` (invariant 12), not here,
+   * so a second caller of the service cannot forget it.
+   */
+  @Get('directs')
+  async listDirectThreads(
+    @Query(new ZodValidationPipe(directThreadListQuery)) query: DirectThreadListQuery,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<DirectThreadListResponse> {
+    const result = await this.directs.listThreads(admin, {
+      ...(query.userPublicId !== undefined ? { userPublicId: query.userPublicId } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { threads: result.threads.map(toDirectThreadSummaryView), total: result.total };
+  }
+
+  /**
+   * One conversation, word for word. **Every call writes `direct.thread_read`**
+   * to the audit trail — which conversation and by whom, never what it said.
+   */
+  @Get('directs/thread')
+  async readDirectThread(
+    @Query(new ZodValidationPipe(directThreadQuery)) query: DirectThreadQuery,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<DirectThreadResponse> {
+    return toDirectThreadResponse(await this.directs.readThread(admin, query));
+  }
+
   // ── The event channel (M22 phase 6) ────────────────────────────────────────
 
   /**
@@ -2306,6 +2355,45 @@ function toMessageCampaignView(campaign: MessageCampaignSummary): MessageCampaig
 }
 
 /** The Telegram id as a string — see the contract for why that is deliberate. */
+/** An allowlist, never a spread, like every other view here. */
+function toDirectPartyView(party: DirectParty): DirectPartyView {
+  return { publicId: party.publicId, displayName: party.displayName, isHost: party.isHost };
+}
+
+function toDirectThreadSummaryView(thread: DirectThreadSummary): DirectThreadSummaryView {
+  return {
+    eventPublicId: thread.eventPublicId,
+    eventTitle: thread.eventTitle,
+    participants: [
+      toDirectPartyView(thread.participants[0]),
+      toDirectPartyView(thread.participants[1]),
+    ],
+    messageCount: thread.messageCount,
+    firstMessageAt: thread.firstMessageAt.toISOString(),
+    lastMessageAt: thread.lastMessageAt.toISOString(),
+  };
+}
+
+function toDirectThreadResponse(thread: DirectThread): DirectThreadResponse {
+  return {
+    eventPublicId: thread.eventPublicId,
+    eventTitle: thread.eventTitle,
+    participants: [
+      toDirectPartyView(thread.participants[0]),
+      toDirectPartyView(thread.participants[1]),
+    ],
+    messages: thread.messages.map((message) => ({
+      publicId: message.publicId,
+      senderPublicId: message.senderPublicId,
+      body: message.body,
+      isReply: message.isReply,
+      createdAt: message.createdAt.toISOString(),
+      seenAt: message.seenAt?.toISOString() ?? null,
+    })),
+    blockedBy: thread.blockedBy,
+  };
+}
+
 function toTelegramIdentityView(identity: TelegramIdentity): TelegramIdentityView {
   return {
     telegramUserId: identity.telegramUserId,

@@ -367,6 +367,13 @@ export {
   citySeedConfigView,
   seedEventsCitiesResponse,
   updateCitySeedConfigRequest,
+  directPartyView,
+  directThreadSummaryView,
+  directThreadListQuery,
+  directThreadListResponse,
+  directThreadQuery,
+  directMessageAdminView,
+  directThreadResponse,
 } from './contracts/admin';
 export type {
   ReportReason,
@@ -507,6 +514,13 @@ export type {
   CitySeedConfigView,
   SeedEventsCitiesResponse,
   UpdateCitySeedConfigRequest,
+  DirectPartyView,
+  DirectThreadSummaryView,
+  DirectThreadListQuery,
+  DirectThreadListResponse,
+  DirectThreadQuery,
+  DirectMessageAdminView,
+  DirectThreadResponse,
 } from './contracts/admin';
 
 export { foldForSearch, foldedIncludes } from './search-fold';

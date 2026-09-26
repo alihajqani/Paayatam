@@ -82,6 +82,8 @@ let scanProvinceId: string;
 let scanCityId: string;
 let scanCampaignPublicId: string;
 let scanRequiredChannelId: string;
+/** The viewer's public id, for the conversation the direct-message read opens. */
+let directViewerPublicId: string;
 
 /** `METHOD /path/with/:params`, as Fastify registers them. */
 const registeredRoutes = new Set<string>();
@@ -559,6 +561,29 @@ beforeAll(async () => {
       keyVersion: sealed.keyVersion,
     },
   });
+
+  /**
+   * One direct message between the viewer and the leaky host (ADR-0020), so the
+   * panel's conversation list and read have a real row to answer with. Sealed
+   * with the application's own cipher, and — for the reason the chat message
+   * above gives — carrying no identifier of its own.
+   */
+  const directSealed = cipher.encrypt('سلام، جای پارک نزدیک هست؟');
+  const directEvent = await prisma.event.findUniqueOrThrow({
+    where: { publicId: eventPublicId },
+    select: { id: true, hostUserId: true },
+  });
+  await prisma.directMessage.create({
+    data: {
+      eventId: directEvent.id,
+      senderUserId: user.id,
+      recipientUserId: directEvent.hostUserId,
+      bodyCiphertext: new Uint8Array(directSealed.ciphertext),
+      bodyNonce: new Uint8Array(directSealed.nonce),
+      keyVersion: directSealed.keyVersion,
+    },
+  });
+  directViewerPublicId = user.publicId;
 
   /**
    * The viewer needs coins, and the *leaky host* needs to be the one who invited
@@ -1414,6 +1439,19 @@ beforeAll(async () => {
      * The write points at an id that does not exist, so the 404 is what is read
      * and no report's state is changed by a scan run.
      */
+    /**
+     * Direct messages as conversations (ADR-0020). The list names the two sides
+     * by public id and display name; the read decrypts the fixture's one message.
+     * Neither may carry an internal id or a Telegram identity.
+     */
+    { method: 'GET', url: '/admin/v1/directs', admin: true },
+    {
+      method: 'GET',
+      url:
+        `/admin/v1/directs/thread?eventPublicId=${eventPublicId}` +
+        `&userPublicId=${directViewerPublicId}&otherUserPublicId=${hostPublicId}`,
+      admin: true,
+    },
     { method: 'GET', url: '/admin/v1/bug-reports', admin: true },
     {
       method: 'POST',

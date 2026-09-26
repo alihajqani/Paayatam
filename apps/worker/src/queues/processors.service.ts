@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
   AdminTelegramService,
+  AnonymizationService,
   AuditService,
   CHANNEL_POST_UNDELETABLE_ACTION,
   ChannelService,
@@ -159,7 +160,38 @@ export class Processors implements OnModuleInit {
     private readonly noShowClaims: NoShowClaimService,
     /** Marketing seed events: create and fill fake events per city (SUPER_ADMIN-configured). */
     private readonly seedScheduler: SeedSchedulerService,
+    /**
+     * For one case only: Telegram saying an account was deleted (ADR-0020's
+     * companion rule in the terms). The product offers no «delete my account»;
+     * a person who deletes their Telegram account is the one deletion it honours.
+     */
+    private readonly anonymization: AnonymizationService,
   ) {}
+
+  /**
+   * Anonymise an account whose Telegram account has been deleted.
+   *
+   * Telegram answers a send to a deleted account with 403 «Forbidden: user is
+   * deactivated» — the same status as a blocked bot, told apart only by its
+   * description. A block is a choice somebody can reverse by pressing /start;
+   * a deactivation is not, there is nobody left to come back, and the terms
+   * promise that this is the case in which an account's personal data goes.
+   *
+   * Never throws. The send it is attached to has already been settled as
+   * undeliverable, and a failure here must not turn that into a retry that
+   * sends again.
+   */
+  private async forgetIfDeactivated(userId: string, reason: string): Promise<void> {
+    if (!/user is deactivated/i.test(reason)) return;
+    try {
+      await this.anonymization.anonymize(userId);
+      this.logger.log('A recipient deleted their Telegram account; their data was anonymised');
+    } catch (error) {
+      this.logger.error(
+        `Could not anonymise a deactivated account: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   /**
    * Consecutive sweeps in which every channel post attempt failed.
@@ -419,6 +451,7 @@ export class Processors implements OnModuleInit {
       case 'BLOCKED':
         await this.notifications.markUndeliverable(notification.id, notification.userId);
         this.logger.log(`Notification ${notification.id}: recipient has blocked the bot`);
+        await this.forgetIfDeactivated(notification.userId, outcome.reason);
         return;
 
       case 'RETRY':
@@ -709,7 +742,8 @@ export class Processors implements OnModuleInit {
         const purged = await this.retention.purge();
         this.logger.log(
           `Retention purge: ${String(purged.chatMessages)} messages, ` +
-            `${String(purged.chats)} chats, ${String(purged.notifications)} notifications, ` +
+            `${String(purged.chats)} chats, ${String(purged.directMessages)} direct, ` +
+            `${String(purged.notifications)} notifications, ` +
             `${String(purged.outboxRows)} outbox, ${String(purged.auditRows)} audit`,
         );
         return;
@@ -1027,6 +1061,7 @@ export class Processors implements OnModuleInit {
           error: outcome.reason,
         });
         await this.invitations.recordInvitationOutcome(data.campaignId, target.userId, 'BLOCKED');
+        await this.forgetIfDeactivated(target.userId, outcome.reason);
         return;
 
       case 'RATE_LIMITED': {

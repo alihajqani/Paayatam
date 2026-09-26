@@ -42,3 +42,19 @@ export function formatDirectMessage(line: DirectMessageLine): string {
     `خودتان باشد؛ پایه‌تَم در این میان هیچ نقشی ندارد.</i>`
   );
 }
+
+/**
+ * What a recipient is told after blocking a sender (ADR-0020).
+ *
+ * Both directions, because the block is both directions: somebody who blocks
+ * and then tries to write back is refused too, and learning that from a
+ * refusal would read as a bug. The escaped name is the only value in it.
+ */
+export function formatBlockedNotice(displayName: string): string {
+  return (
+    `<b>🚫 ${escapeHtml(displayName)} مسدود شد</b>\n\n` +
+    `از این پس نه او می‌تواند به شما پیام مستقیم بدهد و نه شما به او. ` +
+    `درخواست‌ها و رویدادها تغییری نمی‌کنند.\n\n` +
+    `<i>فهرست افراد مسدودشده در «تنظیمات» است.</i>`
+  );
+}

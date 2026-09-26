@@ -31,6 +31,25 @@ export interface DirectMessageDetail {
    * column. Never leaves the bot: it is an id in somebody's chat, not an identity.
    */
   replyToMessageId: number | null;
+  /**
+   * Whether the reader has blocked the person who wrote this (ADR-0020). Only
+   * ever true for the recipient; the bot draws «رفع مسدودی» instead of
+   * «مسدود کردن فرستنده» when it is.
+   */
+  senderBlocked: boolean;
+}
+
+/** One person somebody has blocked, as the bot lists them. */
+export interface BlockedSender {
+  userPublicId: string;
+  displayName: string;
+  blockedAt: Date;
+}
+
+/** What a block reports back, so the bot can name who it just blocked. */
+export interface BlockOutcome {
+  userPublicId: string;
+  displayName: string;
 }
 
 /**
@@ -65,10 +84,11 @@ export interface DirectMessageDetail {
  *
  * ── What it deliberately does not have ─────────────────────────────────────
  *
- * A retention clock. The chat's ninety days followed from its anonymity; a thread
- * people use to arrange a meeting must not delete the address halfway through it.
- * `RetentionService` names this absence explicitly so nobody restores it by
- * adding one more table to the purge.
+ * A retention clock — until ADR-0020. The chat's ninety days followed from its
+ * anonymity, and v0.8.0 kept these forever so a thread arranging a meeting would
+ * not lose the address halfway through. They are now purged 180 days after they
+ * were written (`RetentionService`), which is long past any meeting and a bound
+ * the privacy notice can state.
  *
  * ── Who may write to whom ──────────────────────────────────────────────────
  *
@@ -83,6 +103,10 @@ export interface DirectMessageDetail {
  *    only the account that *received* it may do so. So a thread stays between the
  *    two people it started between, and a stranger holding a public id can
  *    neither read a message nor answer one.
+ *
+ * And one refusal on top of all three (ADR-0020): **a block, either way round.**
+ * A recipient may block whoever wrote to them, and from then on nothing is
+ * written between the two in either direction until the block is lifted.
  */
 @Injectable()
 export class DirectMessageService {
@@ -286,6 +310,12 @@ export class DirectMessageService {
         );
       }
 
+      const senderBlocked = viewerIsRecipient
+        ? (await tx.directMessageBlock.count({
+            where: { blockerUserId: userId, blockedUserId: row.senderUserId },
+          })) > 0
+        : false;
+
       return {
         publicId: row.publicId,
         eventPublicId: row.event.publicId,
@@ -309,8 +339,110 @@ export class DirectMessageService {
          * it would name some unrelated message.
          */
         replyToMessageId: viewerIsRecipient ? (row.parent?.senderMessageId ?? null) : null,
+        senderBlocked,
       };
     });
+  }
+
+  // ── Blocking (ADR-0020) ────────────────────────────────────────────────────
+
+  /**
+   * Block whoever wrote this message, as the account it was written to.
+   *
+   * Named by a **message** rather than a user, for the reason every other entry
+   * point here is: the button under a received message knows which message it is
+   * under, and only its recipient may act on it. A stranger holding the id gets
+   * the same `NOT_FOUND` as for a message that does not exist.
+   *
+   * Idempotent: blocking twice is one row, and the second tap is not an error.
+   */
+  async block(blockerUserId: string, messagePublicId: string): Promise<BlockOutcome> {
+    const message = await this.prisma.directMessage.findUnique({
+      where: { publicId: messagePublicId },
+      select: {
+        recipientUserId: true,
+        senderUserId: true,
+        sender: { select: { publicId: true, profile: { select: { displayName: true } } } },
+      },
+    });
+    if (!message || message.recipientUserId !== blockerUserId) {
+      throw new AppError(ErrorCode.NOT_FOUND);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const created = await tx.directMessageBlock.createMany({
+        data: [{ blockerUserId, blockedUserId: message.senderUserId }],
+        skipDuplicates: true,
+      });
+      if (created.count === 0) return;
+
+      await this.audit.record(
+        {
+          actorType: 'USER',
+          actorId: blockerUserId,
+          action: 'direct.sender_blocked',
+          targetType: 'user',
+          targetId: message.senderUserId,
+        },
+        tx,
+      );
+    });
+
+    return {
+      userPublicId: message.sender.publicId,
+      displayName: message.sender.profile?.displayName ?? 'کاربر پایه‌تَم',
+    };
+  }
+
+  /**
+   * Lift a block this account made.
+   *
+   * By the blocked person's **public id** rather than a message, because the
+   * message may be long gone — purged after 180 days, or scrolled out of reach —
+   * while the block stays until somebody lifts it. Harmless to tamper with: it can
+   * only ever delete a row whose blocker is the caller.
+   */
+  async unblock(blockerUserId: string, blockedUserPublicId: string): Promise<void> {
+    const blocked = await this.prisma.user.findUnique({
+      where: { publicId: blockedUserPublicId },
+      select: { id: true },
+    });
+    if (!blocked) throw new AppError(ErrorCode.NOT_FOUND);
+
+    await this.prisma.$transaction(async (tx) => {
+      const removed = await tx.directMessageBlock.deleteMany({
+        where: { blockerUserId, blockedUserId: blocked.id },
+      });
+      if (removed.count === 0) return;
+
+      await this.audit.record(
+        {
+          actorType: 'USER',
+          actorId: blockerUserId,
+          action: 'direct.sender_unblocked',
+          targetType: 'user',
+          targetId: blocked.id,
+        },
+        tx,
+      );
+    });
+  }
+
+  /** Everybody this account has blocked, most recent first. */
+  async listBlocked(blockerUserId: string): Promise<BlockedSender[]> {
+    const rows = await this.prisma.directMessageBlock.findMany({
+      where: { blockerUserId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        createdAt: true,
+        blocked: { select: { publicId: true, profile: { select: { displayName: true } } } },
+      },
+    });
+    return rows.map((row) => ({
+      userPublicId: row.blocked.publicId,
+      displayName: row.blocked.profile?.displayName ?? 'کاربر پایه‌تَم',
+      blockedAt: row.createdAt,
+    }));
   }
 
   /**
@@ -336,6 +468,28 @@ export class DirectMessageService {
     const sealed = this.cipher.encrypt(input.body);
 
     return this.prisma.$transaction(async (tx) => {
+      /**
+       * A block, either way round (ADR-0020).
+       *
+       * Inside the transaction that writes, so a block made while somebody is
+       * typing is the one their message meets. The two directions are told
+       * apart because the two people can do different things about it: the
+       * blocker can lift it, the blocked one can only be told.
+       */
+      const blocks = await tx.directMessageBlock.findMany({
+        where: {
+          OR: [
+            { blockerUserId: input.recipientUserId, blockedUserId: input.senderUserId },
+            { blockerUserId: input.senderUserId, blockedUserId: input.recipientUserId },
+          ],
+        },
+        select: { blockerUserId: true },
+      });
+      if (blocks.some((block) => block.blockerUserId === input.recipientUserId)) {
+        throw new AppError(ErrorCode.DIRECT_BLOCKED_BY_RECIPIENT);
+      }
+      if (blocks.length > 0) throw new AppError(ErrorCode.DIRECT_BLOCKED_BY_YOU);
+
       const created = await tx.directMessage.create({
         data: {
           eventId: input.eventId,
