@@ -6,12 +6,13 @@ import {
   encodeReviewCallback,
   isPublicId,
 } from './callback-data';
-import { commandGroupFor, helpCommandLines } from './commands';
+import { commandGroupFor } from './commands';
 import { SHARE_URL_PREFIX } from './deep-link';
 import { myEventCommandFor } from './event-code';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
 import { foundingBadge, foundingTierMedal } from './founding';
+import { readGuideRow } from './help-guides';
 import {
   MAIN_MENU_LABEL,
   hostDecisionKeyboard,
@@ -1193,37 +1194,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       );
 
     /**
-     * `/help` — the only place the bot's own capabilities are written down.
+     * `/help` — the in-bot guide (migration 0063).
      *
-     * Until this existed every command except `/start` answered «این فرمان را
-     * نمی‌شناسم», which told somebody what the bot could *not* do and nothing at
-     * all about what it could. What is listed is what is invisible: that a host
-     * decides from the notification itself, and that writing to a host is a
-     * button on the activity rather than something to be typed.
+     * It printed the command list and three tips. The guide replaced it: the
+     * contents are one button per section, drawn by `BotService` from
+     * `HelpGuideService`, so this template only carries what was rendered — the
+     * same shape as the policy reader. The command list is still one tap away
+     * (`formatCommandList`).
      */
     case TEMPLATES.BOT_HELP:
-      return opened(
-        `<b>راهنما</b>\n\n` +
-          // `/start` used to be appended by hand here, because it was the one
-          // command `BOT_COMMANDS` deliberately left out. It is in that list as
-          // of v0.9.1, so a hand-written line would print it twice — with a
-          // second description, which is how two descriptions of one command
-          // start drifting apart.
-          `${helpCommandLines()}\n\n` +
-          `<b>پیام به میزبان</b>\n` +
-          `از صفحهٔ هر رویداد، دکمهٔ «پیام مستقیم به میزبان» را بزنید. ` +
-          `میزبان هم از «👥 مهمان‌ها»، کنار هر مهمانِ پذیرفته‌شده «✉️ پیام» را می‌زند. ` +
-          `پاسخ‌ها با دکمهٔ «مشاهدهٔ پیام» و «پاسخ به این پیام» در همین‌جا رد و بدل می‌شود.\n\n` +
-          `<b>درخواست‌ها</b>\n` +
-          `پذیرش یا رد درخواست با دکمه‌های زیر همان اعلان انجام می‌شود — ` +
-          `لازم نیست چیزی را باز کنید.\n\n` +
-          `<b>بقیهٔ کارها</b>\n` +
-          `لازم نیست چیزی تایپ کنید: دکمهٔ «${MAIN_MENU_LABEL}» زیر صفحهٔ نوشتن همه‌چیز ` +
-          `را باز می‌کند — ساختن و پیدا کردن رویداد در «${menuPathFor('discover') ?? 'رویدادها'}»، ` +
-          `پروفایل و تنظیمات در «${menuPathFor('settings') ?? 'حساب من'}». ` +
-          `فرمان‌های بالا هم کار می‌کنند، برای وقتی که تایپ کردن سریع‌تر است.`,
-        `home`,
-      );
+      return opened(prerendered(payload), `home`, parseKeyboard(payload));
 
     /**
      * `/balance` — a number somebody checks often, and previously could only see by
@@ -1776,7 +1756,14 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * nineteen buttons under every message.
      */
     case TEMPLATES.BOT_NOTICE:
-      return { text: str(payload, 'text'), keyboard: menuOpenerKeyboard() };
+      return {
+        text: str(payload, 'text'),
+        // `withGuide`: the one notice that suggests the guide — the end of
+        // signing up (migration 0063) — carries the button that opens it.
+        keyboard: bool(payload, 'withGuide')
+          ? [readGuideRow(), ...menuOpenerKeyboard()]
+          : menuOpenerKeyboard(),
+      };
 
     /**
      * A direct message and the button that answers it.

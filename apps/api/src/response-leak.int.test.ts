@@ -1452,6 +1452,19 @@ beforeAll(async () => {
         `&userPublicId=${directViewerPublicId}&otherUserPublicId=${hostPublicId}`,
       admin: true,
     },
+    /**
+     * The in-bot guide (migration 0063): staff-written text and setting values,
+     * with no user in it at all. Listed because every endpoint is. The write
+     * saves the default back, which stores nothing; the reset finds nothing.
+     */
+    { method: 'GET', url: '/admin/v1/help-guides', admin: true },
+    {
+      method: 'PUT',
+      url: '/admin/v1/help-guides/intro',
+      admin: true,
+      body: { title: null, body: null, hidden: false },
+    },
+    { method: 'DELETE', url: '/admin/v1/help-guides/intro', admin: true },
     { method: 'GET', url: '/admin/v1/bug-reports', admin: true },
     {
       method: 'POST',

@@ -22,6 +22,8 @@ import { AdminCredentials } from './admin-credentials';
 import { AdminOperationsService } from './admin-operations.service';
 import { ChatUnsealService } from './chat-unseal.service';
 import { DirectAdminService } from './direct-admin.service';
+import { HelpGuideAdminService } from './help-guide-admin.service';
+import { HelpGuideService } from '../catalog/help-guide.service';
 import { AdminInsightService } from './admin-insight.service';
 import { CatalogAdminService } from './catalog-admin.service';
 import { AcquisitionReportService } from './acquisition-report.service';
@@ -150,6 +152,12 @@ const channelAdmin = new ChannelAdminService(
 );
 const messaging = new MessagingService(service, clock, audit);
 const directAdmin = new DirectAdminService(service, access, cipher, audit);
+const helpGuideAdmin = new HelpGuideAdminService(
+  service,
+  access,
+  audit,
+  new HelpGuideService(service, settings),
+);
 const messagingAdmin = new MessagingAdminService(service, access, messaging, audit);
 
 /**
@@ -632,6 +640,23 @@ const OPERATIONS: Operation[] = [
         otherUserPublicId: NO_SUCH_ID,
       }),
   },
+  // The in-bot guide (migration 0063): the policy permissions, read and write.
+  {
+    name: 'GET /admin/v1/help-guides',
+    permission: PERMISSIONS.POLICY_READ,
+    run: (session) => helpGuideAdmin.list(session),
+  },
+  {
+    name: 'PUT /admin/v1/help-guides/:slug',
+    permission: PERMISSIONS.POLICY_MANAGE,
+    run: (session) =>
+      helpGuideAdmin.update(session, 'no-such-guide', { title: null, body: null, hidden: false }),
+  },
+  {
+    name: 'DELETE /admin/v1/help-guides/:slug',
+    permission: PERMISSIONS.POLICY_MANAGE,
+    run: (session) => helpGuideAdmin.reset(session, 'no-such-guide'),
+  },
   {
     name: 'GET /admin/v1/channel-config',
     permission: PERMISSIONS.CHANNEL_MANAGE,
@@ -690,7 +715,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(76);
+    expect(OPERATIONS).toHaveLength(79);
   });
 
   for (const role of ROLES) {

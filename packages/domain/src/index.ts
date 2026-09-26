@@ -33,6 +33,19 @@ export type {
 export { SettingsService, SETTING_DEFAULTS } from './catalog/settings.service';
 export type { SettingKey } from './catalog/settings.service';
 export { SETTING_GUIDE } from './catalog/setting-guide';
+export { HELP_GUIDE_DEFAULTS } from './catalog/help-guide-defaults';
+export type { HelpGuideDefault } from './catalog/help-guide-defaults';
+export {
+  HELP_GUIDE_BODY_MAX,
+  HELP_GUIDE_TITLE_MAX,
+  formatGuideNumber,
+  helpGuidePlaceholderKeys,
+  placeholdersIn,
+  renderGuideText,
+  unknownPlaceholders,
+} from './catalog/help-guide';
+export { HelpGuideService } from './catalog/help-guide.service';
+export type { HelpGuideEntry, RenderedHelpGuide } from './catalog/help-guide.service';
 export type { SettingGuide, SettingUnit } from './catalog/setting-guide';
 export {
   UserSettingsService,
@@ -456,6 +469,8 @@ export { PolicyAdminService } from './adminaccess/policy-admin.service';
 export type { PolicySummary, ConsentRecord } from './adminaccess/policy-admin.service';
 export { ChatUnsealService } from './adminaccess/chat-unseal.service';
 export { DirectAdminService } from './adminaccess/direct-admin.service';
+export { HelpGuideAdminService } from './adminaccess/help-guide-admin.service';
+export type { HelpGuidePlaceholder } from './adminaccess/help-guide-admin.service';
 export type {
   DirectParty,
   DirectThread,

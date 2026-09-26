@@ -8,7 +8,7 @@ import {
   describeCommand,
   helpCommandLines,
 } from './commands';
-import { TEMPLATES, render } from './templates';
+import { formatCommandList } from './help-guides';
 
 /**
  * The dispatch `switch` in `BotService.onCommand`, read as text.
@@ -93,12 +93,13 @@ describe('BOT_COMMANDS', () => {
     }
   });
 
-  it('renders every command into the help text', () => {
-    const help = render(TEMPLATES.BOT_HELP, {});
+  // `/help` opens the guide since migration 0063; the list is its «⌨️ فهرست دستورها».
+  it('renders every command into the command list', () => {
+    const help = formatCommandList();
 
     for (const { command, description } of BOT_COMMANDS) {
-      expect(help?.text).toContain(`/${command}`);
-      expect(help?.text).toContain(description);
+      expect(help).toContain(`/${command}`);
+      expect(help).toContain(description);
     }
   });
 

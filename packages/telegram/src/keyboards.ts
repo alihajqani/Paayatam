@@ -119,6 +119,16 @@ export function guestEventKeyboard(eventPublicId: string, withHost = true): Inli
 export const MAIN_MENU_LABEL = '☰ منوی اصلی';
 
 /**
+ * The guide, beside the menu on the bottom keyboard (migration 0063).
+ *
+ * On the same row as «☰ منوی اصلی» rather than a row of its own, so the
+ * keyboard is no taller than it was: the two things somebody reaches for when
+ * they do not know what to do next, side by side. It resolves to `help`, which
+ * is exempt from the onboarding gate, so it works for somebody still signing up.
+ */
+export const HELP_BUTTON_LABEL = '📖 راهنما';
+
+/**
  * The bottom keyboard, as plain data.
  *
  * `is_persistent` so it does not collapse into the paperclip after one use, and
@@ -150,8 +160,11 @@ export interface ReplyKeyboard {
 export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): ReplyKeyboard {
   return {
     keyboard: moderator
-      ? [[{ text: MAIN_MENU_LABEL }], [{ text: MODERATION_MENU_LABEL }]]
-      : [[{ text: MAIN_MENU_LABEL }]],
+      ? [
+          [{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }],
+          [{ text: MODERATION_MENU_LABEL }],
+        ]
+      : [[{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }]],
     resize_keyboard: true,
     is_persistent: true,
   };
@@ -182,6 +195,7 @@ export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): Re
  */
 export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   [MAIN_MENU_LABEL, 'menu'],
+  [HELP_BUTTON_LABEL, 'help'],
   ['➕ ساختن رویداد', 'create_event'],
   ['🔎 دیدن رویدادها', 'discover'],
   ['🎟 رویدادهای من', 'myevents'],

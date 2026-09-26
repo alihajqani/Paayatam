@@ -312,6 +312,10 @@ jobs:
           # Direct-message blocks (migration 0062, ADR-0020). A self-block would
           # make "who has blocked this sender?" answer with the sender.
           check_constraint direct_message_block_not_self
+          # The in-bot guide's edited sections (migration 0063): a button label
+          # and a body that must fit one Telegram message.
+          check_constraint help_guide_title_length
+          check_constraint help_guide_body_length
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

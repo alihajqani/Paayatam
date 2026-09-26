@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { formatCommandList } from './help-guides';
 import {
+  HELP_BUTTON_LABEL,
   MAIN_MENU_LABEL,
   MENU_COMMANDS,
   MODERATION_MENU_LABEL,
@@ -151,9 +153,9 @@ describe('the copy names only buttons that are drawn', () => {
   });
 
   it('sends a new user to the menu button that is actually there', () => {
-    for (const key of [TEMPLATES.BOT_CONSENT_ACCEPTED, TEMPLATES.BOT_HELP]) {
-      expect(render(key, {})?.text, key).toContain('☰ منوی اصلی');
-    }
+    expect(render(TEMPLATES.BOT_CONSENT_ACCEPTED, {})?.text).toContain('☰ منوی اصلی');
+    // `/help`'s command list, one tap inside the guide since migration 0063.
+    expect(formatCommandList()).toContain('☰ منوی اصلی');
   });
 });
 
@@ -189,7 +191,6 @@ describe('menuLabelFor', () => {
    * the copy fall back to a written label rather than render `undefined`.
    */
   it('answers null for a command with no button', () => {
-    expect(menuLabelFor('help')).toBeNull();
     expect(menuLabelFor('start')).toBeNull();
     // The moderation label is deliberately outside the map: it was only ever
     // appended to a linked moderator's keyboard.
@@ -236,10 +237,15 @@ describe('the main-menu button', () => {
     expect(menuCommandFor(`  ${MAIN_MENU_LABEL}  `)).toBe('menu');
   });
 
-  it('draws exactly one button, sized and pinned', () => {
+  /**
+   * The menu and the guide, side by side on one row (migration 0063): no
+   * taller than the single button it was, and the two things somebody who does
+   * not know what to do next reaches for.
+   */
+  it('draws the menu and the guide on one row, sized and pinned', () => {
     const keyboard = mainMenuReplyKeyboard({ moderator: false });
 
-    expect(keyboard.keyboard).toEqual([[{ text: MAIN_MENU_LABEL }]]);
+    expect(keyboard.keyboard).toEqual([[{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }]]);
     // Without `resize_keyboard` one button takes a third of the screen; without
     // `is_persistent` it collapses into the paperclip after one use, which is the
     // opposite of always being there.
@@ -258,9 +264,15 @@ describe('the main-menu button', () => {
     const keyboard = mainMenuReplyKeyboard({ moderator: true });
 
     expect(keyboard.keyboard).toEqual([
-      [{ text: MAIN_MENU_LABEL }],
+      [{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }],
       [{ text: MODERATION_MENU_LABEL }],
     ]);
+  });
+
+  /** A tap on «📖 راهنما» arrives as text, and must run `/help` rather than be relayed. */
+  it('resolves the guide button to /help', () => {
+    expect(menuCommandFor(HELP_BUTTON_LABEL)).toBe('help');
+    expect(menuLabelFor('help')).toBe(HELP_BUTTON_LABEL);
   });
 
   /**

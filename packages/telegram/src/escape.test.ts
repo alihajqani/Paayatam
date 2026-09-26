@@ -129,6 +129,11 @@ describe('no template emits injected markup', () => {
     // is the proof, and the body is a stranger's words, so it is the one on this
     // list that would matter most.
     TEMPLATES.BOT_DIRECT_MESSAGE,
+    // The in-bot guide (migration 0063), built by `formatGuideIndex`,
+    // `formatGuidePage` and `formatCommandList`, which escape the operator's
+    // title and render the body through `renderLightMarkdown` —
+    // `help-guides.test.ts` is the proof.
+    TEMPLATES.BOT_HELP,
   ];
 
   it.each(Object.values(TEMPLATES).filter((key) => !PRE_RENDERED.includes(key)))(
@@ -154,6 +159,7 @@ describe('no template emits injected markup', () => {
         TEMPLATES.BOT_ADMIN_CASES,
         TEMPLATES.BOT_DIRECT_MESSAGE,
         TEMPLATES.BOT_DISCOVER,
+        TEMPLATES.BOT_HELP,
         TEMPLATES.BOT_MY_EVENTS,
         TEMPLATES.BOT_PARTICIPANTS,
         TEMPLATES.BOT_REQUESTS,

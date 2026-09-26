@@ -2286,3 +2286,54 @@ export const directThreadResponse = z.object({
   blockedBy: z.array(z.uuid()),
 });
 export type DirectThreadResponse = z.infer<typeof directThreadResponse>;
+
+// ── The in-bot guide (migration 0063) ─────────────────────────────────────────
+
+/**
+ * One section of the guide as the panel edits it: what it says now, what the
+ * code says by default, and which of the two is showing.
+ *
+ * `body` still holds its `{{placeholders}}` — the panel previews them with the
+ * values from `placeholders`, and the bot fills them when it draws the page.
+ */
+export const helpGuideAdminView = z.object({
+  slug: z.string(),
+  position: z.number().int(),
+  title: z.string(),
+  body: z.string(),
+  hidden: z.boolean(),
+  defaultTitle: z.string(),
+  defaultBody: z.string(),
+  titleCustomized: z.boolean(),
+  bodyCustomized: z.boolean(),
+  updatedAt: z.iso.datetime().nullable(),
+});
+export type HelpGuideAdminView = z.infer<typeof helpGuideAdminView>;
+
+/** A placeholder the editor may use, with its label and today's value. */
+export const helpGuidePlaceholderView = z.object({
+  key: z.string(),
+  label: z.string(),
+  value: z.number(),
+});
+export type HelpGuidePlaceholderView = z.infer<typeof helpGuidePlaceholderView>;
+
+export const helpGuideListResponse = z.object({
+  guides: z.array(helpGuideAdminView),
+  placeholders: z.array(helpGuidePlaceholderView),
+  titleMax: z.number().int(),
+  bodyMax: z.number().int(),
+});
+export type HelpGuideListResponse = z.infer<typeof helpGuideListResponse>;
+
+/**
+ * Save one section. `null` for the title or the body means "the default"; the
+ * server also treats text equal to the default as null, so saving a section
+ * unchanged does not pin it against a later release's corrections.
+ */
+export const updateHelpGuideRequest = z.object({
+  title: z.string().max(200).nullable(),
+  body: z.string().max(8000).nullable(),
+  hidden: z.boolean(),
+});
+export type UpdateHelpGuideRequest = z.infer<typeof updateHelpGuideRequest>;

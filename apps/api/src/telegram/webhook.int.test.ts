@@ -627,14 +627,40 @@ describe('/start', () => {
  * service would assert the call and not the row.
  */
 describe('commands', () => {
-  it('answers /help with the capability list', async () => {
+  /** `/help` is the guide's contents since migration 0063, one button per section. */
+  it('answers /help with the guide', async () => {
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
     await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/help') }));
 
-    expect(await replyTo(HOST_TELEGRAM_ID)).toEqual([
-      { templateKey: TEMPLATES.BOT_WELCOME, text: '' },
-      { templateKey: TEMPLATES.BOT_HELP, text: '' },
+    const replies = await replyTo(HOST_TELEGRAM_ID);
+    expect(replies.map((reply) => reply.templateKey)).toEqual([
+      TEMPLATES.BOT_WELCOME,
+      TEMPLATES.BOT_HELP,
     ]);
+    expect(replies[1]?.text).toContain('راهنمای پایتم');
+
+    const help = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_HELP },
+      select: { payload: true },
+    });
+    const keyboard = (help.payload as { keyboard: string }).keyboard;
+    expect(keyboard).toContain('gd:g:intro');
+    expect(keyboard).toContain('gd:k');
+  });
+
+  /** A section hidden from the panel is not listed. */
+  it('leaves a hidden section out of the contents', async () => {
+    await prisma.helpGuide.create({ data: { slug: 'coins', hidden: true } });
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/start') }));
+    await post(update({ message: textMessage(sender(HOST_TELEGRAM_ID), '/help') }));
+
+    const help = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_HELP },
+      select: { payload: true },
+    });
+    const keyboard = (help.payload as { keyboard: string }).keyboard;
+    expect(keyboard).toContain('gd:g:trust');
+    expect(keyboard).not.toContain('gd:g:coins');
   });
 
   /** No coin account yet is a zero balance, not an error — accounts are lazy. */
@@ -3835,6 +3861,16 @@ describe('POST /telegram/:secret — editing a profile in the chat', () => {
     ).toMatchObject({ onboardingState: 'PROFILE_COMPLETE' });
     // And the form closed, rather than surviving a refusal.
     expect(await prisma.conversationState.count({ where: { userId: account.userId } })).toBe(0);
+
+    // The end of signing up suggests the guide, with the button that opens it
+    // (migration 0063).
+    const done = await prisma.notification.findFirstOrThrow({
+      where: { userId: account.userId, templateKey: TEMPLATES.BOT_NOTICE },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect(done.payload).toMatchObject({ withGuide: true });
+    expect((done.payload as { text: string }).text).toContain('راهنمای کوتاه پایتم');
   });
 
   /**
@@ -5234,6 +5270,102 @@ describe('POST /telegram/:secret — onboarding before anything else', () => {
       const page = await tapPage('pl:t:0');
       expect(page.text).toContain('<b>1. بخش</b>');
       expect(page.keyboard).not.toContain('wz:agree:');
+    });
+  });
+
+  /**
+   * The in-bot guide (migration 0063), for somebody who has not signed up:
+   * the bottom button, which arrives as text, and a section's page, which is a
+   * tap — neither answered with the form.
+   */
+  describe('reading the guide before signing up', () => {
+    const sendQueue = (): ReturnType<QueueService['queue']> =>
+      app.get(QueueService).queue(QUEUES.TELEGRAM_SEND);
+    const PAGE_MESSAGE_ID = 4343;
+
+    beforeEach(async () => {
+      await sendQueue().obliterate({ force: true });
+    });
+
+    async function tapPage(data: string): Promise<{ text: string; keyboard: string }> {
+      sequence += 1;
+      const updateId = sequence;
+      await post(
+        update({
+          update_id: updateId,
+          callback_query: {
+            id: `cb-${String(updateId)}`,
+            from: sender(NEWCOMER_TELEGRAM_ID),
+            message: {
+              message_id: PAGE_MESSAGE_ID,
+              chat: { id: NEWCOMER_TELEGRAM_ID, type: 'private' },
+            },
+            data,
+          },
+        }),
+      );
+      const job = await sendQueue().getJob(
+        jobId('repaint', String(updateId), String(PAGE_MESSAGE_ID)),
+      );
+      const payload = (job?.data ?? {}) as { text?: string; keyboard?: unknown };
+      return { text: payload.text ?? '', keyboard: JSON.stringify(payload.keyboard ?? []) };
+    }
+
+    it('opens the contents from the bottom button, not the form', async () => {
+      await requirePolicies();
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+      const wizards = await prisma.notification.count({
+        where: { templateKey: TEMPLATES.BOT_WIZARD },
+      });
+
+      await type(NEWCOMER_TELEGRAM_ID, '📖 راهنما');
+
+      const templates = (await replyTo(NEWCOMER_TELEGRAM_ID)).map((reply) => reply.templateKey);
+      expect(templates).toContain(TEMPLATES.BOT_HELP);
+      expect(
+        await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_WIZARD } }),
+      ).toBe(wizards);
+    });
+
+    it('pages through the sections with the numbers filled in', async () => {
+      await requirePolicies();
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+
+      const coins = await tapPage('gd:g:coins');
+      expect(coins.text).toContain('<b>🪙 سکه‌ها</b>');
+      // `economy.event_join_coins`, read live rather than written into the text.
+      expect(coins.text).toContain('۲۰ سکه از حسابتون کم میشه');
+      expect(coins.text).not.toContain('{{');
+      expect(coins.keyboard).toContain('gd:g:discover');
+      expect(coins.keyboard).toContain('gd:g:cancel');
+      expect(coins.keyboard).toContain('gd:i');
+
+      const commands = await tapPage('gd:k');
+      expect(commands.text).toContain('/wallet');
+
+      // Nothing was accepted or started by reading.
+      expect((await newcomer()).onboardingState).toBe('NEW');
+    });
+
+    it('follows a setting the operator changed', async () => {
+      await prisma.appSetting.create({
+        data: { key: 'economy.event_join_coins', value: 12 },
+      });
+      await requirePolicies();
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+
+      const coins = await tapPage('gd:g:coins');
+      expect(coins.text).toContain('۱۲ سکه از حسابتون کم میشه');
+    });
+
+    it('answers a hidden section with the contents', async () => {
+      await prisma.helpGuide.create({ data: { slug: 'trust', hidden: true } });
+      await type(NEWCOMER_TELEGRAM_ID, '/start');
+
+      const page = await tapPage('gd:g:trust');
+      expect(page.text).toContain('دیگر در راهنما نیست');
+      expect(page.keyboard).not.toContain('gd:g:trust');
+      expect(page.keyboard).toContain('gd:g:intro');
     });
   });
 

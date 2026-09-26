@@ -39,6 +39,7 @@ import {
   type WizardDeps,
   type WizardInput,
   SettingsService,
+  HelpGuideService,
   TrustService,
   UserService,
   AdminOperationsService,
@@ -111,6 +112,14 @@ import {
   parseDiscoverCallback,
   formatJalali,
   formatPolicyPage,
+  commandListRows,
+  formatCommandList,
+  formatGuideGone,
+  formatGuideIndex,
+  formatGuidePage,
+  guideIndexRows,
+  guidePageRows,
+  parseGuideCallback,
   formatPolicySummary,
   paginatePolicy,
   parsePolicyCallback,
@@ -119,6 +128,7 @@ import {
   policyTypeFor,
   POLICY_DEFAULT_TITLE,
   type PolicyCallback,
+  type GuideCallback,
   type PolicyType,
   formatReceivedReviews,
   formatHostReviews,
@@ -139,6 +149,7 @@ import {
   isNotificationField,
   menuPathFor,
   shareUrl,
+  HELP_BUTTON_LABEL,
   MAIN_MENU_LABEL,
   MODERATION_MENU_COMMAND,
   SETTING_FIELDS,
@@ -442,6 +453,8 @@ export class BotService {
     private readonly directs: DirectMessageService,
     /** «من حاضر بودم», «میزبان نیامد», and the host's answer (plan 08). */
     private readonly noShowClaims: NoShowClaimService,
+    /** The in-bot guide behind `/help` and «📖 راهنما» (migration 0063). */
+    private readonly guides: HelpGuideService,
   ) {}
 
   /**
@@ -616,6 +629,21 @@ export class BotService {
   private static readonly UNGATED_COMMANDS = new Set(['help', 'bug', 'bugreport']);
 
   /**
+   * A bottom-keyboard tap on an ungated command (migration 0063).
+   *
+   * «📖 راهنما» arrives as ordinary text, not as `/help`, so the command check
+   * above never sees it — and the keyboard is drawn under the very first
+   * message, for somebody who has not signed up yet. Without this the guide
+   * button would answer with the form, which is the one screen the guide is
+   * there to explain.
+   */
+  private static isUngatedMenuText(intent: ParsedUpdate['intent']): boolean {
+    if (intent.kind !== 'TEXT') return false;
+    const command = menuCommandFor(intent.message.text);
+    return command !== null && BotService.UNGATED_COMMANDS.has(command);
+  }
+
+  /**
    * The `APP_ACCESS` gate, and the things it must never refuse.
    *
    * The channel-join screen is only useful if the button on it can be pressed, so
@@ -639,6 +667,7 @@ export class BotService {
     ) {
       return false;
     }
+    if (BotService.isUngatedMenuText(intent)) return false;
 
     return this.channelsBlock(updateId, user, 'APP_ACCESS');
   }
@@ -702,6 +731,9 @@ export class BotService {
         return 'clear';
       case 'COMMAND':
         if (BotService.UNGATED_COMMANDS.has(intent.command.toLowerCase())) return 'clear';
+        break;
+      case 'TEXT':
+        if (BotService.isUngatedMenuText(intent)) return 'clear';
         break;
       case 'CALLBACK': {
         if (isChannelRecheckCallback(intent.data)) return 'clear';
@@ -833,8 +865,14 @@ export class BotService {
       case 'menu':
         return this.sendMenuRoot(updateId, user);
 
+      /**
+       * `/help` — the guide's contents (migration 0063).
+       *
+       * It printed the command list, which answers "what can I type" and not
+       * "how does this work". The list is one tap inside the guide now.
+       */
       case 'help':
-        return this.reply(updateId, user.id, TEMPLATES.BOT_HELP, {});
+        return this.drawGuide(updateId, user, { kind: 'index' });
 
       case 'balance': {
         const balance = await this.coins.balanceOf(user.id);
@@ -2031,6 +2069,17 @@ export class BotService {
     if (policyCallback !== null) {
       await this.answer(callbackQueryId, '');
       return this.onPolicyCallback(update.updateId, user, policyCallback, messageId);
+    }
+
+    /**
+     * The guide, before either onboarding gate too (migration 0063): reading
+     * how the product works writes nothing, and the end of signing up is where
+     * the bot suggests it.
+     */
+    const guideCallback = parseGuideCallback(data);
+    if (guideCallback !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.drawGuide(update.updateId, user, guideCallback, messageId);
     }
 
     const ungatedMenuTap = decodeMenuCallback(data);
@@ -5953,6 +6002,64 @@ export class BotService {
     );
   }
 
+  /**
+   * The in-bot guide: its contents, one section, or the command list
+   * (migration 0063).
+   *
+   * Redraws the message the button is on, like the policy reader, and sends a
+   * fresh one for `/help` and the bottom button. A section that has been hidden
+   * since its button was drawn answers with the contents and a line saying so,
+   * rather than an error for something the reader could not have known.
+   */
+  private async drawGuide(
+    updateId: number,
+    user: BotUser,
+    callback: GuideCallback,
+    editMessageId?: number,
+  ): Promise<void> {
+    if (callback.kind === 'commands') {
+      return this.paintGuide(updateId, user, editMessageId, formatCommandList(), commandListRows());
+    }
+
+    if (callback.kind === 'guide') {
+      const guide = await this.guides.render(callback.slug);
+      if (guide !== null) {
+        return this.paintGuide(
+          updateId,
+          user,
+          editMessageId,
+          formatGuidePage(guide),
+          guidePageRows(guide),
+        );
+      }
+    }
+
+    const text = callback.kind === 'guide' ? formatGuideGone() : formatGuideIndex();
+    return this.paintGuide(
+      updateId,
+      user,
+      editMessageId,
+      text,
+      guideIndexRows(await this.guides.visible()),
+    );
+  }
+
+  private async paintGuide(
+    updateId: number,
+    user: BotUser,
+    editMessageId: number | undefined,
+    text: string,
+    rows: readonly (readonly { text: string; callbackData?: string; url?: string }[])[],
+  ): Promise<void> {
+    if (editMessageId !== undefined) {
+      return this.repaint(updateId, user, editMessageId, text, rows);
+    }
+    await this.reply(updateId, user.id, TEMPLATES.BOT_HELP, {
+      text,
+      keyboard: JSON.stringify(rows),
+    });
+  }
+
   /** Redraw the message a policy button is on, or send one when there is none. */
   private async paintPolicy(
     updateId: number,
@@ -6490,7 +6597,19 @@ export class BotService {
            */
           onboardingGiftLine(completion.rewardCoins, completion.joinCost, completion.reviewReward) +
           `حالا دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ در «${menuPathFor('discover') ?? 'رویدادها'}» ` +
-          `هم رویدادهای نزدیک هست و هم ساختن رویداد تازه.`,
+          `هم رویدادهای نزدیک هست و هم ساختن رویداد تازه.` +
+          /**
+           * The guide, offered once: when signing up has just finished
+           * (migration 0063). `rewardGranted` is true exactly on the first
+           * completion and never on a later edit, so somebody changing their
+           * city is not told to read the guide again.
+           */
+          (completion.rewardGranted
+            ? `\n\nاگر تازه آمده‌اید، راهنمای کوتاه پایتم را بخوانید: امتیاز اعتماد، سکه‌ها و ` +
+              `لغو شرکت هر کدام یکی دو دقیقه وقت می‌گیرد. بعداً هم از دکمهٔ «${HELP_BUTTON_LABEL}» ` +
+              `پایین صفحه در دسترس است.`
+            : ''),
+        { withGuide: completion.rewardGranted },
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -6799,8 +6918,16 @@ export class BotService {
   }
 
   /** A one-sentence reply in the bot's own voice, rather than about an event. */
-  private async notice(updateId: number, user: BotUser, text: string): Promise<void> {
-    await this.reply(updateId, user.id, TEMPLATES.BOT_NOTICE, { text });
+  private async notice(
+    updateId: number,
+    user: BotUser,
+    text: string,
+    options: { withGuide?: boolean } = {},
+  ): Promise<void> {
+    await this.reply(updateId, user.id, TEMPLATES.BOT_NOTICE, {
+      text,
+      ...(options.withGuide === true ? { withGuide: true } : {}),
+    });
   }
 
   /**

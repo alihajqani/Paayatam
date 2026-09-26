@@ -1942,6 +1942,25 @@ model DirectMessageBlock {
   @@map("direct_message_block")
 }
 
+/// One edited section of the in-bot guide (migration 0063).
+///
+/// The sections and their default text are code (`HELP_GUIDE_DEFAULTS`), the
+/// way numbers are `SETTING_DEFAULTS`: a row exists only for a section somebody
+/// changed in the panel, and a NULL `title` or `body` means "the default".
+/// Resetting a section deletes its row.
+model HelpGuide {
+  slug      String   @id
+  title     String?
+  body      String?
+  hidden    Boolean  @default(false)
+  /// The admin who last saved it, as an `admin_user.id`.
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("help_guide")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Transactional outbox (ADR-0005)
 //
