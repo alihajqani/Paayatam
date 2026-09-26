@@ -14,6 +14,66 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.20.0] — 2026-09-26
+
+The consent screen shows the documents it asks people to accept, however long they are: a
+summary of the points that matter, a button per document, and each document read page by page
+in the same message. A direct message can be blocked by the person who received it, is kept
+for 180 days, and can be read by the owner in the admin panel. The terms, privacy notice and
+code of conduct the bot will serve are in `docs/legal/` (ADR-0020 records the direct-message
+decisions).
+
+**One migration, additive.** 0062 adds the `direct_message_block` table and an index on
+`direct_message.created_at`; nothing existing changes. **No setting change. The bot's command
+menu does not change.**
+
+### ⚠️ What a deploy changes for people
+
+- New users meet the new consent screen at once, over the documents already published. The
+  documents in `docs/legal/` are **not** published by the deploy: publish them from the panel
+  (TERMS, PRIVACY, COMMUNITY) and **every user is asked to accept them again** before the bot
+  does anything else for them.
+- **The code of conduct becomes a required document once published.** Until one is, the gate
+  asks for the terms and the privacy notice as before.
+- **Direct messages older than 180 days are deleted by the first nightly purge after the
+  deploy**, and every night after that.
+- Under every received direct message there is «🚫 مسدود کردن فرستنده», and «تنظیمات» has a new
+  row, «کاربران مسدودشده».
+- An account whose Telegram account has been deleted is anonymised the next time the bot fails
+  to deliver to it («Forbidden: user is deactivated»).
+- The admin panel has a new page, «پیام‌های مستقیم», under moderation, for `SUPER_ADMIN` only.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- The consent screen: the wizard's prompt, a summary of what somebody is most likely to be
+  surprised by (18+, direct messages are not anonymous, 180 days, cancellation costs, purchased
+  coins are not refunded), one button per published document and «می‌پذیرم». A document opens
+  in the same message, cut at its `##` headings into pages of at most 3000 characters, with
+  «◀️ قبلی / بعدی ▶️», «بخش ۲ از ۵» and «می‌پذیرم» on every page. The `pl:` buttons are handled
+  before both onboarding gates, so reading is never refused.
+- `/terms` after acceptance lists what was accepted and when, with a button per document to
+  read it again.
+- Blocking a direct-message sender: `dm:block` under a received message (its recipient only),
+  `dm:unblock` by the blocked user's public id, and «کاربران مسدودشده» in «تنظیمات». While a
+  block stands, nothing is written between the two in either direction
+  (`DIRECT_BLOCKED_BY_RECIPIENT`, `DIRECT_BLOCKED_BY_YOU`). Both acts are audited.
+- `GET /admin/v1/directs` and `GET /admin/v1/directs/thread`, behind the new `direct.read`
+  permission (`SUPER_ADMIN`): conversations are every message between two accounts about one
+  activity, listed without their words; opening one decrypts it and writes
+  `direct.thread_read` to the audit log. The «پیام‌های مستقیم» page, and a link to it from a
+  user's record.
+- The worker anonymises an account when Telegram answers a send with «user is deactivated».
+- `docs/legal/`: the terms, privacy notice and code of conduct, and `pnpm seed:policies` now
+  seeds all three from those files in development.
+
+### Changed
+
+- `direct_message` is purged 180 days after each message was written (it was kept forever);
+  a surviving reply to a purged message loses its `parent_id`.
+- `COMMUNITY` joins `TERMS` and `PRIVACY` as a required policy type while one is published.
+- The consent wizard's prompt names the bot «ربات پایتم».
+
 ## [v0.19.0] — 2026-09-25
 
 Every new account now records the link that brought it in (an ad, an invite, a channel post,
