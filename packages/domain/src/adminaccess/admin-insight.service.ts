@@ -4,6 +4,7 @@ import type {
   ActorType,
   CoinLedgerType,
   EventStatus,
+  Gender,
   ParticipantStatus,
   ReportStatus,
   UserStatus,
@@ -56,9 +57,28 @@ export interface UserSummary {
 }
 
 export interface UserDetail extends UserSummary {
+  /**
+   * Everything the profile holds (v0.21.2), which a support conversation asks
+   * about and the panel used to leave out: gender, province, interests, whether
+   * the profile was ever completed, and the preferences the user set.
+   *
+   * `gender` can still be `PREFER_NOT_SAY` for a profile written before v0.21.2.
+   */
+  gender: Gender | null;
+  provinceNameFa: string | null;
   cityNameFa: string | null;
   districtNameFa: string | null;
+  /** Gregorian, as stored. The panel renders it in Jalali. */
   birthYear: number | null;
+  /** Interest names, in the catalogue's own order. */
+  interests: string[];
+  profileCompletedAt: Date | null;
+  /** Null when there is no profile to hold the preference. */
+  inviteOptOut: boolean | null;
+  /** The effective values: an account that never opened settings has the defaults. */
+  notifications: { chat: boolean; events: boolean; campaigns: boolean };
+  /** «عضو بنیان‌گذار #۴۲» — null for an account that holds no rank. */
+  founding: { rank: number; tier: number } | null;
   /**
    * The bio, with contact details **masked** — «حذف شد» in place of a phone
    * number, an `@handle`, a `t.me/` link or an email.
@@ -375,12 +395,20 @@ export class AdminInsightService {
         profile: {
           select: {
             displayName: true,
+            gender: true,
             birthYear: true,
             bio: true,
-            city: { select: { nameFa: true } },
+            inviteOptOut: true,
+            completedAt: true,
+            city: { select: { nameFa: true, province: { select: { nameFa: true } } } },
             district: { select: { nameFa: true } },
           },
         },
+        interests: {
+          select: { interest: { select: { nameFa: true, sortOrder: true } } },
+        },
+        settings: { select: { notifyChat: true, notifyEvents: true, notifyCampaigns: true } },
+        foundingMember: { select: { rank: true, tier: true } },
       },
     });
     if (!user) throw new AppError(ErrorCode.NOT_FOUND);
@@ -439,9 +467,24 @@ export class AdminInsightService {
 
     return {
       ...toUserSummary(user),
+      gender: user.profile?.gender ?? null,
+      provinceNameFa: user.profile?.city.province?.nameFa ?? null,
       cityNameFa: user.profile?.city.nameFa ?? null,
       districtNameFa: user.profile?.district?.nameFa ?? null,
       birthYear: user.profile?.birthYear ?? null,
+      interests: user.interests
+        .map((row) => row.interest)
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.nameFa.localeCompare(b.nameFa, 'fa'))
+        .map((interest) => interest.nameFa),
+      profileCompletedAt: user.profile?.completedAt ?? null,
+      inviteOptOut: user.profile?.inviteOptOut ?? null,
+      // The row is created lazily, with every notification on (`UserSettings`).
+      notifications: {
+        chat: user.settings?.notifyChat ?? true,
+        events: user.settings?.notifyEvents ?? true,
+        campaigns: user.settings?.notifyCampaigns ?? true,
+      },
+      founding: user.foundingMember ?? null,
       bio: bio?.text ?? null,
       bioRedactions: bio?.redactions.length ?? 0,
       coins: {

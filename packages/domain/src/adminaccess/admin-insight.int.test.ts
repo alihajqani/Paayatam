@@ -370,6 +370,57 @@ describe('one user, in detail', () => {
     expect(rendered).not.toContain('telegram');
   });
 
+  /**
+   * Everything the profile holds (v0.21.2): the page used to stop at city and
+   * birth year, so a support agent could not see a gender, an interest or a
+   * preference without asking the user.
+   */
+  it('projects the whole profile, preferences and founding rank included', async () => {
+    const user = await seedUser('کاربر');
+    const province = await prisma.province.create({ data: { slug: 'tehran-p', nameFa: 'تهران' } });
+    await prisma.city.update({
+      where: { id: fixture.tehranId },
+      data: { provinceId: province.id },
+    });
+    await prisma.userProfile.update({
+      where: { userId: user.id },
+      data: { gender: 'MALE', inviteOptOut: true, completedAt: NOW },
+    });
+    await prisma.userInterest.createMany({
+      data: [
+        { userId: user.id, interestId: fixture.hikingId },
+        { userId: user.id, interestId: fixture.boardGamesId },
+      ],
+    });
+    await prisma.userSettings.create({ data: { userId: user.id, notifyCampaigns: false } });
+    await prisma.foundingMember.create({
+      data: { userId: user.id, rank: 7, tier: 1, coins: 0 },
+    });
+
+    const detail = await insight.getUser(SUPER, user.publicId);
+
+    expect(detail).toMatchObject({
+      gender: 'MALE',
+      provinceNameFa: 'تهران',
+      birthYear: 1995,
+      profileCompletedAt: NOW,
+      inviteOptOut: true,
+      notifications: { chat: true, events: true, campaigns: false },
+      founding: { rank: 7, tier: 1 },
+    });
+    expect([...detail.interests].sort()).toEqual(['بازی رومیزی', 'کوه‌پیمایی'].sort());
+  });
+
+  it('reads an account that never opened settings as having every notification on', async () => {
+    const user = await seedUser('کاربر');
+
+    const detail = await insight.getUser(SUPER, user.publicId);
+
+    expect(detail.notifications).toEqual({ chat: true, events: true, campaigns: true });
+    expect(detail.founding).toBeNull();
+    expect(detail.interests).toEqual([]);
+  });
+
   it('refuses a user who does not exist', async () => {
     await expect(
       insight.getUser(SUPER, '00000000-0000-4000-8000-000000000000'),

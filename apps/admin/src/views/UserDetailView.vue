@@ -15,7 +15,19 @@ import { messageOf, newIdempotencyKey, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
-import { formatDate, formatNumber, formatTrust, toPersianDigits } from '@/format/fa';
+import {
+  formatBirthYear,
+  formatDate,
+  formatDateTime,
+  formatGender,
+  formatNumber,
+  formatOnboardingState,
+  formatTrust,
+  parseTypedNumber,
+  toGregorianYear,
+  toJalaliYear,
+  toPersianDigits,
+} from '@/format/fa';
 import { useSessionStore } from '@/stores/session';
 
 /**
@@ -225,8 +237,10 @@ const editError = ref<string | null>(null);
 const editReason = ref('');
 const editForm = ref({
   displayName: '',
-  gender: '' as '' | 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY',
-  birthYear: '' as number | '',
+  // «زن» or «مرد» only (v0.21.2); the API and `ProfileService` refuse anything else.
+  gender: '' as '' | 'MALE' | 'FEMALE',
+  /** Typed in **Jalali**, in Persian or Latin digits; sent Gregorian. */
+  birthYear: '',
   cityId: '',
   districtId: '',
   bio: '',
@@ -255,7 +269,8 @@ async function openEdit(): Promise<void> {
   editForm.value = {
     displayName: detail.value.displayName ?? '',
     gender: '',
-    birthYear: detail.value.birthYear ?? '',
+    birthYear:
+      detail.value.birthYear === null ? '' : toPersianDigits(toJalaliYear(detail.value.birthYear)),
     cityId: '',
     districtId: '',
     // Deliberately blank rather than pre-filled: `detail.bio` arrives with contact
@@ -279,7 +294,22 @@ async function openEdit(): Promise<void> {
 
 const clearBio = ref(false);
 
-const editValid = computed(() => editReason.value.trim().length >= 3);
+/**
+ * The typed Jalali year, or `null` for "leave it alone", or `undefined` for a
+ * value that is not a plausible year. The window is the bot's own
+ * (`MIN_JALALI_BIRTH_YEAR`…`MAX_JALALI_BIRTH_YEAR` in the profile wizard); the
+ * 18+ rule is the server's, and it answers with its own message.
+ */
+const typedBirthYear = computed((): number | null | undefined => {
+  const raw = editForm.value.birthYear.trim();
+  if (raw === '') return null;
+  const year = parseTypedNumber(raw);
+  return year !== null && Number.isInteger(year) && year >= 1280 && year <= 1420 ? year : undefined;
+});
+
+const editValid = computed(
+  () => editReason.value.trim().length >= 3 && typedBirthYear.value !== undefined,
+);
 
 /** Only what the operator actually changed. An empty diff is not a request. */
 function buildProfilePatch(): AdminUpdateProfileRequest | null {
@@ -289,8 +319,9 @@ function buildProfilePatch(): AdminUpdateProfileRequest | null {
   const name = editForm.value.displayName.trim();
   if (name !== '' && name !== detail.value.displayName) body['displayName'] = name;
   if (editForm.value.gender !== '') body['gender'] = editForm.value.gender;
-  if (editForm.value.birthYear !== '' && editForm.value.birthYear !== detail.value.birthYear) {
-    body['birthYear'] = editForm.value.birthYear;
+  const jalali = typedBirthYear.value;
+  if (typeof jalali === 'number' && toGregorianYear(jalali) !== detail.value.birthYear) {
+    body['birthYear'] = toGregorianYear(jalali);
   }
   if (editForm.value.cityId !== '') body['cityId'] = editForm.value.cityId;
   if (editForm.value.districtId !== '') body['districtId'] = editForm.value.districtId;
@@ -531,14 +562,17 @@ onMounted(load);
           </label>
 
           <label class="flex flex-col gap-1">
-            <span class="text-sm text-ink-soft">سال تولد (میلادی)</span>
+            <span class="text-sm text-ink-soft">سال تولد (شمسی)</span>
             <input
-              v-model.number="editForm.birthYear"
-              type="number"
-              min="1900"
-              max="2200"
+              v-model="editForm.birthYear"
+              type="text"
+              inputmode="numeric"
+              placeholder="مثلاً ۱۳۷۰"
               class="min-h-10 rounded-lg border border-line bg-surface px-3"
             />
+            <span v-if="typedBirthYear === undefined" class="text-xs text-danger">
+              سال را به شمسی و چهاررقمی بنویسید، بین ۱۲۸۰ و ۱۴۲۰.
+            </span>
           </label>
 
           <label class="flex flex-col gap-1">
@@ -550,7 +584,6 @@ onMounted(load);
               <option value="">بدون تغییر</option>
               <option value="FEMALE">زن</option>
               <option value="MALE">مرد</option>
-              <option value="PREFER_NOT_SAY">ترجیح می‌دهد نگوید</option>
             </select>
           </label>
 
@@ -742,7 +775,25 @@ onMounted(load);
       <section class="grid gap-4 lg:grid-cols-3">
         <article class="rounded-xl border border-line bg-surface p-4">
           <h2 class="text-sm font-semibold">پروفایل</h2>
+          <!--
+            Everything the profile holds (v0.21.2). The birth year is stored
+            Gregorian and shown in Jalali, as the user typed it into the bot.
+          -->
           <dl class="mt-3 flex flex-col gap-2 text-sm">
+            <div class="flex justify-between gap-3">
+              <dt class="text-ink-soft">جنسیت</dt>
+              <dd>{{ formatGender(detail.gender) }}</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-ink-soft">سال تولد (شمسی)</dt>
+              <dd>
+                <bdi>{{ formatBirthYear(detail.birthYear) }}</bdi>
+              </dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-ink-soft">استان</dt>
+              <dd>{{ detail.provinceNameFa ?? '—' }}</dd>
+            </div>
             <div class="flex justify-between gap-3">
               <dt class="text-ink-soft">شهر</dt>
               <dd>{{ detail.cityNameFa ?? '—' }}</dd>
@@ -752,22 +803,74 @@ onMounted(load);
               <dd>{{ detail.districtNameFa ?? '—' }}</dd>
             </div>
             <div class="flex justify-between gap-3">
-              <dt class="text-ink-soft">سال تولد</dt>
-              <dd>
-                <bdi>{{ detail.birthYear ? toPersianDigits(detail.birthYear) : '—' }}</bdi>
-              </dd>
-            </div>
-            <div class="flex justify-between gap-3">
               <dt class="text-ink-soft">مرحلهٔ عضویت</dt>
+              <dd>{{ formatOnboardingState(detail.onboardingState) }}</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-ink-soft">تکمیل پروفایل</dt>
               <dd>
-                <bdi class="font-mono text-xs">{{ detail.onboardingState }}</bdi>
+                {{
+                  detail.profileCompletedAt
+                    ? formatDateTime(detail.profileCompletedAt)
+                    : 'تکمیل نشده'
+                }}
               </dd>
             </div>
             <div class="flex justify-between gap-3">
-              <dt class="text-ink-soft">تاریخ عضویت</dt>
-              <dd>{{ formatDate(detail.createdAt) }}</dd>
+              <dt class="text-ink-soft">زمان عضویت</dt>
+              <dd>
+                <bdi>{{ formatDateTime(detail.createdAt) }}</bdi>
+              </dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-ink-soft">عضو بنیان‌گذار</dt>
+              <dd>
+                <bdi v-if="detail.founding">
+                  #{{ toPersianDigits(detail.founding.rank) }} — ردهٔ
+                  {{ toPersianDigits(detail.founding.tier) }}
+                </bdi>
+                <span v-else class="text-ink-faint">خیر</span>
+              </dd>
             </div>
           </dl>
+
+          <div class="mt-4 border-t border-line pt-3">
+            <p class="text-sm text-ink-soft">علاقه‌مندی‌ها</p>
+            <ul v-if="detail.interests.length > 0" class="mt-2 flex flex-wrap gap-1.5">
+              <li
+                v-for="interest in detail.interests"
+                :key="interest"
+                class="rounded-full border border-line px-2.5 py-0.5 text-xs"
+              >
+                {{ interest }}
+              </li>
+            </ul>
+            <p v-else class="mt-1 text-sm text-ink-faint">انتخاب نشده</p>
+          </div>
+
+          <div class="mt-4 border-t border-line pt-3">
+            <p class="text-sm text-ink-soft">تنظیمات کاربر</p>
+            <dl class="mt-2 flex flex-col gap-2 text-sm">
+              <div class="flex justify-between gap-3">
+                <dt class="text-ink-soft">دریافت دعوت از میزبان‌ها</dt>
+                <dd>
+                  {{ detail.inviteOptOut === null ? '—' : detail.inviteOptOut ? 'خاموش' : 'روشن' }}
+                </dd>
+              </div>
+              <div class="flex justify-between gap-3">
+                <dt class="text-ink-soft">اعلان پیام‌های مستقیم</dt>
+                <dd>{{ detail.notifications.chat ? 'روشن' : 'خاموش' }}</dd>
+              </div>
+              <div class="flex justify-between gap-3">
+                <dt class="text-ink-soft">اعلان رویدادها و درخواست‌ها</dt>
+                <dd>{{ detail.notifications.events ? 'روشن' : 'خاموش' }}</dd>
+              </div>
+              <div class="flex justify-between gap-3">
+                <dt class="text-ink-soft">پیام‌های همگانی</dt>
+                <dd>{{ detail.notifications.campaigns ? 'روشن' : 'خاموش' }}</dd>
+              </div>
+            </dl>
+          </div>
 
           <div v-if="detail.bio" class="mt-4 border-t border-line pt-3">
             <p class="text-sm text-ink-soft">دربارهٔ کاربر</p>

@@ -15,6 +15,7 @@ import {
   OutboxModule,
   ParticipationModule,
   PrivacyModule,
+  ProfileModule,
   ReviewsModule,
   SeedingModule,
 } from '@payetam/domain';
@@ -71,6 +72,8 @@ import { TelegramClient } from './telegram/telegram.client';
     NotificationsModule,
     IdentityModule,
     PrivacyModule,
+    // `ProfileService.requestGenderChoices`, run once on boot (v0.21.2).
+    ProfileModule,
     SeedingModule,
   ],
   providers: [WorkerFactory, TelegramClient, TelegramLoggerService, Processors],

@@ -88,9 +88,11 @@ export {
   encodeGuideCommands,
   encodeGuideIndex,
   parseGuideCallback,
+  encodeGenderChoice,
+  parseGenderChoice,
   parsePolicyCallback,
 } from './callback-data';
-export type { GuideCallback, PolicyCallback, PolicyDocLetter } from './callback-data';
+export type { GenderChoice, GuideCallback, PolicyCallback, PolicyDocLetter } from './callback-data';
 export { MAX_TRUST_PAGE, encodeTrustCallback, parseTrustCallback } from './callback-data';
 export { encodeDirectCallback, parseDirectCallback } from './callback-data';
 export type { DirectCallback, DirectCallbackAction } from './callback-data';

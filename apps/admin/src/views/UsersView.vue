@@ -6,7 +6,7 @@ import { messageOf, request } from '@/api/client';
 import PagerBar from '@/components/PagerBar.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
-import { formatDate, formatNumber, formatTrust } from '@/format/fa';
+import { formatDateTime, formatNumber, formatTrust } from '@/format/fa';
 
 /**
  * Finding a person.
@@ -151,7 +151,9 @@ onMounted(load);
               <td class="px-4 py-3 tabular-nums">
                 <bdi>{{ formatNumber(user.coinBalance) }}</bdi> سکه
               </td>
-              <td class="px-4 py-3 text-ink-soft">{{ formatDate(user.createdAt) }}</td>
+              <td class="px-4 py-3 text-ink-soft">
+                <bdi>{{ formatDateTime(user.createdAt) }}</bdi>
+              </td>
               <td class="px-4 py-3 text-end">
                 <RouterLink
                   :to="{ name: 'user-detail', params: { publicId: user.publicId } }"

@@ -839,7 +839,8 @@ export class AdminOperationsService {
     userPublicId: string,
     input: {
       displayName?: string | undefined;
-      gender?: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null | undefined;
+      /** «زن» or «مرد» only; `ProfileService` refuses anything else as well. */
+      gender?: 'MALE' | 'FEMALE' | undefined;
       birthYear?: number | undefined;
       cityId?: string | undefined;
       districtId?: string | null | undefined;

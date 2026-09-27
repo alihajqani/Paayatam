@@ -17,6 +17,7 @@ import {
   UserSettingsService,
   OutboxRelayService,
   ParticipationService,
+  ProfileService,
   RATE_LIMIT_BREAKER_THRESHOLD,
   ReleaseAnnouncementService,
   RetentionService,
@@ -159,6 +160,8 @@ export class Processors implements OnModuleInit {
     private readonly noShowClaims: NoShowClaimService,
     /** Marketing seed events: create and fill fake events per city (SUPER_ADMIN-configured). */
     private readonly seedScheduler: SeedSchedulerService,
+    /** For one question only: the one-time «خانم / آقا» ask on boot (v0.21.2). */
+    private readonly profiles: ProfileService,
   ) {}
 
   /**
@@ -199,6 +202,31 @@ export class Processors implements OnModuleInit {
     this.logger.log(`Registered ${String(SCHEDULE.length)} repeatable jobs`);
 
     await this.announceRelease();
+    await this.askUndecidedGenders();
+  }
+
+  /**
+   * «خانم» or «آقا», asked once of every account that chose neither (v0.21.2).
+   *
+   * On boot, because the set only shrinks: «ترجیح می‌دهم نگویم» can no longer be
+   * chosen, so the accounts that hold it were all there when this shipped, and a
+   * deploy is the moment to ask them. Once per account is `audit_log`, not this
+   * call site (`ProfileService.requestGenderChoices`), so a restart asks nobody
+   * twice. Drained at once rather than at the next backstop pass, and the
+   * failure is swallowed for the reason `announceRelease` gives.
+   */
+  private async askUndecidedGenders(): Promise<void> {
+    try {
+      const asked = await this.profiles.requestGenderChoices();
+      if (asked > 0) {
+        this.logger.log(`Asked ${String(asked)} account(s) to choose a gender`);
+        await this.relayOutbox();
+      }
+    } catch (error) {
+      this.logger.error(
+        `Gender question failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
   }
 
   /**
@@ -239,6 +267,10 @@ export class Processors implements OnModuleInit {
    * flushed in between.
    */
   private async onDomainEvent(_job: Job): Promise<void> {
+    await this.relayOutbox();
+  }
+
+  private async relayOutbox(): Promise<void> {
     const result = await this.relay.drain();
     if (result.processed === 0) return;
 

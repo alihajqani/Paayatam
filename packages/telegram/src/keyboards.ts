@@ -189,15 +189,23 @@ export const HELP_BUTTON_LABEL = '📖 راهنما';
 /**
  * The bottom keyboard, as plain data.
  *
- * `is_persistent` so it does not collapse into the paperclip after one use, and
  * `resize_keyboard` so one button is one button's worth of height rather than a
- * third of the screen. `one_time_keyboard` is deliberately absent: the point is
- * that it is always there.
+ * third of the screen. `one_time_keyboard` is deliberately absent, so a tap does
+ * not fold it away: it is shown with every message that carries no inline
+ * keyboard of its own.
+ *
+ * ── Why it is not `is_persistent` any more ──────────────────────────────────
+ *
+ * It was, on the argument that it would otherwise collapse after one use — but
+ * that is `one_time_keyboard`, which was never set. What `is_persistent` does is
+ * keep the keyboard on screen *whenever the typing keyboard is hidden*, so it
+ * could not be folded away at all: the back button and the keyboard icon did
+ * nothing, and it took half the chat on a small phone. Without it the keyboard
+ * still opens by default and comes back from the icon beside the compose box.
  */
 export interface ReplyKeyboard {
   keyboard: readonly (readonly { text: string; style?: ButtonStyle }[])[];
   resize_keyboard: true;
-  is_persistent: true;
 }
 
 /**
@@ -222,7 +230,6 @@ export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): Re
   return {
     keyboard: moderator ? [first, [{ text: MODERATION_MENU_LABEL }]] : [first],
     resize_keyboard: true,
-    is_persistent: true,
   };
 }
 

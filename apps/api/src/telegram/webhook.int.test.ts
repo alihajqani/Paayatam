@@ -5803,3 +5803,49 @@ describe('POST /telegram/:secret — no-show disputes', () => {
     ).resolves.toEqual({ status: 'COMPLETED' });
   });
 });
+
+/**
+ * «خانم» / «آقا» under the one-time gender question (v0.21.2), end to end:
+ * through both gates and into the profile, and only while it is undecided.
+ */
+describe('POST /telegram/:secret — the gender question', () => {
+  let sequence = 13_800;
+
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function genderOf(userId: string): Promise<string | null> {
+    const row = await prisma.userProfile.findUniqueOrThrow({
+      where: { userId },
+      select: { gender: true },
+    });
+    return row.gender;
+  }
+
+  it('records «خانم» for an account that had chosen neither, and nothing after', async () => {
+    const userId = await seedGuest(GUEST_TELEGRAM_ID);
+    await prisma.userProfile.update({ where: { userId }, data: { gender: 'PREFER_NOT_SAY' } });
+
+    await tap(GUEST_TELEGRAM_ID, 'gn:F');
+    expect(await genderOf(userId)).toBe('FEMALE');
+
+    // A second tap on the other button changes nothing that was decided.
+    await tap(GUEST_TELEGRAM_ID, 'gn:M');
+    expect(await genderOf(userId)).toBe('FEMALE');
+    await expect(
+      prisma.auditLog.count({ where: { action: 'profile.gender_chosen', targetId: userId } }),
+    ).resolves.toBe(1);
+  });
+});

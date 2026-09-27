@@ -1,4 +1,4 @@
-import { DISPLAY_NAME_PATTERN, gender, type Gender } from '@payetam/shared';
+import { DISPLAY_NAME_PATTERN, selectableGender, type Gender } from '@payetam/shared';
 import { toPersianDigits, type Choice } from '@payetam/telegram';
 import { acceptText, quoted, toAsciiDigits } from './answers';
 import type { WizardDefinition, WizardInput, WizardStep } from '../wizard';
@@ -151,7 +151,15 @@ function scopedTo(field: ProfileField): (form: EditProfileForm) => boolean {
   };
 }
 
-const GENDERS = gender.options;
+/**
+ * The two buttons on the gender step: «خانم» and «آقا» (v0.21.2).
+ *
+ * «ترجیح می‌دهم نگویم» was a third, and is gone: an event can be for women or for
+ * men only, and a guest who said neither could join neither. `GENDER_FA` keeps
+ * its label because a profile written before this still holds the value, and
+ * the summary has to be able to name it.
+ */
+const GENDERS = selectableGender.options;
 
 const GENDER_FA: Record<Gender, string> = {
   MALE: 'آقا',

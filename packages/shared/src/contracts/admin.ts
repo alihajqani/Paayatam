@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { policyType } from './auth';
 import { gatedAction } from './catalog';
+import { gender } from './profile';
 
 /**
  * Admin and reporting contracts (M12, ADR-0010).
@@ -842,9 +843,20 @@ export const adminUserView = z.object({
 export type AdminUserView = z.infer<typeof adminUserView>;
 
 export const adminUserDetailView = adminUserView.extend({
+  /** Can still be `PREFER_NOT_SAY` for a profile written before v0.21.2. */
+  gender: gender.nullable(),
+  provinceNameFa: z.string().nullable(),
   cityNameFa: z.string().nullable(),
   districtNameFa: z.string().nullable(),
+  /** Gregorian, as stored; the panel shows it in Jalali. */
   birthYear: z.number().int().nullable(),
+  interests: z.array(z.string()),
+  profileCompletedAt: z.iso.datetime().nullable(),
+  inviteOptOut: z.boolean().nullable(),
+  notifications: z.object({ chat: z.boolean(), events: z.boolean(), campaigns: z.boolean() }),
+  founding: z
+    .object({ rank: z.number().int().positive(), tier: z.number().int().nonnegative() })
+    .nullable(),
   /**
    * The bio with contact details **masked** — «حذف شد» in place of a phone
    * number, an `@handle`, a `t.me/` link or an email.
