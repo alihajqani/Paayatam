@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   BOT_COMMANDS,
   COMMAND_GROUPS,
+  COMMAND_ICONS,
+  commandButtonLabel,
   commandGroupFor,
   describeCommand,
   helpCommandLines,
@@ -144,5 +146,26 @@ describe('the command menu', () => {
 
     expect(new Set(keys).size).toBe(keys.length);
     for (const key of keys) expect(key).toMatch(/^[a-z0-9_]{1,8}$/);
+  });
+
+  /**
+   * One emoji per command, and one command per emoji: a new command without one
+   * would be the only bare button in its group, and two sharing one would teach
+   * the reader that the picture means nothing.
+   */
+  it('gives every command its own emoji, in front of its description', () => {
+    const commands = BOT_COMMANDS.map((entry) => entry.command);
+
+    expect(Object.keys(COMMAND_ICONS).sort()).toEqual([...commands].sort());
+    const icons = Object.values(COMMAND_ICONS);
+    expect(new Set(icons).size).toBe(icons.length);
+    expect(commandButtonLabel('discover')).toBe('🔎 رویدادهای نزدیک شما');
+  });
+
+  /** `setMyCommands` and `/help` publish the description, which stays text only. */
+  it('keeps the emoji out of the published description', () => {
+    for (const entry of BOT_COMMANDS) {
+      expect(entry.description).not.toContain(COMMAND_ICONS[entry.command] ?? '');
+    }
   });
 });

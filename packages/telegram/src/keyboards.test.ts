@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { parseChatCallback } from './callback-data';
-import { hostDecisionKeyboard } from './keyboards';
+import { COMMAND_GROUPS } from './commands';
+import {
+  guestEventKeyboard,
+  hostDecisionKeyboard,
+  menuGroupKeyboard,
+  NEXT_LABEL,
+  PREVIOUS_LABEL,
+} from './keyboards';
 
 const CHAT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
@@ -36,5 +43,56 @@ describe('the host decision keyboard', () => {
     for (const button of hostDecisionKeyboard(CHAT_ID).flat()) {
       expect(button.url).toBeUndefined();
     }
+  });
+});
+
+/**
+ * Colour marks the one thing a screen asks for, and what cannot be undone.
+ *
+ * Asserted here rather than left to the eye because a colour is invisible in
+ * every test that reads labels, and a `style` dropped in a refactor would only
+ * show up on a phone.
+ */
+describe('button colours', () => {
+  it('makes accepting green and rejecting red', () => {
+    expect(hostDecisionKeyboard(CHAT_ID)[0]?.map((button) => button.style)).toEqual([
+      'success',
+      'danger',
+    ]);
+  });
+
+  it('greens the message to the host after an acceptance, and leaves the page plain', () => {
+    const [row] = guestEventKeyboard('evt_abcdefgh');
+    expect(row?.map((button) => button.style)).toEqual(['success', undefined]);
+  });
+
+  it('leaves navigation plain', () => {
+    for (const group of COMMAND_GROUPS) {
+      for (const button of menuGroupKeyboard(group).flat()) {
+        expect(button).not.toHaveProperty('style');
+      }
+    }
+  });
+});
+
+describe('the menu group buttons', () => {
+  it('puts an emoji in front of every command and a back arrow on the way out', () => {
+    for (const group of COMMAND_GROUPS) {
+      const rows = menuGroupKeyboard(group);
+      const back = rows[rows.length - 1]?.[0];
+
+      expect(back?.text).toBe('↩️ بازگشت به منو');
+      for (const [button] of rows.slice(0, -1)) {
+        expect(button?.text).toMatch(/^\S+ \S/u);
+      }
+    }
+  });
+});
+
+/** Every arrow points the way its button sits: see `NEXT_LABEL`. */
+describe('the paging labels', () => {
+  it('draws «بعدی» with its arrow at the end, and «قبلی» with its arrow first', () => {
+    expect(NEXT_LABEL.startsWith('بعدی')).toBe(true);
+    expect(PREVIOUS_LABEL.endsWith('قبلی')).toBe(true);
   });
 });

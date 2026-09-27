@@ -122,7 +122,7 @@ describe('calendarKeyboard', () => {
 describe('controlRow', () => {
   it('emits only what was asked for', () => {
     expect(controlRow({})).toHaveLength(0);
-    expect(controlRow({ back: true }).map((b) => b.text)).toEqual(['« بازگشت']);
+    expect(controlRow({ back: true }).map((b) => b.text)).toEqual(['↩️ بازگشت']);
     expect(controlRow({ back: true, skip: true, cancel: true })).toHaveLength(3);
   });
 });
@@ -199,6 +199,6 @@ describe('multiChoiceKeyboard', () => {
 
   it('appends the trailer beneath «تمام»', () => {
     const rows = multiChoiceKeyboard('tags', three, [], 0, controlRow({ skip: true }));
-    expect(rows[rows.length - 1]?.map((button) => button.text)).toEqual(['رد کردن']);
+    expect(rows[rows.length - 1]?.map((button) => button.text)).toEqual(['⏭ رد کردن']);
   });
 });

@@ -8,7 +8,7 @@ import {
   encodeProfileFieldCallback,
   type ProfileFieldKey,
 } from './callback-data';
-import { COMMAND_GROUPS, describeCommand, type CommandGroup } from './commands';
+import { COMMAND_GROUPS, commandButtonLabel, type CommandGroup } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
 
 /**
@@ -25,15 +25,60 @@ import { escapeHtml, toPersianDigits } from './escape';
  * buttons and the handlers arrive together or not at all.
  */
 
+/**
+ * A button's colour (Bot API `style`), on inline and bottom buttons alike.
+ *
+ * Three values and no others: Telegram does not take a colour, and the exact
+ * shade is the client's theme. A client too old to know the field draws the
+ * button as it always did, so nothing depends on it.
+ *
+ * ── Which buttons get one ────────────────────────────────────────────────────
+ *
+ * Only the key ones, because a keyboard where everything is coloured has no
+ * button that stands out. `success` is the one thing a screen is asking for —
+ * joining, accepting, confirming — and at most one per message; `danger` is
+ * what cannot be undone, such as cancelling or rejecting. Navigation stays
+ * plain, and so do numbered lists: five green «پذیرش» down a host's list is
+ * noise, not emphasis.
+ */
+export type ButtonStyle = 'success' | 'danger' | 'primary';
+
 export interface InlineButton {
   text: string;
   /** Exactly one of these. A button with both is a Telegram 400. */
   url?: string;
   callbackData?: string;
+  style?: ButtonStyle;
 }
 
 /** Rows of buttons, as Telegram lays them out. */
 export type InlineKeyboard = readonly (readonly InlineButton[])[];
+
+/**
+ * The paging and back labels, one set for the whole bot.
+ *
+ * They were four sets — «‹ قبلی», «◀️ قبلی», «قبلی «» and a back button that was
+ * «‹», ««» or «↩️» depending on the screen — so the same move looked different
+ * on every list, and the wizard put «بعدی» on the left while every other row put
+ * it on the right.
+ *
+ * ── Why «بعدی» is on the left ────────────────────────────────────────────────
+ *
+ * Telegram lays a row out left to right in array order, whatever the language,
+ * and a Persian reader's "forward" is leftward. So a paging row is built
+ * **next, position, previous**, and each arrow points the way its button sits.
+ *
+ * ── Why the emoji is written where it is ─────────────────────────────────────
+ *
+ * A label that starts with a Persian letter is laid out right to left, so what
+ * is written last is drawn on the left. «بعدی ◀️» therefore shows its arrow on
+ * the left edge pointing left, and «▶️ قبلی» on the right edge pointing right.
+ * An emoji is never mirrored, unlike «‹» and «»», which is why these are emoji.
+ */
+export const NEXT_LABEL = 'بعدی ◀️';
+export const PREVIOUS_LABEL = '▶️ قبلی';
+/** In front of every button that goes back to the screen before. */
+export const BACK_ICON = '↩️';
 
 /**
  * The host's decision, in the notification that tells them about it.
@@ -50,8 +95,16 @@ export type InlineKeyboard = readonly (readonly InlineButton[])[];
 export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboard {
   return [
     [
-      { text: '✅ پذیرش', callbackData: encodeChatCallback('accept', participantPublicId) },
-      { text: '✖️ رد', callbackData: encodeChatCallback('reject', participantPublicId) },
+      {
+        text: '✅ پذیرش',
+        callbackData: encodeChatCallback('accept', participantPublicId),
+        style: 'success',
+      },
+      {
+        text: '✖️ رد',
+        callbackData: encodeChatCallback('reject', participantPublicId),
+        style: 'danger',
+      },
     ],
   ];
 }
@@ -73,10 +126,15 @@ export function guestEventKeyboard(eventPublicId: string, withHost = true): Inli
     text: '📄 صفحهٔ رویداد',
     callbackData: encodeEventCallback('show', eventPublicId),
   };
+  // Green because agreeing where to meet is the step this message leads to.
   return withHost
     ? [
         [
-          { text: '✉️ پیام به میزبان', callbackData: encodeDirectCallback('write', eventPublicId) },
+          {
+            text: '✉️ پیام به میزبان',
+            callbackData: encodeDirectCallback('write', eventPublicId),
+            style: 'success',
+          },
           page,
         ],
       ]
@@ -137,7 +195,7 @@ export const HELP_BUTTON_LABEL = '📖 راهنما';
  * that it is always there.
  */
 export interface ReplyKeyboard {
-  keyboard: readonly (readonly { text: string }[])[];
+  keyboard: readonly (readonly { text: string; style?: ButtonStyle }[])[];
   resize_keyboard: true;
   is_persistent: true;
 }
@@ -158,13 +216,11 @@ export interface ReplyKeyboard {
  * does no I/O (ADR-0018 resolves it per update, in the worker).
  */
 export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): ReplyKeyboard {
+  // The menu is green and the guide plain: the menu is the way to everything.
+  // A colour does not change what the tap sends, so `MENU_COMMANDS` is untouched.
+  const first = [{ text: MAIN_MENU_LABEL, style: 'success' as const }, { text: HELP_BUTTON_LABEL }];
   return {
-    keyboard: moderator
-      ? [
-          [{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }],
-          [{ text: MODERATION_MENU_LABEL }],
-        ]
-      : [[{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }]],
+    keyboard: moderator ? [first, [{ text: MODERATION_MENU_LABEL }]] : [first],
     resize_keyboard: true,
     is_persistent: true,
   };
@@ -396,11 +452,11 @@ export function menuRootKeyboard(): InlineKeyboard {
 export function menuGroupKeyboard(group: CommandGroup): InlineKeyboard {
   const rows: { text: string; callbackData: string }[][] = group.commands.map((command) => [
     {
-      text: describeCommand(command) ?? command,
+      text: commandButtonLabel(command),
       callbackData: encodeMenuCommand(command),
     },
   ]);
-  rows.push([{ text: '‹ بازگشت به منو', callbackData: encodeMenuRoot() }]);
+  rows.push([{ text: '↩️ بازگشت به منو', callbackData: encodeMenuRoot() }]);
   return rows;
 }
 

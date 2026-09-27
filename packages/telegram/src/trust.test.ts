@@ -25,7 +25,8 @@ describe('the Trust Score history pages', () => {
 
   it('offers both directions from the middle, and neither past the ends', () => {
     const [row] = trustPageRow(2, true);
-    const [previous, here, next] = row ?? [];
+    // Next, position, previous: a right-to-left reader moves forward leftward.
+    const [next, here, previous] = row ?? [];
 
     expect(parseTrustCallback(previous?.callbackData ?? '')).toBe(1);
     expect(parseTrustCallback(here?.callbackData ?? '')).toBe(2);

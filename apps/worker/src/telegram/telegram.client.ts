@@ -5,7 +5,7 @@ import { autoRetry } from '@grammyjs/auto-retry';
 import { DEFAULT_BOT_USERNAME, type Env } from '@payetam/config';
 import { ENV } from '@payetam/platform';
 import { mainMenuReplyKeyboard } from '@payetam/telegram';
-import type { InlineKeyboard } from '@payetam/telegram';
+import type { ButtonStyle, InlineKeyboard } from '@payetam/telegram';
 
 /** What a send attempt produced, classified so the caller can decide what to do. */
 export type SendOutcome =
@@ -378,13 +378,15 @@ export class TelegramClient {
  * does: this is the file that knows the wire format.
  */
 function toBottomMarkup(moderator: boolean): {
-  keyboard: { text: string }[][];
+  keyboard: { text: string; style?: ButtonStyle }[][];
   resize_keyboard: true;
   is_persistent: true;
 } {
   const bottom = mainMenuReplyKeyboard({ moderator });
   return {
-    keyboard: bottom.keyboard.map((row) => row.map((button) => ({ text: button.text }))),
+    keyboard: bottom.keyboard.map((row) =>
+      row.map((button) => ({ text: button.text, ...withStyle(button.style) })),
+    ),
     resize_keyboard: bottom.resize_keyboard,
     is_persistent: bottom.is_persistent,
   };
@@ -402,11 +404,25 @@ function toReplyMarkup(keyboard: InlineKeyboard): { inline_keyboard: InlineKeybo
     inline_keyboard: keyboard.map((row) =>
       row.map((button) =>
         button.url !== undefined
-          ? { text: button.text, url: button.url }
-          : { text: button.text, callback_data: button.callbackData ?? '' },
+          ? { text: button.text, url: button.url, ...withStyle(button.style) }
+          : {
+              text: button.text,
+              callback_data: button.callbackData ?? '',
+              ...withStyle(button.style),
+            },
       ),
     ),
   };
+}
+
+/**
+ * A button's colour, or nothing at all.
+ *
+ * Omitted rather than sent as `undefined`, so a plain button's wire form is
+ * exactly what it was before colours existed.
+ */
+function withStyle(style: ButtonStyle | undefined): { style?: ButtonStyle } {
+  return style === undefined ? {} : { style };
 }
 
 /**

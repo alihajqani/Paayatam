@@ -117,23 +117,24 @@ describe('the paging row', () => {
 
   it('offers only «بعدی» on the first page of several', () => {
     const [row] = discoverPageRow(filters(), true);
-    expect(row?.map((button) => button.text)).toEqual(['صفحهٔ ۱', 'بعدی ›']);
+    expect(row?.map((button) => button.text)).toEqual(['بعدی ◀️', 'صفحهٔ ۱']);
   });
 
   it('offers both ends in the middle', () => {
     const [row] = discoverPageRow(filters({ page: 2 }), true);
-    expect(row?.map((button) => button.text)).toEqual(['‹ قبلی', 'صفحهٔ ۳', 'بعدی ›']);
+    expect(row?.map((button) => button.text)).toEqual(['بعدی ◀️', 'صفحهٔ ۳', '▶️ قبلی']);
   });
 
   it('drops «بعدی» on the last page', () => {
     const [row] = discoverPageRow(filters({ page: 2 }), false);
-    expect(row?.map((button) => button.text)).toEqual(['‹ قبلی', 'صفحهٔ ۳']);
+    expect(row?.map((button) => button.text)).toEqual(['صفحهٔ ۳', '▶️ قبلی']);
   });
 
   it('steps one page at a time, carrying every other filter', () => {
     const current = filters({ when: 'w', cost: 'f', categoryId: CATEGORY, page: 2 });
     const [row] = discoverPageRow(current, true);
-    const [previous, , next] = row ?? [];
+    // Next on the left, as a right-to-left reader moves forward.
+    const [next, , previous] = row ?? [];
 
     expect(parseDiscoverCallback(previous?.callbackData ?? '')).toEqual({
       ...current,

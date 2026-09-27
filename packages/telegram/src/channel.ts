@@ -219,6 +219,7 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
         {
           text: '🤝 پایتم',
           url: botStartUrl(content.botUsername, encodeStartPayload('join', content.eventPublicId)),
+          style: 'success',
         },
       ],
     ];

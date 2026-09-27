@@ -202,6 +202,7 @@ export function renderSummary(
       {
         text: `✅ ${commitLabel}`,
         callbackData: encodeWizardCallback({ action: 'confirm', value: '' }),
+        style: 'success',
       },
     ],
   ];

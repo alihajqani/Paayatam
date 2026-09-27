@@ -150,6 +150,8 @@ export type { DigestInput } from './digest';
 export {
   BOT_COMMANDS,
   COMMAND_GROUPS,
+  COMMAND_ICONS,
+  commandButtonLabel,
   commandGroupFor,
   describeCommand,
   helpCommandLines,
@@ -261,4 +263,5 @@ export {
   readGuideRow,
 } from './help-guides';
 export type { ReplyKeyboard } from './keyboards';
-export type { InlineButton, InlineKeyboard } from './keyboards';
+export type { ButtonStyle, InlineButton, InlineKeyboard } from './keyboards';
+export { BACK_ICON, NEXT_LABEL, PREVIOUS_LABEL } from './keyboards';

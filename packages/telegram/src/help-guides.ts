@@ -6,7 +6,13 @@ import {
 } from './callback-data';
 import { helpCommandLines } from './commands';
 import { escapeHtml, toPersianDigits } from './escape';
-import { HELP_BUTTON_LABEL, MAIN_MENU_LABEL } from './keyboards';
+import {
+  BACK_ICON,
+  HELP_BUTTON_LABEL,
+  MAIN_MENU_LABEL,
+  NEXT_LABEL,
+  PREVIOUS_LABEL,
+} from './keyboards';
 import { renderLightMarkdown } from './policies';
 
 /**
@@ -19,11 +25,14 @@ import { renderLightMarkdown } from './policies';
  * does: somebody reading four sections should have one message in the chat,
  * not four, and «↩️ فهرست راهنما» takes them back to where they chose.
  *
- * ── Why the contents are one button per row ─────────────────────────────────
+ * ── Why the contents are two to a row ───────────────────────────────────────
  *
- * The labels are an operator's to edit, up to forty characters, and two to a
- * row truncates anything past about fifteen on a phone. A section whose name
- * is cut off is a section nobody opens.
+ * They were one per row, and eleven sections made a column taller than a phone
+ * screen: the last ones and the command list were below the fold. Two to a row
+ * halves that, like the menu's own groups. The cost is width — the labels are
+ * an operator's to edit, up to forty characters, and a half-width button cuts a
+ * long one off on a narrow phone — so a title meant for this list should stay
+ * short. The command list keeps a row of its own: it is not a section.
  */
 
 type Row = { text: string; callbackData: string }[];
@@ -43,12 +52,17 @@ export function formatGuideIndex(): string {
 }
 
 export function guideIndexRows(guides: readonly { slug: string; title: string }[]): Row[] {
-  return [
-    ...guides.map((guide) => [
-      { text: guide.title, callbackData: encodeGuideCallback(guide.slug) },
-    ]),
-    [{ text: '⌨️ فهرست دستورها', callbackData: encodeGuideCommands() }],
-  ];
+  const rows: Row[] = [];
+  for (let index = 0; index < guides.length; index += 2) {
+    rows.push(
+      guides.slice(index, index + 2).map((guide) => ({
+        text: guide.title,
+        callbackData: encodeGuideCallback(guide.slug),
+      })),
+    );
+  }
+  rows.push([{ text: '⌨️ فهرست دستورها', callbackData: encodeGuideCommands() }]);
+  return rows;
 }
 
 /**
@@ -73,16 +87,17 @@ export function guidePageRows(input: {
   previousSlug: string | null;
   nextSlug: string | null;
 }): Row[] {
+  // Next before previous: see `NEXT_LABEL`.
   const nav: Row = [];
-  if (input.previousSlug !== null) {
-    nav.push({ text: '◀️ قبلی', callbackData: encodeGuideCallback(input.previousSlug) });
-  }
   if (input.nextSlug !== null) {
-    nav.push({ text: 'بعدی ▶️', callbackData: encodeGuideCallback(input.nextSlug) });
+    nav.push({ text: NEXT_LABEL, callbackData: encodeGuideCallback(input.nextSlug) });
+  }
+  if (input.previousSlug !== null) {
+    nav.push({ text: PREVIOUS_LABEL, callbackData: encodeGuideCallback(input.previousSlug) });
   }
   const rows: Row[] = [];
   if (nav.length > 0) rows.push(nav);
-  rows.push([{ text: '↩️ فهرست راهنما', callbackData: encodeGuideIndex() }]);
+  rows.push([{ text: `${BACK_ICON} فهرست راهنما`, callbackData: encodeGuideIndex() }]);
   return rows;
 }
 
@@ -104,7 +119,7 @@ export function formatCommandList(): string {
 export function commandListRows(): Row[] {
   return [
     [{ text: '☰ فهرست دستورها به‌صورت دکمه', callbackData: encodeMenuRoot() }],
-    [{ text: '↩️ فهرست راهنما', callbackData: encodeGuideIndex() }],
+    [{ text: `${BACK_ICON} فهرست راهنما`, callbackData: encodeGuideIndex() }],
   ];
 }
 

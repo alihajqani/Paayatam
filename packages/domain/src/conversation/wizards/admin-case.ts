@@ -119,8 +119,8 @@ const steps: WizardStep<AdminCaseForm>[] = [
     prompt: () => 'آیا هشدار خودکار اشتباه بود؟ پاسخ شما نرخ خطای فهرست واژه‌های مسدود را می‌سازد.',
     load: () =>
       Promise.resolve([
-        { value: 'yes', label: 'بله، هشدار اشتباه بود' },
-        { value: 'no', label: 'نه، هشدار درست بود' },
+        { value: 'yes', label: '✅ بله، هشدار اشتباه بود' },
+        { value: 'no', label: '✖️ نه، هشدار درست بود' },
       ]),
     accept: (input: WizardInput) => {
       if (input.value !== 'yes' && input.value !== 'no') {

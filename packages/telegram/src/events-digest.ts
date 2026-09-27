@@ -4,7 +4,7 @@ import { ENTRY_SEPARATOR } from './discover-digest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { capacityLabel, seatsFillEmoji, seatsLine } from './seats';
 import { myEventCommandFor } from './event-code';
-import type { InlineButton } from './keyboards';
+import { NEXT_LABEL, PREVIOUS_LABEL, type InlineButton } from './keyboards';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
 /**
@@ -106,7 +106,7 @@ export function formatMyEvents(
 }
 
 /**
- * «قبلی · صفحهٔ ۲ · بعدی» for the host's own list, or nothing when it fits.
+ * «بعدی · صفحهٔ ۲ · قبلی» for the host's own list, or nothing when it fits.
  *
  * The same shape and the same argument as `discoverPageRow` — the page number is
  * a label rendered as a button because Telegram has no other way to put a word
@@ -118,16 +118,17 @@ export function formatMyEvents(
 export function myEventsPageRow(page: number, hasNext: boolean): InlineButton[][] {
   if (page === 0 && !hasNext) return [];
 
+  // Next, position, previous: see `NEXT_LABEL`.
   const row: InlineButton[] = [];
-  if (page > 0) {
-    row.push({ text: '‹ قبلی', callbackData: encodeMyEventsCallback(page - 1) });
+  if (hasNext) {
+    row.push({ text: NEXT_LABEL, callbackData: encodeMyEventsCallback(page + 1) });
   }
   row.push({
     text: `صفحهٔ ${toPersianDigits(String(page + 1))}`,
     callbackData: encodeMyEventsCallback(page),
   });
-  if (hasNext) {
-    row.push({ text: 'بعدی ›', callbackData: encodeMyEventsCallback(page + 1) });
+  if (page > 0) {
+    row.push({ text: PREVIOUS_LABEL, callbackData: encodeMyEventsCallback(page - 1) });
   }
 
   return [row];

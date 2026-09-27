@@ -177,6 +177,45 @@ export function describeCommand(command: string): string | null {
   return BOT_COMMANDS.find((entry) => entry.command === command)?.description ?? null;
 }
 
+/**
+ * The emoji in front of each command's button in the menu.
+ *
+ * Kept out of `description` because that string is also what `setMyCommands`
+ * publishes and what `/help` prints, and neither needs a picture. Each emoji
+ * means one thing across the bot — 🎟 is always events, ✉️ always a message —
+ * so a reader learns it once; `commands.test.ts` asserts every command has one
+ * and no two share one.
+ */
+export const COMMAND_ICONS: Readonly<Record<string, string>> = {
+  start: '🔄',
+  menu: '☰',
+  help: '📖',
+  create_event: '➕',
+  discover: '🔎',
+  balance: '🪙',
+  wallet: '👛',
+  referral: '💌',
+  gift: '🎁',
+  requests: '📤',
+  myevents: '🎟',
+  reviews: '✍️',
+  myreviews: '⭐️',
+  profile: '👤',
+  trust: '📊',
+  edit_profile: '✏️',
+  interests: '🏷',
+  terms: '📜',
+  settings: '⚙️',
+  bug: '🐞',
+};
+
+/** A command's menu button label: its emoji, then its description. */
+export function commandButtonLabel(command: string): string {
+  const description = describeCommand(command) ?? command;
+  const icon = COMMAND_ICONS[command];
+  return icon === undefined ? description : `${icon} ${description}`;
+}
+
 /** One group by its `callback_data` key, or null for a key this build does not know. */
 export function commandGroupFor(key: string): CommandGroup | null {
   return COMMAND_GROUPS.find((group) => group.key === key) ?? null;

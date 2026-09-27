@@ -47,3 +47,46 @@ describe('send, as a reply (v0.18.5)', () => {
     expect(calls[0]).not.toHaveProperty('reply_parameters');
   });
 });
+
+describe('button colours on the wire', () => {
+  it('carries an inline button’s style, and leaves a plain one as it was', async () => {
+    const { client, calls } = capturing();
+
+    await client.send(
+      5n,
+      'درخواست تازه',
+      [
+        [
+          { text: '✅ پذیرش', callbackData: 'a', style: 'success' },
+          { text: '✖️ رد', callbackData: 'r', style: 'danger' },
+        ],
+        [{ text: '🔗 اشتراک‌گذاری', url: 'https://t.me/x', style: 'primary' }],
+        [{ text: '📄 صفحهٔ رویداد', callbackData: 's' }],
+      ],
+      { parseMode: 'HTML' },
+    );
+
+    expect(calls[0]?.['reply_markup']).toEqual({
+      inline_keyboard: [
+        [
+          { text: '✅ پذیرش', callback_data: 'a', style: 'success' },
+          { text: '✖️ رد', callback_data: 'r', style: 'danger' },
+        ],
+        [{ text: '🔗 اشتراک‌گذاری', url: 'https://t.me/x', style: 'primary' }],
+        [{ text: '📄 صفحهٔ رویداد', callback_data: 's' }],
+      ],
+    });
+  });
+
+  it('colours the bottom menu button and nothing else on that keyboard', async () => {
+    const { client, calls } = capturing();
+
+    await client.send(5n, 'اعلان', undefined, { parseMode: 'HTML', moderator: true });
+
+    const markup = calls[0]?.['reply_markup'] as { keyboard: Record<string, unknown>[][] };
+    expect(markup.keyboard).toEqual([
+      [{ text: '☰ منوی اصلی', style: 'success' }, { text: '📖 راهنما' }],
+      [{ text: '🛡 داوری' }],
+    ]);
+  });
+});

@@ -1,5 +1,6 @@
 import { encodeDiscoverCallback, type DiscoverFilters } from './callback-data';
 import { toPersianDigits } from './escape';
+import { BACK_ICON, NEXT_LABEL, PREVIOUS_LABEL } from './keyboards';
 
 /**
  * The filter row under `/discover` (v0.5.9).
@@ -99,7 +100,7 @@ export function discoverCategoryRows(
 ): FilterButton[][] {
   const buttons: FilterButton[] = [
     {
-      text: mark(current.categoryId === null, 'همه'),
+      text: mark(current.categoryId === null, '🗂 همه'),
       callbackData: encodeDiscoverCallback({ ...current, categoryId: null, page: 0 }),
     },
     ...categories.map((category) => ({
@@ -168,7 +169,7 @@ export function discoverFilterPanelRows(
     ...discoverCategoryRows(current, categories),
     [
       {
-        text: '‹ بازگشت به فهرست',
+        text: `${BACK_ICON} بازگشت به فهرست`,
         callbackData: encodeDiscoverCallback({ ...current, view: 'l' }),
       },
     ],
@@ -186,7 +187,7 @@ export function activeFilterCount(current: DiscoverFilters): number {
 }
 
 /**
- * «قبلی · صفحهٔ ۲ · بعدی», or nothing when the whole list fits on one page.
+ * «بعدی · صفحهٔ ۲ · قبلی», or nothing when the whole list fits on one page.
  *
  * ── Why the page number is a button and not text ────────────────────────────
  *
@@ -207,21 +208,22 @@ export function activeFilterCount(current: DiscoverFilters): number {
 export function discoverPageRow(current: DiscoverFilters, hasNext: boolean): FilterButton[][] {
   if (current.page === 0 && !hasNext) return [];
 
+  // Next, position, previous: see `NEXT_LABEL`.
   const row: FilterButton[] = [];
-  if (current.page > 0) {
+  if (hasNext) {
     row.push({
-      text: '‹ قبلی',
-      callbackData: encodeDiscoverCallback({ ...current, page: current.page - 1 }),
+      text: NEXT_LABEL,
+      callbackData: encodeDiscoverCallback({ ...current, page: current.page + 1 }),
     });
   }
   row.push({
     text: `صفحهٔ ${toPersianDigits(String(current.page + 1))}`,
     callbackData: encodeDiscoverCallback(current),
   });
-  if (hasNext) {
+  if (current.page > 0) {
     row.push({
-      text: 'بعدی ›',
-      callbackData: encodeDiscoverCallback({ ...current, page: current.page + 1 }),
+      text: PREVIOUS_LABEL,
+      callbackData: encodeDiscoverCallback({ ...current, page: current.page - 1 }),
     });
   }
 
