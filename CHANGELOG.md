@@ -14,6 +14,53 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.21.1] — 2026-09-27
+
+The key buttons are coloured, every button carries an emoji, and paging and back buttons are one
+set across the bot. Telegram's button `style` (green, red; blue is unused) now travels from
+`packages/telegram` to the wire; a client too old to know it draws the button as before. The
+guide's contents are two to a row.
+
+**No migration. No setting change. The bot's command menu does not change**: the emoji on the
+menu's own buttons are kept out of the descriptions `setMyCommands` publishes.
+
+### ⚠️ What a deploy changes for people
+
+- **Green:** «☰ منوی اصلی» on the bottom keyboard, «✅ پذیرش», «🤝 پایتم» / «⏳ ثبت در نوبت
+  انتظار» on an event page and «🤝 پایتم» on a channel post, «✅ می‌پذیرم», a wizard's final
+  confirm, «✔️ تمام», «🪙 خرید سکه», «✉️ پیام به میزبان» under an acceptance, and the
+  confirmations of a republish and a special invite.
+- **Red:** «✖️ رد», «✖️ لغو شرکت», «✖️ لغو» on an event page, «✖️ لغو رویداد», «🚫 مسدود کردن
+  فرستنده», and the confirmations of cancelling, dropping an event and recording a no-show.
+  Numbered lists (a host's guests, `/requests`) stay plain.
+- Paging rows read «بعدی ◀️ · صفحهٔ n · ▶️ قبلی», next on the **left**, on every list; only the
+  wizard did that before. Back buttons are «↩️ …» everywhere.
+- The guide's contents are two sections to a row, and one section's default title is now
+  «📨 دعوت ویژه». A title edited in the panel keeps its own text.
+- Relabelled so that an emoji means one thing: «🔑 کد معرفی دارم» (was 🎟), «💌 دعوت دوستان»
+  (was 👥), «📨 بله، دعوت کن» (was 👥). The menu's command buttons each gain an emoji.
+- Buttons already in people's chats keep working: only labels changed, never callback data, and
+  no bottom-keyboard label changed.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- `ButtonStyle`, `InlineButton.style` and `style` on the bottom keyboard's buttons, passed
+  through by `TelegramClient` (`toReplyMarkup`, `toBottomMarkup`) and omitted when unset.
+- `COMMAND_ICONS` and `commandButtonLabel`: one emoji per command, asserted complete and unique.
+- `NEXT_LABEL`, `PREVIOUS_LABEL` and `BACK_ICON`: the one set of paging and back labels, with the
+  right-to-left reasoning written down once in `keyboards.ts`.
+
+### Changed
+
+- `guideIndexRows`: two sections per row, the command list alone on the last row.
+- Paging in `/myevents`, `/trust`, `/wallet`, `/discover`, the policy reader and the guide is
+  built next, position, previous.
+- Buttons that had no emoji gain one: «⏭ رد کردن», «🗂 همه», «📣 عضویت در …», «n ✖️ لغو», a
+  moderator's «✅ / ✖️» on an automatic-flag case, and «🔓 رها» (was ↩️, now the back arrow).
+- `confirmSpend` takes the confirm button's style.
+- `docs/bot-e2e-checklist.md` quotes the new labels.
+
 ## [v0.21.0] — 2026-09-27
 
 An in-bot guide: «📖 راهنما» beside «☰ منوی اصلی» and `/help` open eleven sections, read page
