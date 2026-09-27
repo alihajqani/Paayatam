@@ -14,6 +14,57 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.21.2] — 2026-09-27
+
+The bottom keyboard can be folded away again, gender is «زن» or «مرد» and nothing else, and the
+panel's user page shows the whole profile, with the birth year in Jalali and the time of joining.
+
+**No migration. No setting change. The bot's command menu does not change.** The `gender` enum
+in the database keeps `PREFER_NOT_SAY`, because migrations are additive only and the rows that
+hold it are still read.
+
+### ⚠️ What a deploy changes for people
+
+- **The bottom keyboard folds.** It was sent with `is_persistent`, which kept it on screen
+  whenever the typing keyboard was hidden, so neither the back button nor the keyboard icon
+  could fold it. It still opens by default; it comes back from the icon beside the compose box.
+  A client changes over with the next message it receives that has no inline keyboard.
+- **«ترجیح می‌دهم نگویم» is gone** from the profile wizard, the panel's edit form and the Mini
+  App: an event can be for women or for men only, and a guest who said neither could join
+  neither.
+- **The accounts that had chosen it are asked once, on the worker's first boot:** «لطفاً جنسیت
+  خود را انتخاب کنید» with «آقا» and «خانم». Production had **two real accounts** holding it on
+  2026-09-27 (Test, Ahmadi), and those two get the message. Seed guests are never asked, and a
+  restart asks nobody twice. A tap records the answer and removes the buttons; a second tap
+  changes nothing.
+- New seed guests are «زن» or «مرد» only, like everybody else. The five that hold the old value
+  keep it.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- `ProfileService.requestGenderChoices`: real, active, completed profiles whose gender is
+  `PREFER_NOT_SAY` or null, each asked once. The record is the append-only `audit_log` row
+  `profile.gender_requested`, written with the outbox row under a lock on the user, because
+  retention prunes outbox rows. The worker runs it on boot and drains the outbox at once.
+- `ProfileService.chooseGender` and the `gn:F` / `gn:M` buttons: sets a gender only while it is
+  undecided, audited as `profile.gender_chosen`; a decided gender returns `already`. This is not
+  a way round `GENDER_NOT_EDITABLE`.
+- `PROFILE_GENDER_REQUEST` (essential, no setting silences it) and the fanout of
+  `profile.gender_requested`.
+- `selectableGender` for every request schema, and `GENDER_NOT_SELECTABLE`, which
+  `ProfileService` also enforces because the bot never passes through those schemas. Support
+  can set «زن» or «مرد» and can no longer clear a gender to nothing.
+- The panel's user page: gender, province, interests, profile completion, onboarding stage in
+  words, founding rank, the invitation preference and the three notification settings.
+
+### Changed
+
+- The panel shows the birth year in Jalali with an approximate age, and takes it in Jalali (in
+  Persian or Latin digits) in the edit form; the API still stores Gregorian.
+- The time of joining and of completing the profile is a date and a time, on the user page and
+  in the user list.
+
 ## [v0.21.1] — 2026-09-27
 
 The key buttons are coloured, every button carries an emoji, and paging and back buttons are one
