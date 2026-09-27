@@ -23,7 +23,8 @@ describe('the wallet ledger pages', () => {
 
   it('offers both directions from the middle, and neither past the ends', () => {
     const [row] = walletPageRow(2, true);
-    const [previous, here, next] = row ?? [];
+    // Next, position, previous: a right-to-left reader moves forward leftward.
+    const [next, here, previous] = row ?? [];
 
     expect(parseWalletCallback(previous?.callbackData ?? '')).toBe(1);
     expect(parseWalletCallback(here?.callbackData ?? '')).toBe(2);

@@ -115,10 +115,10 @@ describe('the buttons under a page', () => {
     const rows = policyPageRows({ type: 'PRIVACY', page: 1, pages: 3, acceptCallbackData: null });
     const nav = rows[0] ?? [];
 
-    expect(nav.map((button) => button.text)).toEqual(['◀️ قبلی', 'بعدی ▶️']);
+    expect(nav.map((button) => button.text)).toEqual(['بعدی ◀️', '▶️ قبلی']);
     expect(nav.map((button) => parsePolicyCallback(button.callbackData))).toEqual([
-      { doc: 'p', page: 0 },
       { doc: 'p', page: 2 },
+      { doc: 'p', page: 0 },
     ]);
   });
 
@@ -126,8 +126,8 @@ describe('the buttons under a page', () => {
     const first = policyPageRows({ type: 'TERMS', page: 0, pages: 2, acceptCallbackData: null });
     const last = policyPageRows({ type: 'TERMS', page: 1, pages: 2, acceptCallbackData: null });
 
-    expect(first[0]?.map((button) => button.text)).toEqual(['بعدی ▶️']);
-    expect(last[0]?.map((button) => button.text)).toEqual(['◀️ قبلی']);
+    expect(first[0]?.map((button) => button.text)).toEqual(['بعدی ◀️']);
+    expect(last[0]?.map((button) => button.text)).toEqual(['▶️ قبلی']);
   });
 
   /**

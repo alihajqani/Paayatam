@@ -151,5 +151,5 @@ export function formatCoinPackages(input: {
  * first.
  */
 export function buyCoinsRow(): InlineButton[][] {
-  return [[{ text: '🪙 خرید سکه', callbackData: encodeBuyCallback() }]];
+  return [[{ text: '🪙 خرید سکه', callbackData: encodeBuyCallback(), style: 'success' }]];
 }

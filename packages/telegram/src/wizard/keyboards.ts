@@ -1,5 +1,11 @@
 import { toPersianDigits } from '../escape';
-import type { InlineButton, InlineKeyboard } from '../keyboards';
+import {
+  BACK_ICON,
+  NEXT_LABEL,
+  PREVIOUS_LABEL,
+  type InlineButton,
+  type InlineKeyboard,
+} from '../keyboards';
 import { encodeWizardCallback } from './callback';
 import {
   PERSIAN_WEEKDAYS,
@@ -66,13 +72,14 @@ export function choiceKeyboard(
   if (pages > 1) {
     /**
      * RTL: «بعدی» is on the left of the row as Telegram lays it out, because the
-     * reader's "forward" is leftward. The counter sits between them so the row
-     * reads as one control rather than two unrelated arrows.
+     * reader's "forward" is leftward (`NEXT_LABEL` says why, for the whole bot).
+     * The counter sits between them so the row reads as one control rather than
+     * two unrelated arrows.
      */
     const nav: InlineButton[] = [];
     if (current + 1 < pages) {
       nav.push({
-        text: '» بعدی',
+        text: NEXT_LABEL,
         callbackData: encodeWizardCallback({ action: 'page', value: String(current + 1) }),
       });
     }
@@ -84,7 +91,7 @@ export function choiceKeyboard(
     });
     if (current > 0) {
       nav.push({
-        text: 'قبلی «',
+        text: PREVIOUS_LABEL,
         callbackData: encodeWizardCallback({ action: 'page', value: String(current - 1) }),
       });
     }
@@ -148,6 +155,7 @@ export function multiChoiceKeyboard(
             ? '✔️ تمام'
             : `✔️ تمام (${toPersianDigits(String(chosen.size))} انتخاب)`,
         callbackData: encodeWizardCallback({ action: 'done', value: '' }),
+        style: 'success' as const,
       },
     ],
   ];
@@ -243,7 +251,7 @@ export function calendarKeyboard(
   const previousAnchor = addDays(first, -1);
   const nav: InlineButton[] = [
     {
-      text: '» ماه بعد',
+      text: 'ماه بعد ◀️',
       callbackData: encodeWizardCallback({
         action: 'goto',
         value: isoDay(addDays(days[days.length - 1] as Date, 1)),
@@ -257,7 +265,7 @@ export function calendarKeyboard(
   // Offered only when there is a reachable day behind it.
   if (previousAnchor.getTime() >= earliest.getTime()) {
     nav.push({
-      text: 'ماه قبل «',
+      text: '▶️ ماه قبل',
       callbackData: encodeWizardCallback({ action: 'goto', value: isoDay(previousAnchor) }),
     });
   }
@@ -282,13 +290,13 @@ export function controlRow(options: {
   }
   if (options.skip === true) {
     row.push({
-      text: 'رد کردن',
+      text: '⏭ رد کردن',
       callbackData: encodeWizardCallback({ action: 'skip', value: '' }),
     });
   }
   if (options.back === true) {
     row.push({
-      text: '« بازگشت',
+      text: `${BACK_ICON} بازگشت`,
       callbackData: encodeWizardCallback({ action: 'back', value: '' }),
     });
   }

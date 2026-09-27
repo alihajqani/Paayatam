@@ -149,6 +149,7 @@ import {
   isNotificationField,
   menuPathFor,
   shareUrl,
+  BACK_ICON,
   HELP_BUTTON_LABEL,
   MAIN_MENU_LABEL,
   MODERATION_MENU_COMMAND,
@@ -226,7 +227,7 @@ import {
   type SummaryLine,
   type WizardScreen,
 } from '@payetam/telegram';
-import type { MenuCallback } from '@payetam/telegram';
+import type { ButtonStyle, MenuCallback } from '@payetam/telegram';
 
 /**
  * What a reply interpolates.
@@ -1037,7 +1038,7 @@ export class BotService {
           ...(canClaim
             ? {
                 keyboard: JSON.stringify([
-                  [{ text: '🎟 کد معرفی دارم', callbackData: encodeCodeCallback('ref') }],
+                  [{ text: '🔑 کد معرفی دارم', callbackData: encodeCodeCallback('ref') }],
                 ]),
               }
             : {}),
@@ -1113,7 +1114,7 @@ export class BotService {
             isPublicId(row.publicId),
         );
         const buttons = cancellable.map((row) => ({
-          text: `${toPersianDigits(String(mine.indexOf(row) + 1))} لغو`,
+          text: `${toPersianDigits(String(mine.indexOf(row) + 1))} ✖️ لغو`,
           callbackData: encodeEventCallback('cancel', row.publicId),
         }));
         const rows: { text: string; callbackData: string }[][] = [];
@@ -2664,6 +2665,7 @@ export class BotService {
               `میزبان خبردار می‌شود.`,
             '✖️ بله، لغو کن',
             encodeEventCallback('cancelyes', callback.id),
+            'danger',
           );
         }
 
@@ -2791,6 +2793,7 @@ export class BotService {
               `پست قبلی برداشته می‌شود تا کانال دو نسخه از یک رویداد نداشته باشد.`,
             '🔄 بله، دوباره منتشر کن',
             encodeEventCallback('postyes', callback.id),
+            'success',
           );
         }
 
@@ -2833,8 +2836,9 @@ export class BotService {
               `${toPersianDigits(String(preview.selected))} نفر دعوت می‌شوند ` +
               `(از ${toPersianDigits(String(preview.candidates))} نفر واجد شرایط).\n` +
               `<b>${toPersianDigits(String(preview.cost))} سکه</b> از موجودی شما کم می‌شود.`,
-            '👥 بله، دعوت کن',
+            '📨 بله، دعوت کن',
             encodeEventCallback('inviteyes', callback.id),
+            'success',
           );
         }
 
@@ -2870,6 +2874,7 @@ export class BotService {
               `به همه اطلاع داده می‌شود.\n\n<i>این کار برگشت‌پذیر نیست.</i>`,
             '✖️ بله، لغو کن',
             encodeEventCallback('dropyes', callback.id),
+            'danger',
           );
         }
 
@@ -2910,6 +2915,7 @@ export class BotService {
               `<i>فقط وقتی ثبت کنید که واقعاً نیامده باشد.</i>`,
             '🚫 بله، غایب بود',
             encodeEventCallback('noshowyes', callback.id),
+            'danger',
           );
         }
 
@@ -3522,7 +3528,7 @@ export class BotService {
         : [
             [
               {
-                text: '‹ بازگشت به فهرست',
+                text: `${BACK_ICON} بازگشت به فهرست`,
                 callbackData: encodeBackCallback(back.target, back.commandMessageId),
               },
             ],
@@ -3585,7 +3591,15 @@ export class BotService {
             ]
           : [
               ...(mine !== null && isPublicId(mine.publicId)
-                ? [[{ text: '✖️ لغو', callbackData: encodeEventCallback('cancel', mine.publicId) }]]
+                ? [
+                    [
+                      {
+                        text: '✖️ لغو',
+                        callbackData: encodeEventCallback('cancel', mine.publicId),
+                        style: 'danger',
+                      },
+                    ],
+                  ]
                 : [
                     [
                       {
@@ -3604,6 +3618,7 @@ export class BotService {
                             ? WAITLIST_BUTTON_FA
                             : JOIN_BUTTON_FA,
                         callbackData: encodeEventCallback('join', eventPublicId),
+                        style: 'success',
                       },
                     ],
                   ]),
@@ -3805,7 +3820,7 @@ export class BotService {
      * who came is exactly what a host does *after* an activity is over.
      */
     const open = OPEN_EVENT_STATUSES.has(event.status);
-    const rows: { text: string; callbackData?: string; url?: string }[][] = [
+    const rows: { text: string; callbackData?: string; url?: string; style?: ButtonStyle }[][] = [
       [
         { text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event.publicId) },
         /**
@@ -3845,12 +3860,16 @@ export class BotService {
         },
       ]);
       rows.push([
-        { text: '✖️ لغو رویداد', callbackData: encodeEventCallback('drop', event.publicId) },
+        {
+          text: '✖️ لغو رویداد',
+          callbackData: encodeEventCallback('drop', event.publicId),
+          style: 'danger',
+        },
       ]);
     }
     rows.push([
       {
-        text: '‹ بازگشت به فهرست',
+        text: `${BACK_ICON} بازگشت به فهرست`,
         callbackData: encodeBackCallback('m', commandMessageId ?? null),
       },
     ]);
@@ -4506,6 +4525,7 @@ export class BotService {
                           : {
                               text: '🚫 مسدود کردن فرستنده',
                               callbackData: encodeDirectCallback('block', message.publicId),
+                              style: 'danger' as const,
                             },
                       ],
                     ]
@@ -4891,7 +4911,9 @@ export class BotService {
     ]);
 
     const text = formatCoinPackages({ packages, referencePrice, contact, balance });
-    const keyboard = [[{ text: '‹ کیف پول', callbackData: encodeWalletCallback(0) }]];
+    const keyboard = [
+      [{ text: `${BACK_ICON} بازگشت به کیف پول`, callbackData: encodeWalletCallback(0) }],
+    ];
 
     if (editMessageId !== undefined) {
       return this.repaint(updateId, user, editMessageId, text, keyboard);
@@ -5281,7 +5303,7 @@ export class BotService {
   /**
    * The three numbers on the menu's status line (plan 18 item 3).
    *
-   * Read on every root draw — a fresh `/menu` and a «‹ بازگشت» to the root alike
+   * Read on every root draw — a fresh `/menu` and a «↩️ بازگشت» to the root alike
    * — because a number that is right on one of the two and stale on the other is
    * worse than none. Three indexed reads; `listPending` is the widest and is
    * capped at a hundred pairs.
@@ -5324,10 +5346,11 @@ export class BotService {
     text: string,
     confirmLabel: string,
     callbackData: string,
+    style: ButtonStyle,
   ): Promise<void> {
     await this.reply(updateId, user.id, TEMPLATES.BOT_CONFIRM_SPEND, {
       text,
-      keyboard: JSON.stringify([[{ text: confirmLabel, callbackData }]]),
+      keyboard: JSON.stringify([[{ text: confirmLabel, callbackData, style }]]),
     });
   }
 
@@ -5505,7 +5528,7 @@ export class BotService {
    *
    * «🪙 خرید سکه» only when there is somebody to buy from
    * (`COIN_PURCHASE_CONTACT`, as on the wallet); «🎁 کد هدیه دارم» only when
-   * forms are on, since it opens one; «👥 دعوت دوستان» runs `/referral` through
+   * forms are on, since it opens one; «💌 دعوت دوستان» runs `/referral` through
    * the menu's own command callback, so it meets every gate a typed one does.
    */
   private async coinsShort(
@@ -5521,7 +5544,7 @@ export class BotService {
         ...(this.env.ENABLE_CONVERSATION_WIZARD
           ? [{ text: '🎁 کد هدیه دارم', callbackData: encodeCodeCallback('gift') }]
           : []),
-        { text: '👥 دعوت دوستان', callbackData: encodeMenuCommand('referral') },
+        { text: '💌 دعوت دوستان', callbackData: encodeMenuCommand('referral') },
       ],
     ];
     await this.reply(updateId, user.id, TEMPLATES.BOT_COINS_SHORT, {
@@ -5866,6 +5889,7 @@ export class BotService {
           {
             text: '✅ می‌پذیرم',
             callbackData: encodeWizardCallback({ action: 'agree', value: '' }),
+            style: 'success',
           },
         ],
       ],
@@ -6206,7 +6230,7 @@ export class BotService {
   ): Promise<void> {
     const buttons = channels
       .filter((channel) => channel.joinUrl !== null)
-      .map((channel) => [{ text: `عضویت در ${channel.title}`, url: channel.joinUrl as string }]);
+      .map((channel) => [{ text: `📣 عضویت در ${channel.title}`, url: channel.joinUrl as string }]);
 
     if (buttons.length === 0) {
       // Configured as required but with no join link — the operator's mistake,

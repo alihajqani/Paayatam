@@ -85,7 +85,7 @@ describe('the host list paging row', () => {
 
   it('steps one page at a time', () => {
     const [row] = myEventsPageRow(2, true);
-    const [previous, , next] = row ?? [];
+    const [next, , previous] = row ?? [];
 
     expect(parseMyEventsCallback(previous?.callbackData ?? '')).toBe(1);
     expect(parseMyEventsCallback(next?.callbackData ?? '')).toBe(3);
@@ -93,7 +93,7 @@ describe('the host list paging row', () => {
 
   it('drops «بعدی» on the last page', () => {
     const [row] = myEventsPageRow(2, false);
-    expect(row?.map((button) => button.text)).toEqual(['‹ قبلی', 'صفحهٔ ۳']);
+    expect(row?.map((button) => button.text)).toEqual(['صفحهٔ ۳', '▶️ قبلی']);
   });
 
   it('refuses a tampered page', () => {

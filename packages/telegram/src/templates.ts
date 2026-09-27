@@ -687,7 +687,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         participant !== null && event !== null
           ? [
               [
-                { text: '✖️ لغو شرکت', callbackData: encodeEventCallback('cancel', participant) },
+                {
+                  text: '✖️ لغو شرکت',
+                  callbackData: encodeEventCallback('cancel', participant),
+                  style: 'danger',
+                },
                 { text: '📄 صفحهٔ رویداد', callbackData: encodeEventCallback('show', event) },
               ],
             ]

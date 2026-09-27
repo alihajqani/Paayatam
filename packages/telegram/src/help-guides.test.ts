@@ -63,25 +63,29 @@ describe('formatGuidePage', () => {
 });
 
 describe('the guide keyboards', () => {
-  it('lists one section per row, then the command list', () => {
+  it('lists the sections two to a row, then the command list on its own', () => {
     const rows = guideIndexRows([
       { slug: 'intro', title: 'شروع' },
       { slug: 'trust', title: 'اعتماد' },
+      { slug: 'coins', title: 'سکه' },
     ]);
     expect(rows).toEqual([
-      [{ text: 'شروع', callbackData: 'gd:g:intro' }],
-      [{ text: 'اعتماد', callbackData: 'gd:g:trust' }],
+      [
+        { text: 'شروع', callbackData: 'gd:g:intro' },
+        { text: 'اعتماد', callbackData: 'gd:g:trust' },
+      ],
+      [{ text: 'سکه', callbackData: 'gd:g:coins' }],
       [{ text: '⌨️ فهرست دستورها', callbackData: 'gd:k' }],
     ]);
   });
 
   it('offers only the neighbours that exist, and always the way back', () => {
     expect(guidePageRows({ previousSlug: null, nextSlug: 'trust' })).toEqual([
-      [{ text: 'بعدی ▶️', callbackData: 'gd:g:trust' }],
+      [{ text: 'بعدی ◀️', callbackData: 'gd:g:trust' }],
       [{ text: '↩️ فهرست راهنما', callbackData: 'gd:i' }],
     ]);
     expect(guidePageRows({ previousSlug: 'intro', nextSlug: null })[0]).toEqual([
-      { text: '◀️ قبلی', callbackData: 'gd:g:intro' },
+      { text: '▶️ قبلی', callbackData: 'gd:g:intro' },
     ]);
   });
 

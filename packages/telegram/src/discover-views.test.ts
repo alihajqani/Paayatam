@@ -40,7 +40,7 @@ describe('the list view', () => {
   it('carries the paging row above it when there is more than one page', () => {
     const rows = discoverListRows(filters(), true, 0);
 
-    expect(labels(rows)).toContain('بعدی ›');
+    expect(labels(rows)).toContain('بعدی ◀️');
     // Paging first: the reader's next move on a list is usually another page.
     expect(rows[0]?.some((button) => button.text.includes('صفحهٔ'))).toBe(true);
   });

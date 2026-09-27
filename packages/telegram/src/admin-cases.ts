@@ -143,7 +143,7 @@ export function adminQueueRows(
         ? [{ text: `${number} ✋ برداشتم`, callbackData: encodeAdminCallback('claim', line.id) }]
         : []),
       ...(assignment === 'ME'
-        ? [{ text: `${number} ↩️ رها`, callbackData: encodeAdminCallback('release', line.id) }]
+        ? [{ text: `${number} 🔓 رها`, callbackData: encodeAdminCallback('release', line.id) }]
         : []),
       ...(line.status !== 'ESCALATED'
         ? [{ text: `${number} ⬆️ ارجاع`, callbackData: encodeAdminCallback('escalate', line.id) }]

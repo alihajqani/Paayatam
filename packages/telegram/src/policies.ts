@@ -1,5 +1,6 @@
 import { encodePolicyCallback, MAX_POLICY_PAGE, type PolicyDocLetter } from './callback-data';
 import { escapeHtml, toPersianDigits } from './escape';
+import { BACK_ICON, NEXT_LABEL, PREVIOUS_LABEL, type ButtonStyle } from './keyboards';
 
 /** The three documents a user may be shown (`policy_version.type`). */
 export type PolicyType = 'TERMS' | 'PRIVACY' | 'COMMUNITY';
@@ -57,7 +58,7 @@ const ORDER: readonly PolicyType[] = ['TERMS', 'PRIVACY', 'COMMUNITY'];
  */
 export const PAGE_BUDGET = 3000;
 
-type Row = { text: string; callbackData: string }[];
+type Row = { text: string; callbackData: string; style?: ButtonStyle }[];
 
 /**
  * Flatten Markdown into something Telegram's HTML mode renders sensibly.
@@ -233,19 +234,22 @@ export function policyPageRows(input: {
   acceptCallbackData: string | null;
 }): Row[] {
   const letter = POLICY_LETTER[input.type];
+  // Next before previous: see `NEXT_LABEL`.
   const nav: Row = [];
-  if (input.page > 0) {
-    nav.push({ text: '◀️ قبلی', callbackData: encodePolicyCallback(letter, input.page - 1) });
-  }
   if (input.page < input.pages - 1) {
-    nav.push({ text: 'بعدی ▶️', callbackData: encodePolicyCallback(letter, input.page + 1) });
+    nav.push({ text: NEXT_LABEL, callbackData: encodePolicyCallback(letter, input.page + 1) });
+  }
+  if (input.page > 0) {
+    nav.push({ text: PREVIOUS_LABEL, callbackData: encodePolicyCallback(letter, input.page - 1) });
   }
 
   const rows: Row[] = [];
   if (nav.length > 0) rows.push(nav);
-  rows.push([{ text: '↩️ بازگشت به فهرست اسناد', callbackData: encodePolicyCallback('s') }]);
+  rows.push([
+    { text: `${BACK_ICON} بازگشت به فهرست اسناد`, callbackData: encodePolicyCallback('s') },
+  ]);
   if (input.acceptCallbackData !== null) {
-    rows.push([{ text: '✅ می‌پذیرم', callbackData: input.acceptCallbackData }]);
+    rows.push([{ text: '✅ می‌پذیرم', callbackData: input.acceptCallbackData, style: 'success' }]);
   }
   return rows;
 }

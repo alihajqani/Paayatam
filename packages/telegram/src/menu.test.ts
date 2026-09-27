@@ -245,7 +245,10 @@ describe('the main-menu button', () => {
   it('draws the menu and the guide on one row, sized and pinned', () => {
     const keyboard = mainMenuReplyKeyboard({ moderator: false });
 
-    expect(keyboard.keyboard).toEqual([[{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }]]);
+    // The menu is green — the way to everything — and the guide beside it plain.
+    expect(keyboard.keyboard).toEqual([
+      [{ text: MAIN_MENU_LABEL, style: 'success' }, { text: HELP_BUTTON_LABEL }],
+    ]);
     // Without `resize_keyboard` one button takes a third of the screen; without
     // `is_persistent` it collapses into the paperclip after one use, which is the
     // opposite of always being there.
@@ -264,7 +267,7 @@ describe('the main-menu button', () => {
     const keyboard = mainMenuReplyKeyboard({ moderator: true });
 
     expect(keyboard.keyboard).toEqual([
-      [{ text: MAIN_MENU_LABEL }, { text: HELP_BUTTON_LABEL }],
+      [{ text: MAIN_MENU_LABEL, style: 'success' }, { text: HELP_BUTTON_LABEL }],
       [{ text: MODERATION_MENU_LABEL }],
     ]);
   });

@@ -1,7 +1,7 @@
 import { encodeTrustCallback } from './callback-data';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
-import type { InlineButton } from './keyboards';
+import { NEXT_LABEL, PREVIOUS_LABEL, type InlineButton } from './keyboards';
 import { formatJalali } from './wizard/jalali';
 
 /**
@@ -113,13 +113,14 @@ export function formatTrust(
 export function trustPageRow(page: number, hasNext: boolean): InlineButton[][] {
   if (page === 0 && !hasNext) return [];
 
+  // Next, position, previous: see `NEXT_LABEL`.
   const row: InlineButton[] = [];
-  if (page > 0) row.push({ text: '‹ قبلی', callbackData: encodeTrustCallback(page - 1) });
+  if (hasNext) row.push({ text: NEXT_LABEL, callbackData: encodeTrustCallback(page + 1) });
   row.push({
     text: `صفحهٔ ${toPersianDigits(String(page + 1))}`,
     callbackData: encodeTrustCallback(page),
   });
-  if (hasNext) row.push({ text: 'بعدی ›', callbackData: encodeTrustCallback(page + 1) });
+  if (page > 0) row.push({ text: PREVIOUS_LABEL, callbackData: encodeTrustCallback(page - 1) });
 
   return [row];
 }
