@@ -3,6 +3,7 @@ import {
   REVIEW_RATINGS,
   encodeDirectCallback,
   encodeEventCallback,
+  encodeGenderChoice,
   encodeReviewCallback,
   isPublicId,
 } from './callback-data';
@@ -193,6 +194,14 @@ export const TEMPLATES = {
    * exists — and the copy is the one that would fall behind.
    */
   BOT_NOTICE: 'bot.notice',
+  /**
+   * The one-time question to an account that chose «ترجیح می‌دهم نگویم» (v0.21.2).
+   *
+   * That choice is gone, because an event can be for women or for men only and a
+   * guest who said neither could join neither. Sent once per account — the audit
+   * row `profile.gender_requested` is the record — and answered by `gn:`.
+   */
+  PROFILE_GENDER_REQUEST: 'profile.gender_request',
   /** `/help` — what the bot can do, for somebody who has only ever seen `/start`. */
   BOT_HELP: 'bot.help',
   /** `/balance` — the coin balance, without opening anything. */
@@ -1772,6 +1781,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      * See `menuOpenerKeyboard` for why the menu is a button here rather than
      * nineteen buttons under every message.
      */
+    /**
+     * «خانم» and «آقا», in the order the profile wizard draws them, and no third
+     * button: this message exists because the third one was removed.
+     */
+    case TEMPLATES.PROFILE_GENDER_REQUEST:
+      return {
+        text:
+          `<b>لطفاً جنسیت خود را انتخاب کنید</b>\n\n` +
+          `گزینهٔ «ترجیح می‌دهم نگویم» دیگر در پایتم نیست، چون بعضی رویدادها فقط برای ` +
+          `بانوان یا فقط برای آقایان برگزار می‌شوند. یکی از دو دکمهٔ زیر را بزنید.\n\n` +
+          `<i>این انتخاب پس از ثبت قابل تغییر نیست؛ تغییر آن فقط از طریق پشتیبانی ممکن است.</i>`,
+        keyboard: [
+          [
+            { text: 'آقا', callbackData: encodeGenderChoice('MALE') },
+            { text: 'خانم', callbackData: encodeGenderChoice('FEMALE') },
+          ],
+        ],
+      };
+
     case TEMPLATES.BOT_NOTICE:
       return {
         text: str(payload, 'text'),

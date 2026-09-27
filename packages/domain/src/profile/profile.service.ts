@@ -10,7 +10,26 @@ import { CoinService } from '../economy/coin.service';
 import { TRUST_PROFILE_COMPLETE_REASON, TrustService } from '../economy/trust.service';
 import { FoundingService, type FoundingAward } from '../founding/founding.service';
 import { AuditService } from '../audit/audit.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { isOldEnough } from './age';
+
+/** The event and audit action for the one-time question (v0.21.2). */
+export const GENDER_REQUESTED = 'profile.gender_requested';
+
+/**
+ * «زن» or «مرد», and nothing else, for a gender being written (v0.21.2).
+ *
+ * `PREFER_NOT_SAY` stays in the enum because rows written before this hold it,
+ * and it still fails a gendered event restriction the way it always did. What
+ * changed is that no surface may *write* it — or clear a gender to null — any
+ * more: an event can be for women or for men only, and a guest who said neither
+ * could join neither.
+ */
+export function assertSelectableGender(value: Gender | null): void {
+  if (value !== 'MALE' && value !== 'FEMALE') {
+    throw new AppError(ErrorCode.GENDER_NOT_SELECTABLE);
+  }
+}
 
 export interface CompleteProfileInput {
   displayName: string;
@@ -153,7 +172,111 @@ export class ProfileService {
     private readonly trust: TrustService,
     private readonly founding: FoundingService,
     private readonly audit: AuditService,
+    private readonly outbox: OutboxService,
   ) {}
+
+  /**
+   * Ask, once, every account that never said «زن» or «مرد» (v0.21.2).
+   *
+   * «ترجیح می‌دهم نگویم» was removed as a choice, and the accounts that had
+   * picked it — plus any old profile with no gender at all — are sent one message
+   * with the two buttons (`profile.gender_requested` → `PROFILE_GENDER_REQUEST`).
+   * Real, active accounts with a completed profile only: a seed identity has
+   * nobody behind it, and an unfinished profile is asked by the wizard anyway.
+   *
+   * ── Once, and why the record is the audit log ───────────────────────────────
+   *
+   * The worker runs this on every boot, so "once" has to be a fact in the
+   * database. The outbox row cannot be it — retention prunes those — so the
+   * `audit_log` row written in the same transaction is, and it is append-only.
+   * The user row is locked first so two workers booting together ask once.
+   */
+  async requestGenderChoices(limit = 200): Promise<number> {
+    const undecided = await this.prisma.userProfile.findMany({
+      where: {
+        completedAt: { not: null },
+        OR: [{ gender: 'PREFER_NOT_SAY' }, { gender: null }],
+        user: { isSeed: false, status: 'ACTIVE' },
+      },
+      select: { userId: true, user: { select: { publicId: true } } },
+      orderBy: { userId: 'asc' },
+      take: limit,
+    });
+
+    let asked = 0;
+    for (const row of undecided) {
+      const created = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "user" WHERE "id" = ${row.userId} FOR UPDATE`;
+        const already = await tx.auditLog.findFirst({
+          where: { action: GENDER_REQUESTED, targetId: row.userId },
+          select: { id: true },
+        });
+        if (already !== null) return false;
+
+        await this.audit.record(
+          {
+            actorType: 'SYSTEM',
+            action: GENDER_REQUESTED,
+            targetType: 'user_profile',
+            targetId: row.userId,
+          },
+          tx,
+        );
+        await this.outbox.emit(
+          {
+            aggregateType: 'user',
+            aggregateId: row.userId,
+            eventType: GENDER_REQUESTED,
+            payload: { userPublicId: row.user.publicId },
+          },
+          tx,
+        );
+        return true;
+      });
+      if (created) asked += 1;
+    }
+    return asked;
+  }
+
+  /**
+   * The answer to that question: «خانم» or «آقا», and only once (v0.21.2).
+   *
+   * **Not a way round `GENDER_NOT_EDITABLE`.** It sets a gender only while the
+   * profile holds none of the two — `PREFER_NOT_SAY` or null — and a profile that
+   * already has one keeps it and hears `already`. So a button tapped twice, or
+   * one kept in the chat for a year, changes nothing that was decided.
+   */
+  async chooseGender(
+    userId: string,
+    gender: 'MALE' | 'FEMALE',
+  ): Promise<{ outcome: 'set' | 'already'; gender: Gender }> {
+    assertSelectableGender(gender);
+
+    return this.prisma.$transaction(async (tx) => {
+      const [locked] = await tx.$queryRaw<{ gender: string | null }[]>`
+        SELECT "gender"::text AS "gender" FROM "user_profile" WHERE "user_id" = ${userId} FOR UPDATE
+      `;
+      if (!locked) throw new AppError(ErrorCode.PROFILE_INCOMPLETE);
+      if (locked.gender === 'MALE' || locked.gender === 'FEMALE') {
+        return { outcome: 'already' as const, gender: locked.gender };
+      }
+
+      await tx.userProfile.update({ where: { userId }, data: { gender } });
+      await this.audit.record(
+        {
+          actorType: 'USER',
+          actorId: userId,
+          action: 'profile.gender_chosen',
+          targetType: 'user_profile',
+          targetId: userId,
+          before: { gender: locked.gender },
+          after: { gender },
+        },
+        tx,
+      );
+      return { outcome: 'set' as const, gender };
+    });
+  }
 
   async find(userId: string): Promise<ProfileDetail | null> {
     const profile = await this.prisma.userProfile.findUnique({
@@ -228,6 +351,9 @@ export class ProfileService {
     if (editor.kind === 'USER' && input.gender !== undefined) {
       throw new AppError(ErrorCode.GENDER_NOT_EDITABLE);
     }
+    // Support may correct it, but only to «زن» or «مرد» — never to «ترجیح
+    // می‌دهم نگویم» and never back to nothing (v0.21.2).
+    if (input.gender !== undefined) assertSelectableGender(input.gender);
 
     // Before the transaction, and only when a year was actually sent: refusing
     // an under-age edit should not depend on having taken a lock first, and the
@@ -377,6 +503,9 @@ export class ProfileService {
 
     // Before the transaction: cheap, and refusing an under-age user should not
     // depend on having taken a lock first.
+    // Here as well as in the request schema, because the bot calls this directly.
+    assertSelectableGender(input.gender);
+
     const minAge = await this.settings.getInt('profile.min_age_years');
     if (!isOldEnough(input.birthYear, minAge, now, this.env.APP_TIMEZONE)) {
       throw new AppError(ErrorCode.AGE_BELOW_MINIMUM);

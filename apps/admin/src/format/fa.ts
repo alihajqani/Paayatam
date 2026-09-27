@@ -127,3 +127,57 @@ export function formatRelative(iso: string | null | undefined): string {
 export function formatTrust(score: number | null): string {
   return score === null ? 'تازه‌وارد' : `${toPersianDigits(score)} از ۱۰۰`;
 }
+
+/**
+ * A birth year, which is stored Gregorian and read in Jalali (v0.21.2).
+ *
+ * The bot asks «سال تولد شما به شمسی؟» and stores `jalali + 621`
+ * (`jalaliYearToGregorian` in the profile wizard), so showing the stored 1991
+ * was showing somebody a number they never typed. For a *year* the conversion is
+ * exact addition — Farvardin 1 always falls on 20–21 March — which is why this is
+ * a subtraction and not `Intl`.
+ */
+const JALALI_YEAR_OFFSET = 621;
+
+export function toJalaliYear(gregorianYear: number): number {
+  return gregorianYear - JALALI_YEAR_OFFSET;
+}
+
+export function toGregorianYear(jalaliYear: number): number {
+  return jalaliYear + JALALI_YEAR_OFFSET;
+}
+
+/** «۱۳۷۰ (حدود ۳۵ سال)», or «—». Approximate, because only a year is stored. */
+export function formatBirthYear(gregorianYear: number | null, now: Date = new Date()): string {
+  if (gregorianYear === null) return '—';
+  const age = now.getFullYear() - gregorianYear;
+  return `${toPersianDigits(toJalaliYear(gregorianYear))} (حدود ${toPersianDigits(age)} سال)`;
+}
+
+/** The profile's gender, including the third value older profiles may hold. */
+export function formatGender(value: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null): string {
+  switch (value) {
+    case 'FEMALE':
+      return 'زن';
+    case 'MALE':
+      return 'مرد';
+    case 'PREFER_NOT_SAY':
+      return 'ترجیح داده نگوید (پیش از حذف این گزینه)';
+    default:
+      return '—';
+  }
+}
+
+/** Where an account is in signing up, in words rather than the enum. */
+export function formatOnboardingState(value: string): string {
+  switch (value) {
+    case 'NEW':
+      return 'تازه — قوانین را نپذیرفته';
+    case 'TERMS_ACCEPTED':
+      return 'قوانین پذیرفته، پروفایل ناقص';
+    case 'PROFILE_COMPLETE':
+      return 'پروفایل کامل';
+    default:
+      return value;
+  }
+}

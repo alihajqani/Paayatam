@@ -250,10 +250,23 @@ describe('birth year', () => {
 });
 
 describe('gender', () => {
-  it('accepts each of the three values', () => {
-    for (const value of ['MALE', 'FEMALE', 'PREFER_NOT_SAY']) {
+  it('accepts «خانم» and «آقا»', () => {
+    for (const value of ['MALE', 'FEMALE']) {
       expect(accept('gender', value, {}, 'callback').ok).toBe(true);
     }
+  });
+
+  /**
+   * «ترجیح می‌دهم نگویم» is gone (v0.21.2): an event can be for women or for men
+   * only, and a guest who said neither could join neither. A button from before
+   * this, still in somebody's chat, is refused rather than written.
+   */
+  it('offers two buttons, and refuses the third value it used to offer', async () => {
+    const step = stepByKey(editProfileWizard, 'gender');
+    // The gender step loads nothing from the database, so it needs no deps.
+    const choices = await step?.load?.({}, {} as never);
+    expect(choices?.map((choice) => choice.value)).toEqual(['MALE', 'FEMALE']);
+    expect(accept('gender', 'PREFER_NOT_SAY', {}, 'callback').ok).toBe(false);
   });
 
   it('refuses anything else', () => {

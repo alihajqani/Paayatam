@@ -13,6 +13,18 @@ export const gender = z.enum(['MALE', 'FEMALE', 'PREFER_NOT_SAY']);
 export type Gender = z.infer<typeof gender>;
 
 /**
+ * The genders a profile may be **given** (v0.21.2): «زن» or «مرد».
+ *
+ * `gender` keeps `PREFER_NOT_SAY` because rows written before this still hold it
+ * and a view has to be able to say so. Every request takes this one instead, and
+ * `ProfileService` refuses the third value as well, since the bot never passes
+ * through these schemas. The enum in the database is untouched: migrations here
+ * are additive only.
+ */
+export const selectableGender = z.enum(['MALE', 'FEMALE']);
+export type SelectableGender = z.infer<typeof selectableGender>;
+
+/**
  * A display name may hold Persian or English letters, spaces, and the
  * half-space (ZWNJ, U+200C) Persian compound words need — nothing else.
  *
@@ -54,7 +66,7 @@ export const completeProfileRequest = z.object({
   displayName: z.string().trim().min(2).max(40).regex(DISPLAY_NAME_PATTERN),
   // Asked once, here, and never editable afterward by the user — see
   // `GENDER_NOT_EDITABLE` and `ProfileService.update`.
-  gender,
+  gender: selectableGender,
   birthYear: z.number().int().min(1900).max(2200),
   cityId: z.uuid(),
   districtId: z.uuid().optional(),
@@ -119,8 +131,9 @@ export const adminUpdateProfileRequest = z
   .object({
     displayName: z.string().trim().min(2).max(40).regex(DISPLAY_NAME_PATTERN).optional(),
     // Support's own path to change gender — the one case `GENDER_NOT_EDITABLE`
-    // does not refuse, because `editor.kind` here is `'ADMIN'`.
-    gender: gender.nullable().optional(),
+    // does not refuse, because `editor.kind` here is `'ADMIN'`. To «زن» or «مرد»
+    // only, and never back to nothing.
+    gender: selectableGender.optional(),
     birthYear: z.number().int().min(1900).max(2200).optional(),
     cityId: z.uuid().optional(),
     districtId: z.uuid().nullable().optional(),

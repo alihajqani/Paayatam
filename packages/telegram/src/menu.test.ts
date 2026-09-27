@@ -242,18 +242,19 @@ describe('the main-menu button', () => {
    * taller than the single button it was, and the two things somebody who does
    * not know what to do next reaches for.
    */
-  it('draws the menu and the guide on one row, sized and pinned', () => {
+  it('draws the menu and the guide on one row, sized, and foldable', () => {
     const keyboard = mainMenuReplyKeyboard({ moderator: false });
 
     // The menu is green — the way to everything — and the guide beside it plain.
     expect(keyboard.keyboard).toEqual([
       [{ text: MAIN_MENU_LABEL, style: 'success' }, { text: HELP_BUTTON_LABEL }],
     ]);
-    // Without `resize_keyboard` one button takes a third of the screen; without
-    // `is_persistent` it collapses into the paperclip after one use, which is the
-    // opposite of always being there.
+    // Without `resize_keyboard` one button takes a third of the screen.
     expect(keyboard.resize_keyboard).toBe(true);
-    expect(keyboard.is_persistent).toBe(true);
+    // Not `is_persistent`: that pins it on screen, so the back button and the
+    // keyboard icon could not fold it away (v0.21.2).
+    expect(keyboard).not.toHaveProperty('is_persistent');
+    expect(keyboard).not.toHaveProperty('one_time_keyboard');
   });
 
   /**

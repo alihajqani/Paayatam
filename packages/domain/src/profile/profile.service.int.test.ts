@@ -10,6 +10,7 @@ import {
   type CatalogFixture,
 } from '../../../../test/integration/db';
 import { AuditService } from '../audit/audit.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { SETTING_DEFAULTS, SettingsService } from '../catalog/settings.service';
 import { CoinService } from '../economy/coin.service';
@@ -57,6 +58,7 @@ const profiles = new ProfileService(
   trust,
   founding,
   audit,
+  new OutboxService(service, clock),
 );
 
 /**
@@ -246,6 +248,20 @@ describe('ProfileService.complete — rejections', () => {
       code: 'AGE_BELOW_MINIMUM',
       httpStatus: 400,
     });
+
+    await expectNothingWritten(userId);
+  });
+
+  /**
+   * «ترجیح می‌دهم نگویم» is not offered any more (v0.21.2), and the service
+   * refuses it too: the bot calls this directly and never meets the API schema.
+   */
+  it('refuses a gender that is neither «زن» nor «مرد»', async () => {
+    const userId = await createUser(prisma);
+
+    await expect(
+      profiles.complete(userId, validInput({ gender: 'PREFER_NOT_SAY' })),
+    ).rejects.toMatchObject({ code: 'GENDER_NOT_SELECTABLE' });
 
     await expectNothingWritten(userId);
   });
@@ -521,6 +537,23 @@ describe('ProfileService.update — editing an existing profile', () => {
     expect(JSON.stringify(row.after)).not.toContain('نام تازه');
   });
 
+  /** Support may correct a gender, to «زن» or «مرد» and never to anything else (v0.21.2). */
+  it('lets support set «مرد», and refuses the removed value and a blank', async () => {
+    const userId = await completedUser();
+    const admin = { kind: 'ADMIN', adminUserId: 'admin-1', reason: 'اصلاح جنسیت' } as const;
+
+    const edited = await profiles.update(userId, { gender: 'MALE' }, admin);
+    expect(edited.gender).toBe('MALE');
+
+    for (const gender of ['PREFER_NOT_SAY', null] as const) {
+      await expect(profiles.update(userId, { gender }, admin)).rejects.toMatchObject({
+        code: 'GENDER_NOT_SELECTABLE',
+      });
+    }
+    const row = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
+    expect(row.gender).toBe('MALE');
+  });
+
   it('records an admin edit with old and new values, the reason, and no bio text', async () => {
     const userId = await completedUser();
 
@@ -650,5 +683,81 @@ describe('ProfileService.complete — the founding rank', () => {
     expect(results.filter((r) => r.founding !== null)).toHaveLength(1);
     await expect(prisma.foundingMember.count()).resolves.toBe(1);
     await expect(coins.balanceOf(userId)).resolves.toBe(ONBOARDING + TIER1);
+  });
+});
+
+/**
+ * The one-time «خانم / آقا» question (v0.21.2), for the accounts that chose
+ * «ترجیح می‌دهم نگویم» before it was removed.
+ */
+describe('ProfileService — asking the undecided once', () => {
+  async function profileWith(
+    gender: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null,
+    options: { seed?: boolean; completed?: boolean } = {},
+  ): Promise<string> {
+    const userId = await createUser(prisma, 'PROFILE_COMPLETE');
+    if (options.seed === true) {
+      await prisma.user.update({ where: { id: userId }, data: { isSeed: true } });
+    }
+    await prisma.userProfile.create({
+      data: {
+        userId,
+        displayName: 'کاربر',
+        cityId: fixture.tehranId,
+        birthYear: 1995,
+        gender,
+        completedAt: options.completed === false ? null : clock.now(),
+      },
+    });
+    return userId;
+  }
+
+  it('asks every real account without «زن» or «مرد», and nobody twice', async () => {
+    const undisclosed = await profileWith('PREFER_NOT_SAY');
+    const blank = await profileWith(null);
+    await profileWith('FEMALE');
+    await profileWith('PREFER_NOT_SAY', { seed: true });
+    await profileWith('PREFER_NOT_SAY', { completed: false });
+
+    await expect(profiles.requestGenderChoices()).resolves.toBe(2);
+    // A restart of the worker asks nobody again: `audit_log` is the record.
+    await expect(profiles.requestGenderChoices()).resolves.toBe(0);
+
+    const events = await prisma.outboxEvent.findMany({
+      where: { eventType: 'profile.gender_requested' },
+      select: { aggregateId: true },
+    });
+    expect(events.map((event) => event.aggregateId).sort()).toEqual([undisclosed, blank].sort());
+  });
+
+  it('records the answer once, and leaves a decided gender alone', async () => {
+    const userId = await profileWith('PREFER_NOT_SAY');
+
+    await expect(profiles.chooseGender(userId, 'FEMALE')).resolves.toEqual({
+      outcome: 'set',
+      gender: 'FEMALE',
+    });
+    // The same button tapped again, or the other one: nothing changes.
+    await expect(profiles.chooseGender(userId, 'MALE')).resolves.toEqual({
+      outcome: 'already',
+      gender: 'FEMALE',
+    });
+
+    const row = await prisma.userProfile.findUniqueOrThrow({ where: { userId } });
+    expect(row.gender).toBe('FEMALE');
+    const audits = await prisma.auditLog.findMany({
+      where: { action: 'profile.gender_chosen', targetId: userId },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.after).toEqual({ gender: 'FEMALE' });
+  });
+
+  it('is no way round GENDER_NOT_EDITABLE for somebody who already chose', async () => {
+    const userId = await profileWith('MALE');
+
+    await expect(profiles.chooseGender(userId, 'FEMALE')).resolves.toMatchObject({
+      outcome: 'already',
+      gender: 'MALE',
+    });
   });
 });

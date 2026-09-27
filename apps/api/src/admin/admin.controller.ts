@@ -1092,9 +1092,16 @@ export class AdminController {
     const detail = await this.insight.getUser(admin, publicId);
     return {
       ...toAdminUserView(detail),
+      gender: detail.gender,
+      provinceNameFa: detail.provinceNameFa,
       cityNameFa: detail.cityNameFa,
       districtNameFa: detail.districtNameFa,
       birthYear: detail.birthYear,
+      interests: detail.interests,
+      profileCompletedAt: detail.profileCompletedAt?.toISOString() ?? null,
+      inviteOptOut: detail.inviteOptOut,
+      notifications: detail.notifications,
+      founding: detail.founding,
       bio: detail.bio,
       bioRedactions: detail.bioRedactions,
       coins: detail.coins,

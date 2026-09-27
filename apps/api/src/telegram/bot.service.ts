@@ -120,6 +120,7 @@ import {
   guideIndexRows,
   guidePageRows,
   parseGuideCallback,
+  parseGenderChoice,
   formatPolicySummary,
   paginatePolicy,
   parsePolicyCallback,
@@ -2108,6 +2109,29 @@ export class BotService {
     if (onboarding === 'clear' && (await this.channelsBlock(update.updateId, user, 'APP_ACCESS'))) {
       await this.answer(callbackQueryId, 'برای ادامه باید در کانال‌های اعلام‌شده عضو شوید.');
       return;
+    }
+
+    /**
+     * «خانم» / «آقا» under the one-time gender question (v0.21.2).
+     *
+     * After both gates, like any write. The message is redrawn without its
+     * buttons either way, so a second tap has nothing to press — and a tap on a
+     * copy kept elsewhere meets `chooseGender`'s `already`, which changes nothing.
+     */
+    const genderChoice = parseGenderChoice(data);
+    if (genderChoice !== null) {
+      await this.answer(callbackQueryId, '');
+      if (!(await this.mayWrite(update.updateId, user))) return;
+      const chosen = await this.profiles.chooseGender(user.id, genderChoice);
+      const text =
+        chosen.outcome === 'set'
+          ? `<b>جنسیت شما ثبت شد: ${genderLabel(chosen.gender)}</b>\n\nممنون که وقت گذاشتید.`
+          : `جنسیت شما پیش‌تر ثبت شده است: ${genderLabel(chosen.gender)}.\n\n` +
+            `<i>تغییر آن فقط از طریق پشتیبانی ممکن است.</i>`;
+      if (messageId !== undefined) {
+        return this.repaint(update.updateId, user, messageId, text, []);
+      }
+      return this.notice(update.updateId, user, text);
     }
 
     /**

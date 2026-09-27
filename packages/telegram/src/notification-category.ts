@@ -110,6 +110,8 @@ const CATEGORY: Record<string, NotificationCategory> = {
   [TEMPLATES.BOT_WELCOME]: 'essential',
   [TEMPLATES.BOT_REFERRAL_ACCEPTED]: 'essential',
   [TEMPLATES.BOT_NOTICE]: 'essential',
+  // Asked once, about the account itself: not something a setting may silence.
+  [TEMPLATES.PROFILE_GENDER_REQUEST]: 'essential',
   [TEMPLATES.BOT_HELP]: 'essential',
   [TEMPLATES.BOT_BALANCE]: 'essential',
   [TEMPLATES.BOT_REQUESTS]: 'essential',

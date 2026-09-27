@@ -2,15 +2,23 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
 import type { Gender } from '@payetam/db';
 
-const FIRST_NAMES: Record<Gender, readonly string[]> = {
+/**
+ * «زن» or «مرد», like everybody else (v0.21.2).
+ *
+ * A real user can no longer choose «ترجیح می‌دهم نگویم», so a seed guest who had
+ * it would be the only kind of account that did — which is exactly how a seed
+ * identity must never be told apart from a real one.
+ */
+type SeedGender = Extract<Gender, 'MALE' | 'FEMALE'>;
+
+const FIRST_NAMES: Record<SeedGender, readonly string[]> = {
   MALE: ['علی', 'حسین', 'محمد', 'امیر', 'رضا', 'سامان', 'بهزاد', 'کیان'],
   FEMALE: ['سارا', 'نگین', 'مریم', 'الهام', 'پریسا', 'رها', 'یاسمن', 'ترانه'],
-  PREFER_NOT_SAY: ['نیک', 'آرمان', 'شایان', 'رهام'],
 };
 
 const LAST_INITIALS = ['ر.', 'م.', 'ک.', 'ص.', 'ن.', 'ب.', 'ت.', 'ح.'];
 
-const GENDERS: readonly Gender[] = ['MALE', 'FEMALE', 'PREFER_NOT_SAY'];
+const GENDERS: readonly SeedGender[] = ['MALE', 'FEMALE'];
 
 /**
  * Creates the throwaway synthetic participants marketing seed events fill

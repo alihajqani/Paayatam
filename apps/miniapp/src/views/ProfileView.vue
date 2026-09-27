@@ -188,7 +188,6 @@ onMounted(load);
             v-for="option in [
               { value: 'FEMALE', label: 'زن' },
               { value: 'MALE', label: 'مرد' },
-              { value: 'PREFER_NOT_SAY', label: 'ترجیح می‌دهم نگویم' },
             ]"
             :key="option.value"
             type="button"

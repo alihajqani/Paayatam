@@ -71,6 +71,7 @@ const profiles = new ProfileService(
   trust,
   founding,
   audit,
+  new OutboxService(service, clock),
 );
 const operations = new AdminOperationsService(
   service,

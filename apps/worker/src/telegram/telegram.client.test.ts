@@ -89,4 +89,20 @@ describe('button colours on the wire', () => {
       [{ text: '🛡 داوری' }],
     ]);
   });
+
+  /**
+   * `is_persistent` pinned the keyboard on screen whenever the typing keyboard
+   * was hidden, so neither the back button nor the keyboard icon could fold it
+   * away. Its absence on the wire is what makes it foldable (v0.21.2).
+   */
+  it('sends a bottom keyboard the reader can fold away', async () => {
+    const { client, calls } = capturing();
+
+    await client.send(5n, 'اعلان', undefined, { parseMode: 'HTML', moderator: false });
+
+    expect(calls[0]?.['reply_markup']).toEqual({
+      keyboard: [[{ text: '☰ منوی اصلی', style: 'success' }, { text: '📖 راهنما' }]],
+      resize_keyboard: true,
+    });
+  });
 });

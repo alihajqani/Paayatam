@@ -80,6 +80,7 @@ export type {
 
 export {
   gender,
+  selectableGender,
   DISPLAY_NAME_PATTERN,
   MAX_PROFILE_INTERESTS,
   completeProfileRequest,
@@ -92,6 +93,7 @@ export {
 } from './contracts/profile';
 export type {
   Gender,
+  SelectableGender,
   CompleteProfileRequest,
   UpdateProfileRequest,
   AdminUpdateProfileRequest,

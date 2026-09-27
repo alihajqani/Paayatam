@@ -32,6 +32,14 @@ export const ErrorCode = {
    * (`adminUpdateProfileRequest`, `editor.kind === 'ADMIN'`) may change it.
    */
   GENDER_NOT_EDITABLE: 'GENDER_NOT_EDITABLE',
+  /**
+   * A new gender that is neither «زن» nor «مرد» (v0.21.2).
+   *
+   * «ترجیح می‌دهم نگویم» is no longer offered: an event can be for women or for
+   * men only, and a guest who said neither could join neither. Rows that already
+   * hold `PREFER_NOT_SAY` keep it — this refuses the value going in, not coming out.
+   */
+  GENDER_NOT_SELECTABLE: 'GENDER_NOT_SELECTABLE',
   INVALID_INTEREST: 'INVALID_INTEREST',
   CITY_NOT_AVAILABLE: 'CITY_NOT_AVAILABLE',
   /**
@@ -278,6 +286,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   // fact instead — and in practice unreachable through the bot or the Mini
   // App, since neither offers a control that could send this.
   GENDER_NOT_EDITABLE: 'جنسیت پس از ثبت قابل تغییر نیست؛ تغییر آن فقط از طریق پشتیبانی ممکن است.',
+  GENDER_NOT_SELECTABLE: 'جنسیت را «زن» یا «مرد» انتخاب کنید.',
   INVALID_INTEREST: 'یکی از علاقه‌مندی‌های انتخاب‌شده معتبر نیست.',
   // Reworded in M21: the product serves 1,252 cities, and a message naming
   // Tehran would now be wrong in 1,251 of them.

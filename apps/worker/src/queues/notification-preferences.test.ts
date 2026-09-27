@@ -87,6 +87,7 @@ function buildProcessors(options: {
     {} as never, // CityLaunchAnnouncementService
     {} as never, // NoShowClaimService
     {} as never, // SeedSchedulerService
+    {} as never, // ProfileService
   );
 
   return { processors, send, markSuppressed, isLinked };

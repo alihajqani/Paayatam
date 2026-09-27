@@ -353,6 +353,10 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
     case 'economy.comeback_granted':
       return recipient(row, 'userPublicId', TEMPLATES.COMEBACK_GRANTED);
 
+    /** «خانم» or «آقا», asked once of an account that chose neither (v0.21.2). */
+    case 'profile.gender_requested':
+      return recipient(row, 'userPublicId', TEMPLATES.PROFILE_GENDER_REQUEST);
+
     default:
       return [];
   }

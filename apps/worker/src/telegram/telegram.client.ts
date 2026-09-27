@@ -380,7 +380,6 @@ export class TelegramClient {
 function toBottomMarkup(moderator: boolean): {
   keyboard: { text: string; style?: ButtonStyle }[][];
   resize_keyboard: true;
-  is_persistent: true;
 } {
   const bottom = mainMenuReplyKeyboard({ moderator });
   return {
@@ -388,7 +387,6 @@ function toBottomMarkup(moderator: boolean): {
       row.map((button) => ({ text: button.text, ...withStyle(button.style) })),
     ),
     resize_keyboard: bottom.resize_keyboard,
-    is_persistent: bottom.is_persistent,
   };
 }
 

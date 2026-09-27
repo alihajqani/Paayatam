@@ -209,6 +209,15 @@ describe('two-recipient events', () => {
     expect(planned[0]?.templateKey).toBe(TEMPLATES.COMEBACK_GRANTED);
   });
 
+  /** The one-time «خانم / آقا» question (v0.21.2), to the account it is about. */
+  it('profile.gender_requested asks the account itself', () => {
+    const planned = planNotifications(row('profile.gender_requested', { userPublicId: GUEST }));
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.userPublicId).toBe(GUEST);
+    expect(planned[0]?.templateKey).toBe(TEMPLATES.PROFILE_GENDER_REQUEST);
+  });
+
   it('participation.requested tells the host and the guest', () => {
     const planned = planNotifications(
       row('participation.requested', {

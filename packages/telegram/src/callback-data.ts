@@ -823,6 +823,29 @@ export function parseGuideCallback(data: string): GuideCallback | null {
 }
 
 /**
+ * The one-time gender choice: `gn:F` or `gn:M` (v0.21.2).
+ *
+ * Sent to the accounts that answered «ترجیح می‌دهم نگویم» before that choice was
+ * removed. Two values and nothing else: the service refuses a profile that has
+ * already chosen, so a button tapped twice, or kept in a chat, cannot change a
+ * gender that was already set.
+ */
+export type GenderChoice = 'MALE' | 'FEMALE';
+
+const GENDER_PREFIX = 'gn';
+const GENDER_CODES: Readonly<Record<GenderChoice, string>> = { FEMALE: 'F', MALE: 'M' };
+
+export function encodeGenderChoice(gender: GenderChoice): string {
+  return `${GENDER_PREFIX}:${GENDER_CODES[gender]}`;
+}
+
+export function parseGenderChoice(data: string): GenderChoice | null {
+  if (data === `${GENDER_PREFIX}:F`) return 'FEMALE';
+  if (data === `${GENDER_PREFIX}:M`) return 'MALE';
+  return null;
+}
+
+/**
  * Paging the wallet ledger: `wl:<page>:x`.
  *
  * The same shape as «رویدادهای من», and a separate prefix for the same reason

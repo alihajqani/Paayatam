@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatBirthYear,
+  formatGender,
+  formatOnboardingState,
+  toGregorianYear,
+  toJalaliYear,
   formatDate,
   formatDateTime,
   formatNumber,
@@ -156,5 +161,32 @@ describe('reading numbers a person typed', () => {
 
   it('answers null for something that is not a number', () => {
     expect(parseTypedNumber('نسخهٔ سه')).toBeNull();
+  });
+});
+
+/** The bot asks for a Jalali year and stores Gregorian; the panel shows what was typed. */
+describe('a birth year', () => {
+  it('round-trips between the stored Gregorian year and the Jalali one typed', () => {
+    expect(toJalaliYear(1991)).toBe(1370);
+    expect(toGregorianYear(1370)).toBe(1991);
+  });
+
+  it('reads in Jalali with an approximate age, or a dash when there is none', () => {
+    expect(formatBirthYear(1991, new Date('2026-09-27T00:00:00Z'))).toBe('۱۳۷۰ (حدود ۳۵ سال)');
+    expect(formatBirthYear(null)).toBe('—');
+  });
+});
+
+describe('a profile in words', () => {
+  it('names both genders, and says when a profile predates the two-choice rule', () => {
+    expect(formatGender('FEMALE')).toBe('زن');
+    expect(formatGender('MALE')).toBe('مرد');
+    expect(formatGender('PREFER_NOT_SAY')).toContain('ترجیح داده نگوید');
+    expect(formatGender(null)).toBe('—');
+  });
+
+  it('turns the onboarding enum into a sentence, and leaves an unknown one alone', () => {
+    expect(formatOnboardingState('PROFILE_COMPLETE')).toBe('پروفایل کامل');
+    expect(formatOnboardingState('SOMETHING_NEW')).toBe('SOMETHING_NEW');
   });
 });
