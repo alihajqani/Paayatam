@@ -40,6 +40,7 @@ import {
   PolicyAdminService,
   ReferralAdminService,
   SeedAdminService,
+  SuggestionAdminService,
   type AdminSession,
   type ChannelConfigStatus,
   type RequiredChannelRecord,
@@ -127,6 +128,7 @@ import {
   updateCityRequest,
   updateProvinceRequest,
   updateCitySeedConfigRequest,
+  createEventSuggestionRequest,
   publishPolicyRequest,
   updatePolicyDraftRequest,
   updateSettingRequest,
@@ -157,6 +159,9 @@ import {
   type UpdateCityRequest,
   type UpdateProvinceRequest,
   type UpdateCitySeedConfigRequest,
+  type CreateEventSuggestionRequest,
+  type EventSuggestionView,
+  type EventSuggestionsResponse,
   type CitySeedConfigView,
   type SeedEventsCitiesResponse,
   type MessageCampaignListResponse,
@@ -316,6 +321,8 @@ export class AdminController {
     private readonly noShowClaims: NoShowClaimService,
     /** The marketing seed-event scheduler's admin configuration. */
     private readonly seedAdmin: SeedAdminService,
+    /** Event suggestions offered in the channel (migration 0064). */
+    private readonly suggestionAdmin: SuggestionAdminService,
     /** Direct messages, read as conversations (ADR-0020). */
     private readonly directs: DirectAdminService,
     /** The in-bot guide's text (migration 0063). */
@@ -2031,6 +2038,34 @@ export class AdminController {
     @CurrentAdmin() admin: AdminSession,
   ): Promise<CitySeedConfigView> {
     return this.seedAdmin.updateConfig(admin, cityId, body);
+  }
+
+  /**
+   * Event suggestions (migration 0064): real outside programmes offered in the
+   * channel as «میزبانش می‌شوم». Each view carries the `?start=` payload of the
+   * link the operator pastes into the post they write by hand; the panel builds
+   * the URL with `botUsername`.
+   */
+  @Get('suggestions')
+  async listSuggestions(@CurrentAdmin() admin: AdminSession): Promise<EventSuggestionsResponse> {
+    return this.suggestionAdmin.list(admin);
+  }
+
+  @Post('suggestions')
+  async createSuggestion(
+    @Body(new ZodValidationPipe(createEventSuggestionRequest)) body: CreateEventSuggestionRequest,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<EventSuggestionView> {
+    return this.suggestionAdmin.create(admin, body);
+  }
+
+  /** Stop the link opening the wizard; events already made from it stay. */
+  @Patch('suggestions/:publicId/close')
+  async closeSuggestion(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+  ): Promise<EventSuggestionView> {
+    return this.suggestionAdmin.close(admin, publicId);
   }
 
   @Get('activity-tags')

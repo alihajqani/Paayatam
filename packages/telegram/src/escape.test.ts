@@ -134,6 +134,10 @@ describe('no template emits injected markup', () => {
     // title and render the body through `renderLightMarkdown` —
     // `help-guides.test.ts` is the proof.
     TEMPLATES.BOT_HELP,
+    // A suggestion card (migration 0064), built by `formatSuggestionCard`, which
+    // escapes every string an operator typed — `suggestion.test.ts` is the
+    // proof — and puts the programme's link in a URL button, never in markup.
+    TEMPLATES.BOT_SUGGESTION,
   ];
 
   it.each(Object.values(TEMPLATES).filter((key) => !PRE_RENDERED.includes(key)))(
@@ -170,6 +174,7 @@ describe('no template emits injected markup', () => {
         TEMPLATES.BOT_RECEIVED_REVIEWS,
         TEMPLATES.BOT_REPORT_REASONS,
         TEMPLATES.BOT_SETTINGS,
+        TEMPLATES.BOT_SUGGESTION,
         TEMPLATES.BOT_TERMS_STANDING,
         TEMPLATES.BOT_TRUST,
         TEMPLATES.BOT_WALLET,

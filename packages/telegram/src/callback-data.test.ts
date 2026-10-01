@@ -17,6 +17,10 @@ import {
   encodeReviewEditCallback,
   parseReviewCallback,
   parseReviewEditCallback,
+  encodeEventCallback,
+  encodeSuggestionCallback,
+  parseEventCallback,
+  parseSuggestionCallback,
 } from './callback-data';
 
 const ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -207,5 +211,28 @@ describe('the policy protocol', () => {
     expect(parsePolicyCallback('pl:x:0')).toBeNull();
     expect(parsePolicyCallback('pl:t:10')).toBeNull();
     expect(parsePolicyCallback('pl:t')).toBeNull();
+  });
+});
+
+/**
+ * «میزبانش می‌شوم» under a suggestion card (migration 0064): the suggestion's
+ * public id rides in the button, so a reader who has to finish onboarding first
+ * can still tap it afterwards — nothing about the intent is stored.
+ */
+describe('the suggestion protocol', () => {
+  const S = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+
+  it('round-trips, inside 64 bytes', () => {
+    const data = encodeSuggestionCallback(S);
+    expect(data).toBe(`sg:host:${S}`);
+    expect(Buffer.byteLength(data, 'utf8')).toBeLessThanOrEqual(64);
+    expect(parseSuggestionCallback(data)).toEqual({ id: S });
+  });
+
+  it('refuses a tampered id and a neighbour’s data', () => {
+    expect(parseSuggestionCallback('sg:host:not-a-uuid')).toBeNull();
+    expect(parseSuggestionCallback(`sg:drop:${S}`)).toBeNull();
+    expect(parseSuggestionCallback(encodeEventCallback('join', S))).toBeNull();
+    expect(parseEventCallback(encodeSuggestionCallback(S))).toBeNull();
   });
 });

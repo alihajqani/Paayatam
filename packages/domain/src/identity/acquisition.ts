@@ -25,6 +25,11 @@ export interface Acquisition {
  * whether or not the event is still published. The referral table and the event
  * table answer "did it work"; this answers "what was tapped".
  *
+ * A suggestion's `host_` link is filed as `EVENT_LINK` with the suggestion's id:
+ * it is a channel post's link like the others, and a source of its own would
+ * have meant widening `user_acquisition_ref_matches_source` for a distinction
+ * `event.suggestion_id` already draws better.
+ *
  * ── The order is the order the bot routes in ────────────────────────────────
  *
  * Campaign first, because its prefix is unambiguous; then the event links,

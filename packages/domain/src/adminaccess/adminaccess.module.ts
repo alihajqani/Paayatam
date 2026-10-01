@@ -26,6 +26,7 @@ import { HelpGuideAdminService } from './help-guide-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import { SeedAdminService } from './seed-admin.service';
+import { SuggestionAdminService } from './suggestion-admin.service';
 // AuditModule and OutboxModule are @Global, so they need no import here.
 
 /**
@@ -76,6 +77,7 @@ import { SeedAdminService } from './seed-admin.service';
     HelpGuideAdminService,
     ModerationDigestService,
     SeedAdminService,
+    SuggestionAdminService,
   ],
   exports: [
     AdminCredentials,
@@ -98,6 +100,7 @@ import { SeedAdminService } from './seed-admin.service';
     HelpGuideAdminService,
     ModerationDigestService,
     SeedAdminService,
+    SuggestionAdminService,
   ],
 })
 export class AdminAccessModule {}

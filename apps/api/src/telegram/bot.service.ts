@@ -62,6 +62,7 @@ import {
   type ProfileField,
   type CityLaunchStatus,
   FoundingService,
+  SuggestionService,
   type FoundingAward,
   type CancellationPreview,
   type JoinPreview,
@@ -98,6 +99,12 @@ import {
   formatBlockedNotice,
   formatDirectMessage,
   formatEventDetail,
+  formatSuggestionCard,
+  joinExistingKeyboard,
+  JOIN_EXISTING_LINE,
+  parseSuggestionCallback,
+  SUGGESTION_GONE_FA,
+  suggestionKeyboard,
   insufficientCoinsNotice,
   formatParticipants,
   foundingTierMedal,
@@ -424,6 +431,8 @@ export class BotService {
     private readonly profiles: ProfileService,
     private readonly trust: TrustService,
     private readonly founding: FoundingService,
+    /** What a `?start=host_` tap opens (migration 0064). */
+    private readonly suggestions: SuggestionService,
     private readonly reviews: ReviewService,
     private readonly conversations: ConversationService,
     private readonly catalog: CatalogService,
@@ -1352,38 +1361,7 @@ export class BotService {
        */
       case 'create_event':
       case 'newevent': {
-        if (!this.env.ENABLE_CONVERSATION_WIZARD) return this.wizardsOff(updateId, user);
-        if (!(await this.mayWrite(updateId, user))) return;
-        /**
-         * The quota, **before** the form rather than after it.
-         *
-         * `EventService.create` has always enforced this and still does — it is
-         * the authority and this is not a second one. What was wrong was *when*
-         * the user found out: the wizard asks fourteen questions, and a host who
-         * had reached the limit answered all of them, pressed «ثبت رویداد» and
-         * was told they could not create an event today. The refusal was correct
-         * and arrived after every possible opportunity to act on it.
-         */
-        if (await this.quotaBlocked(updateId, user)) return;
-        /**
-         * And the channel requirement, for the same reason (review M8).
-         *
-         * `EventService.create` checks `EVENT_CREATE` membership and stays the
-         * authority; asked only there, the refusal arrived after eleven answers.
-         */
-        if (await this.channelsBlock(updateId, user, 'EVENT_CREATE')) return;
-        /**
-         * And the price, for the same reason and at the same moment.
-         *
-         * Registration costs `create + channel publish` — the second half only
-         * while the channel can publish (plan 14) — and the host is told one
-         * number for the pair — the split is how the product is built, not a
-         * choice they are being offered, so quoting it would be describing an
-         * internal boundary.
-         */
-        if (await this.affordBlocked(updateId, user, await this.registrationCost(), 'ثبت رویداد')) {
-          return;
-        }
+        if (await this.createEventBlocked(updateId, user)) return;
         const outcome = await this.conversations.start(user.id, 'CREATE_EVENT', updateId);
         return this.drawWizard(updateId, user, outcome);
       }
@@ -1718,6 +1696,10 @@ export class BotService {
    * tapping a post wants the activity, not an introduction.
    */
   private async onStartLink(updateId: number, user: BotUser, link: StartLink): Promise<void> {
+    // A suggestion's id is not an event's: `findEventOr` below would answer it
+    // with «رویداد پیدا نشد».
+    if (link.action === 'host') return this.onHostLink(updateId, user, link.id);
+
     const consented = await this.consent.hasAcceptedCurrentPolicies(user.id);
     const onboarding = this.onboardingOwed(user);
     if (!consented) {
@@ -1795,6 +1777,92 @@ export class BotService {
      */
     if (onboarding && (await this.resumeOnboarding(updateId, user))) return;
     if (!consented) await this.gateAfterWelcome(updateId, user);
+  }
+
+  /**
+   * `?start=host_<id>` — a suggestion from the channel (migration 0064).
+   *
+   * «اولی میزبان، بقیه همراه»: `SuggestionService.resolveLink` decides what the
+   * tap opens. Nobody has made an event of it yet → the card with
+   * «میزبانش می‌شوم». Somebody has, with a free seat → their event, with the
+   * join button it always has, and under it «خودم یکی جدا می‌سازم». The reader
+   * hosts one already → that one. Closed or started → one sentence.
+   *
+   * The welcome and the onboarding tail are `onStartLink`'s, for the same
+   * reason: a reader from the channel has usually accepted nothing, and the
+   * card stays on screen above the form with its button — nothing about the
+   * intent is stored, exactly as with an event link.
+   */
+  private async onHostLink(updateId: number, user: BotUser, publicId: string): Promise<void> {
+    const consented = await this.consent.hasAcceptedCurrentPolicies(user.id);
+    const onboarding = this.onboardingOwed(user);
+    if (!consented) {
+      await this.reply(updateId, user.id, TEMPLATES.BOT_WELCOME, onboarding ? { onboarding } : {});
+    }
+
+    const link = await this.suggestions.resolveLink(publicId, user.id);
+    switch (link.kind) {
+      case 'gone':
+        await this.notice(updateId, user, SUGGESTION_GONE_FA);
+        break;
+      case 'own': {
+        const event = await this.findEventOr(updateId, user, link.eventPublicId);
+        if (event !== null) await this.paintEventDetail(updateId, user, event);
+        break;
+      }
+      case 'join': {
+        const event = await this.findEventOr(updateId, user, link.eventPublicId);
+        if (event !== null) await this.paintEventDetail(updateId, user, event);
+        await this.reply(updateId, user.id, TEMPLATES.BOT_SUGGESTION, {
+          text: JOIN_EXISTING_LINE,
+          keyboard: JSON.stringify(joinExistingKeyboard(publicId)),
+        });
+        break;
+      }
+      case 'host': {
+        const card = link.suggestion;
+        await this.reply(updateId, user.id, TEMPLATES.BOT_SUGGESTION, {
+          text: formatSuggestionCard({
+            title: card.title,
+            description: card.description,
+            venueLabel: card.venueLabel,
+            cityName: card.cityNameFa,
+            categoryName: card.categoryNameFa,
+            startsAt: card.startsAt,
+            durationHours: card.durationHours,
+            costType: card.costType,
+            costAmount: card.costAmount,
+            externalLink: card.externalLink,
+          }),
+          keyboard: JSON.stringify(suggestionKeyboard(card.publicId, card.externalLink)),
+        });
+        break;
+      }
+    }
+
+    if (onboarding && (await this.resumeOnboarding(updateId, user))) return;
+    if (!consented) await this.gateAfterWelcome(updateId, user);
+  }
+
+  /**
+   * «میزبانش می‌شوم» / «خودم یکی جدا می‌سازم» — the event wizard, already
+   * answered from the suggestion, opened on its summary (migration 0064).
+   *
+   * The same checks `/create_event` makes before its first question, so a
+   * refusal is met here and not at «ثبت رویداد». The draft carries the
+   * suggestion's id to `EventService.create`, which files the event under it.
+   */
+  private async hostSuggestion(updateId: number, user: BotUser, publicId: string): Promise<void> {
+    if (await this.createEventBlocked(updateId, user)) return;
+    const form = await this.suggestions.wizardForm(publicId);
+    if (form === null) return this.notice(updateId, user, SUGGESTION_GONE_FA);
+    const outcome = await this.conversations.startAtSummary(
+      user.id,
+      'CREATE_EVENT',
+      updateId,
+      form,
+    );
+    return this.drawWizard(updateId, user, outcome);
   }
 
   /**
@@ -2489,6 +2557,13 @@ export class BotService {
         await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
       }
       return;
+    }
+
+    /** «میزبانش می‌شوم» under a suggestion card (migration 0064). */
+    const suggestionCallback = parseSuggestionCallback(data);
+    if (suggestionCallback !== null) {
+      await this.answer(callbackQueryId, '');
+      return this.hostSuggestion(update.updateId, user, suggestionCallback.id);
     }
 
     const eventCallback = parseEventCallback(data);
@@ -6402,6 +6477,55 @@ export class BotService {
    * would have shown, and the draft is **kept** so the user can correct it
    * rather than retyping sixteen answers.
    */
+  /**
+   * Everything that would refuse a new event, asked **before** the form opens
+   * — the wizard flag, the write gate, the quota, the channel requirement and the
+   * price — and drawn when it does. True when something was drawn and the caller
+   * must stop.
+   *
+   * Shared by `/create_event` and a suggestion's «میزبانش می‌شوم» (migration
+   * 0064), which opens the same form already answered: a refusal found only at
+   * «ثبت رویداد» is a refusal after every chance to act on it.
+   */
+  private async createEventBlocked(updateId: number, user: BotUser): Promise<boolean> {
+    if (!this.env.ENABLE_CONVERSATION_WIZARD) {
+      await this.wizardsOff(updateId, user);
+      return true;
+    }
+    if (!(await this.mayWrite(updateId, user))) return true;
+    /**
+     * The quota, **before** the form rather than after it.
+     *
+     * `EventService.create` has always enforced this and still does — it is
+     * the authority and this is not a second one. What was wrong was *when*
+     * the user found out: the wizard asks fourteen questions, and a host who
+     * had reached the limit answered all of them, pressed «ثبت رویداد» and
+     * was told they could not create an event today. The refusal was correct
+     * and arrived after every possible opportunity to act on it.
+     */
+    if (await this.quotaBlocked(updateId, user)) return true;
+    /**
+     * And the channel requirement, for the same reason (review M8).
+     *
+     * `EventService.create` checks `EVENT_CREATE` membership and stays the
+     * authority; asked only there, the refusal arrived after eleven answers.
+     */
+    if (await this.channelsBlock(updateId, user, 'EVENT_CREATE')) return true;
+    /**
+     * And the price, for the same reason and at the same moment.
+     *
+     * Registration costs `create + channel publish` — the second half only
+     * while the channel can publish (plan 14) — and the host is told one
+     * number for the pair — the split is how the product is built, not a
+     * choice they are being offered, so quoting it would be describing an
+     * internal boundary.
+     */
+    if (await this.affordBlocked(updateId, user, await this.registrationCost(), 'ثبت رویداد')) {
+      return true;
+    }
+    return false;
+  }
+
   private async submitWizard(
     updateId: number,
     user: BotUser,
@@ -6429,7 +6553,11 @@ export class BotService {
     }
 
     try {
-      const created = await this.events.create(user.id, request);
+      const created = await this.events.create(
+        user.id,
+        request,
+        form.suggestionId !== undefined ? { suggestionId: form.suggestionId } : {},
+      );
       await this.conversations.clear(user.id);
 
       /**
@@ -6917,7 +7045,7 @@ export class BotService {
             ? '—'
             : `${formatJalali(day)} — ساعت ${toPersianDigits(
                 String(form.hour ?? 0).padStart(2, '0'),
-              )}:۰۰`,
+              )}:${toPersianDigits(String(form.startMinute ?? 0).padStart(2, '0'))}`,
       },
       {
         label: 'مدت',
@@ -7403,7 +7531,7 @@ const TEHRAN = 'Asia/Tehran';
  * meet: the day came from a calendar button and the hour from a list, and the
  * database stores the UTC instant they name (ADR-0008).
  */
-function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
+export function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
   const day = form.day === undefined ? null : parseIsoDay(form.day);
   if (
     form.title === undefined ||
@@ -7421,7 +7549,15 @@ function toCreateEventRequest(form: CreateEventForm): CreateEventInput | null {
   const parts = isoDay(day)
     .split('-')
     .map((part: string) => Number.parseInt(part, 10)) as [number, number, number];
-  const startsAt = zonedTimeToUtc(parts[0], parts[1], parts[2], form.hour, 0, TEHRAN);
+  // A suggestion's minute (migration 0064); every hand-picked hour is whole.
+  const startsAt = zonedTimeToUtc(
+    parts[0],
+    parts[1],
+    parts[2],
+    form.hour,
+    form.startMinute ?? 0,
+    TEHRAN,
+  );
   const endsAt = new Date(startsAt.getTime() + (form.durationHours ?? 2) * 3_600_000);
 
   return {

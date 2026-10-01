@@ -54,6 +54,12 @@ export interface CreateEventForm {
   /** Gregorian ISO day, as the calendar's buttons carry it. */
   day?: string;
   hour?: number;
+  /**
+   * The minute past `hour`, set only by a suggestion's pre-fill (migration 0064):
+   * a screening at 19:30 is a time the hour buttons cannot say. The `hour` step
+   * drops it, so a host who picks their own hour gets that whole hour.
+   */
+  startMinute?: number;
   durationHours?: number;
   capacity?: number;
   costType?: CostType;
@@ -66,6 +72,8 @@ export interface CreateEventForm {
   minAge?: number;
   maxAge?: number;
   externalLink?: string;
+  /** The suggestion this draft was opened from, carried to `EventService.create`. */
+  suggestionId?: string;
 }
 
 /**
@@ -381,7 +389,7 @@ const steps: WizardStep<CreateEventForm>[] = [
     accept: (input) => {
       const value = integer(input, 0, 23, 'ساعت');
       if (typeof value === 'string') return { ok: false, error: value };
-      return { ok: true, patch: { hour: value } };
+      return { ok: true, patch: { hour: value, startMinute: undefined } };
     },
   },
   {

@@ -218,6 +218,61 @@ describe('EventService.create — a clean event', () => {
   });
 });
 
+/**
+ * Which events came from a suggestion (migration 0064): the number the
+ * experiment is judged by, and how a second tap on the same link finds the
+ * first person's event. The link is provenance, not permission — a host who
+ * went «بازگشت» and moved the event to another city still gets their event,
+ * just not filed under a suggestion for a city it is no longer in.
+ */
+describe('EventService.create — from a suggestion', () => {
+  async function suggestionIn(cityId: string): Promise<string> {
+    const row = await prisma.eventSuggestion.create({
+      data: {
+        cityId,
+        categoryId: fixture.categoryId,
+        title: 'اکران فیلم',
+        description: 'سانس عصر، بلیت را خودمان می‌خریم.',
+        venueLabel: 'سینما',
+        startsAt: new Date('2026-08-20T15:00:00.000Z'),
+        durationHours: 2,
+        costType: 'FREE',
+        createdByAdminId: 'admin-1',
+      },
+      select: { id: true },
+    });
+    return row.id;
+  }
+
+  it('records the suggestion it was created from', async () => {
+    const suggestionId = await suggestionIn(fixture.tehranId);
+
+    const event = await events.create(hostId, validInput(), { suggestionId });
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: event.publicId } });
+    expect(row.suggestionId).toBe(suggestionId);
+  });
+
+  it('files nothing under a suggestion for another city', async () => {
+    const elsewhere = await prisma.city.create({
+      data: { slug: 'mashhad', nameFa: 'مشهد', isActive: true, isLaunched: true },
+    });
+    const suggestionId = await suggestionIn(elsewhere.id);
+
+    const event = await events.create(hostId, validInput(), { suggestionId });
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: event.publicId } });
+    expect(row.suggestionId).toBeNull();
+  });
+
+  it('files nothing when there is no suggestion', async () => {
+    const event = await events.create(hostId, validInput());
+
+    const row = await prisma.event.findUniqueOrThrow({ where: { publicId: event.publicId } });
+    expect(row.suggestionId).toBeNull();
+  });
+});
+
 describe('EventService.create — auto-moderation', () => {
   it('never publishes a BLOCK match, and opens a case that records the version', async () => {
     const event = await events.create(hostId, validInput({ title: 'دورهمی با مشروب و موسیقی' }));

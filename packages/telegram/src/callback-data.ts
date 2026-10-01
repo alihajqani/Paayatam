@@ -1279,3 +1279,31 @@ export function decodeMenuCallback(data: string): MenuCallback | null {
   if (parts[1] === 'c') return { kind: 'command', command: value };
   return null;
 }
+
+/**
+ * «میزبانش می‌شوم» — `sg:host:<suggestion public id>` (migration 0064).
+ *
+ * Under a suggestion card, and under the first host's event when the bot sends
+ * a second reader there («خودم یکی جدا می‌سازم»): both open the event wizard
+ * pre-filled from the suggestion. The id rides in the button for the reason it
+ * does everywhere here — a reader who must finish onboarding first taps it
+ * afterwards, and nothing about the intent was stored in between.
+ */
+const SUGGESTION_PREFIX = 'sg';
+
+export function encodeSuggestionCallback(id: string): string {
+  const data = `${SUGGESTION_PREFIX}:host:${id}`;
+  if (Buffer.byteLength(data, 'utf8') > MAX_BYTES) {
+    throw new Error(`callback_data exceeds ${String(MAX_BYTES)} bytes: ${data}`);
+  }
+  return data;
+}
+
+export function parseSuggestionCallback(data: string): { id: string } | null {
+  const parts = data.split(':');
+  if (parts.length !== 3) return null;
+
+  const [prefix, action, id] = parts;
+  if (prefix !== SUGGESTION_PREFIX || action !== 'host' || id === undefined) return null;
+  return isPublicId(id) ? { id } : null;
+}

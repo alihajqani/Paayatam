@@ -5986,3 +5986,129 @@ describe('POST /telegram/:secret — the gender question', () => {
     ).resolves.toBe(1);
   });
 });
+
+/**
+ * A suggestion from the channel, end to end (migration 0064).
+ *
+ * `?start=host_<id>` is the operator's link for a real outside programme. The
+ * reader should see what it is, tap once, and confirm — eleven questions they
+ * did not ask to answer is the friction the link exists to remove. And the
+ * second reader should be sent to the first one's event, not handed a second
+ * empty copy of it: «اولی میزبان، بقیه همراه».
+ */
+describe('a suggestion link (migration 0064)', () => {
+  let sequence = 9000;
+  async function tap(telegramUserId: number, data: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        callback_query: {
+          id: `cb-${String(sequence)}`,
+          from: sender(telegramUserId),
+          message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+          data,
+        },
+      }),
+    );
+  }
+
+  async function start(telegramUserId: number, payload: string): Promise<void> {
+    sequence += 1;
+    await post(
+      update({
+        update_id: sequence,
+        message: textMessage(sender(telegramUserId), `/start ${payload}`),
+      }),
+    );
+  }
+
+  /** Three days ahead, at 19:30 in Tehran — a minute the hour buttons cannot say. */
+  function nineteenThirty(): Date {
+    const day = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    return new Date(`${day}T16:00:00.000Z`);
+  }
+
+  async function seedSuggestion(): Promise<{ id: string; publicId: string }> {
+    const province = await prisma.province.create({ data: { slug: 'tehran-p', nameFa: 'تهران' } });
+    await prisma.city.update({
+      where: { id: fixture.tehranId },
+      data: { provinceId: province.id },
+    });
+    return prisma.eventSuggestion.create({
+      data: {
+        cityId: fixture.tehranId,
+        categoryId: fixture.categoryId,
+        title: 'اکران فیلم در هویزه',
+        description: 'سانس هفت و نیم، بلیت را خودمان می‌خریم.',
+        venueLabel: 'سینما هویزه',
+        startsAt: nineteenThirty(),
+        durationHours: 2,
+        costType: 'FREE',
+        createdByAdminId: 'admin-1',
+      },
+      select: { id: true, publicId: true },
+    });
+  }
+
+  it('opens the card with «میزبانش می‌شوم»', async () => {
+    const suggestion = await seedSuggestion();
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await start(GUEST_TELEGRAM_ID, `host_${suggestion.publicId}`);
+
+    const replies = await replyTo(GUEST_TELEGRAM_ID);
+    expect(replies.map((row) => row.templateKey)).toEqual([TEMPLATES.BOT_SUGGESTION]);
+    expect(replies[0]?.text).toContain('اکران فیلم در هویزه');
+    // A suggestion's id is not an event's: no «پیدا نشد» beside the card.
+    expect(replies.some((row) => row.templateKey === TEMPLATES.BOT_NOTICE)).toBe(false);
+  });
+
+  it('creates the event in one tap and a confirm, at the minute, filed under it', async () => {
+    const suggestion = await seedSuggestion();
+    const hostId = await seedFundedHost(GUEST_TELEGRAM_ID);
+
+    await tap(GUEST_TELEGRAM_ID, `sg:host:${suggestion.publicId}`);
+    await tap(GUEST_TELEGRAM_ID, 'wz:confirm:');
+
+    const event = await prisma.event.findFirstOrThrow({
+      where: { hostUserId: hostId },
+      select: { title: true, startsAt: true, suggestionId: true, districtLabel: true },
+    });
+    expect(event.title).toBe('اکران فیلم در هویزه');
+    expect(event.startsAt.toISOString()).toBe(nineteenThirty().toISOString());
+    expect(event.suggestionId).toBe(suggestion.id);
+    expect(event.districtLabel).toBe('سینما هویزه');
+    expect(await prisma.conversationState.count({ where: { userId: hostId } })).toBe(0);
+  });
+
+  it('sends the second reader to the first host’s event', async () => {
+    const suggestion = await seedSuggestion();
+    await seedFundedHost(HOST_TELEGRAM_ID);
+    await tap(HOST_TELEGRAM_ID, `sg:host:${suggestion.publicId}`);
+    await tap(HOST_TELEGRAM_ID, 'wz:confirm:');
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await start(GUEST_TELEGRAM_ID, `host_${suggestion.publicId}`);
+
+    expect((await replyTo(GUEST_TELEGRAM_ID)).map((row) => row.templateKey)).toEqual([
+      TEMPLATES.BOT_EVENT_DETAIL,
+      TEMPLATES.BOT_SUGGESTION,
+    ]);
+  });
+
+  it('says so when the suggestion is closed', async () => {
+    const suggestion = await seedSuggestion();
+    await prisma.eventSuggestion.update({
+      where: { id: suggestion.id },
+      data: { closedAt: new Date() },
+    });
+    await seedGuest(GUEST_TELEGRAM_ID);
+
+    await start(GUEST_TELEGRAM_ID, `host_${suggestion.publicId}`);
+
+    const replies = await replyTo(GUEST_TELEGRAM_ID);
+    expect(replies.map((row) => row.templateKey)).toEqual([TEMPLATES.BOT_NOTICE]);
+    expect(replies[0]?.text).toContain('دیگر باز نیست');
+  });
+});

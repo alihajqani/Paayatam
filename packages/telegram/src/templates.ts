@@ -270,6 +270,14 @@ export const TEMPLATES = {
   BOT_COINS_SHORT: 'bot.coins_short',
   /** One activity in full, with the button that joins it. */
   BOT_EVENT_DETAIL: 'bot.event_detail',
+  /**
+   * A suggestion (migration 0064): the card a `?start=host_` tap opens with
+   * «میزبانش می‌شوم», or the line under somebody else's event made from it with
+   * «خودم یکی جدا می‌سازم». Not `BOT_NOTICE`, which drops any keyboard — the
+   * button is the whole point. Text and keyboard are built by the caller
+   * (`suggestion.ts`).
+   */
+  BOT_SUGGESTION: 'bot.suggestion',
   /** `/trust` — the score, and every movement behind it. */
   BOT_TRUST: 'bot.trust',
   /** The seven reasons, under the thing being reported. */
@@ -1750,6 +1758,14 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         // allowlist, and `deep-links.test.ts` checks every target against it.
         // Nothing renders this as a button any more; the check is what it is for.
         deepLink: `discover`,
+        ...(keyboard !== undefined ? { keyboard } : {}),
+      };
+    }
+
+    case TEMPLATES.BOT_SUGGESTION: {
+      const keyboard = parseKeyboard(payload);
+      return {
+        text: prerendered(payload),
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
     }

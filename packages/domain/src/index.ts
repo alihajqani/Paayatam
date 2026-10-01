@@ -115,6 +115,12 @@ export {
 } from './founding/founding.service';
 export type { FoundingAward, FoundingProgress } from './founding/founding.service';
 export { FoundingModule } from './founding/founding.module';
+export {
+  SuggestionService,
+  type SuggestionCard,
+  type SuggestionLink,
+} from './suggestions/suggestion.service';
+export { SuggestionsModule } from './suggestions/suggestions.module';
 
 export { ageFromBirthYear, gregorianYearIn, isOldEnough } from './profile/age';
 export {
@@ -483,6 +489,7 @@ export type {
 } from './adminaccess/direct-admin.service';
 export type { UnsealGrant, UnsealedMessage } from './adminaccess/chat-unseal.service';
 export { SeedAdminService } from './adminaccess/seed-admin.service';
+export { SuggestionAdminService } from './adminaccess/suggestion-admin.service';
 export { AdminAccessModule } from './adminaccess/adminaccess.module';
 
 export { NotificationService } from './notifications/notification.service';

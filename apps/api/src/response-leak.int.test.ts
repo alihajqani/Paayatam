@@ -81,6 +81,8 @@ let scanPolicyId: string;
 let scanProvinceId: string;
 let scanCityId: string;
 let scanCampaignPublicId: string;
+/** A suggestion the scan lists and closes (migration 0064). */
+let scanSuggestionPublicId: string;
 let scanRequiredChannelId: string;
 /** The viewer's public id, for the conversation the direct-message read opens. */
 let directViewerPublicId: string;
@@ -776,6 +778,23 @@ beforeAll(async () => {
   scannedGiftCodePublicId = (
     await prisma.giftCode.create({
       data: { code: 'LEAKSCANTARGET', coins: 5, campaign: 'leak-scan' },
+      select: { publicId: true },
+    })
+  ).publicId;
+
+  scanSuggestionPublicId = (
+    await prisma.eventSuggestion.create({
+      data: {
+        cityId: fixture.tehranId,
+        categoryId: fixture.categoryId,
+        title: 'اکران پویش',
+        description: 'یک پیشنهاد برای پویش پاسخ‌ها.',
+        venueLabel: 'سینما',
+        startsAt: new Date('2099-01-01T16:00:00.000Z'),
+        durationHours: 2,
+        costType: 'FREE',
+        createdByAdminId: 'leak-scan',
+      },
       select: { publicId: true },
     })
   ).publicId;
@@ -1632,6 +1651,31 @@ beforeAll(async () => {
       // `scanCityId` is not launched, so this refuses with NOT_FOUND — still a
       // real JSON response worth scanning, and no host lookup is needed to
       // exercise it.
+      body: {},
+    },
+    // Event suggestions (migration 0064). The view carries a `?start=host_` link
+    // and city and category names — nothing about any user.
+    { method: 'GET', url: '/admin/v1/suggestions', admin: true },
+    {
+      method: 'POST',
+      url: '/admin/v1/suggestions',
+      admin: true,
+      body: {
+        cityId: fixture.tehranId,
+        categoryId: fixture.categoryId,
+        title: 'اکران پویش',
+        description: 'یک پیشنهاد برای پویش پاسخ‌ها.',
+        venueLabel: 'سینما',
+        startsAt: '2099-01-01T16:00:00.000Z',
+        durationHours: 2,
+        capacity: 4,
+        costType: 'FREE',
+      },
+    },
+    {
+      method: 'PATCH',
+      url: `/admin/v1/suggestions/${scanSuggestionPublicId}/close`,
+      admin: true,
       body: {},
     },
     // Last of all: it retires the viewer's event, and the passes that follow then

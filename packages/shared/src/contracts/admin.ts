@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { policyType } from './auth';
 import { gatedAction } from './catalog';
 import { participantStatus } from './participation';
+import { costType, httpsUrl, UNLIMITED_CAPACITY } from './events';
 import { gender } from './profile';
 
 /**
@@ -2290,6 +2291,93 @@ export const updateCitySeedConfigRequest = z.object({
   hostUserPublicId: z.string().optional(),
 });
 export type UpdateCitySeedConfigRequest = z.infer<typeof updateCitySeedConfigRequest>;
+
+// ── Event suggestions (migration 0064) ───────────────────────────────────────
+
+/**
+ * A real outside programme the operator offers in the channel, as the panel
+ * lists it.
+ *
+ * `startPayload` is the `?start=` value of the link to paste into a channel
+ * post: the post is written by hand (with a poster), so the panel's job is to
+ * hand over the one thing a person cannot type correctly. The panel builds the
+ * `t.me` URL from it and `botUsername` — no API response carries a `t.me` link
+ * (the response-leak scan), the same split the catalog makes for the Mini App.
+ * `eventCount` is every event created from it — the number the experiment is
+ * judged by.
+ */
+export const eventSuggestionView = z.object({
+  publicId: z.string(),
+  cityId: z.string(),
+  cityNameFa: z.string(),
+  categoryId: z.string(),
+  categoryNameFa: z.string(),
+  title: z.string(),
+  description: z.string(),
+  venueLabel: z.string(),
+  startsAt: z.iso.datetime(),
+  durationHours: z.number().int(),
+  capacity: z.number().int(),
+  costType,
+  costAmount: z.number().int().nullable(),
+  externalLink: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  closedAt: z.iso.datetime().nullable(),
+  /** Not closed, and not yet started — whether the link still opens the wizard. */
+  isOpen: z.boolean(),
+  eventCount: z.number().int().min(0),
+  startPayload: z.string(),
+});
+export type EventSuggestionView = z.infer<typeof eventSuggestionView>;
+
+/** One choice in the form's city or category picker. */
+export const suggestionChoice = z.object({ id: z.string(), nameFa: z.string() });
+export type SuggestionChoice = z.infer<typeof suggestionChoice>;
+
+export const eventSuggestionsResponse = z.object({
+  suggestions: z.array(eventSuggestionView),
+  botUsername: z.string(),
+  /**
+   * What the form may offer, which is exactly what `create` accepts: open cities,
+   * and categories a host could pick. Here rather than behind two more endpoints,
+   * so the panel cannot offer a choice the service then refuses.
+   */
+  cities: z.array(suggestionChoice),
+  categories: z.array(suggestionChoice),
+});
+export type EventSuggestionsResponse = z.infer<typeof eventSuggestionsResponse>;
+
+/**
+ * What the operator fills in, held to the event wizard's own bounds
+ * (create-event.ts) and the event contract's cost and link rules — a suggestion
+ * the wizard would refuse is a link that opens on an error. The database CHECKs
+ * of migration 0064 are the backstop.
+ */
+export const createEventSuggestionRequest = z
+  .object({
+    cityId: z.uuid(),
+    categoryId: z.uuid(),
+    title: z.string().trim().min(3).max(80),
+    description: z.string().trim().min(10).max(2000),
+    venueLabel: z.string().trim().min(2).max(60),
+    startsAt: z.iso.datetime(),
+    durationHours: z.number().int().min(1).max(24),
+    capacity: z.number().int().min(1).max(UNLIMITED_CAPACITY),
+    costType,
+    costAmount: z.number().int().min(0).max(100_000_000).optional(),
+    externalLink: httpsUrl.optional(),
+  })
+  .superRefine((body, ctx) => {
+    const needsAmount = body.costType === 'FIXED' || body.costType === 'APPROX';
+    if (needsAmount !== (body.costAmount !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['costAmount'],
+        message: 'is required for FIXED and APPROX, and not allowed for FREE and SPLIT',
+      });
+    }
+  });
+export type CreateEventSuggestionRequest = z.infer<typeof createEventSuggestionRequest>;
 
 // ── Direct messages, as conversations (ADR-0020) ─────────────────────────────
 
