@@ -389,6 +389,8 @@ export type {
   EventSummary,
   LedgerEntrySummary,
   Page,
+  ParticipationFilters,
+  ParticipationPage,
   ParticipationRow,
   ReportSummary,
   Tally,

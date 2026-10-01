@@ -1157,10 +1157,20 @@ export class AdminController {
     const page = await this.insight.listParticipations(admin, {
       ...(query.eventPublicId !== undefined ? { eventPublicId: query.eventPublicId } : {}),
       ...(query.userPublicId !== undefined ? { userPublicId: query.userPublicId } : {}),
+      ...(query.query !== undefined ? { query: query.query } : {}),
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.eventCityId !== undefined ? { eventCityId: query.eventCityId } : {}),
+      ...(query.userCityId !== undefined ? { userCityId: query.userCityId } : {}),
+      ...(query.outOfCity !== undefined ? { outOfCity: query.outOfCity } : {}),
+      ...(query.realOnly !== undefined ? { realOnly: query.realOnly } : {}),
       ...(query.limit !== undefined ? { limit: query.limit } : {}),
       ...(query.offset !== undefined ? { offset: query.offset } : {}),
     });
-    return { participations: page.rows.map(toAdminParticipationView), total: page.total };
+    return {
+      participations: page.rows.map(toAdminParticipationView),
+      total: page.total,
+      cities: page.cities.map((city) => ({ id: city.id, nameFa: city.nameFa })),
+    };
   }
 
   /**
@@ -2311,7 +2321,9 @@ function toAdminParticipationView(row: ParticipationRow): AdminParticipationView
       publicId: row.user.publicId,
       displayName: row.user.displayName,
       isSeed: row.user.isSeed,
+      cityNameFa: row.user.cityNameFa,
     },
+    outOfCity: row.outOfCity,
     event: {
       publicId: row.event.publicId,
       number: row.event.number,

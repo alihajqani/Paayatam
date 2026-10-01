@@ -135,7 +135,15 @@ export interface ParticipationRow {
   requestedAt: Date;
   decidedAt: Date | null;
   cancelledAt: Date | null;
-  user: { publicId: string; displayName: string | null; isSeed: boolean };
+  user: {
+    publicId: string;
+    displayName: string | null;
+    isSeed: boolean;
+    /** The city on their profile; null without one. */
+    cityNameFa: string | null;
+  };
+  /** The activity is in a different city from the one on the user's profile. */
+  outOfCity: boolean;
   event: {
     publicId: string;
     number: number;
@@ -145,6 +153,27 @@ export interface ParticipationRow {
     isSeeded: boolean;
   };
   joinCoins: { charged: number; refunded: number };
+}
+
+export interface ParticipationFilters {
+  eventPublicId?: string;
+  userPublicId?: string;
+  /** A name, a public id (person or activity), a title, or an activity number. */
+  query?: string;
+  status?: ParticipantStatus;
+  eventCityId?: string;
+  userCityId?: string;
+  /** Only requests for an activity outside the city on the user's profile. */
+  outOfCity?: boolean;
+  /** Leave marketing seed identities out. */
+  realOnly?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ParticipationPage extends Page<ParticipationRow> {
+  /** Every city that appears on either side of a request, for the filters. */
+  cities: { id: string; nameFa: string }[];
 }
 
 export interface ReportSummary {
@@ -613,20 +642,23 @@ export class AdminInsightService {
    */
   async listParticipations(
     session: AdminSession,
-    filters: {
-      eventPublicId?: string;
-      userPublicId?: string;
-      limit?: number;
-      offset?: number;
-    } = {},
-  ): Promise<Page<ParticipationRow>> {
+    filters: ParticipationFilters = {},
+  ): Promise<ParticipationPage> {
     this.access.assertPermission(session, PERMISSIONS.USER_READ);
 
     const where: Prisma.EventParticipantWhereInput = {
-      ...(filters.eventPublicId !== undefined
-        ? { event: { publicId: filters.eventPublicId } }
-        : {}),
-      ...(filters.userPublicId !== undefined ? { user: { publicId: filters.userPublicId } } : {}),
+      AND: [
+        filters.eventPublicId !== undefined ? { event: { publicId: filters.eventPublicId } } : {},
+        filters.userPublicId !== undefined ? { user: { publicId: filters.userPublicId } } : {},
+        filters.status !== undefined ? { status: filters.status } : {},
+        filters.eventCityId !== undefined ? { event: { cityId: filters.eventCityId } } : {},
+        filters.userCityId !== undefined
+          ? { user: { profile: { is: { cityId: filters.userCityId } } } }
+          : {},
+        filters.realOnly === true ? { user: { isSeed: false } } : {},
+        participationSearch(filters.query),
+        filters.outOfCity === true ? { id: { in: await this.outOfCityIds() } } : {},
+      ],
     };
 
     const [rows, total] = await Promise.all([
@@ -644,7 +676,13 @@ export class AdminInsightService {
           decidedAt: true,
           cancelledAt: true,
           user: {
-            select: { publicId: true, isSeed: true, profile: { select: { displayName: true } } },
+            select: {
+              publicId: true,
+              isSeed: true,
+              profile: {
+                select: { displayName: true, city: { select: { id: true, nameFa: true } } },
+              },
+            },
           },
           event: {
             select: {
@@ -653,7 +691,7 @@ export class AdminInsightService {
               title: true,
               startsAt: true,
               isSeeded: true,
-              city: { select: { nameFa: true } },
+              city: { select: { id: true, nameFa: true } },
             },
           },
         },
@@ -694,7 +732,9 @@ export class AdminInsightService {
           publicId: row.user.publicId,
           displayName: row.user.profile?.displayName ?? null,
           isSeed: row.user.isSeed,
+          cityNameFa: row.user.profile?.city.nameFa ?? null,
         },
+        outOfCity: row.user.profile !== null && row.user.profile.city.id !== row.event.city.id,
         event: {
           publicId: row.event.publicId,
           number: row.event.number,
@@ -706,7 +746,44 @@ export class AdminInsightService {
         joinCoins: coinsByParticipant.get(row.id) ?? { charged: 0, refunded: 0 },
       })),
       total,
+      cities: await this.participationCities(),
     };
+  }
+
+  /**
+   * Requests whose activity is outside the city on the user's profile.
+   *
+   * Two columns on two other tables, which a Prisma filter cannot compare, so it
+   * is one parameterless read of ids. Fine at the size the product is; a page of
+   * thousands of out-of-town requests would want this folded into the query.
+   */
+  private async outOfCityIds(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT ep."id" FROM "event_participant" ep
+      JOIN "event" e ON e."id" = ep."event_id"
+      JOIN "user_profile" p ON p."user_id" = ep."user_id"
+      WHERE p."city_id" <> e."city_id"`;
+    return rows.map((row) => row.id);
+  }
+
+  /** The cities on either side of any request, alphabetically, each once. */
+  private async participationCities(): Promise<{ id: string; nameFa: string }[]> {
+    const [eventCities, userCities] = await Promise.all([
+      this.prisma.event.findMany({
+        where: { participants: { some: {} } },
+        distinct: ['cityId'],
+        select: { city: { select: { id: true, nameFa: true } } },
+      }),
+      this.prisma.userProfile.findMany({
+        where: { user: { participations: { some: {} } } },
+        distinct: ['cityId'],
+        select: { city: { select: { id: true, nameFa: true } } },
+      }),
+    ]);
+    const byId = new Map(
+      [...eventCities, ...userCities].map((row) => [row.city.id, row.city] as const),
+    );
+    return [...byId.values()].sort((a, b) => a.nameFa.localeCompare(b.nameFa, 'fa'));
   }
 
   // ── Reports ────────────────────────────────────────────────────────────────
@@ -1029,6 +1106,38 @@ function tally<K extends string>(
 }
 
 /** Every admin list is bounded, whatever the caller asked for (§4). */
+const PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The participation search box: an id, an activity number, or text.
+ *
+ * Text matches the person's name — raw and normalized, as `listUsers` does — and
+ * the activity's normalized title, so «كوه» finds «کوه». A number, with or
+ * without «#» and in either digit set, is the activity's number.
+ */
+function participationSearch(raw: string | undefined): Prisma.EventParticipantWhereInput {
+  const query = raw?.trim();
+  if (query === undefined || query === '') return {};
+
+  if (PUBLIC_ID.test(query)) {
+    return {
+      OR: [{ publicId: query }, { user: { publicId: query } }, { event: { publicId: query } }],
+    };
+  }
+
+  const folded = normalize(query);
+  const number = /^#?(\d+)$/.exec(folded);
+  if (number !== null) return { event: { number: Number(number[1]) } };
+
+  return {
+    OR: [
+      { user: { profile: { is: { displayName: { contains: query, mode: 'insensitive' } } } } },
+      { user: { profile: { is: { displayName: { contains: folded, mode: 'insensitive' } } } } },
+      { event: { titleNormalized: { contains: folded } } },
+    ],
+  };
+}
+
 function bounded(limit: number | undefined): number {
   return Math.min(Math.max(limit ?? 50, 1), 200);
 }

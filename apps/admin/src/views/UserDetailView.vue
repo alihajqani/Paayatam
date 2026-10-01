@@ -444,6 +444,18 @@ onMounted(load);
           >
             اصلاح پروفایل
           </button>
+          <!--
+            Through the bot, which is the only way to reach somebody with no Telegram
+            username. «پیام‌ها» opens with this person filled in; its preview says if
+            they blocked the bot.
+          -->
+          <RouterLink
+            v-if="session.can(PERMISSIONS.MESSAGE_SEND)"
+            :to="{ name: 'messages', query: { to: detail.publicId } }"
+            class="inline-flex min-h-10 items-center rounded-lg border border-line px-3 text-sm"
+          >
+            ✉️ پیام به این کاربر
+          </RouterLink>
         </div>
 
         <div v-if="session.can(PERMISSIONS.USER_BAN)" class="flex flex-wrap gap-2">
@@ -953,7 +965,15 @@ onMounted(load);
         answer «three requests, sixty coins — which ones, and did they come back?».
       -->
       <section class="rounded-xl border border-line bg-surface p-4">
-        <h2 class="text-sm font-semibold">رویدادهایی که درخواست داده</h2>
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 class="text-sm font-semibold">رویدادهایی که درخواست داده</h2>
+          <RouterLink
+            :to="{ name: 'participations', query: { user: detail.publicId } }"
+            class="text-sm text-brand"
+          >
+            در صفحهٔ درخواست‌ها ←
+          </RouterLink>
+        </div>
         <div class="mt-3">
           <ParticipationList :user-public-id="detail.publicId" />
         </div>

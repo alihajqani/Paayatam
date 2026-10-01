@@ -123,8 +123,9 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | نمای کلی (dashboard) | `dashboard.read` | Users, events, participations, chats, reports, cases, coin supply, referrals, gift codes, failed redemptions, moderation backlog, and live database/Redis health |
 | کمپین هزار نفر | `dashboard.read` | The founding campaign: ranks issued against the cap, coins paid, the daily curve, the waves, which cities members came from, and the queue of closed cities — see §14. The member roster on the same page additionally needs `user.read` |
 | کاربران | `user.read` | Search by name or `publicId`, filter by status, paginate |
-| پروندهٔ کاربر | `user.read` | Profile, reputation, balance and where it came from, events, participations, referrals, gift codes, reports both ways. Suspend/ban/restore needs `user.ban`; manual coin and trust adjustment need `coin.adjust` / `trust.adjust`. «رویدادهایی که درخواست داده» lists every request to join — the activity, its city, the status, and whether the join charge came back (`GET /admin/v1/participations?userPublicId=`) |
-| فعالیت‌ها | `event.moderate` | Search, filter, hide, restore. With `user.read` as well, the request count opens who asked to join that activity, with the same coin column (`GET /admin/v1/participations?eventPublicId=`) |
+| درخواست‌ها | `user.read` | Every request to join, from everybody, newest first: search by name, `publicId`, activity title or number (`61`, `#61`); filter by status, the user's city, the activity's city, «فقط رویداد شهر دیگر» (the activity is outside the city on the profile); real people only unless «نمایش کاربران ساختگی». Each row has the join charge and whether it came back. Filters live in the address, so `?user=` and `?event=` links open it narrowed (`GET /admin/v1/participations`) |
+| پروندهٔ کاربر | `user.read` | Profile, reputation, balance and where it came from, events, participations, referrals, gift codes, reports both ways. Suspend/ban/restore needs `user.ban`; manual coin and trust adjustment need `coin.adjust` / `trust.adjust`. «رویدادهایی که درخواست داده» lists every request to join — the activity, its city, the status, and whether the join charge came back — and links to «درخواست‌ها» narrowed to the user |
+| فعالیت‌ها | `event.moderate` | Search, filter, hide, restore. With `user.read` as well, the request count links to «درخواست‌ها» narrowed to that activity |
 | گزارش‌های تخلف | `report.review` | The report queue, oldest first, with filters and decisions |
 | گزارش‌های مشکل | `report.review` | What users say is broken about the **product** — see §13 |
 | پرونده‌های بررسی | `event.moderate` | The moderation cases the automation opens, with the `falsePositive` classification |
@@ -137,7 +138,7 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | سلامت اقتصاد | `dashboard.read` | The seven monthly coin-economy metrics, live — see §15 |
 | تنظیمات | `settings.manage` | Every policy number in `app_setting`, each with its own Persian explanation |
 | تفریحات | `catalog.manage` | Activity tags and the places they belong to (M21) |
-| پیام‌ها | `message.send` | Telegram messages and broadcasts — see §9. A broadcast additionally needs `message.broadcast` |
+| پیام‌ها | `message.send` | Telegram messages and broadcasts — see §9. A broadcast additionally needs `message.broadcast`. «✉️ پیام به این کاربر» on the user page, and «✉️ پیام» on each «درخواست‌ها» row, open it with that person filled in (`?to=<publicId>`); a preview of zero says the message would not reach them (blocked the bot, banned or deleted). This is the way to reach somebody with no Telegram username; their reply goes to the bot, not to staff |
 | کانال‌های اجباری | `channel.manage` | The channels users must join, in order, and whether the requirement is on — see §11 |
 | شهرها و استان‌ها | `catalog.manage` | Provinces and cities: create, rename, reorder, activate — see §10 |
 | اسناد حقوقی | `policy.read` | Terms, privacy and rules. Editing a draft needs `policy.manage`, publishing needs `policy.publish`, and the acceptance log needs `policy.consent.read` — see §12 |

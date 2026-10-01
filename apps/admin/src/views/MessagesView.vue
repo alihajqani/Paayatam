@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   PERMISSIONS,
   TELEGRAM_MESSAGE_LIMIT,
@@ -73,6 +74,19 @@ const idempotencyKey = ref(newIdempotencyKey());
 
 const audienceMode = ref<'users' | 'filter'>('users');
 const userIds = ref('');
+
+/**
+ * «پیام به این کاربر» — the user page and «درخواست‌ها» link here with `?to=` so
+ * nobody copies a 36-character id by hand. Only the recipient is filled in;
+ * sending is the same preview, draft and confirmation as ever.
+ */
+const route = useRoute();
+if (typeof route.query['to'] === 'string') userIds.value = route.query['to'];
+
+/** The ids typed, so the «reaches nobody» line can say one person or several. */
+const namedCount = computed(
+  () => userIds.value.split(/[\s,]+/).filter((id) => id.trim() !== '').length,
+);
 const cityIds = ref<string[]>([]);
 const onlyComplete = ref<'' | 'true' | 'false'>('');
 const onlyHosts = ref(false);
@@ -361,6 +375,22 @@ onMounted(async () => {
           <span class="text-ink-faint">
             فیلترها: {{ preview.appliedFilters.join('، ') || 'بدون فیلتر' }}
           </span>
+        </p>
+
+        <!--
+          A named recipient who blocked the bot, or was banned or deleted, is left
+          out by the server — so a preview of zero is the answer to «will they get it?».
+        -->
+        <p
+          v-if="preview && preview.recipients === 0 && audienceMode === 'users'"
+          class="mt-2 text-sm text-danger"
+          role="alert"
+        >
+          {{
+            namedCount === 1
+              ? 'این پیام به این کاربر نمی‌رسد: ربات را بلاک کرده، یا حسابش مسدود یا حذف شده است.'
+              : 'این پیام به هیچ‌کدام از این کاربران نمی‌رسد: ربات را بلاک کرده‌اند، یا حسابشان مسدود یا حذف شده است.'
+          }}
         </p>
 
         <p v-if="composeError" class="mt-2 text-sm text-danger" role="alert">{{ composeError }}</p>

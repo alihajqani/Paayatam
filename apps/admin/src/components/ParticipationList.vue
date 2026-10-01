@@ -6,7 +6,8 @@ import { messageOf, request } from '@/api/client';
 import PagerBar from '@/components/PagerBar.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
-import { formatDateTime, formatNumber, toPersianDigits } from '@/format/fa';
+import { formatDateTime, toPersianDigits } from '@/format/fa';
+import { joinCoinsLine } from '@/format/participation';
 
 /**
  * Who asked to join what — under one person, or under one activity.
@@ -65,14 +66,8 @@ async function load(): Promise<void> {
   }
 }
 
-/** «۲۰ سکه — برنگشت», or «رایگان» for a request that took nothing. */
 function coinsLine(row: AdminParticipationView): { amount: string; fate: string | null } {
-  const { charged, refunded } = row.joinCoins;
-  if (charged === 0) return { amount: 'رایگان', fate: null };
-  const amount = `${formatNumber(charged)} سکه`;
-  if (refunded >= charged) return { amount, fate: 'برگشت خورد' };
-  if (refunded > 0) return { amount, fate: `${formatNumber(refunded)} سکه برگشت خورد` };
-  return { amount, fate: 'برنگشت' };
+  return joinCoinsLine(row.joinCoins);
 }
 
 watch(offset, () => void load());

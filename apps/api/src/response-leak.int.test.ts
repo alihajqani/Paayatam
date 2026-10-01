@@ -1176,6 +1176,11 @@ beforeAll(async () => {
       admin: true,
     },
     {
+      method: 'GET',
+      url: '/admin/v1/participations?outOfCity=true&realOnly=true&query=میزبان',
+      admin: true,
+    },
+    {
       method: 'POST',
       url: `/admin/v1/events/${eventPublicId}/moderate`,
       admin: true,
