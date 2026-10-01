@@ -428,6 +428,132 @@ describe('one user, in detail', () => {
   });
 });
 
+/**
+ * Who asked to join what.
+ *
+ * The user page carried a tally by status and the event list a request count,
+ * so «which activities did this person ask for, and where did their coins go?»
+ * meant a database session. Both directions read the same rows, with the join
+ * charge beside each one: whether the request cost coins and whether they came
+ * back is half of every support conversation about a balance.
+ */
+describe('join requests', () => {
+  async function request(
+    eventPublicId: string,
+    userId: string,
+    status: 'PENDING' | 'WAITLISTED' | 'CANCELLED_BY_PARTICIPANT' | 'REJECTED',
+    options: { charge?: number; refunded?: boolean; requestedAt?: Date } = {},
+  ): Promise<void> {
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { publicId: eventPublicId },
+      select: { id: true },
+    });
+    const row = await prisma.eventParticipant.create({
+      data: {
+        eventId: event.id,
+        userId,
+        status,
+        requestedAt: options.requestedAt ?? NOW,
+        // A CHECK requires the timestamp of a cancellation.
+        ...(status === 'CANCELLED_BY_PARTICIPANT' ? { cancelledAt: NOW } : {}),
+      },
+      select: { id: true },
+    });
+    if (options.charge === undefined) return;
+
+    await coins.apply({
+      userId,
+      amount: options.charge,
+      type: 'GIFT_CODE_REDEEM',
+      reasonCode: 'test.funding',
+      idempotencyKey: `fund:${row.id}`,
+      actorType: 'SYSTEM',
+    });
+    const spend = await coins.apply({
+      userId,
+      amount: -options.charge,
+      type: 'EVENT_JOIN_SPEND',
+      reasonCode: 'participation.requested',
+      idempotencyKey: `join:${event.id}:${userId}`,
+      actorType: 'USER',
+      actorId: userId,
+      refType: 'event_participant',
+      refId: row.id,
+    });
+    if (options.refunded === true) {
+      await coins.reverse({
+        ledgerId: spend.ledgerId,
+        reasonCode: 'participation.rejected_refund',
+        actorType: 'SYSTEM',
+      });
+    }
+  }
+
+  it('lists what one person asked to join, newest first, with what it cost', async () => {
+    const host = await seedUser('میزبان');
+    const guest = await seedUser('میلاد');
+    const hiking = await seedEvent(host.id, 'کوه نوردی');
+    const bazaar = await seedEvent(host.id, 'بازارچه');
+    await request(hiking, guest.id, 'CANCELLED_BY_PARTICIPANT', {
+      charge: 20,
+      requestedAt: new Date(NOW.getTime() - 60_000),
+    });
+    await request(bazaar, guest.id, 'REJECTED', { charge: 20, refunded: true });
+
+    const page = await insight.listParticipations(SUPER, { userPublicId: guest.publicId });
+
+    expect(page.total).toBe(2);
+    expect(page.rows.map((row) => [row.event.title, row.status, row.joinCoins])).toEqual([
+      ['بازارچه', 'REJECTED', { charged: 20, refunded: 20 }],
+      ['کوه نوردی', 'CANCELLED_BY_PARTICIPANT', { charged: 20, refunded: 0 }],
+    ]);
+    expect(page.rows[0]).toMatchObject({
+      user: { publicId: guest.publicId, displayName: 'میلاد', isSeed: false },
+      event: { publicId: bazaar, cityNameFa: 'تهران', isSeeded: false },
+    });
+  });
+
+  it('lists who asked to join one activity', async () => {
+    const host = await seedUser('میزبان');
+    const first = await seedUser('اول');
+    const second = await seedUser('دوم');
+    const eventPublicId = await seedEvent(host.id, 'کوه نوردی');
+    const other = await seedEvent(host.id, 'بازارچه');
+    await request(eventPublicId, first.id, 'PENDING');
+    await request(eventPublicId, second.id, 'WAITLISTED');
+    await request(other, first.id, 'PENDING');
+
+    const page = await insight.listParticipations(SUPER, { eventPublicId });
+
+    expect(page.total).toBe(2);
+    expect(page.rows.map((row) => row.user.displayName).sort()).toEqual(['اول', 'دوم']);
+    // A free request is shown as free, not as a missing figure.
+    expect(page.rows[0]?.joinCoins).toEqual({ charged: 0, refunded: 0 });
+  });
+
+  it('projects no Telegram identity', async () => {
+    const host = await seedUser('میزبان');
+    const guest = await seedUser('میلاد');
+    const eventPublicId = await seedEvent(host.id, 'کوه نوردی');
+    await request(eventPublicId, guest.id, 'PENDING');
+    const account = await prisma.telegramAccount.findFirstOrThrow({
+      where: { userId: guest.id },
+      select: { telegramUserId: true },
+    });
+
+    const page = await insight.listParticipations(SUPER, { eventPublicId });
+
+    expect(JSON.stringify(page)).not.toContain(String(account.telegramUserId));
+    expect(JSON.stringify(page)).not.toContain(guest.id);
+  });
+
+  it('is refused to a role without user.read', async () => {
+    await expect(insight.listParticipations(ANALYST, {})).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+});
+
 describe('events and reports', () => {
   it('searches events through the same normalization discovery uses', async () => {
     const host = await seedUser('میزبان');

@@ -201,10 +201,12 @@ export class PenaltyService {
    * level down. Accounts are created first because `FOR UPDATE` locks rows that
    * exist and a user who has never moved a coin has none.
    *
-   * Today this is **latent**: D9a means the refund reverses an empty set, so only
-   * the host's account is ever really touched. It is here because D9a also says
-   * the refund goes live the moment any participant-side cost is introduced, and
-   * a deadlock discovered then would be discovered in production.
+   * It was written **latent**, when joining was free and the refund reversed an
+   * empty set, because D9a said the refund goes live the moment any
+   * participant-side cost is introduced and a deadlock discovered then would be
+   * discovered in production. That moment came: asking to join is charged
+   * (`economy.event_join_coins`), so a host cancellation now really moves every
+   * guest's account, and this ordering is load-bearing.
    */
   async lockAccounts(tx: Prisma.TransactionClient, userIds: readonly string[]): Promise<void> {
     const ordered = [...new Set(userIds)].sort();

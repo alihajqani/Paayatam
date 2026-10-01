@@ -48,6 +48,7 @@ import {
   type FoundingMemberRow,
   type MessageCampaignSummary,
   type EventSummary,
+  type ParticipationRow,
   type GiftCodeSummary,
   type PolicySummary,
   type ProvinceSummary,
@@ -88,6 +89,7 @@ import {
   adminUpdateProfileRequest,
   adminAuditQuery,
   adminEventListQuery,
+  adminParticipationListQuery,
   adminLedgerQuery,
   adminLoginRequest,
   adminReportListQuery,
@@ -180,6 +182,9 @@ import {
   type EconomyReportResponse,
   type AdminEventListQuery,
   type AdminEventListResponse,
+  type AdminParticipationListQuery,
+  type AdminParticipationListResponse,
+  type AdminParticipationView,
   type AdminEventView,
   type AdminLedgerQuery,
   type AdminLedgerResponse,
@@ -1137,6 +1142,25 @@ export class AdminController {
     @CurrentAdmin() admin: AdminSession,
   ): Promise<AdminEventView> {
     return toAdminEventView(await this.insight.getEvent(admin, publicId));
+  }
+
+  /**
+   * Requests to join, by the person (`userPublicId`) or by the activity
+   * (`eventPublicId`). The user page and the event list both read this; the
+   * service checks `user.read`.
+   */
+  @Get('participations')
+  async listParticipations(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(adminParticipationListQuery)) query: AdminParticipationListQuery,
+  ): Promise<AdminParticipationListResponse> {
+    const page = await this.insight.listParticipations(admin, {
+      ...(query.eventPublicId !== undefined ? { eventPublicId: query.eventPublicId } : {}),
+      ...(query.userPublicId !== undefined ? { userPublicId: query.userPublicId } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(query.offset !== undefined ? { offset: query.offset } : {}),
+    });
+    return { participations: page.rows.map(toAdminParticipationView), total: page.total };
   }
 
   /**
@@ -2272,6 +2296,31 @@ function toFoundingMemberView(row: FoundingMemberRow): FoundingMemberView {
     publicId: row.publicId,
     displayName: row.displayName,
     cityNameFa: row.cityNameFa,
+  };
+}
+
+/** Field by field, so a relation added to the read cannot reach the response. */
+function toAdminParticipationView(row: ParticipationRow): AdminParticipationView {
+  return {
+    publicId: row.publicId,
+    status: row.status,
+    requestedAt: row.requestedAt.toISOString(),
+    decidedAt: row.decidedAt?.toISOString() ?? null,
+    cancelledAt: row.cancelledAt?.toISOString() ?? null,
+    user: {
+      publicId: row.user.publicId,
+      displayName: row.user.displayName,
+      isSeed: row.user.isSeed,
+    },
+    event: {
+      publicId: row.event.publicId,
+      number: row.event.number,
+      title: row.event.title,
+      cityNameFa: row.event.cityNameFa,
+      startsAt: row.event.startsAt.toISOString(),
+      isSeeded: row.event.isSeeded,
+    },
+    joinCoins: { charged: row.joinCoins.charged, refunded: row.joinCoins.refunded },
   };
 }
 

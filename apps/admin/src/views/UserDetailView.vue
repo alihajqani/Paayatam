@@ -13,6 +13,7 @@ import {
 } from '@payetam/shared';
 import { messageOf, newIdempotencyKey, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import ParticipationList from '@/components/ParticipationList.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
 import {
@@ -945,6 +946,17 @@ onMounted(load);
             </p>
           </div>
         </article>
+      </section>
+
+      <!--
+        Which activities, not only how many per status: the tally above cannot
+        answer «three requests, sixty coins — which ones, and did they come back?».
+      -->
+      <section class="rounded-xl border border-line bg-surface p-4">
+        <h2 class="text-sm font-semibold">رویدادهایی که درخواست داده</h2>
+        <div class="mt-3">
+          <ParticipationList :user-public-id="detail.publicId" />
+        </div>
       </section>
       <p v-if="session.can(PERMISSIONS.LEDGER_READ)" class="text-sm">
         <RouterLink

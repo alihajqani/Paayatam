@@ -398,6 +398,13 @@ const OPERATIONS: Operation[] = [
     permission: PERMISSIONS.USER_READ,
     run: (session) => insight.getUser(session, NO_SUCH_ID),
   },
+  // Who asked to join what — rows about people, so `user.read`, not the
+  // event-moderation permission the event list itself sits behind.
+  {
+    name: 'GET /admin/v1/participations',
+    permission: PERMISSIONS.USER_READ,
+    run: (session) => insight.listParticipations(session, { userPublicId: NO_SUCH_ID }),
+  },
   {
     name: 'GET /admin/v1/events',
     permission: PERMISSIONS.EVENT_MODERATE,
@@ -716,7 +723,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(79);
+    expect(OPERATIONS).toHaveLength(80);
   });
 
   for (const role of ROLES) {

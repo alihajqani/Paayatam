@@ -63,6 +63,8 @@ import {
   type CityLaunchStatus,
   FoundingService,
   type FoundingAward,
+  type CancellationPreview,
+  type JoinPreview,
 } from '@payetam/domain';
 import {
   ENV,
@@ -1739,6 +1741,9 @@ export class BotService {
 
     if (link.action === 'join' && consented) {
       try {
+        // The post names no price and no city's caveat, so a paid or
+        // out-of-town request is asked about here instead of charged on the tap.
+        if (await this.askBeforeJoining(updateId, user, link.id)) return;
         const participation = await this.participation.join(user.id, link.id);
         return this.notice(
           updateId,
@@ -2627,34 +2632,33 @@ export class BotService {
   ): Promise<void> {
     try {
       switch (callback.action) {
+        /**
+         * «پایتم» — asked first whenever it costs coins or is in another city.
+         *
+         * `askBeforeJoining` decides; only a free request in the joiner's own
+         * city still joins on the tap. Everything else goes through `joinyes`,
+         * which is where the charge happens.
+         */
         case 'join': {
-          /**
-           * Joining is priced at zero today and is a setting, not a constant.
-           *
-           * So the check is conditional rather than absent: at zero
-           * `affordBlocked` returns immediately and this costs one comparison,
-           * and on the day an operator sets a price the refusal arrives before
-           * the tap does something rather than as an error after it.
-           */
-          if (
-            await this.affordBlocked(
-              updateId,
-              user,
-              await this.settings.getInt('economy.event_join_coins'),
-              JOIN_ACTION_FA,
-            )
-          ) {
+          if (await this.askBeforeJoining(updateId, user, callback.id)) {
             await this.answer(callbackQueryId, '');
             return;
           }
-          const participation = await this.participation.join(user.id, callback.id);
-          await this.answer(
-            callbackQueryId,
-            participation.status === 'WAITLISTED'
-              ? 'در لیست انتظار ثبت شدید ⏳'
-              : 'درخواست شما فرستاده شد ✅ منتظر پاسخ میزبان بمانید.',
-          );
-          return;
+          return this.joinAndAnswer(callbackQueryId, user, callback.id);
+        }
+
+        /**
+         * «بله» under the ask. Affordability is checked again rather than
+         * trusted from the ask: a balance can be spent elsewhere between the two
+         * taps, and `coinsShort` is a better answer than a refusal toast.
+         */
+        case 'joinyes': {
+          const cost = await this.settings.getInt('economy.event_join_coins');
+          if (await this.affordBlocked(updateId, user, cost, JOIN_ACTION_FA)) {
+            await this.answer(callbackQueryId, '');
+            return;
+          }
+          return this.joinAndAnswer(callbackQueryId, user, callback.id);
         }
 
         /**
@@ -2673,12 +2677,7 @@ export class BotService {
           const preview = await this.participation.previewCancellation(user.id, callback.id);
           await this.answer(callbackQueryId, '');
 
-          const cost =
-            preview.price.coins === 0 && preview.price.trust === 0
-              ? 'این کار هزینه‌ای ندارد.'
-              : `<b>${toPersianDigits(String(preview.price.coins))} سکه</b> از موجودی شما کم ` +
-                `می‌شود و <b>${toPersianDigits(String(preview.price.trust))} امتیاز</b> از ` +
-                `امتیاز اعتمادتان کاسته می‌شود.`;
+          const cost = withdrawalCostLine(preview);
 
           return this.confirmSpend(
             updateId,
@@ -5378,6 +5377,59 @@ export class BotService {
     });
   }
 
+  /**
+   * Ask before a request is made, when there is something to say first.
+   *
+   * Something to say is a price or a city: a request that costs coins, or one
+   * for an activity outside the city on the joiner's profile. Neither is on the
+   * channel post, and the price is not on the detail screen either. A free
+   * request in the joiner's own city has nothing to confirm and is left to the
+   * caller to make on the tap, as the button was built to.
+   *
+   * `previewJoin` refuses exactly as `join` would, so a host, a duplicate or an
+   * ineligible joiner hears so now rather than after agreeing to pay; the caller
+   * handles those refusals the way it handled `join`'s. Affordability is checked
+   * before the ask, so «بله» is never the moment somebody learns they are short.
+   *
+   * Returns true when it answered — asked, or showed the coins-short screen —
+   * and the caller must not join.
+   */
+  private async askBeforeJoining(
+    updateId: number,
+    user: BotUser,
+    eventPublicId: string,
+  ): Promise<boolean> {
+    const preview = await this.participation.previewJoin(user.id, eventPublicId);
+    if (preview.coins === 0 && preview.sameCity) return false;
+    if (await this.affordBlocked(updateId, user, preview.coins, JOIN_ACTION_FA)) return true;
+
+    const ask = joinAsk(preview);
+    await this.confirmSpend(
+      updateId,
+      user,
+      ask.text,
+      ask.label,
+      encodeEventCallback('joinyes', eventPublicId),
+      'success',
+    );
+    return true;
+  }
+
+  /** The request itself, answered with a toast — the end of both join buttons. */
+  private async joinAndAnswer(
+    callbackQueryId: string,
+    user: BotUser,
+    eventPublicId: string,
+  ): Promise<void> {
+    const participation = await this.participation.join(user.id, eventPublicId);
+    await this.answer(
+      callbackQueryId,
+      participation.status === 'WAITLISTED'
+        ? 'در لیست انتظار ثبت شدید ⏳'
+        : 'درخواست شما فرستاده شد ✅ منتظر پاسخ میزبان بمانید.',
+    );
+  }
+
   // ── the consent gate ────────────────────────────────────────────────────────
 
   /**
@@ -7582,4 +7634,90 @@ function costSummary(form: CreateEventForm): string {
     default:
       return '—';
   }
+}
+
+/**
+ * What «پایتم» asks before it charges, and the button that agrees.
+ *
+ * ── Why joining asks at all ──────────────────────────────────────────────────
+ *
+ * Every other spend in the bot asks first and names its price; joining did not,
+ * because it shipped at zero coins and a free action has nothing to confirm.
+ * The price became twenty and the exemption stayed — so a reader tapping
+ * «شرکت می‌کنم» under a channel post was charged on the tap, for an activity in
+ * a city that was not theirs, without seeing either fact. The ask is drawn from
+ * `ParticipationService.previewJoin`, so the figure is the one `join` charges.
+ *
+ * It says when the coins come back as well as what they are, because that is
+ * the part that cost money: a request is a deposit that a rejection, an expiry
+ * or an unreached waiting place returns, and only a withdrawal keeps.
+ */
+export function joinAsk(preview: JoinPreview): { text: string; label: string } {
+  const waiting = preview.status === 'WAITLISTED';
+  const lines = [`<b>درخواست شرکت در «${escapeHtml(preview.eventTitle)}»</b>`, ''];
+
+  if (!preview.sameCity) {
+    lines.push(
+      `📍 این رویداد در <b>${escapeHtml(preview.eventCityNameFa)}</b> برگزار می‌شود، ولی ` +
+        `شهری که در پروفایلتان ثبت کرده‌اید <b>${escapeHtml(preview.joinerCityNameFa)}</b> است.`,
+    );
+  }
+  if (waiting) lines.push('⏳ ظرفیت تکمیل است و در نوبت انتظار ثبت می‌شوید.');
+
+  if (preview.coins > 0) {
+    if (lines.length > 2) lines.push('');
+    lines.push(
+      `🪙 با فرستادن درخواست، <b>${toPersianDigits(String(preview.coins))} سکه</b> از موجودی ` +
+        `شما کم می‌شود.`,
+      waiting
+        ? 'اگر تا شروع رویداد جایی برایتان باز نشود، این سکه خودکار برمی‌گردد.'
+        : 'اگر میزبان درخواست را رد کند یا تا مهلت پاسخ ندهد، این سکه خودکار برمی‌گردد.',
+      'ولی اگر خودتان درخواست را لغو کنید، برنمی‌گردد.',
+    );
+  }
+
+  return {
+    text: lines.join('\n').trimEnd(),
+    label: waiting ? '⏳ بله، در نوبت انتظار ثبت کن' : '✅ بله، درخواست بده',
+  };
+}
+
+/**
+ * What a withdrawal costs, as the cancel confirmation says it.
+ *
+ * Two different things, and it used to name only the first: the **fine** for
+ * leaving late (`price`, which the grace window and a queue withdrawal make
+ * zero) and the **join charge the withdrawal keeps** (`joinCharge`). With only
+ * the fine on the screen, a pending request read «این کار هزینه‌ای ندارد» while
+ * its twenty coins stayed gone — the one outcome waiting would have avoided.
+ */
+export function withdrawalCostLine(
+  preview: Pick<CancellationPreview, 'price' | 'joinCharge' | 'status'>,
+): string {
+  const lines: string[] = [];
+
+  if (preview.price.coins > 0 || preview.price.trust > 0) {
+    lines.push(
+      `<b>${toPersianDigits(String(preview.price.coins))} سکه</b> از موجودی شما کم ` +
+        `می‌شود و <b>${toPersianDigits(String(preview.price.trust))} امتیاز</b> از ` +
+        `امتیاز اعتمادتان کاسته می‌شود.`,
+    );
+  }
+
+  if (preview.joinCharge > 0) {
+    const kept =
+      `<b>${toPersianDigits(String(preview.joinCharge))} سکه‌ای</b> که برای این درخواست ` +
+      `دادید برنمی‌گردد.`;
+    lines.push(
+      preview.status === 'PENDING'
+        ? `${kept} اگر لغو نکنید و میزبان درخواست را رد کند یا تا مهلت پاسخ ندهد، ` +
+            `این سکه خودکار برمی‌گردد.`
+        : preview.status === 'WAITLISTED'
+          ? `${kept} اگر لغو نکنید و تا شروع رویداد جایی برایتان باز نشود، ` +
+            `این سکه خودکار برمی‌گردد.`
+          : kept,
+    );
+  }
+
+  return lines.length === 0 ? 'این کار هزینه‌ای ندارد.' : lines.join('\n');
 }

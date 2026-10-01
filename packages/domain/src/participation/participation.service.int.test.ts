@@ -912,6 +912,111 @@ describe('the participant withdraws', () => {
 
     expect(await seats(eventPublicId)).toBe(0);
   });
+
+  /**
+   * The confirmation said «این کار هزینه‌ای ندارد» while the join charge stayed
+   * gone — a production user withdrew three requests on that sentence and lost
+   * sixty coins they would have had back by waiting. The preview has to carry
+   * what a withdrawal forfeits, not only what it is fined.
+   */
+  it('quotes the join charge a withdrawal forfeits', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    const preview = await participation.previewCancellation(joiner, request.publicId);
+
+    expect(preview).toMatchObject({
+      bucket: null,
+      price: { coins: 0, trust: 0 },
+      joinCharge: JOIN_COST,
+      status: 'PENDING',
+    });
+  });
+
+  it('quotes no forfeit for a request that was free to make', async () => {
+    await prisma.appSetting.create({ data: { key: 'economy.event_join_coins', value: 0 } });
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const request = await participation.join(joiner, eventPublicId);
+
+    const preview = await participation.previewCancellation(joiner, request.publicId);
+
+    expect(preview.joinCharge).toBe(0);
+  });
+});
+
+/**
+ * ── Asking before charging ──────────────────────────────────────────────────
+ *
+ * `join` charges the moment it is called, and the channel's «شرکت می‌کنم» called
+ * it on the tap — so a reader in a city the product has not opened paid twenty
+ * coins to queue for an activity in another one without being shown the price,
+ * the city, or that a withdrawal keeps the coins. `previewJoin` is what the
+ * confirmation is drawn from: the same checks `join` makes, in the same order,
+ * writing nothing.
+ */
+describe('previewJoin', () => {
+  it('quotes the price and the queue, and writes nothing', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    const balanceBefore = await coins.balanceOf(joiner);
+
+    const preview = await participation.previewJoin(joiner, eventPublicId);
+
+    expect(preview).toEqual({
+      eventTitle: expect.stringContaining('دورهمی') as unknown,
+      coins: JOIN_COST,
+      status: 'PENDING',
+      eventCityNameFa: 'تهران',
+      joinerCityNameFa: 'تهران',
+      sameCity: true,
+    });
+    expect(await prisma.eventParticipant.count()).toBe(0);
+    expect(await coins.balanceOf(joiner)).toBe(balanceBefore);
+  });
+
+  it('says the request would wait when the host’s queue is full', async () => {
+    const eventPublicId = await createEvent({ capacity: 1 });
+    await participation.join(await createJoiner(), eventPublicId);
+
+    const preview = await participation.previewJoin(await createJoiner(), eventPublicId);
+
+    expect(preview.status).toBe('WAITLISTED');
+  });
+
+  it('names both cities when the activity is not in the joiner’s', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    await prisma.userProfile.update({
+      where: { userId: joiner },
+      data: { cityId: fixture.karajId },
+    });
+
+    const preview = await participation.previewJoin(joiner, eventPublicId);
+
+    expect(preview).toMatchObject({
+      eventCityNameFa: 'تهران',
+      joinerCityNameFa: 'کرج',
+      sameCity: false,
+    });
+  });
+
+  it('refuses what join would refuse, before anything is asked', async () => {
+    const eventPublicId = await createEvent();
+    const joiner = await createJoiner();
+    await participation.join(joiner, eventPublicId);
+
+    await expect(participation.previewJoin(hostId, eventPublicId)).rejects.toMatchObject({
+      code: ErrorCode.HOST_CANNOT_JOIN,
+    });
+    await expect(participation.previewJoin(joiner, eventPublicId)).rejects.toMatchObject({
+      code: ErrorCode.DUPLICATE_REQUEST,
+    });
+    await expect(
+      participation.previewJoin(joiner, '00000000-0000-4000-8000-000000000000'),
+    ).rejects.toMatchObject({ code: ErrorCode.EVENT_NOT_FOUND });
+  });
 });
 
 describe('expiry', () => {

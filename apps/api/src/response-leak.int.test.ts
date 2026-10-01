@@ -1162,6 +1162,19 @@ beforeAll(async () => {
     { method: 'GET', url: '/admin/v1/events', admin: true },
     { method: 'GET', url: '/admin/v1/events?status=PUBLISHED&limit=5', admin: true },
     { method: 'GET', url: `/admin/v1/events/${eventPublicId}`, admin: true },
+    // Who asked to join what — people and events in one row, the shape most
+    // likely to grow a Telegram id on the user side.
+    { method: 'GET', url: '/admin/v1/participations', admin: true },
+    {
+      method: 'GET',
+      url: `/admin/v1/participations?eventPublicId=${eventPublicId}`,
+      admin: true,
+    },
+    {
+      method: 'GET',
+      url: `/admin/v1/participations?userPublicId=${hostPublicId}&limit=5`,
+      admin: true,
+    },
     {
       method: 'POST',
       url: `/admin/v1/events/${eventPublicId}/moderate`,
