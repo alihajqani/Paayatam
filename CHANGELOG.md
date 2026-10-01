@@ -14,6 +14,52 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.22.0] — 2026-10-01
+
+Event suggestions: the operator offers a real programme outside the product (a screening, a
+play, a group hike) in the channel, and a reader turns it into an event of their own with one tap
+and a confirm. A second reader is sent to the first one's event instead of making a second empty
+one.
+
+**One migration, additive.** 0064 adds the `event_suggestion` table and a nullable
+`event.suggestion_id`. **No setting change. The bot's command menu does not change.**
+
+### ⚠️ What a deploy changes for people
+
+- Nothing, until the operator creates a suggestion and posts its link. Every existing flow
+  (`/create_event`, the channel's event links, joining) is unchanged.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- **«پیشنهادها»** in the panel sidebar (under «نمای کلی», new permission `suggestion.manage`,
+  SUPER_ADMIN only). The form takes the city, category, title, venue, date and start time in
+  Tehran's wall clock, duration, suggested capacity, cost and an optional ticket link. It refuses
+  a city that is not open, a category a host could not pick, and a start already past. Each
+  suggestion shows its `?start=host_<id>` link, a «کپی متن پست» button for the channel post,
+  how many events were made from it, and «بستن».
+- **`?start=host_<id>` in the bot.** Nobody has made an event of it yet: a card that says the
+  programme is real and outside پایتم, with «🙋 میزبانش می‌شوم» and, when there is one, «🔗
+  اطلاعات و بلیت» as a URL button. Somebody has, with a free seat: their event with its usual
+  join button, and «✍️ خودم یکی جدا می‌سازم» under it. The reader hosts one already: that one.
+  Closed or started: one sentence. A new reader gets the welcome and onboarding under the card,
+  and the card's button works once they finish.
+- **«میزبانش می‌شوم» opens the event wizard on its summary, already answered**, after the same
+  checks `/create_event` makes before its first question (quota, channel requirement, price).
+  The start keeps its minute (a 19:30 screening stays 19:30), the venue becomes the
+  neighbourhood, and «بازگشت» and «افزودن جزئیات بیشتر» work as after a hand-filled form. The
+  event costs the usual 25 coins and is filed under the suggestion.
+- Admin API: `GET /admin/v1/suggestions` (with the bot username and the form's city and category
+  choices), `POST /admin/v1/suggestions`, `PATCH /admin/v1/suggestions/:publicId/close`, all
+  checked in the service and audited (`suggestion.created`, `suggestion.closed`).
+
+### Changed
+
+- `/create_event`'s pre-checks moved into one helper shared with «میزبانش می‌شوم». Same checks,
+  same order, same messages.
+- A `host_` link is recorded in acquisition as «لینک رویداد» with the suggestion's id, beside the
+  channel's other links. Events made from suggestions are counted through `event.suggestion_id`.
+
 ## [v0.21.4] — 2026-10-01
 
 The panel has a «درخواست‌ها» page with every request to join from everybody, and a way to message
