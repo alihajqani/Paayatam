@@ -62,6 +62,72 @@ describe('starting a wizard', () => {
   });
 });
 
+/**
+ * A suggestion's link opens the event wizard already answered (migration 0064):
+ * the reader should only have to confirm. The summary is the screen, and the
+ * stored step is the last one the form reaches, exactly where a hand-filled
+ * draft would stand — so «بازگشت» walks back through real questions.
+ */
+describe('starting at the summary', () => {
+  const PREFILLED = {
+    title: 'اکران فیلم در هویزه',
+    description: 'سانس هفت و نیم، بلیت را خودمان می‌خریم.',
+    categoryId: '0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e6f',
+    provinceId: '0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e70',
+    cityId: '0199aa11-2b3c-7d4e-8f90-1a2b3c4d5e71',
+    districtLabel: 'سینما هویزه',
+    day: '2026-10-09',
+    hour: 19,
+    startMinute: 30,
+    durationHours: 2,
+    capacity: 4,
+    costType: 'APPROX',
+    costAmount: 150_000,
+  };
+
+  it('opens on the summary with the form stored', async () => {
+    const outcome = await conversations.startAtSummary(userId, 'CREATE_EVENT', 1, PREFILLED);
+
+    expect(outcome.kind).toBe('summary');
+    expect(await conversations.current(userId)).toMatchObject({
+      step: 'amount',
+      form: { title: PREFILLED.title, startMinute: 30 },
+    });
+  });
+
+  it('stops on the cost step when the cost needs no amount', async () => {
+    const { costAmount: _amount, ...free } = PREFILLED;
+    await conversations.startAtSummary(userId, 'CREATE_EVENT', 1, { ...free, costType: 'FREE' });
+
+    expect(await conversations.current(userId)).toMatchObject({ step: 'cost' });
+  });
+
+  it('confirms in one tap', async () => {
+    await conversations.startAtSummary(userId, 'CREATE_EVENT', 1, PREFILLED);
+
+    const outcome = await conversations.handle(userId, 2, {
+      kind: 'callback',
+      action: 'confirm',
+      value: '',
+    });
+
+    expect(outcome?.kind).toBe('submit');
+  });
+
+  it('walks back into a real question', async () => {
+    await conversations.startAtSummary(userId, 'CREATE_EVENT', 1, PREFILLED);
+
+    const outcome = await conversations.handle(userId, 2, {
+      kind: 'callback',
+      action: 'back',
+      value: '',
+    });
+
+    expect(outcome?.kind).toBe('step');
+    if (outcome?.kind === 'step') expect(outcome.step.key).toBe('cost');
+  });
+});
+
 describe('advancing', () => {
   beforeEach(async () => {
     await conversations.start(userId, 'CREATE_EVENT', 1);

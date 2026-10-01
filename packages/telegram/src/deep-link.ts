@@ -41,13 +41,18 @@ import { CAMPAIGN_START_PREFIX, normalizeCampaignTag } from '@payetam/shared';
  * می‌کنم» is a decision the reader has already made — sending them to a detail
  * screen to press a second button would be the detour the button exists to
  * remove.
+ *
+ * `host` is the operator's suggestion link (migration 0064): a real outside
+ * programme the reader may turn into an event of their own. It names a
+ * suggestion, not an event, so a caller must branch on it before looking an
+ * event up.
  */
-export const START_ACTIONS = ['event', 'join'] as const;
+export const START_ACTIONS = ['event', 'join', 'host'] as const;
 export type StartAction = (typeof START_ACTIONS)[number];
 
 export interface StartLink {
   action: StartAction;
-  /** An event public id. Both actions are about an event. */
+  /** A public id: an event's for `event` and `join`, a suggestion's for `host`. */
   id: string;
 }
 

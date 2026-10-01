@@ -40,6 +40,7 @@ import { MessagingAdminService } from './messaging-admin.service';
 import { PolicyAdminService } from './policy-admin.service';
 import { ReferralAdminService } from './referral-admin.service';
 import { SeedAdminService } from './seed-admin.service';
+import { SuggestionAdminService } from './suggestion-admin.service';
 import {
   PERMISSIONS,
   ROLE_KEYS,
@@ -147,6 +148,13 @@ const catalogAdmin = new CatalogAdminService(service, access, audit);
 const policyAdmin = new PolicyAdminService(service, clock, access, audit);
 const geography = new GeographyAdminService(service, access, audit);
 const seedAdmin = new SeedAdminService(service, clock, access, audit);
+const suggestionAdmin = new SuggestionAdminService(
+  service,
+  clock,
+  { TELEGRAM_BOT_USERNAME: 'payetam_bot' } as unknown as Env,
+  access,
+  audit,
+);
 const channelAdmin = new ChannelAdminService(
   access,
   new ChannelConfigService(service, clock, audit),
@@ -585,6 +593,32 @@ const OPERATIONS: Operation[] = [
     run: (session) => seedAdmin.updateConfig(session, NO_SUCH_ID, {}),
   },
   {
+    name: 'GET /admin/v1/suggestions',
+    permission: PERMISSIONS.SUGGESTION_MANAGE,
+    run: (session) => suggestionAdmin.list(session),
+  },
+  {
+    name: 'POST /admin/v1/suggestions',
+    permission: PERMISSIONS.SUGGESTION_MANAGE,
+    run: (session) =>
+      suggestionAdmin.create(session, {
+        cityId: NO_SUCH_ID,
+        categoryId: NO_SUCH_ID,
+        title: 'اکران فیلم',
+        description: 'سانس عصر، بلیت با خودمان.',
+        venueLabel: 'سینما',
+        startsAt: '2099-01-01T16:00:00.000Z',
+        durationHours: 2,
+        capacity: 4,
+        costType: 'FREE',
+      }),
+  },
+  {
+    name: 'PATCH /admin/v1/suggestions/:publicId/close',
+    permission: PERMISSIONS.SUGGESTION_MANAGE,
+    run: (session) => suggestionAdmin.close(session, NO_SUCH_ID),
+  },
+  {
     // A one-user audience is the narrow case, so `message.send` alone covers it.
     name: 'POST /admin/v1/messages/preview (one recipient)',
     permission: PERMISSIONS.MESSAGE_SEND,
@@ -723,7 +757,7 @@ describe('the RBAC matrix (ADR-0010, rule 5)', () => {
     for (const operation of OPERATIONS) {
       expect(Object.values(PERMISSIONS)).toContain(operation.permission);
     }
-    expect(OPERATIONS).toHaveLength(80);
+    expect(OPERATIONS).toHaveLength(83);
   });
 
   for (const role of ROLES) {

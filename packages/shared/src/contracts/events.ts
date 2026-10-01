@@ -66,7 +66,7 @@ export type EventModerationStatus = z.infer<typeof eventModerationStatus>;
  * that sends people to a plaintext URL is a downgrade a host should not be able
  * to talk anyone into.
  */
-const httpsUrl = z
+export const httpsUrl = z
   .url()
   .max(500)
   .refine((value) => value.startsWith('https://'), { message: 'must be an https:// URL' });

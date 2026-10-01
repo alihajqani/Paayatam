@@ -101,6 +101,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'درخواست‌ها', permission: PERMISSIONS.USER_READ, group: 'overview' },
   },
   {
+    /**
+     * Event suggestions (migration 0064): real outside programmes offered in the
+     * channel as «میزبانش می‌شوم», and the link to paste under each post.
+     */
+    path: '/suggestions',
+    name: 'suggestions',
+    component: () => import('@/views/SuggestionsView.vue'),
+    meta: { title: 'پیشنهادها', permission: PERMISSIONS.SUGGESTION_MANAGE, group: 'overview' },
+  },
+  {
     path: '/users/:publicId',
     name: 'user-detail',
     component: () => import('@/views/UserDetailView.vue'),

@@ -175,6 +175,14 @@ export function firstStep<F>(definition: WizardDefinition<F>, form: F): WizardSt
   return definition.steps.find((step) => applies(step, form)) ?? null;
 }
 
+/**
+ * The last applicable step — where a hand-filled draft stands when its summary
+ * appears, since the step answered last is the one the snapshot keeps.
+ */
+export function lastStep<F>(definition: WizardDefinition<F>, form: F): WizardStep<F> | null {
+  return [...definition.steps].reverse().find((step) => applies(step, form)) ?? null;
+}
+
 /** How many applicable steps there are, and which one this is — for «گام ۳ از ۸». */
 export function progressOf<F>(
   definition: WizardDefinition<F>,

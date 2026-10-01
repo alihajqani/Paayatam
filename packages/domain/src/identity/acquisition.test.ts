@@ -20,6 +20,15 @@ describe('acquisitionFor', () => {
   });
 
   /**
+   * A suggestion link is a channel post's link too, so it is filed beside them
+   * rather than under a source of its own — the ref is the suggestion's id, and
+   * which suggestions produced events is `event.suggestion_id`'s question.
+   */
+  it('files a suggestion link from the channel under the suggestion', () => {
+    expect(acquisitionFor(`host_${EVENT}`)).toEqual({ source: 'EVENT_LINK', ref: EVENT });
+  });
+
+  /**
    * By shape, not by whether the code exists: the claim runs after the account
    * is created, and a stale invite is still an invite.
    */

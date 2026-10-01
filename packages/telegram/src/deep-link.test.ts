@@ -53,6 +53,18 @@ describe('the bot deep-link protocol', () => {
       `https://t.me/payetam_bot?start=event_${ID}`,
     );
   });
+
+  /**
+   * `host_` names a suggestion, not an event: the operator's «میزبانش می‌شوم»
+   * link. It has to survive the same parser the event links do, or the bot reads
+   * it as a referral code and greets the reader with a refused claim.
+   */
+  it('round-trips a suggestion link, inside the 64 characters', () => {
+    const payload = encodeStartPayload('host', ID);
+    expect(payload).toBe(`host_${ID}`);
+    expect(payload.length).toBeLessThanOrEqual(64);
+    expect(parseStartPayload(payload)).toEqual({ action: 'host', id: ID });
+  });
 });
 
 /**

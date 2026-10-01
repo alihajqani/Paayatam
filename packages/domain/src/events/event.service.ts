@@ -75,6 +75,17 @@ export type UpdateEventInput = Partial<CreateEventInput>;
  */
 export interface CreateEventOptions {
   seeded?: boolean;
+  /**
+   * The suggestion this event was opened from (migration 0064) — the internal
+   * id the bot's pre-filled draft carries, never anything a host typed.
+   *
+   * Provenance, not permission: it is recorded only when the suggestion exists
+   * and is for the city the event ended up in, and its absence refuses nothing.
+   * A host who went «بازگشت» and moved the event elsewhere still gets their
+   * event; it is just not filed under a suggestion for a different city, where it
+   * would route that city's readers to an event they cannot attend.
+   */
+  suggestionId?: string;
 }
 
 /**
@@ -372,6 +383,13 @@ export class EventService {
         input.customCategoryLabel,
       );
       const neighbourhood = resolveNeighbourhood(location.districtId, input.districtLabel);
+      const suggestion =
+        options.suggestionId === undefined
+          ? null
+          : await tx.eventSuggestion.findFirst({
+              where: { id: options.suggestionId, cityId: location.cityId },
+              select: { id: true },
+            });
       const scan = await this.moderation.scanEventContent(
         {
           ...input,
@@ -419,6 +437,7 @@ export class EventService {
           status: 'DRAFT',
           moderationStatus: 'PENDING',
           isSeeded: options.seeded === true,
+          suggestionId: suggestion?.id ?? null,
         },
         select: { id: true, publicId: true },
       });

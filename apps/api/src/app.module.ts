@@ -22,6 +22,7 @@ import {
   PrivacyModule,
   ProfileModule,
   FoundingModule,
+  SuggestionsModule,
 } from '@payetam/domain';
 import {
   ClockModule,
@@ -82,6 +83,8 @@ import { VersionController } from './version/version.controller';
     // the profile screen; `ProfileService` allocates one, and imports this
     // module itself rather than relying on it being in the root graph.
     FoundingModule,
+    // Event suggestions (migration 0064): what a `?start=host_` tap opens.
+    SuggestionsModule,
     ModerationModule,
     EventsModule,
     InvitationsModule,

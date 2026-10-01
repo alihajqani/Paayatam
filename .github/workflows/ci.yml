@@ -316,6 +316,19 @@ jobs:
           # and a body that must fit one Telegram message.
           check_constraint help_guide_title_length
           check_constraint help_guide_body_length
+          # Event suggestions (migration 0064): the wizard's bounds and the event
+          # table's own cost and link rules, so a suggestion can never open the
+          # wizard on a refusal. The partial index is how a second tap finds the
+          # first person's event.
+          check_index      event_suggestion_public_id_key
+          check_index      event_suggestion_id_idx
+          check_constraint event_suggestion_title_length
+          check_constraint event_suggestion_description_length
+          check_constraint event_suggestion_venue_length
+          check_constraint event_suggestion_duration_range
+          check_constraint event_suggestion_capacity_range
+          check_constraint event_suggestion_cost_amount_matches_type
+          check_constraint event_suggestion_external_link_https
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

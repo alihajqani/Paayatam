@@ -302,6 +302,22 @@ describe('hours', () => {
     expect(choices.map((c) => c.value)).toContain('0');
     expect(choices.map((c) => c.value)).toContain('23');
   });
+
+  /**
+   * A suggestion pre-fills a start like 19:30, which the hour buttons cannot
+   * say. The minute survives only until the host picks an hour themselves —
+   * then it is their whole hour, not a 19:30 they never chose.
+   */
+  it("drops a suggestion's minute once the host picks an hour", () => {
+    const form: CreateEventForm = { hour: 19, startMinute: 30 };
+    const result = accept('hour', '20', form, 'callback');
+
+    // Merged the way ConversationService merges a patch: a key the patch does
+    // not carry survives, so the patch has to name the minute to drop it.
+    expect(result.ok).toBe(true);
+    if (result.ok) expect({ ...form, ...result.patch }).toMatchObject({ hour: 20 });
+    if (result.ok) expect({ ...form, ...result.patch }.startMinute).toBeUndefined();
+  });
 });
 
 describe('duration', () => {

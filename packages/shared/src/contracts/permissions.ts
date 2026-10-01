@@ -164,6 +164,15 @@ export const PERMISSIONS = {
    * something that is already real.
    */
   EVENT_SEED_MANAGE: 'event.seed.manage',
+  /**
+   * Offer and close event suggestions — real outside programmes posted to the
+   * channel as «میزبانش می‌شوم» links (migration 0064).
+   *
+   * Its own key rather than `event.seed.manage`: a suggestion is real, so it
+   * does not belong at the fabrication tier, and the people who find
+   * programmes need not be the people who may run the seed scheduler.
+   */
+  SUGGESTION_MANAGE: 'suggestion.manage',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

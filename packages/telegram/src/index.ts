@@ -43,6 +43,14 @@ export {
 } from './keyboards';
 export { buildDigest, TELEGRAM_MESSAGE_LIMIT } from './digest';
 export { formatEventDetail } from './event-detail';
+export {
+  formatSuggestionCard,
+  suggestionKeyboard,
+  joinExistingKeyboard,
+  JOIN_EXISTING_LINE,
+  SUGGESTION_GONE_FA,
+} from './suggestion';
+export type { SuggestionCardLine } from './suggestion';
 export { insufficientCoinsNotice } from './notices';
 export type { EventDetailLine } from './event-detail';
 export { formatWallet, ledgerLabelFa, walletPageRow } from './wallet';
@@ -88,6 +96,8 @@ export {
   encodeGuideCommands,
   encodeGuideIndex,
   parseGuideCallback,
+  encodeSuggestionCallback,
+  parseSuggestionCallback,
   encodeGenderChoice,
   parseGenderChoice,
   parsePolicyCallback,

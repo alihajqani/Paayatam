@@ -7,6 +7,7 @@ import { MessageCipher } from '../crypto/message-cipher';
 import {
   apply,
   firstStep,
+  lastStep,
   nextStep,
   previousStep,
   progressOf,
@@ -205,6 +206,44 @@ export class ConversationService {
 
     const { position, total } = progressOf(definition, step.key, form);
     return { kind: 'step', step, snapshot, position, total };
+  }
+
+  /**
+   * Begin a wizard whose every question is already answered, on its summary.
+   *
+   * A suggestion's «میزبانش می‌شوم» (migration 0064) is the case: the operator
+   * filled the form, and walking the reader through eleven questions they did
+   * not ask to answer is the friction the link exists to remove. The stored step
+   * is the last one the form reaches — where a hand-filled draft stands when its
+   * summary appears — so «بازگشت» and «افزودن جزئیات بیشتر» behave exactly as
+   * they do after typing every answer.
+   *
+   * Whether the form is actually complete is the caller's to know: the summary
+   * is drawn from what is stored, and `EventService.create` refuses anything
+   * missing at confirm, with the draft kept.
+   */
+  async startAtSummary(
+    userId: string,
+    kind: ConversationKind,
+    updateId: number,
+    initialForm: Record<string, unknown>,
+    targetPublicId: string | null = null,
+  ): Promise<ConversationOutcome> {
+    const definition = this.definitionFor(kind);
+    if (definition === null) throw new Error(`no wizard is registered for ${kind}`);
+    const form = { ...definition.empty(), ...initialForm };
+    const step = lastStep(definition, form);
+    if (step === null) throw new Error(`wizard ${kind} has no reachable last step`);
+
+    const snapshot: ConversationSnapshot = {
+      kind,
+      step: step.key,
+      form,
+      lastMessageId: null,
+      targetPublicId,
+    };
+    await this.save(userId, snapshot, updateId);
+    return { kind: 'summary', snapshot };
   }
 
   /**

@@ -397,6 +397,7 @@ model City {
   events     Event[]
   categories CityCategory[]
   seedConfig CitySeedConfig?
+  suggestions EventSuggestion[]
 
   province Province? @relation(fields: [provinceId], references: [id], onDelete: Restrict)
 
@@ -479,9 +480,10 @@ model Category {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  interests Interest[]
-  events    Event[]
-  cities    CityCategory[]
+  interests   Interest[]
+  events      Event[]
+  cities      CityCategory[]
+  suggestions EventSuggestion[]
 
   @@index([isActive, sortOrder])
   @@map("category")
@@ -1257,6 +1259,11 @@ model Event {
   /// host is always a real account; only the participants are synthetic.
   isSeeded     Boolean   @default(false) @map("is_seeded")
 
+  /// The suggestion this event was created from (migration 0064), when it was.
+  /// Routes the second person who taps the same link to this event, and is how
+  /// the experiment counts what suggestions produced.
+  suggestionId String? @map("suggestion_id")
+
   viewCount    Int @default(0) @map("view_count")
   requestCount Int @default(0) @map("request_count")
 
@@ -1291,6 +1298,7 @@ model Event {
   campaigns    MessageCampaign[]
   directs      DirectMessage[]
   noShowClaims NoShowClaim[]
+  suggestion   EventSuggestion? @relation(fields: [suggestionId], references: [id], onDelete: Restrict)
 
   @@index([status, startsAt])
   @@index([hostUserId, createdAt])
@@ -1307,6 +1315,7 @@ model Event {
   @@index([titleNormalized(ops: raw("gin_trgm_ops"))], map: "event_title_trgm_idx", type: Gin)
   @@index([publishedAt(sort: Desc)], map: "event_published_recent_idx", where: { status: "PUBLISHED", deletedAt: null })
   @@index([startsAt], map: "event_upcoming_idx", where: { status: "PUBLISHED", deletedAt: null })
+  @@index([suggestionId], map: "event_suggestion_id_idx", where: { suggestionId: { not: null } })
   @@map("event")
 }
 
@@ -1940,6 +1949,44 @@ model DirectMessageBlock {
   /// "Has anybody blocked this sender?" — the other half of the write check.
   @@index([blockedUserId])
   @@map("direct_message_block")
+}
+
+/// A real outside programme an operator offers in the channel (migration 0064).
+///
+/// Not an event: nobody hosts or joins a suggestion. It is the pre-filled answer
+/// to the event wizard, opened by `?start=host_<publicId>`, and an event exists
+/// only once a user confirms it. Its columns are the wizard's fields with the
+/// wizard's bounds, so a suggestion can never open the wizard on a refusal.
+///
+/// Open until `closedAt` is set or `startsAt` passes — one timestamp and the
+/// clock say what a status enum would.
+model EventSuggestion {
+  id            String   @id @default(uuid(7))
+  publicId      String   @unique(map: "event_suggestion_public_id_key") @default(uuid(4)) @map("public_id")
+  cityId        String   @map("city_id")
+  categoryId    String   @map("category_id")
+  title         String
+  description   String
+  /// Where it happens, as the host would type it — becomes `districtLabel`.
+  venueLabel    String   @map("venue_label")
+  startsAt      DateTime @map("starts_at") @db.Timestamptz(3)
+  durationHours Int      @map("duration_hours")
+  capacity      Int      @default(4)
+  costType      CostType @map("cost_type")
+  costAmount    Int?     @map("cost_amount")
+  externalLink  String?  @map("external_link")
+  /// No foreign key, as `CitySeedConfig.updatedByAdminId` has none; the audit
+  /// log is the record of who did what.
+  createdByAdminId String    @map("created_by_admin_id")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  closedAt         DateTime? @map("closed_at") @db.Timestamptz(3)
+
+  city     City     @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  events   Event[]
+
+  @@index([cityId, startsAt])
+  @@map("event_suggestion")
 }
 
 /// One edited section of the in-bot guide (migration 0063).
