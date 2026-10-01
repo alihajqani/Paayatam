@@ -120,6 +120,33 @@ export interface EventSummary {
   createdAt: Date;
 }
 
+/**
+ * One request to join, from either end — who asked, for what, and what it cost.
+ *
+ * `joinCoins` is read from the ledger, not from today's price: `charged` is the
+ * `EVENT_JOIN_SPEND` the request wrote and `refunded` the reversal of it, if a
+ * rejection, an expiry, an unreached waiting place or a host cancellation gave it
+ * back. A withdrawal keeps the charge, so `charged > refunded` on a cancelled row
+ * is the answer to «where did my coins go?».
+ */
+export interface ParticipationRow {
+  publicId: string;
+  status: ParticipantStatus;
+  requestedAt: Date;
+  decidedAt: Date | null;
+  cancelledAt: Date | null;
+  user: { publicId: string; displayName: string | null; isSeed: boolean };
+  event: {
+    publicId: string;
+    number: number;
+    title: string;
+    cityNameFa: string;
+    startsAt: Date;
+    isSeeded: boolean;
+  };
+  joinCoins: { charged: number; refunded: number };
+}
+
 export interface ReportSummary {
   publicId: string;
   targetType: string;
@@ -568,6 +595,118 @@ export class AdminInsightService {
 
     const reports = await this.reportsFor('EVENT', [row.id]);
     return toEventSummary(row, reports.get(row.id) ?? 0);
+  }
+
+  // ── Join requests ──────────────────────────────────────────────────────────
+
+  /**
+   * Requests to join, filtered by the person or by the activity.
+   *
+   * The panel had a tally of statuses on the user page and a request count on
+   * the event list, so "which activities did this person ask for?" and "who asked
+   * for this one?" were both a database session. `user.read`, because the rows
+   * are about people — `SUPPORT` answers balance questions from them and
+   * `ANALYST` reads aggregates only.
+   *
+   * Newest first and bounded like every list here. The ledger is read once for
+   * the page, by participant id, rather than once per row.
+   */
+  async listParticipations(
+    session: AdminSession,
+    filters: {
+      eventPublicId?: string;
+      userPublicId?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<Page<ParticipationRow>> {
+    this.access.assertPermission(session, PERMISSIONS.USER_READ);
+
+    const where: Prisma.EventParticipantWhereInput = {
+      ...(filters.eventPublicId !== undefined
+        ? { event: { publicId: filters.eventPublicId } }
+        : {}),
+      ...(filters.userPublicId !== undefined ? { user: { publicId: filters.userPublicId } } : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.eventParticipant.findMany({
+        where,
+        orderBy: [{ requestedAt: 'desc' }, { id: 'desc' }],
+        take: bounded(filters.limit),
+        skip: Math.max(filters.offset ?? 0, 0),
+        select: {
+          id: true,
+          userId: true,
+          publicId: true,
+          status: true,
+          requestedAt: true,
+          decidedAt: true,
+          cancelledAt: true,
+          user: {
+            select: { publicId: true, isSeed: true, profile: { select: { displayName: true } } },
+          },
+          event: {
+            select: {
+              publicId: true,
+              number: true,
+              title: true,
+              startsAt: true,
+              isSeeded: true,
+              city: { select: { nameFa: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.eventParticipant.count({ where }),
+    ]);
+
+    const charges =
+      rows.length === 0
+        ? []
+        : await this.prisma.coinLedger.findMany({
+            where: {
+              // `user_id` first, so the (user_id, created_at) index narrows it.
+              userId: { in: [...new Set(rows.map((row) => row.userId))] },
+              type: 'EVENT_JOIN_SPEND',
+              refType: 'event_participant',
+              refId: { in: rows.map((row) => row.id) },
+            },
+            select: { refId: true, amount: true, reversal: { select: { amount: true } } },
+          });
+    const coinsByParticipant = new Map<string, { charged: number; refunded: number }>();
+    for (const charge of charges) {
+      if (charge.refId === null) continue;
+      const sum = coinsByParticipant.get(charge.refId) ?? { charged: 0, refunded: 0 };
+      sum.charged += Math.abs(charge.amount);
+      sum.refunded += Math.abs(charge.reversal?.amount ?? 0);
+      coinsByParticipant.set(charge.refId, sum);
+    }
+
+    return {
+      rows: rows.map((row) => ({
+        publicId: row.publicId,
+        status: row.status,
+        requestedAt: row.requestedAt,
+        decidedAt: row.decidedAt,
+        cancelledAt: row.cancelledAt,
+        user: {
+          publicId: row.user.publicId,
+          displayName: row.user.profile?.displayName ?? null,
+          isSeed: row.user.isSeed,
+        },
+        event: {
+          publicId: row.event.publicId,
+          number: row.event.number,
+          title: row.event.title,
+          cityNameFa: row.event.city.nameFa,
+          startsAt: row.event.startsAt,
+          isSeeded: row.event.isSeeded,
+        },
+        joinCoins: coinsByParticipant.get(row.id) ?? { charged: 0, refunded: 0 },
+      })),
+      total,
+    };
   }
 
   // ── Reports ────────────────────────────────────────────────────────────────

@@ -112,7 +112,15 @@ function isChatAction(value: string | undefined): value is ChatCallbackAction {
  * service declines, which is the same answer the API gives.
  */
 export const EVENT_CALLBACK_ACTIONS = [
+  /**
+   * «پایتم», in two steps whenever there is something to confirm.
+   *
+   * `join` asks first when the request costs coins or the activity is in
+   * another city, and `joinyes` makes it; a free request in the joiner's own
+   * city still joins on `join` alone. Both carry an **event** public id.
+   */
   'join',
+  'joinyes',
   /**
    * A guest standing down, in two steps — the ask and the act.
    *

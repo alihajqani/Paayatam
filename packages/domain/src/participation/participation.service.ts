@@ -307,15 +307,18 @@ export class ParticipationService {
          * rolls the participation back rather than leaving a request somebody
          * did not pay for: there is no state where one exists without the other.
          *
-         * **Zero is the shipped default and writes no row at all.**
-         * `coin_ledger.amount` may not be zero, and a row claiming somebody paid
-         * nothing is worse than no row — the same rule `EventService.create`
-         * follows for a free event.
+         * **Zero writes no row at all** (the default is twenty; an operator can
+         * set it to zero). `coin_ledger.amount` may not be zero, and a row
+         * claiming somebody paid nothing is worse than no row — the same rule
+         * `EventService.create` follows for a free event.
          *
          * A waitlisted request is charged like a seated one. What is paid for is
          * the *ask*: it consumes a host's attention and a slot of the daily
-         * request quota whether or not a seat was free. Refunding a rejection
-         * would make this a deposit, which is a different product decision.
+         * request quota whether or not a seat was free. It is a **deposit**
+         * (v0.8.1, v0.21.0): a rejection, an expiry and a waiting-list place no
+         * seat reached all give it back, and only the guest's own withdrawal
+         * keeps it — which is why the bot asks before charging (`previewJoin`)
+         * and says so before a withdrawal (`previewCancellation`).
          *
          * Lock ordering: the **event** row is held by this transaction and
          * `CoinService` takes the coin account second, which is ADR-0006's
@@ -581,6 +584,7 @@ export class ParticipationService {
     const participant = await this.prisma.eventParticipant.findUnique({
       where: { publicId: participantPublicId },
       select: {
+        id: true,
         userId: true,
         status: true,
         graceExpiresAt: true,
@@ -593,10 +597,80 @@ export class ParticipationService {
 
     assertParticipantTransition(participant.status, 'CANCELLED_BY_PARTICIPANT');
 
-    const bucket = bucketFor(participant, participant.event.startsAt, now);
-    if (bucket === null) return { bucket: null, price: { coins: 0, trust: 0 } };
+    /**
+     * What the withdrawal forfeits, beside what it is fined.
+     *
+     * A withdrawal keeps the join charge (`reject`'s docblock says why), so a
+     * preview that quoted only the penalty told a guest «هزینه‌ای ندارد» about a
+     * cancellation that cost them twenty coins — the charge they would have had
+     * back by waiting for the host or the start. It is the ledger's own figure,
+     * not today's price, for the reason `refundJoinCharge` reads it the same way:
+     * the price can have moved since they asked.
+     */
+    const joinCharge = await this.unrefundedJoinCharge(this.prisma, participant.id);
 
-    return { bucket, price: await this.penalties.priceFor(bucket) };
+    const bucket = bucketFor(participant, participant.event.startsAt, now);
+    const price = bucket === null ? { coins: 0, trust: 0 } : await this.penalties.priceFor(bucket);
+
+    return { bucket, price, joinCharge, status: participant.status };
+  }
+
+  /**
+   * What asking to join would cost and where it would land, without asking.
+   *
+   * The confirmation the bot draws before a paid or out-of-town request is built
+   * from this, so it runs the checks `join` runs, in the order `join` runs them,
+   * and refuses the same way: a host is told they cannot join their own activity
+   * before a dialog offers to charge them for it, not after they agree.
+   *
+   * **Not binding.** Nothing is locked, so a seat can go between this and the
+   * request — `join` decides again under the event lock and may waitlist what
+   * this quoted as PENDING. The figure is the setting `join` charges from, read
+   * at the moment it is shown, which is the guarantee every spend dialog makes.
+   */
+  async previewJoin(userId: string, eventPublicId: string): Promise<JoinPreview> {
+    const now = this.clock.now();
+    await this.membership.assertAllowed(userId, 'EVENT_JOIN');
+    const joiner = await this.loadJoiner(userId);
+
+    const event = await this.prisma.event.findUnique({
+      where: { publicId: eventPublicId },
+      select: {
+        id: true,
+        title: true,
+        hostUserId: true,
+        status: true,
+        deletedAt: true,
+        startsAt: true,
+        capacity: true,
+        acceptedCount: true,
+        city: { select: { id: true, nameFa: true } },
+      },
+    });
+    if (!event) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
+
+    this.assertJoinable(event, now);
+    if (event.hostUserId === userId) throw new AppError(ErrorCode.HOST_CANNOT_JOIN);
+    await this.assertEligible(this.prisma, event.id, joiner, now);
+
+    const [existing, outstanding, coins] = await Promise.all([
+      this.prisma.eventParticipant.count({ where: { eventId: event.id, userId } }),
+      this.prisma.eventParticipant.count({
+        where: { eventId: event.id, status: { in: [...SLOT_HOLDING_STATUSES] } },
+      }),
+      this.settings.getInt('economy.event_join_coins'),
+    ]);
+    if (existing > 0) throw new AppError(ErrorCode.DUPLICATE_REQUEST);
+
+    return {
+      eventTitle: event.title,
+      coins,
+      // The same arithmetic `join` admits against: seats plus open requests.
+      status: event.acceptedCount + outstanding < event.capacity ? 'PENDING' : 'WAITLISTED',
+      eventCityNameFa: event.city.nameFa,
+      joinerCityNameFa: joiner.city.nameFa,
+      sameCity: joiner.city.id === event.city.id,
+    };
   }
 
   /**
@@ -1297,14 +1371,7 @@ export class ParticipationService {
       | { reasonCode: string; actorType: 'SYSTEM' },
   ): Promise<number> {
     const charges = await tx.coinLedger.findMany({
-      where: {
-        refType: 'event_participant',
-        refId: participantId,
-        type: 'EVENT_JOIN_SPEND',
-        // Belt and braces: `reverse` refuses a second attempt on its own key, and
-        // Postgres treats NULLs as distinct in the UNIQUE on `reverses_ledger_id`.
-        reversal: { is: null },
-      },
+      where: unrefundedJoinChargeWhere(participantId),
       select: { id: true, amount: true },
     });
 
@@ -1322,6 +1389,18 @@ export class ParticipationService {
       refunded += Math.abs(charge.amount);
     }
     return refunded;
+  }
+
+  /** The join charge still held for a participation — what a refund would return. */
+  private async unrefundedJoinCharge(
+    client: Prisma.TransactionClient,
+    participantId: string,
+  ): Promise<number> {
+    const held = await client.coinLedger.aggregate({
+      where: unrefundedJoinChargeWhere(participantId),
+      _sum: { amount: true },
+    });
+    return Math.abs(held._sum.amount ?? 0);
   }
 
   /**
@@ -1483,7 +1562,9 @@ export class ParticipationService {
       select: {
         status: true,
         onboardingState: true,
-        profile: { select: { birthYear: true, gender: true } },
+        profile: {
+          select: { birthYear: true, gender: true, city: { select: { id: true, nameFa: true } } },
+        },
       },
     });
 
@@ -1503,10 +1584,17 @@ export class ParticipationService {
     }
     if (user.profile.birthYear === null) throw new AppError(ErrorCode.PROFILE_INCOMPLETE);
 
-    return { birthYear: user.profile.birthYear, gender: user.profile.gender };
+    return {
+      birthYear: user.profile.birthYear,
+      gender: user.profile.gender,
+      city: user.profile.city,
+    };
   }
 
-  private assertJoinable(event: LockedEvent, now: Date): void {
+  private assertJoinable(
+    event: Pick<LockedEvent, 'status' | 'deletedAt' | 'startsAt'>,
+    now: Date,
+  ): void {
     // Not-published and not-found answer identically. A user cannot ask this
     // endpoint whether a hidden event exists (T3.3).
     if (event.deletedAt !== null || event.status !== 'PUBLISHED') {
@@ -1672,6 +1760,18 @@ export class ParticipationService {
  * quotes and the same one the charge uses, and passing it around as a pure
  * function is what keeps those from becoming two answers.
  */
+/** A participation's join charges that have not been reversed. */
+function unrefundedJoinChargeWhere(participantId: string): Prisma.CoinLedgerWhereInput {
+  return {
+    refType: 'event_participant',
+    refId: participantId,
+    type: 'EVENT_JOIN_SPEND',
+    // Belt and braces: `reverse` refuses a second attempt on its own key, and
+    // Postgres treats NULLs as distinct in the UNIQUE on `reverses_ledger_id`.
+    reversal: { is: null },
+  };
+}
+
 function bucketFor(
   participant: { status: ParticipantStatus; graceExpiresAt: Date | null },
   startsAt: Date,
@@ -1687,11 +1787,32 @@ export interface CancellationPreview {
   /** Null when this cancellation is not priced at all — a queue withdrawal. */
   bucket: CancellationBucket | null;
   price: PenaltyPrice;
+  /**
+   * The join charge this withdrawal keeps — coins already taken, not a new
+   * penalty. Zero when asking was free or the charge was already refunded.
+   */
+  joinCharge: number;
+  /** Which way the charge would have come back without the withdrawal. */
+  status: ParticipantStatus;
+}
+
+export interface JoinPreview {
+  eventTitle: string;
+  /** `economy.event_join_coins`, read now. Zero means asking is free. */
+  coins: number;
+  /** Where the request would land if nothing changes before it is made. */
+  status: 'PENDING' | 'WAITLISTED';
+  eventCityNameFa: string;
+  joinerCityNameFa: string;
+  /** False is the case the confirmation exists to warn about. */
+  sameCity: boolean;
 }
 
 interface Joiner {
   birthYear: number;
   gender: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null;
+  /** For `previewJoin`'s «not your city» — eligibility does not read it. */
+  city: { id: string; nameFa: string };
 }
 
 interface PromotedParticipant {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { policyType } from './auth';
 import { gatedAction } from './catalog';
+import { participantStatus } from './participation';
 import { gender } from './profile';
 
 /**
@@ -955,6 +956,55 @@ export const adminEventListResponse = z.object({
   total: z.number().int().nonnegative(),
 });
 export type AdminEventListResponse = z.infer<typeof adminEventListResponse>;
+
+/**
+ * Requests to join, by the person or by the activity — the panel's answer to
+ * «who asked for what, and where did the coins go?».
+ *
+ * `joinCoins.charged` is what the request took and `refunded` what came back;
+ * a withdrawal keeps the charge, so a cancelled row with `charged > refunded`
+ * is a guest who paid and withdrew. Identities are public ids only.
+ */
+export const adminParticipationView = z.object({
+  publicId: z.uuid(),
+  status: participantStatus,
+  requestedAt: z.iso.datetime(),
+  decidedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+  user: z.object({
+    publicId: z.uuid(),
+    displayName: z.string().nullable(),
+    /** A marketing seed identity — not a person, and not linkable. */
+    isSeed: z.boolean(),
+  }),
+  event: z.object({
+    publicId: z.uuid(),
+    number: z.number().int().positive(),
+    title: z.string(),
+    cityNameFa: z.string(),
+    startsAt: z.iso.datetime(),
+    isSeeded: z.boolean(),
+  }),
+  joinCoins: z.object({
+    charged: z.number().int().nonnegative(),
+    refunded: z.number().int().nonnegative(),
+  }),
+});
+export type AdminParticipationView = z.infer<typeof adminParticipationView>;
+
+export const adminParticipationListQuery = z.object({
+  eventPublicId: z.uuid().optional(),
+  userPublicId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type AdminParticipationListQuery = z.infer<typeof adminParticipationListQuery>;
+
+export const adminParticipationListResponse = z.object({
+  participations: z.array(adminParticipationView),
+  total: z.number().int().nonnegative(),
+});
+export type AdminParticipationListResponse = z.infer<typeof adminParticipationListResponse>;
 
 /**
  * Hiding or restoring an event directly, without a case.

@@ -123,8 +123,8 @@ two consumers, so a menu entry cannot point at a page the guard refuses.
 | نمای کلی (dashboard) | `dashboard.read` | Users, events, participations, chats, reports, cases, coin supply, referrals, gift codes, failed redemptions, moderation backlog, and live database/Redis health |
 | کمپین هزار نفر | `dashboard.read` | The founding campaign: ranks issued against the cap, coins paid, the daily curve, the waves, which cities members came from, and the queue of closed cities — see §14. The member roster on the same page additionally needs `user.read` |
 | کاربران | `user.read` | Search by name or `publicId`, filter by status, paginate |
-| پروندهٔ کاربر | `user.read` | Profile, reputation, balance and where it came from, events, participations, referrals, gift codes, reports both ways. Suspend/ban/restore needs `user.ban`; manual coin and trust adjustment need `coin.adjust` / `trust.adjust` |
-| فعالیت‌ها | `event.moderate` | Search, filter, hide, restore |
+| پروندهٔ کاربر | `user.read` | Profile, reputation, balance and where it came from, events, participations, referrals, gift codes, reports both ways. Suspend/ban/restore needs `user.ban`; manual coin and trust adjustment need `coin.adjust` / `trust.adjust`. «رویدادهایی که درخواست داده» lists every request to join — the activity, its city, the status, and whether the join charge came back (`GET /admin/v1/participations?userPublicId=`) |
+| فعالیت‌ها | `event.moderate` | Search, filter, hide, restore. With `user.read` as well, the request count opens who asked to join that activity, with the same coin column (`GET /admin/v1/participations?eventPublicId=`) |
 | گزارش‌های تخلف | `report.review` | The report queue, oldest first, with filters and decisions |
 | گزارش‌های مشکل | `report.review` | What users say is broken about the **product** — see §13 |
 | پرونده‌های بررسی | `event.moderate` | The moderation cases the automation opens, with the `falsePositive` classification |

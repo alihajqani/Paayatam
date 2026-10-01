@@ -405,7 +405,14 @@ describe('the dry run (§6)', () => {
     clock.set(at(1));
     const preview = await participation.previewCancellation(userId, participantPublicId);
 
-    expect(preview).toEqual({ bucket: 'LT_3H', price: { coins: 40, trust: 8 } });
+    // The fine, and separately the join charge an accepted guest's withdrawal keeps
+    // — two different things the confirmation has to name.
+    expect(preview).toEqual({
+      bucket: 'LT_3H',
+      price: { coins: 40, trust: 8 },
+      joinCharge: JOIN_COST,
+      status: 'ACCEPTED',
+    });
     await expect(coins.balanceOf(userId)).resolves.toBe(500);
     // No *penalty* row. The join charge is a negative row and is not what a dry
     // run must avoid writing.

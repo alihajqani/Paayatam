@@ -214,6 +214,7 @@ export type {
   MyParticipation,
   ParticipantSummary,
   CancellationPreview,
+  JoinPreview,
 } from './participation/participation.service';
 export { ParticipationModule } from './participation/participation.module';
 
@@ -388,6 +389,7 @@ export type {
   EventSummary,
   LedgerEntrySummary,
   Page,
+  ParticipationRow,
   ReportSummary,
   Tally,
   UserDetail,

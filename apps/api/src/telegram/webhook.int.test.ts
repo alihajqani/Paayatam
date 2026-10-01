@@ -17,6 +17,7 @@ import {
   encodeChannelRecheckCallback,
   encodeMenuCommand,
   render,
+  toPersianDigits,
 } from '@payetam/telegram';
 import { JOBS, QUEUES, QueueService, RedisService, jobId } from '@payetam/platform';
 import {
@@ -544,7 +545,45 @@ describe('/start', () => {
       expect(await prisma.eventParticipant.count()).toBe(0);
     });
 
-    it('joins the activity, and tells the host', async () => {
+    /** The ask the link sends instead of charging, and its one button. */
+    async function joinAsk(): Promise<{ text: string; callbackData: string; label: string }> {
+      const ask = await prisma.notification.findFirstOrThrow({
+        where: { templateKey: TEMPLATES.BOT_CONFIRM_SPEND },
+        orderBy: { createdAt: 'desc' },
+        select: { payload: true },
+      });
+      const payload = ask.payload as Record<string, unknown>;
+      const keyboard = JSON.parse(String(payload['keyboard'])) as {
+        text: string;
+        callbackData: string;
+      }[][];
+      return {
+        text: String(payload['text']),
+        callbackData: keyboard[0]?.[0]?.callbackData ?? '',
+        label: keyboard[0]?.[0]?.text ?? '',
+      };
+    }
+
+    async function tapAs(telegramUserId: number, data: string): Promise<void> {
+      await post(
+        update({
+          callback_query: {
+            id: `cb-${String(updateSequence)}`,
+            from: sender(telegramUserId),
+            message: { message_id: 1, chat: { id: telegramUserId, type: 'private' } },
+            data,
+          },
+        }),
+      );
+    }
+
+    /**
+     * Asking costs coins and the post says nothing about it, so the link asks
+     * instead of charging on the tap. A reader in a city the product had not
+     * opened paid three twenties this way to queue for activities elsewhere, then
+     * withdrew all three on «این کار هزینه‌ای ندارد» and kept none of it.
+     */
+    it('asks before charging, then joins on «بله» and tells the host', async () => {
       const { hostId, eventPublicId } = await seedHostAndEvent();
       const guestId = await seedGuest(GUEST_TELEGRAM_ID);
 
@@ -552,19 +591,91 @@ describe('/start', () => {
         update({ message: textMessage(sender(GUEST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
       );
 
+      expect(await prisma.eventParticipant.count()).toBe(0);
+      const ask = await joinAsk();
+      const price = toPersianDigits(String(SETTING_DEFAULTS['economy.event_join_coins']));
+      expect(ask.text).toContain(`${price} سکه`);
+      // What a withdrawal keeps is said before the coins are taken, not after.
+      expect(ask.text).toContain('برنمی‌گردد');
+      expect(ask.callbackData).toBe(`ev:joinyes:${eventPublicId}`);
+
+      await tapAs(GUEST_TELEGRAM_ID, ask.callbackData);
+
       const participant = await prisma.eventParticipant.findFirstOrThrow({
         select: { userId: true, status: true },
       });
       expect(participant).toEqual({ userId: guestId, status: 'PENDING' });
 
-      // The guest hears about it here; the host hears about it through the outbox,
-      // which is invariant 11 — nothing is sent inline from a request.
+      // The guest's answer to «بله» is the toast, as for the in-bot button; the
+      // host hears about it through the outbox, which is invariant 11 — nothing
+      // is sent inline from a request.
       const guestReplies = (await replyTo(GUEST_TELEGRAM_ID)).map((row) => row.templateKey);
-      expect(guestReplies).toContain(TEMPLATES.BOT_NOTICE);
+      expect(guestReplies).toEqual([TEMPLATES.BOT_CONFIRM_SPEND]);
       expect(
         await prisma.outboxEvent.count({ where: { eventType: 'participation.requested' } }),
       ).toBe(1);
       expect(hostId).toBeTruthy();
+    });
+
+    it('says so when the activity is in another city', async () => {
+      const { eventPublicId } = await seedHostAndEvent();
+      const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+      await prisma.userProfile.update({
+        where: { userId: guestId },
+        data: { cityId: fixture.karajId },
+      });
+
+      await post(
+        update({ message: textMessage(sender(GUEST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
+      );
+
+      expect(await prisma.eventParticipant.count()).toBe(0);
+      const ask = await joinAsk();
+      expect(ask.text).toContain('تهران');
+      expect(ask.text).toContain('کرج');
+    });
+
+    /** A free request elsewhere is still asked about — the city is the reason. */
+    it('asks about another city even when asking is free', async () => {
+      await prisma.appSetting.upsert({
+        where: { key: 'economy.event_join_coins' },
+        create: { key: 'economy.event_join_coins', value: 0 },
+        update: { value: 0 },
+      });
+      const { eventPublicId } = await seedHostAndEvent();
+      const guestId = await seedGuest(GUEST_TELEGRAM_ID);
+      await prisma.userProfile.update({
+        where: { userId: guestId },
+        data: { cityId: fixture.karajId },
+      });
+
+      await post(
+        update({ message: textMessage(sender(GUEST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
+      );
+
+      const ask = await joinAsk();
+      expect(ask.text).toContain('کرج');
+      expect(ask.text).not.toContain('سکه');
+    });
+
+    /** Nothing to warn about and nothing to pay: the one-tap join the button was built as. */
+    it('joins on the tap when asking is free and the activity is in their city', async () => {
+      await prisma.appSetting.upsert({
+        where: { key: 'economy.event_join_coins' },
+        create: { key: 'economy.event_join_coins', value: 0 },
+        update: { value: 0 },
+      });
+      const { eventPublicId } = await seedHostAndEvent();
+      await seedGuest(GUEST_TELEGRAM_ID);
+
+      await post(
+        update({ message: textMessage(sender(GUEST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
+      );
+
+      expect(await prisma.eventParticipant.count()).toBe(1);
+      expect(
+        await prisma.notification.count({ where: { templateKey: TEMPLATES.BOT_CONFIRM_SPEND } }),
+      ).toBe(0);
     });
 
     /**
@@ -2994,7 +3105,17 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     const back = buttons.find((b) => b.callbackData.startsWith('bk:'));
     expect(back?.callbackData).toMatch(/^bk:d:\d+$/);
 
+    // Asking costs coins, so «پایتم» asks first and «بله» is what charges.
     await tap(GUEST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
+    expect(await prisma.eventParticipant.count()).toBe(0);
+    const ask = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CONFIRM_SPEND },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    const yes = keyboardOf(ask.payload).flat()[0];
+    expect(yes?.callbackData).toBe(`ev:joinyes:${eventPublicId}`);
+    await tap(GUEST_TELEGRAM_ID, yes?.callbackData ?? '');
 
     const participant = await prisma.eventParticipant.findFirstOrThrow({
       where: { userId: guestId },
@@ -3044,6 +3165,16 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     expect(join?.text).toContain('نوبت انتظار');
 
     await tap(GUEST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
+    // The ask says it is the waiting list too, and when the coins come back from it.
+    const ask = await prisma.notification.findFirstOrThrow({
+      where: { templateKey: TEMPLATES.BOT_CONFIRM_SPEND },
+      orderBy: { createdAt: 'desc' },
+      select: { payload: true },
+    });
+    expect(String((ask.payload as Record<string, unknown>)['text'])).toContain('نوبت انتظار');
+    const yes = keyboardOf(ask.payload).flat()[0];
+    expect(yes?.text).toContain('نوبت انتظار');
+    await tap(GUEST_TELEGRAM_ID, yes?.callbackData ?? '');
     const participant = await prisma.eventParticipant.findFirstOrThrow({
       where: { userId: guestId },
       select: { status: true },
@@ -3349,6 +3480,12 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     });
     const confirm = keyboardOf(ask.payload).flat()[0];
     expect(confirm?.callbackData).toMatch(/^ev:cancelyes:/);
+    // The join charge stays with a withdrawal, so the ask must not call it free.
+    const askText = String((ask.payload as Record<string, unknown>)['text']);
+    const price = toPersianDigits(String(SETTING_DEFAULTS['economy.event_join_coins']));
+    expect(askText).toContain(`${price} سکه`);
+    expect(askText).toContain('برنمی‌گردد');
+    expect(askText).not.toContain('هزینه‌ای ندارد');
 
     await tap(GUEST_TELEGRAM_ID, confirm?.callbackData ?? '');
 
