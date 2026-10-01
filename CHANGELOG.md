@@ -14,6 +14,52 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.21.3] — 2026-10-01
+
+Asking to join now says what it costs before it charges, cancelling a request says the join
+charge stays gone, and the panel shows who asked to join which activity.
+
+A user in Urmia, a city that is not open yet, tapped «شرکت می‌کنم» under three channel posts for
+activities in Tehran and Mashhad. Each tap charged 20 coins and showed neither the price nor the
+city. Six hours later they withdrew all three after a confirmation that said «این کار هزینه‌ای
+ندارد», and lost 60 coins that waiting would have given back.
+
+**No migration. No setting change. The bot's command menu does not change.**
+
+### ⚠️ What a deploy changes for people
+
+- **«پایتم» and the channel's «شرکت می‌کنم» ask before charging** whenever a request costs coins
+  (20 by default) or the activity is in a different city from the one on the profile. The
+  confirmation names the activity, the price, the cities when they differ, and the waiting list
+  when the activity is full. It says the coins come back on a rejection, on no answer, or when no
+  waiting place opens, and that withdrawing keeps them. The coins are taken on «بله، درخواست
+  بده». **With the price at 20, every in-bot join is now two taps.** Only a free request in the
+  joiner's own city still joins on one tap.
+- **Cancelling a pending or waiting request no longer says «این کار هزینه‌ای ندارد».** It says
+  the 20 coins paid to ask will not come back, and that they would have if the guest had waited.
+  An accepted guest's late-cancellation fine is still quoted as well.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- `ParticipationService.previewJoin`: the checks `join` makes (channel gate, profile,
+  joinability, host, eligibility, duplicate), in the same order, writing nothing. It returns the
+  price, PENDING or WAITLISTED, and both cities. Bot button `ev:joinyes`.
+- `GET /admin/v1/participations?userPublicId=|eventPublicId=` (`user.read`): requests to join,
+  each with the activity, its city, the status, the times, and the join charge with how much of
+  it came back. In the panel this is «رویدادهایی که درخواست داده» on the user page; in
+  «فعالیت‌ها», the request count opens the list of people who asked. Seed rows are marked
+  «ساختگی».
+
+### Changed
+
+- `previewCancellation` also returns `joinCharge` (the join charge not yet refunded) and
+  `status`. The Mini App's dry-run response is unchanged.
+
+### Fixed
+
+- Comments that still described joining as free (`join`, `PenaltyService.lockAccounts`).
+
 ## [v0.21.2] — 2026-09-27
 
 The bottom keyboard can be folded away again, gender is «زن» or «مرد» and nothing else, and the
