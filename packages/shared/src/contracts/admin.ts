@@ -976,7 +976,11 @@ export const adminParticipationView = z.object({
     displayName: z.string().nullable(),
     /** A marketing seed identity — not a person, and not linkable. */
     isSeed: z.boolean(),
+    /** The city on their profile. */
+    cityNameFa: z.string().nullable(),
   }),
+  /** The activity is outside the city on the user's profile. */
+  outOfCity: z.boolean(),
   event: z.object({
     publicId: z.uuid(),
     number: z.number().int().positive(),
@@ -995,6 +999,14 @@ export type AdminParticipationView = z.infer<typeof adminParticipationView>;
 export const adminParticipationListQuery = z.object({
   eventPublicId: z.uuid().optional(),
   userPublicId: z.uuid().optional(),
+  /** A name, a public id, an activity title, or an activity number (`61`, `#61`). */
+  query: z.string().trim().min(1).max(120).optional(),
+  status: participantStatus.optional(),
+  eventCityId: z.uuid().optional(),
+  userCityId: z.uuid().optional(),
+  outOfCity: z.stringbool().optional(),
+  /** Leave marketing seed identities out. */
+  realOnly: z.stringbool().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
@@ -1003,6 +1015,8 @@ export type AdminParticipationListQuery = z.infer<typeof adminParticipationListQ
 export const adminParticipationListResponse = z.object({
   participations: z.array(adminParticipationView),
   total: z.number().int().nonnegative(),
+  /** Every city on either side of a request — what the city filters offer. */
+  cities: z.array(z.object({ id: z.string(), nameFa: z.string() })),
 });
 export type AdminParticipationListResponse = z.infer<typeof adminParticipationListResponse>;
 

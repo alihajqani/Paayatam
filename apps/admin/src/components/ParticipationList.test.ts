@@ -32,7 +32,8 @@ function row(overrides: Partial<AdminParticipationView>): AdminParticipationView
     requestedAt: '2026-09-30T11:21:18.922Z',
     decidedAt: null,
     cancelledAt: null,
-    user: { publicId: GUEST, displayName: 'میلاد', isSeed: false },
+    user: { publicId: GUEST, displayName: 'میلاد', isSeed: false, cityNameFa: 'تهران' },
+    outOfCity: false,
     event: {
       publicId: '8ae25454-d462-4df5-a267-48087ee8b853',
       number: 61,
@@ -89,6 +90,7 @@ describe('ParticipationList', () => {
         row({ event: { ...row({}).event, number: 24, title: 'دورهمی' } }),
       ],
       total: 3,
+      cities: [],
     };
     request.mockResolvedValue(page);
 
@@ -116,9 +118,12 @@ describe('ParticipationList', () => {
     request.mockResolvedValue({
       participations: [
         row({}),
-        row({ user: { publicId: SEED_GUEST, displayName: 'سارا', isSeed: true } }),
+        row({
+          user: { publicId: SEED_GUEST, displayName: 'سارا', isSeed: true, cityNameFa: 'تهران' },
+        }),
       ],
       total: 2,
+      cities: [],
     } satisfies AdminParticipationListResponse);
 
     const root = await mount({ eventPublicId: '8ae25454-d462-4df5-a267-48087ee8b853' });

@@ -552,6 +552,125 @@ describe('join requests', () => {
       code: 'FORBIDDEN',
     });
   });
+
+  /**
+   * The page an operator works from, rather than one user at a time: everybody's
+   * requests, searchable and filtered. The case that asked for it — a user from a
+   * city not yet open paying to queue in another — is the «شهر دیگر» filter.
+   */
+  describe('across everybody', () => {
+    async function moveTo(userId: string, cityId: string): Promise<void> {
+      await prisma.userProfile.update({ where: { userId }, data: { cityId } });
+    }
+
+    async function eventIn(hostId: string, title: string, cityId: string): Promise<string> {
+      const publicId = await seedEvent(hostId, title);
+      await prisma.event.update({ where: { publicId }, data: { cityId } });
+      return publicId;
+    }
+
+    it('marks a request for an activity outside the user’s city, and filters on it', async () => {
+      const host = await seedUser('میزبان');
+      const local = await seedUser('تهرانی');
+      const visitor = await seedUser('میلاد');
+      await moveTo(visitor.id, fixture.karajId);
+      const hiking = await seedEvent(host.id, 'کوه نوردی');
+      await request(hiking, local.id, 'PENDING');
+      await request(hiking, visitor.id, 'PENDING');
+
+      const all = await insight.listParticipations(SUPER, {});
+      const byName = new Map(all.rows.map((row) => [row.user.displayName, row]));
+      expect(byName.get('میلاد')).toMatchObject({ outOfCity: true, user: { cityNameFa: 'کرج' } });
+      expect(byName.get('تهرانی')).toMatchObject({
+        outOfCity: false,
+        user: { cityNameFa: 'تهران' },
+      });
+
+      const away = await insight.listParticipations(SUPER, { outOfCity: true });
+      expect(away.total).toBe(1);
+      expect(away.rows[0]?.user.displayName).toBe('میلاد');
+    });
+
+    it('filters by status, by the user’s city and by the activity’s city', async () => {
+      const host = await seedUser('میزبان');
+      const guest = await seedUser('میلاد');
+      await moveTo(guest.id, fixture.karajId);
+      const tehran = await seedEvent(host.id, 'کوه نوردی');
+      const karaj = await eventIn(host.id, 'بازارچه', fixture.karajId);
+      await request(tehran, guest.id, 'WAITLISTED');
+      await request(karaj, guest.id, 'PENDING');
+      const other = await seedUser('دیگری');
+      await request(tehran, other.id, 'PENDING');
+
+      const waiting = await insight.listParticipations(SUPER, { status: 'WAITLISTED' });
+      expect(waiting.rows.map((row) => row.event.title)).toEqual(['کوه نوردی']);
+
+      const fromKaraj = await insight.listParticipations(SUPER, { userCityId: fixture.karajId });
+      expect(fromKaraj.total).toBe(2);
+
+      const inKaraj = await insight.listParticipations(SUPER, { eventCityId: fixture.karajId });
+      expect(inKaraj.rows.map((row) => row.event.title)).toEqual(['بازارچه']);
+    });
+
+    it('finds a request by the person’s name or id, or the activity’s title or number', async () => {
+      const host = await seedUser('میزبان');
+      const milad = await seedUser('میلاد');
+      const sara = await seedUser('سارا');
+      const hiking = await seedEvent(host.id, 'کوه نوردی');
+      const bazaar = await seedEvent(host.id, 'بازارچه');
+      await request(hiking, milad.id, 'PENDING');
+      await request(bazaar, sara.id, 'PENDING');
+      const { number } = await prisma.event.findUniqueOrThrow({
+        where: { publicId: bazaar },
+        select: { number: true },
+      });
+
+      const names = async (query: string): Promise<string[]> =>
+        (await insight.listParticipations(SUPER, { query })).rows.map(
+          (row) => row.user.displayName ?? '',
+        );
+
+      expect(await names('میلاد')).toEqual(['میلاد']);
+      expect(await names(milad.publicId)).toEqual(['میلاد']);
+      // ي and ی fold together, as in every other search in the panel.
+      expect(await names('كوه')).toEqual(['میلاد']);
+      expect(await names(`#${String(number)}`)).toEqual(['سارا']);
+      expect(await names(String(number))).toEqual(['سارا']);
+    });
+
+    it('leaves seed identities out when asked for real people only', async () => {
+      const host = await seedUser('میزبان');
+      const real = await seedUser('میلاد');
+      const eventPublicId = await seedEvent(host.id, 'کوه نوردی');
+      await request(eventPublicId, real.id, 'PENDING');
+      const seed = await prisma.user.create({
+        data: {
+          isSeed: true,
+          onboardingState: 'PROFILE_COMPLETE',
+          profile: {
+            create: { displayName: 'ساختگی', cityId: fixture.tehranId, birthYear: 1995 },
+          },
+        },
+        select: { id: true },
+      });
+      await request(eventPublicId, seed.id, 'PENDING');
+
+      expect((await insight.listParticipations(SUPER, {})).total).toBe(2);
+      const real_ = await insight.listParticipations(SUPER, { realOnly: true });
+      expect(real_.rows.map((row) => row.user.displayName)).toEqual(['میلاد']);
+    });
+
+    it('lists the cities that appear on either side, for the filters', async () => {
+      const host = await seedUser('میزبان');
+      const guest = await seedUser('میلاد');
+      await moveTo(guest.id, fixture.karajId);
+      await request(await seedEvent(host.id, 'کوه نوردی'), guest.id, 'PENDING');
+
+      const page = await insight.listParticipations(SUPER, {});
+
+      expect(page.cities.map((city) => city.nameFa).sort()).toEqual(['تهران', 'کرج']);
+    });
+  });
 });
 
 describe('events and reports', () => {

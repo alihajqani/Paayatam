@@ -13,7 +13,16 @@ import { computed } from 'vue';
  * `PENDING_REVIEW` is honest; inventing a Persian word for it here would be the
  * panel guessing at product copy.
  */
-const props = defineProps<{ value: string; tone?: 'good' | 'warn' | 'danger' | 'neutral' }>();
+const props = defineProps<{
+  value: string;
+  tone?: 'good' | 'warn' | 'danger' | 'neutral';
+  /**
+   * Wording for a screen where the shared word is wrong — `REJECTED` is «تأیید
+   * نشده» for an event and «رد شد» for a request to join. The tone still follows
+   * the value.
+   */
+  label?: string;
+}>();
 
 /** Persian for every status the panel renders (glossary §2). */
 const LABELS: Record<string, string> = {
@@ -91,7 +100,7 @@ const TONES: Record<string, 'good' | 'warn' | 'danger' | 'neutral'> = {
   EXHAUSTED: 'danger',
 };
 
-const label = computed(() => LABELS[props.value] ?? props.value);
+const label = computed(() => props.label ?? LABELS[props.value] ?? props.value);
 const tone = computed(() => props.tone ?? TONES[props.value] ?? 'neutral');
 
 const CLASSES: Record<string, string> = {

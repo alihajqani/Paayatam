@@ -5,7 +5,6 @@ import type { AdminEventListResponse, AdminEventStatus, AdminEventView } from '@
 import { messageOf, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import PagerBar from '@/components/PagerBar.vue';
-import ParticipationList from '@/components/ParticipationList.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
 import { formatDateTime, formatNumber, toPersianDigits } from '@/format/fa';
@@ -75,18 +74,6 @@ watch([query, status], () => {
   debounce = setTimeout(() => void load(), 300);
 });
 watch(offset, () => void load());
-
-// ── Who asked ───────────────────────────────────────────────────────────────
-
-/**
- * The request count opens the requests under its row (`user.read` only — they
- * are rows about people). One at a time, so the table stays a table.
- */
-const expanded = ref<string | null>(null);
-
-function toggleRequests(publicId: string): void {
-  expanded.value = expanded.value === publicId ? null : publicId;
-}
 
 // ── Moderating ──────────────────────────────────────────────────────────────
 
@@ -202,76 +189,71 @@ onMounted(load);
             </tr>
           </thead>
           <tbody>
-            <template v-for="event in rows" :key="event.publicId">
-              <tr class="border-b border-line last:border-0">
-                <td class="px-4 py-3">
-                  <span class="font-medium">{{ event.title }}</span>
-                  <span class="block text-xs text-ink-faint">{{ event.cityNameFa }}</span>
-                </td>
-                <td class="px-4 py-3">
-                  <RouterLink
-                    v-if="session.can('user.read')"
-                    :to="{ name: 'user-detail', params: { publicId: event.hostPublicId } }"
-                    class="text-brand"
-                  >
-                    {{ event.hostDisplayName ?? 'بدون نام' }}
-                  </RouterLink>
-                  <span v-else>{{ event.hostDisplayName ?? 'بدون نام' }}</span>
-                </td>
-                <td class="px-4 py-3">
-                  <StatusPill :value="event.status" />
-                  <span class="mt-1 block text-xs text-ink-faint">
-                    بررسی: {{ event.moderationStatus }}
-                  </span>
-                </td>
-                <td class="px-4 py-3 tabular-nums">
-                  <bdi>{{ toPersianDigits(event.acceptedCount) }}</bdi> از
-                  <bdi>{{ toPersianDigits(event.capacity) }}</bdi>
-                </td>
-                <td class="px-4 py-3 tabular-nums">
+            <tr
+              v-for="event in rows"
+              :key="event.publicId"
+              class="border-b border-line last:border-0"
+            >
+              <td class="px-4 py-3">
+                <span class="font-medium">{{ event.title }}</span>
+                <span class="block text-xs text-ink-faint">{{ event.cityNameFa }}</span>
+              </td>
+              <td class="px-4 py-3">
+                <RouterLink
+                  v-if="session.can('user.read')"
+                  :to="{ name: 'user-detail', params: { publicId: event.hostPublicId } }"
+                  class="text-brand"
+                >
+                  {{ event.hostDisplayName ?? 'بدون نام' }}
+                </RouterLink>
+                <span v-else>{{ event.hostDisplayName ?? 'بدون نام' }}</span>
+              </td>
+              <td class="px-4 py-3">
+                <StatusPill :value="event.status" />
+                <span class="mt-1 block text-xs text-ink-faint">
+                  بررسی: {{ event.moderationStatus }}
+                </span>
+              </td>
+              <td class="px-4 py-3 tabular-nums">
+                <bdi>{{ toPersianDigits(event.acceptedCount) }}</bdi> از
+                <bdi>{{ toPersianDigits(event.capacity) }}</bdi>
+              </td>
+              <td class="px-4 py-3 tabular-nums">
+                <!-- Who asked, on the requests page — narrowed to this activity. -->
+                <RouterLink
+                  v-if="session.can('user.read') && event.requestCount > 0"
+                  :to="{ name: 'participations', query: { event: event.publicId } }"
+                  class="text-brand"
+                >
+                  <bdi>{{ formatNumber(event.requestCount) }}</bdi> ←
+                </RouterLink>
+                <bdi v-else>{{ formatNumber(event.requestCount) }}</bdi>
+              </td>
+              <td class="px-4 py-3">
+                <span
+                  v-if="event.reportCount > 0"
+                  class="rounded-full bg-warn-soft px-2 py-0.5 text-xs text-warn"
+                >
+                  <bdi>{{ toPersianDigits(event.reportCount) }}</bdi> باز
+                </span>
+                <span v-else class="text-ink-faint">—</span>
+              </td>
+              <td class="px-4 py-3 text-ink-soft">{{ formatDateTime(event.startsAt) }}</td>
+              <td class="px-4 py-3">
+                <div class="flex justify-end gap-2">
                   <button
-                    v-if="session.can('user.read') && event.requestCount > 0"
+                    v-for="action in ['HIDE', 'PUBLISH'] as Action[]"
+                    :key="action"
                     type="button"
-                    class="text-brand"
-                    :aria-expanded="expanded === event.publicId"
-                    @click="toggleRequests(event.publicId)"
+                    class="min-h-9 rounded-lg border border-line px-2 text-xs disabled:opacity-40"
+                    :disabled="!session.canMutate"
+                    @click="pending = { event, action }"
                   >
-                    <bdi>{{ formatNumber(event.requestCount) }}</bdi>
-                    {{ expanded === event.publicId ? '▴' : '▾' }}
+                    {{ ACTIONS[action].label }}
                   </button>
-                  <bdi v-else>{{ formatNumber(event.requestCount) }}</bdi>
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    v-if="event.reportCount > 0"
-                    class="rounded-full bg-warn-soft px-2 py-0.5 text-xs text-warn"
-                  >
-                    <bdi>{{ toPersianDigits(event.reportCount) }}</bdi> باز
-                  </span>
-                  <span v-else class="text-ink-faint">—</span>
-                </td>
-                <td class="px-4 py-3 text-ink-soft">{{ formatDateTime(event.startsAt) }}</td>
-                <td class="px-4 py-3">
-                  <div class="flex justify-end gap-2">
-                    <button
-                      v-for="action in ['HIDE', 'PUBLISH'] as Action[]"
-                      :key="action"
-                      type="button"
-                      class="min-h-9 rounded-lg border border-line px-2 text-xs disabled:opacity-40"
-                      :disabled="!session.canMutate"
-                      @click="pending = { event, action }"
-                    >
-                      {{ ACTIONS[action].label }}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="expanded === event.publicId" class="border-b border-line">
-                <td colspan="8" class="px-4 pb-4">
-                  <ParticipationList :event-public-id="event.publicId" />
-                </td>
-              </tr>
-            </template>
+                </div>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>

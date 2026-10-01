@@ -90,6 +90,17 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'کاربران', permission: PERMISSIONS.USER_READ, group: 'overview' },
   },
   {
+    /**
+     * Every request to join, from everybody — searchable and filtered, with the
+     * join charge on each row. `user.read`, because the rows are about people.
+     * The user page and the event list link here with `?user=` / `?event=`.
+     */
+    path: '/participations',
+    name: 'participations',
+    component: () => import('@/views/ParticipationsView.vue'),
+    meta: { title: 'درخواست‌ها', permission: PERMISSIONS.USER_READ, group: 'overview' },
+  },
+  {
     path: '/users/:publicId',
     name: 'user-detail',
     component: () => import('@/views/UserDetailView.vue'),
