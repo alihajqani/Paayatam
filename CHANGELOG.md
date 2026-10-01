@@ -14,6 +14,43 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.21.4] — 2026-10-01
+
+The panel has a «درخواست‌ها» page with every request to join from everybody, and a way to message
+one particular person through the bot.
+
+**No migration. No setting change. Nothing changes in the bot.** Panel and admin API only.
+
+### ⚠️ What a deploy changes for people
+
+- Nothing in the bot. The usual release broadcast goes to every user once.
+
+### Added
+
+- **«درخواست‌ها»** in the sidebar (under «نمای کلی», `user.read`). It lists every request to
+  join, newest first, and replaces opening users one at a time. Each row shows the person (with
+  their city and a link to their page), the activity (number, title, city, date), the status in
+  the wording used for requests («رد شد», «بی‌پاسخ ماند», «لغو توسط کاربر»…), when it was
+  requested and cancelled, and the join charge with whether it came back. A **«شهر دیگر»** mark
+  shows when the activity is outside the city on the person's profile.
+- Search the page by name or public id, activity title, or activity number (`61` or `#61`).
+  Filter it by status, the person's city, the activity's city, «فقط رویداد شهر دیگر», and «نمایش
+  کاربران ساختگی» (off by default). Clicking an activity's title narrows the page to it. The
+  filters are kept in the address, so `?user=` and `?event=` links open it already narrowed.
+- **«✉️ پیام به این کاربر»** on the user page, and **«✉️ پیام»** on each real person's row, open
+  «پیام‌ها» with that person filled in. Sending still goes through preview, draft and
+  confirmation. When the preview reaches nobody, the page says the person blocked the bot or
+  their account was banned or deleted. This is how to reach someone with no Telegram username;
+  their reply goes to the bot, not to staff.
+- `GET /admin/v1/participations` takes `query`, `status`, `eventCityId`, `userCityId`,
+  `outOfCity` and `realOnly`. Each row now has `user.cityNameFa` and `outOfCity`, and the
+  response lists the cities that appear in requests, for the filters.
+
+### Changed
+
+- In «فعالیت‌ها», the request count links to «درخواست‌ها» narrowed to that activity instead of
+  opening a list inside the table. The user page's request list links there too.
+
 ## [v0.21.3] — 2026-10-01
 
 Asking to join now says what it costs before it charges, cancelling a request says the join
