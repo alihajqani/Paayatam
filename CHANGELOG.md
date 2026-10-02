@@ -14,6 +14,41 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.22.1] — 2026-10-02
+
+Expired posts stop advertising in the channel. A bot cannot delete a channel message older than
+48 hours, even as an administrator with «Delete messages», and paid posts go up days before
+their activity. So the takedown sweep was refused for most posts, recorded them as taken down
+anyway, and left them in the channel with a working «پایتم» button. Production showed the
+pattern exactly: of 46 takedowns, all 16 past 48 hours were refused and none of the 30 under it,
+with the bot holding every right.
+
+**No migration. No setting change. The bot's command menu does not change.**
+
+### ⚠️ What a deploy changes for people
+
+- **A post Telegram will not delete is edited instead**, and its buttons come off: «⏰ این
+  رویداد پایان یافت.» with its title, «🔄 این رویداد دوباره در کانال منتشر شد؛ پست تازه‌اش
+  پایین‌تر است.» for a renewal's old copy, and «🚫 این رویداد دیگر در دسترس نیست.» (nothing
+  else, not even the title) for one hidden, rejected, cancelled or deleted. A post under 48
+  hours is still deleted.
+- **Every post's last line reads «⏳ رویدادهای منقضی‌شده از کانال حذف یا بسته می‌شوند.»**, and a
+  blank line follows the disclaimer.
+- **Once, by hand, after this deploy:** the 18 posts the old sweep left behind get their
+  `deleted_at` cleared so the new sweep closes them, and the live posts get `rendered_taken`
+  cleared so the capacity sweep re-renders them in the new format (8 a minute). Not a migration,
+  because `deploy.sh` migrates while the old worker still runs, and it would undo both.
+- The panel's «حذف پیام‌ها» warning now means what it says: it is raised only when the edit is
+  refused too, which is the bot having lost the channel. It used to be up almost every day.
+- The usual release broadcast goes to every user once.
+
+### Fixed
+
+- `ChannelService.findTakedowns` returns why each post comes down (`WITHDRAWN` before
+  `SUPERSEDED` before `ENDED`) with the event's number and title. The worker deletes, and on
+  `UNDELETABLE` edits the post into `renderClosedChannelPost` without a keyboard. Metric
+  `payetam_channel_post_total{outcome="closed"}` counts those.
+
 ## [v0.22.0] — 2026-10-01
 
 Event suggestions: the operator offers a real programme outside the product (a screening, a
