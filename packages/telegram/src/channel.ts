@@ -148,7 +148,7 @@ export interface RenderedChannelPost {
  * ── Hashtags, the fill colour, and the note (v0.16.0) ───────────────────────
  *
  * The post opens with «#رویداد_۲۵» and closes with the category as a hashtag
- * and a line saying expired activities are removed — both hashtags are
+ * and a line saying expired activities are removed or closed — both hashtags are
  * searches of the channel on a tap. The seats line leads with 🟢🟡🟠🔴
  * (`seatsFillEmoji`) and counts pending requests as taken (`takenCount`), and
  * the worker edits the post whenever that count moves, within a budget.
@@ -183,6 +183,9 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
     // carries its own ⚠️ and is plain rather than italic — a whole italic line
     // at the head of every post is the shape readers learn to skip.
     escapeHtml(EVENT_DISCLAIMER_SHORT_FA),
+    // Set apart, so the warning reads as its own line rather than as the start
+    // of the invitation under it.
+    ``,
     `پایه واسه <b>${escapeHtml(content.title)}</b> میخوام`,
     `کیو داریم اینجا؟ بگه!`,
     ``,
@@ -231,13 +234,62 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
 }
 
 /**
- * Why a post a reader saw yesterday is not there today.
+ * Why a post a reader saw yesterday is not there today, or now says it is over.
  *
  * The sweep takes a post down the moment its activity starts, is cancelled or
  * hidden. Said once under every post, because a vanished message with no
  * explanation reads as the channel deleting something it should not have.
+ *
+ * «حذف یا بسته»: past 48 hours a bot cannot delete a channel post, so most
+ * expired posts are closed in place (`renderClosedChannelPost`) rather than
+ * removed, and «حذف» alone promised what the channel could not do.
  */
-export const CHANNEL_EXPIRY_NOTE = '⏳ رویدادهای منقضی‌شده از کانال حذف می‌شوند.';
+export const CHANNEL_EXPIRY_NOTE = '⏳ رویدادهای منقضی‌شده از کانال حذف یا بسته می‌شوند.';
+
+/**
+ * Why a post is coming down, as far as its reader is concerned.
+ *
+ * `ENDED`: the activity started or is over. `SUPERSEDED`: a renewal posted a
+ * fresh copy further down. `WITHDRAWN`: hidden, rejected, cancelled or deleted.
+ */
+export type ChannelTakedownReason = 'ENDED' | 'SUPERSEDED' | 'WITHDRAWN';
+
+/** What a closed post is rendered from. Narrower still than a live post's. */
+export interface ClosedChannelPostContent {
+  reason: ChannelTakedownReason;
+  eventNumber: number;
+  title: string;
+}
+
+/**
+ * The text a post is edited into when Telegram will not delete it.
+ *
+ * A bot cannot delete a channel message older than 48 hours, **administrator
+ * with «Delete messages» or not** — production refused every post past that age
+ * and deleted every one under it. Most posts go up days before their activity,
+ * so most takedowns land past it. Editing has no such limit, so the post is
+ * rewritten into this and sent without a keyboard, which is what takes «پایتم»
+ * off an activity nobody can join any more.
+ *
+ * A withdrawn activity is named by nothing — not its title, not its number. A
+ * moderator may have hidden it *for* what its title says, and this rewrite is
+ * the only way left to take that text out of the channel.
+ */
+export function renderClosedChannelPost(content: ClosedChannelPostContent): string {
+  if (content.reason === 'WITHDRAWN') return '🚫 این رویداد دیگر در دسترس نیست.';
+
+  const line =
+    content.reason === 'ENDED'
+      ? '⏰ این رویداد پایان یافت.'
+      : '🔄 این رویداد دوباره در کانال منتشر شد؛ پست تازه‌اش پایین‌تر است.';
+  // The number first, as on the live post: a tap searches the channel for it,
+  // which for a renewed post is the way to the copy that replaced it.
+  return [
+    `#رویداد_${toPersianDigits(String(content.eventNumber))}`,
+    line,
+    `<b>${escapeHtml(content.title)}</b>`,
+  ].join('\n');
+}
 
 /**
  * «کافه و بازی رومیزی» → «#کافه_و_بازی_رومیزی».

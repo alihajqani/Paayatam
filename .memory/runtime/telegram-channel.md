@@ -7,16 +7,31 @@ deleting or editing channel messages.
 
 ## Rights, as observed
 
-On 2026-09-14 the bot was an **administrator** of the production channel with
-`can_post_messages`, `can_edit_messages` and `can_delete_messages` all `true`, and
-`TELEGRAM_CHANNEL_ID` was set in the production `.env`
-`[validated: cmd getChatMember(<channel>, <bot id>) from the production host, 2026-09-14]`.
+On 2026-09-14 and again on 2026-10-02 the bot was an **administrator** of the
+production channel with `can_post_messages`, `can_edit_messages` and
+`can_delete_messages` all `true`, and `TELEGRAM_CHANNEL_ID` was set in the
+production `.env`
+`[validated: cmd getChatMember(<channel>, <bot id>) from the production host, 2026-10-02]`.
 
-So a takedown should never be refused for age, and the capacity edits of plan 14
-item 3 are permitted. If `BOT_CANNOT_DELETE` appears in the panel, suspect a right
-that was **revoked** or the bot removed from the channel — not the 48-hour limit.
-`deleteOutcome` reads a 403 / «chat not found» as `UNDELETABLE` for that reason
-`[validated: apps/worker/src/telegram/telegram.client.ts]`.
+## The 48-hour limit holds even with «Delete messages»
+
+**`can_delete_messages` does not lift it.** A bot cannot `deleteMessage` a channel
+post older than 48 hours, admin or not: in production every post taken down past
+that age was refused (`channel.post_undeletable`, youngest refused 54.5 h) and
+every one under it was deleted (30 posts, 0 refused)
+`[validated: cmd channel_post ⋈ audit_log on the production host, 2026-10-02]`.
+Paid posts go up at registration, days before the activity, so a refused delete
+is the **ordinary** case. An earlier version of this entry said the opposite;
+through v0.22.0 the sweep marked such rows taken down and left the post — with its
+«پایتم» button — in the channel.
+
+`editMessageText` has no age limit (the capacity sweep edits two-week-old posts
+with zero `UNEDITABLE`), so the sweep now edits a post it cannot delete into
+`renderClosedChannelPost` — ended / re-published / withdrawn, no keyboard — and
+only a post that refuses the edit too raises `BOT_CANNOT_DELETE`. That warning
+therefore means the bot lost its rights or the channel, not age
+`[validated: apps/worker/src/queues/processors.service.ts syncChannel]`.
+Rows closed before the fix keep `deleted_at` and are not revisited.
 
 ## The required channels are a different question
 

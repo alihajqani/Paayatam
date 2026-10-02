@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '@payetam/db';
-import type { ChannelPostKind, Prisma } from '@payetam/db';
+import type { ChannelPostKind, EventStatus, Prisma } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { isUnlimitedCapacity } from '@payetam/shared';
+import type { ChannelTakedownReason } from '@payetam/telegram';
 import { SettingsService } from '../catalog/settings.service';
 import { isUniqueViolation } from '../identity/user.service';
 import { SLOT_HOLDING_STATUSES } from '../participation/state-machine';
@@ -109,6 +110,48 @@ function toPublishable(
 export interface TakedownTarget {
   postId: string;
   telegramMessageId: number;
+  /**
+   * What the post is edited to say when Telegram will not delete it — which,
+   * for a bot, is every channel message past 48 hours. See `takedownReason`.
+   */
+  reason: ChannelTakedownReason;
+  eventNumber: number;
+  title: string;
+}
+
+/**
+ * The event statuses that mean its time came, rather than that somebody took it
+ * away. PUBLISHED is here for the post whose `starts_at` passed before the
+ * lifecycle sweep moved it on.
+ */
+const ENDED_STATUSES: ReadonlySet<EventStatus> = new Set<EventStatus>([
+  'PUBLISHED',
+  'ONGOING',
+  'COMPLETED',
+  'EXPIRED',
+]);
+
+/**
+ * Why a post is coming down, in the order that keeps a title out of the channel.
+ *
+ * Withdrawn first: an activity hidden, rejected, cancelled or deleted is
+ * withdrawn even after its start time has passed, because its closed post names
+ * nothing, and a moderator may have hidden it *for* its title. Then a renewal's
+ * leftover copy, whose activity is fine. Everything else has simply happened.
+ */
+function takedownReason(row: {
+  supersededAt: Date | null;
+  event: { status: EventStatus; deletedAt: Date | null; moderationStatus: string };
+}): ChannelTakedownReason {
+  const { event } = row;
+  if (
+    event.deletedAt !== null ||
+    event.moderationStatus === 'REJECTED' ||
+    !ENDED_STATUSES.has(event.status)
+  ) {
+    return 'WITHDRAWN';
+  }
+  return row.supersededAt === null ? 'ENDED' : 'SUPERSEDED';
 }
 
 /**
@@ -497,13 +540,34 @@ export class ChannelService {
         ],
       },
       take: limit,
-      select: { id: true, telegramMessageId: true },
+      select: {
+        id: true,
+        telegramMessageId: true,
+        supersededAt: true,
+        event: {
+          select: {
+            number: true,
+            title: true,
+            status: true,
+            deletedAt: true,
+            moderationStatus: true,
+          },
+        },
+      },
     });
 
     return rows.flatMap((row) =>
       row.telegramMessageId === null
         ? []
-        : [{ postId: row.id, telegramMessageId: row.telegramMessageId }],
+        : [
+            {
+              postId: row.id,
+              telegramMessageId: row.telegramMessageId,
+              reason: takedownReason(row),
+              eventNumber: row.event.number,
+              title: row.event.title,
+            },
+          ],
     );
   }
 

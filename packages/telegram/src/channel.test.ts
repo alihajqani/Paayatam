@@ -4,6 +4,7 @@ import {
   CHANNEL_EXPIRY_NOTE,
   categoryHashtag,
   renderChannelPost,
+  renderClosedChannelPost,
   type ChannelPostContent,
 } from './channel';
 
@@ -40,6 +41,7 @@ describe('the channel post', () => {
     expect(post()).toBe(
       `#رویداد_۲۵\n` +
         `${EVENT_DISCLAIMER_SHORT_FA}\n` +
+        `\n` +
         `پایه واسه <b>کافه‌گردی و گپ</b> میخوام\n` +
         `کیو داریم اینجا؟ بگه!\n` +
         `\n` +
@@ -59,6 +61,23 @@ describe('the channel post', () => {
     const text = post();
     expect(text.split('\n')[1]).toBe(EVENT_DISCLAIMER_SHORT_FA);
     expect(text.indexOf('کافه‌گردی و گپ')).toBeGreaterThan(0);
+  });
+
+  /** A blank line, so the warning reads as its own thing and not as the invitation's first line. */
+  it('leaves a blank line between the disclaimer and the invitation', () => {
+    expect(post().split('\n').slice(1, 4)).toEqual([
+      EVENT_DISCLAIMER_SHORT_FA,
+      '',
+      'پایه واسه <b>کافه‌گردی و گپ</b> میخوام',
+    ]);
+  });
+
+  /**
+   * Past 48 hours a bot cannot delete a channel post, so most expired posts are
+   * closed in place rather than removed. The note must not promise more.
+   */
+  it('says an expired post is removed or closed', () => {
+    expect(CHANNEL_EXPIRY_NOTE).toBe('⏳ رویدادهای منقضی‌شده از کانال حذف یا بسته می‌شوند.');
   });
 
   /** The kind headed the post until v0.7.0. Why the channel shows it is not news. */
@@ -177,5 +196,48 @@ describe('the channel post', () => {
       expect(keyboard).toHaveLength(1);
       expect(keyboard[0]?.[0]?.url).toBe('https://t.me/payetam_bot');
     });
+  });
+});
+
+/**
+ * What a post says once it is over and Telegram will not delete it.
+ *
+ * A bot cannot delete a channel message older than 48 hours, administrator or
+ * not, and most posts go up days before their activity. Editing has no such
+ * limit, so a post that cannot come down is rewritten into this instead — and
+ * sent with no keyboard, which is what takes «پایتم» off it.
+ */
+describe('a closed channel post', () => {
+  const CLOSED = { eventNumber: 25, title: 'کافه‌گردی و گپ' };
+
+  it('says an activity that has happened is over, and names it', () => {
+    expect(renderClosedChannelPost({ ...CLOSED, reason: 'ENDED' })).toBe(
+      `#رویداد_۲۵\n⏰ این رویداد پایان یافت.\n<b>کافه‌گردی و گپ</b>`,
+    );
+  });
+
+  /** The hashtag is a search of the channel, so one tap finds the new copy. */
+  it('sends a renewed post’s reader to the copy below it', () => {
+    expect(renderClosedChannelPost({ ...CLOSED, reason: 'SUPERSEDED' })).toBe(
+      `#رویداد_۲۵\n🔄 این رویداد دوباره در کانال منتشر شد؛ پست تازه‌اش پایین‌تر است.\n` +
+        `<b>کافه‌گردی و گپ</b>`,
+    );
+  });
+
+  /**
+   * Hidden, rejected, cancelled or deleted. The title is left out on purpose: a
+   * moderator may have hidden the activity *for* what it says, and this is the
+   * one rewrite that can take it out of the channel.
+   */
+  it('names nothing about an activity that was withdrawn', () => {
+    expect(renderClosedChannelPost({ ...CLOSED, reason: 'WITHDRAWN' })).toBe(
+      '🚫 این رویداد دیگر در دسترس نیست.',
+    );
+  });
+
+  it('escapes the title', () => {
+    expect(
+      renderClosedChannelPost({ ...CLOSED, title: '<b>بازی</b> & گپ', reason: 'ENDED' }),
+    ).toContain('<b>&lt;b&gt;بازی&lt;/b&gt; &amp; گپ</b>');
   });
 });

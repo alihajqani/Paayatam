@@ -1,7 +1,12 @@
 export { escapeHtml, toPersianDigits } from './escape';
 export { TEMPLATES, render } from './templates';
 export type { TemplateKey, RenderedMessage } from './templates';
-export { CHANNEL_EXPIRY_NOTE, categoryHashtag, renderChannelPost } from './channel';
+export {
+  CHANNEL_EXPIRY_NOTE,
+  categoryHashtag,
+  renderChannelPost,
+  renderClosedChannelPost,
+} from './channel';
 export {
   START_ACTIONS,
   botStartUrl,
@@ -14,7 +19,12 @@ export {
   stripReferralPrefix,
 } from './deep-link';
 export type { StartAction, StartLink } from './deep-link';
-export type { ChannelPostContent, RenderedChannelPost } from './channel';
+export type {
+  ChannelPostContent,
+  ChannelTakedownReason,
+  ClosedChannelPostContent,
+  RenderedChannelPost,
+} from './channel';
 export { renderEventInvitation } from './invitation';
 export { cityLaunchAnnouncement } from './city-launch';
 export { formatMyRequests } from './requests';

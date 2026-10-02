@@ -36,6 +36,7 @@ import {
   preferenceKeyFor,
   render,
   renderChannelPost,
+  renderClosedChannelPost,
   type InlineKeyboard,
   type RenderedChannelPost,
 } from '@payetam/telegram';
@@ -1156,10 +1157,18 @@ export class Processors implements OnModuleInit {
     /**
      * Takedowns, and the ones Telegram refuses (plan 14, item 2).
      *
-     * An undeletable post is marked taken down like a gone one — retrying cannot
-     * change the answer, and the row must stop being reconsidered every pass —
-     * but it is still in the channel, so it is also counted, logged by message
-     * id (never the post's text), and recorded once per pass for the panel.
+     * A bot cannot delete a channel message older than 48 hours — **with
+     * «Delete messages» or without it**: production refused every post past that
+     * age and deleted every one under it. Most posts go up days before their
+     * activity, so a refused delete is the ordinary case, not a misconfiguration.
+     * Editing has no age limit, so the post is rewritten into its closed text and
+     * sent without a keyboard, which takes «پایتم» off it.
+     *
+     * Only a post that refuses the edit too is still advertising something, and
+     * that is the bot having lost the channel: it is counted, logged by message
+     * id (never the post's text), and recorded once per pass for the panel. Either
+     * way the row is marked taken down — retrying cannot change the answer, and
+     * it must stop being reconsidered every pass.
      */
     let undeletableRecorded = false;
     for (const target of await this.channel.findTakedowns()) {
@@ -1167,23 +1176,39 @@ export class Processors implements OnModuleInit {
       if (outcome === 'RETRY') continue;
 
       if (outcome === 'UNDELETABLE') {
-        this.metrics.counter(
-          'payetam_channel_post_total',
-          'Channel publication attempts by outcome.',
-          { outcome: 'undeletable' },
+        const edited = await this.telegram.editChannelPost(
+          target.telegramMessageId,
+          renderClosedChannelPost(target),
         );
-        this.logger.warn(
-          `Channel message ${String(target.telegramMessageId)} could not be deleted and stays ` +
-            'in the channel. Check that the bot has «Delete messages» there.',
-        );
-        if (!undeletableRecorded) {
-          await this.audit.record({
-            actorType: 'SYSTEM',
-            action: CHANNEL_POST_UNDELETABLE_ACTION,
-            targetType: 'channel_post',
-            targetId: target.postId,
-          });
-          undeletableRecorded = true;
+        if (edited === 'RETRY') continue;
+
+        if (edited === 'EDITED') {
+          this.metrics.counter(
+            'payetam_channel_post_total',
+            'Channel publication attempts by outcome.',
+            { outcome: 'closed' },
+          );
+        }
+        // GONE needs nothing: somebody removed it by hand in the meantime.
+        if (edited === 'UNEDITABLE') {
+          this.metrics.counter(
+            'payetam_channel_post_total',
+            'Channel publication attempts by outcome.',
+            { outcome: 'undeletable' },
+          );
+          this.logger.warn(
+            `Channel message ${String(target.telegramMessageId)} could be neither deleted nor ` +
+              'edited and stays in the channel. Check that the bot is still an administrator there.',
+          );
+          if (!undeletableRecorded) {
+            await this.audit.record({
+              actorType: 'SYSTEM',
+              action: CHANNEL_POST_UNDELETABLE_ACTION,
+              targetType: 'channel_post',
+              targetId: target.postId,
+            });
+            undeletableRecorded = true;
+          }
         }
       }
 
