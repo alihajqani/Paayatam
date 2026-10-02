@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CHANNEL_POST_UNDELETABLE_ACTION } from '@payetam/domain';
 import { JOBS } from '@payetam/platform';
+import { renderClosedChannelPost } from '@payetam/telegram';
 import { Processors } from './processors.service';
 
 /**
@@ -36,8 +37,20 @@ function stalePost(overrides: Record<string, unknown> = {}): Record<string, unkn
   };
 }
 
+interface Takedown {
+  postId: string;
+  telegramMessageId: number;
+  reason: 'ENDED' | 'SUPERSEDED' | 'WITHDRAWN';
+  eventNumber: number;
+  title: string;
+}
+
+function takedown(postId: string, telegramMessageId: number): Takedown {
+  return { postId, telegramMessageId, reason: 'ENDED', eventNumber: 25, title: 'شب بازی رومیزی' };
+}
+
 interface Options {
-  takedowns?: { postId: string; telegramMessageId: number }[];
+  takedowns?: Takedown[];
   stale?: Record<string, unknown>[];
   deleted?: string;
   edited?: string;
@@ -108,14 +121,61 @@ function syncCapacity(processors: Processors): Promise<void> {
   return run(processors, JOBS.CHANNEL_CAPACITY_SYNC);
 }
 
+/**
+ * A bot cannot delete a channel message older than 48 hours, administrator with
+ * «Delete messages» or not — production refused every post past that age. Most
+ * posts go up days before their activity, so a refused delete is the ordinary
+ * case, and the post is edited into its closed text instead.
+ */
 describe('a takedown Telegram refuses', () => {
-  it('stops retrying it, counts it, and records it once per pass', async () => {
-    const { processors, channel, metrics, audit } = build({
-      takedowns: [
-        { postId: 'post-1', telegramMessageId: 11 },
-        { postId: 'post-2', telegramMessageId: 12 },
-      ],
+  it('edits the post into its closed text, takes the buttons off, and stays quiet', async () => {
+    const { processors, channel, telegram, metrics, audit } = build({
+      takedowns: [takedown('post-1', 11)],
       deleted: 'UNDELETABLE',
+    });
+
+    await sync(processors);
+
+    expect(telegram.editChannelPost).toHaveBeenCalledOnce();
+    expect(telegram.editChannelPost).toHaveBeenCalledWith(
+      11,
+      renderClosedChannelPost({ reason: 'ENDED', eventNumber: 25, title: 'شب بازی رومیزی' }),
+    );
+    // No keyboard argument: `editMessageText` without one removes «پایتم».
+    expect(telegram.editChannelPost.mock.calls[0]).toHaveLength(2);
+    expect(channel.markTakenDown).toHaveBeenCalledWith('post-1');
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(
+      metrics.counter.mock.calls.filter(([, , labels]) => labels?.outcome === 'closed'),
+    ).toHaveLength(1);
+  });
+
+  it('renders each post for its own reason', async () => {
+    const { processors, telegram } = build({
+      takedowns: [{ ...takedown('post-1', 11), reason: 'WITHDRAWN' }],
+      deleted: 'UNDELETABLE',
+    });
+
+    await sync(processors);
+
+    expect(telegram.editChannelPost).toHaveBeenCalledWith(11, '🚫 این رویداد دیگر در دسترس نیست.');
+  });
+
+  it('does not edit a post Telegram deleted', async () => {
+    const { processors, channel, telegram } = build({ takedowns: [takedown('post-1', 11)] });
+
+    await sync(processors);
+
+    expect(telegram.editChannelPost).not.toHaveBeenCalled();
+    expect(channel.markTakenDown).toHaveBeenCalledWith('post-1');
+  });
+
+  /** Neither delete nor edit: the bot has lost the channel, and that is the warning. */
+  it('warns, counts and records it once per pass when the edit is refused too', async () => {
+    const { processors, channel, metrics, audit } = build({
+      takedowns: [takedown('post-1', 11), takedown('post-2', 12)],
+      deleted: 'UNDELETABLE',
+      edited: 'UNEDITABLE',
     });
 
     await sync(processors);
@@ -135,9 +195,35 @@ describe('a takedown Telegram refuses', () => {
     );
   });
 
+  it('takes a post somebody already removed by hand down without a warning', async () => {
+    const { processors, channel, audit } = build({
+      takedowns: [takedown('post-1', 11)],
+      deleted: 'UNDELETABLE',
+      edited: 'GONE',
+    });
+
+    await sync(processors);
+
+    expect(channel.markTakenDown).toHaveBeenCalledWith('post-1');
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('leaves the post to the next pass when the edit has to wait', async () => {
+    const { processors, channel, audit } = build({
+      takedowns: [takedown('post-1', 11)],
+      deleted: 'UNDELETABLE',
+      edited: 'RETRY',
+    });
+
+    await sync(processors);
+
+    expect(channel.markTakenDown).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it('takes a post that is already gone down without a warning', async () => {
     const { processors, channel, audit } = build({
-      takedowns: [{ postId: 'post-1', telegramMessageId: 11 }],
+      takedowns: [takedown('post-1', 11)],
       deleted: 'GONE',
     });
 
@@ -149,7 +235,7 @@ describe('a takedown Telegram refuses', () => {
 
   it('leaves a post to the next pass when Telegram asks to wait', async () => {
     const { processors, channel, audit } = build({
-      takedowns: [{ postId: 'post-1', telegramMessageId: 11 }],
+      takedowns: [takedown('post-1', 11)],
       deleted: 'RETRY',
     });
 

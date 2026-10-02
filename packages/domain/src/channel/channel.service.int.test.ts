@@ -309,26 +309,77 @@ describe('a stale post comes down', () => {
   it('takes down the post of a hidden event', async () => {
     const post = await posted();
     await prisma.event.update({ where: { id: post.id }, data: { status: 'HIDDEN' } });
+    const { number } = await prisma.event.findUniqueOrThrow({ where: { id: post.id } });
 
     const takedowns = await channel.findTakedowns();
-    expect(takedowns).toEqual([{ postId: post.postId, telegramMessageId: 4242 }]);
+    expect(takedowns).toEqual([
+      {
+        postId: post.postId,
+        telegramMessageId: 4242,
+        reason: 'WITHDRAWN',
+        eventNumber: number,
+        title: 'شب بازی رومیزی',
+      },
+    ]);
   });
 
-  it.each<EventStatus>(['CANCELLED_BY_HOST', 'REJECTED', 'EXPIRED', 'COMPLETED'])(
-    'takes down the post of a %s event',
-    async (status) => {
-      const post = await posted();
-      await prisma.event.update({ where: { id: post.id }, data: { status } });
+  /**
+   * The reason is what the post says if Telegram will not delete it (a bot
+   * cannot, past 48 hours). Over is over whatever the lifecycle has reached;
+   * anything a moderator, the host or a deletion took away is withdrawn.
+   */
+  it.each<[EventStatus, string]>([
+    ['CANCELLED_BY_HOST', 'WITHDRAWN'],
+    ['REJECTED', 'WITHDRAWN'],
+    ['DELETED', 'WITHDRAWN'],
+    ['ONGOING', 'ENDED'],
+    ['EXPIRED', 'ENDED'],
+    ['COMPLETED', 'ENDED'],
+  ])('takes down the post of a %s event as %s', async (status, reason) => {
+    const post = await posted();
+    await prisma.event.update({ where: { id: post.id }, data: { status } });
 
-      await expect(channel.findTakedowns()).resolves.toHaveLength(1);
-    },
-  );
+    const takedowns = await channel.findTakedowns();
+    expect(takedowns.map((target) => target.reason)).toEqual([reason]);
+  });
 
-  it('takes down the post of an event that has started', async () => {
+  it('takes down the post of an event that has started, as ended', async () => {
     await posted();
     clock.set(new Date(STARTS_AT.getTime() + 60_000));
 
-    await expect(channel.findTakedowns()).resolves.toHaveLength(1);
+    const takedowns = await channel.findTakedowns();
+    expect(takedowns.map((target) => target.reason)).toEqual(['ENDED']);
+  });
+
+  it('calls a soft-deleted or rejected event withdrawn, not ended', async () => {
+    const deleted = await posted();
+    await prisma.event.update({ where: { id: deleted.id }, data: { deletedAt: NOW } });
+    const rejected = await posted({ title: 'دومی' });
+    await prisma.event.update({
+      where: { id: rejected.id },
+      data: { moderationStatus: 'REJECTED' },
+    });
+
+    const takedowns = await channel.findTakedowns();
+    expect(takedowns.map((target) => target.reason)).toEqual(['WITHDRAWN', 'WITHDRAWN']);
+  });
+
+  /** Hidden, then its time came: the title must still never be shown again. */
+  it('lets withdrawn win over ended', async () => {
+    const post = await posted();
+    await prisma.event.update({ where: { id: post.id }, data: { status: 'HIDDEN' } });
+    clock.set(new Date(STARTS_AT.getTime() + 60_000));
+
+    const takedowns = await channel.findTakedowns();
+    expect(takedowns.map((target) => target.reason)).toEqual(['WITHDRAWN']);
+  });
+
+  it('calls a post a renewal replaced superseded', async () => {
+    const post = await posted();
+    await prisma.channelPost.update({ where: { id: post.postId }, data: { supersededAt: NOW } });
+
+    const takedowns = await channel.findTakedowns();
+    expect(takedowns.map((target) => target.reason)).toEqual(['SUPERSEDED']);
   });
 
   it('leaves a live event’s post alone', async () => {
