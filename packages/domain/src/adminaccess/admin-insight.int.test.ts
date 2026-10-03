@@ -210,6 +210,30 @@ describe('the dashboard', () => {
   });
 
   /**
+   * The bot's own funnel, on the screen a shift opens: who pressed /start, who
+   * finished a profile, who that is by gender, and who blocked the bot. The same
+   * definitions the acquisition report uses, so the two screens agree.
+   */
+  it('counts finished profiles, gender and blocked bots among real users', async () => {
+    const woman = await seedUser('زن');
+    const man = await seedUser('مرد');
+    await seedUser('بی‌جنسیت');
+    await prisma.userProfile.update({ where: { userId: woman.id }, data: { gender: 'FEMALE' } });
+    await prisma.userProfile.update({ where: { userId: man.id }, data: { gender: 'MALE' } });
+    // Pressed /start and left: no profile, and the bot is blocked.
+    const leaver = await createUser(prisma, 'NEW');
+    await prisma.telegramAccount.update({ where: { userId: leaver }, data: { botBlocked: true } });
+    await seedSyntheticGuest(woman.id);
+
+    const { users } = await insight.dashboard(SUPER);
+
+    expect(users.total).toBe(4);
+    expect(users.profileComplete).toBe(3);
+    expect(users.byGender).toEqual({ female: 1, male: 1, unspecified: 1 });
+    expect(users.botBlocked).toBe(1);
+  });
+
+  /**
    * A sparse tally, not a dense one. A status with no rows is absent rather than
    * zero, so the panel can tell "nobody is waitlisted" from "this deployment has
    * no waitlist" — and inventing zeros would remove that distinction for good.

@@ -21,7 +21,25 @@ import { PERMISSIONS } from './permissions';
 export type Tally = Record<string, number>;
 
 export interface AdminDashboard {
-  users: { total: number; byStatus: Tally; newLast7Days: number; activeLast7Days: number };
+  users: {
+    total: number;
+    byStatus: Tally;
+    newLast7Days: number;
+    activeLast7Days: number;
+    /** `onboarding_state = PROFILE_COMPLETE` — the acquisition report's definition. */
+    profileComplete: number;
+    /**
+     * Among finished profiles only: the profile row is written at completion,
+     * so nobody else has a gender. `unspecified` is a pre-v0.21.2 «ترجیح می‌دهم
+     * نگویم», a profile with none, or a deleted account (anonymisation clears it).
+     */
+    byGender: { female: number; male: number; unspecified: number };
+    /**
+     * Blocked the bot *now*: set when Telegram reports the block (or answers
+     * 403), cleared when they unblock or press /start again.
+     */
+    botBlocked: number;
+  };
   events: { total: number; byStatus: Tally };
   participations: { byStatus: Tally };
   chats: { byStatus: Tally };
@@ -269,6 +287,9 @@ export class AdminInsightService {
       usersByStatus,
       newUsers,
       activeUsers,
+      profileComplete,
+      profilesByGender,
+      botBlocked,
       eventsByStatus,
       participationsByStatus,
       chatsByStatus,
@@ -307,6 +328,18 @@ export class AdminInsightService {
             { chatMemberships: { some: { lastReadAt: { gte: weekAgo } } } },
           ],
         },
+      }),
+      this.prisma.user.count({ where: { isSeed: false, onboardingState: 'PROFILE_COMPLETE' } }),
+      this.prisma.userProfile.groupBy({
+        by: ['gender'],
+        where: { user: { isSeed: false, onboardingState: 'PROFILE_COMPLETE' } },
+        _count: { _all: true },
+      }),
+      // A filter on `telegram_account`, never a select from it: only the count
+      // leaves this query, which is how the acquisition report reads the same
+      // boolean (ADR-0009).
+      this.prisma.user.count({
+        where: { isSeed: false, telegramAccount: { is: { botBlocked: true } } },
       }),
       this.prisma.event.groupBy({ by: ['status'], _count: { _all: true } }),
       this.prisma.eventParticipant.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -348,6 +381,9 @@ export class AdminInsightService {
         byStatus: tally(usersByStatus, 'status'),
         newLast7Days: newUsers,
         activeLast7Days: activeUsers,
+        profileComplete,
+        byGender: genderSplit(profilesByGender),
+        botBlocked,
       },
       events: {
         total: eventsByStatus.reduce((sum, row) => sum + row._count._all, 0),
@@ -1103,6 +1139,19 @@ function tally<K extends string>(
   key: K,
 ): Tally {
   return Object.fromEntries(rows.map((row) => [row[key], row._count._all]));
+}
+
+/** Women and men by name; everything else is one «نامشخص» bucket. */
+function genderSplit(
+  rows: Array<{ gender: Gender | null; _count: { _all: number } }>,
+): AdminDashboard['users']['byGender'] {
+  const split = { female: 0, male: 0, unspecified: 0 };
+  for (const row of rows) {
+    if (row.gender === 'FEMALE') split.female += row._count._all;
+    else if (row.gender === 'MALE') split.male += row._count._all;
+    else split.unspecified += row._count._all;
+  }
+  return split;
 }
 
 /** Every admin list is bounded, whatever the caller asked for (§4). */
