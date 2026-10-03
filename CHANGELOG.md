@@ -14,6 +14,36 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.22.2] — 2026-10-03
+
+The panel's «نمای کلی» shows how far the bot's users got: how many pressed /start, how many
+finished a profile, how many of those are women and men, and how many have the bot blocked.
+These were spread over «جذب کاربر» and «کمپین», and the gender split was nowhere.
+
+**No migration. No setting change. Nothing changes in the bot.** Panel and admin API only.
+
+### ⚠️ What a deploy changes for people
+
+- Nothing in the bot.
+- **No release broadcast, at the operator's request.** `release.announce_enabled` is set to `0`
+  in «تنظیمات» before this deploy. It is read when the worker boots, so it stays at `0` while
+  v0.22.2 runs: turning it back on and then restarting the worker would announce v0.22.2 late.
+  Turn it back on just before the next deploy that should be announced.
+
+### Added
+
+- **«کاربران ربات»** on «نمای کلی», under the four headline cards: «استارت زده‌اند» (every real
+  account), «پروفایل کامل» with its share of users, «زن» and «مرد» with their share of finished
+  profiles (and a «نامشخص» count when there is one), and «ربات را بلاک کرده‌اند» with its share
+  of users. Seed guests are excluded everywhere, as on the rest of the dashboard.
+- `GET /admin/v1/dashboard` returns `users.profileComplete`, `users.byGender`
+  (`female`, `male`, `unspecified`) and `users.botBlocked`. The definitions are the acquisition
+  report's, so the two screens agree: a finished profile is `onboarding_state =
+  PROFILE_COMPLETE`, gender is counted among finished profiles only (a profile row is written at
+  completion, and deleting an account clears its gender, so deleted accounts are `unspecified`),
+  and blocked is the account's current `bot_blocked` flag, which unblocking clears. The blocked
+  count filters on `telegram_account` and selects nothing from it (ADR-0009).
+
 ## [v0.22.1] — 2026-10-02
 
 Expired posts stop advertising in the channel. A bot cannot delete a channel message older than
