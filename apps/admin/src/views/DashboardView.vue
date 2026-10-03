@@ -4,13 +4,13 @@ import type { AdminDashboardResponse, Tally } from '@payetam/shared';
 import { messageOf, request } from '@/api/client';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
-import { formatNumber, formatRelative } from '@/format/fa';
+import { formatNumber, formatRelative, toPersianDigits } from '@/format/fa';
 
 /**
  * The screen a shift starts on.
  *
  * **One request.** Every number here comes from `GET /admin/v1/dashboard`, which
- * is nineteen parallel aggregates on the server — a panel that fetched a count
+ * is twenty-two parallel aggregates on the server — a panel that fetched a count
  * per card would be a page of twenty round trips, and the first thing to get slow
  * as the product grows.
  *
@@ -30,6 +30,12 @@ const loading = ref(false);
 const chatTotal = computed(() =>
   Object.values(data.value?.chats.byStatus ?? {}).reduce((sum, count) => sum + count, 0),
 );
+
+/** A share of a whole, as «۴۲٪». Nothing to divide by is a dash, not «۰٪». */
+function share(part: number, whole: number): string {
+  if (whole === 0) return '—';
+  return `${toPersianDigits(Math.round((part / whole) * 100))}٪`;
+}
 
 const state = computed(() => {
   if (error.value !== null) return 'error' as const;
@@ -183,6 +189,61 @@ onMounted(load);
             </template>
           </p>
         </article>
+      </section>
+
+      <!--
+        The bot's own funnel, the same definitions «جذب کاربر» uses so the two
+        screens agree: everyone who pressed /start, who finished a profile, who
+        that is by gender, and who has the bot blocked right now. Gender is
+        counted among finished profiles because nobody else has one.
+      -->
+      <section class="rounded-xl border border-line bg-surface p-4">
+        <h2 class="text-sm font-semibold">کاربران ربات</h2>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <p class="text-sm">
+            <span class="block text-ink-soft">استارت زده‌اند</span>
+            <bdi class="text-lg font-bold tabular-nums">{{ formatNumber(data.users.total) }}</bdi>
+          </p>
+          <p class="text-sm">
+            <span class="block text-ink-soft">پروفایل کامل</span>
+            <bdi class="text-lg font-bold tabular-nums">
+              {{ formatNumber(data.users.profileComplete) }}
+            </bdi>
+            <span class="block text-xs text-ink-faint">
+              {{ share(data.users.profileComplete, data.users.total) }} از کاربران
+            </span>
+          </p>
+          <p class="text-sm">
+            <span class="block text-ink-soft">زن</span>
+            <bdi class="text-lg font-bold tabular-nums">
+              {{ formatNumber(data.users.byGender.female) }}
+            </bdi>
+            <span class="block text-xs text-ink-faint">
+              {{ share(data.users.byGender.female, data.users.profileComplete) }} از پروفایل‌ها
+            </span>
+          </p>
+          <p class="text-sm">
+            <span class="block text-ink-soft">مرد</span>
+            <bdi class="text-lg font-bold tabular-nums">
+              {{ formatNumber(data.users.byGender.male) }}
+            </bdi>
+            <span class="block text-xs text-ink-faint">
+              {{ share(data.users.byGender.male, data.users.profileComplete) }} از پروفایل‌ها
+              <template v-if="data.users.byGender.unspecified > 0">
+                · <bdi>{{ formatNumber(data.users.byGender.unspecified) }}</bdi> نامشخص
+              </template>
+            </span>
+          </p>
+          <p class="text-sm">
+            <span class="block text-ink-soft">ربات را بلاک کرده‌اند</span>
+            <bdi class="text-lg font-bold tabular-nums">
+              {{ formatNumber(data.users.botBlocked) }}
+            </bdi>
+            <span class="block text-xs text-ink-faint">
+              {{ share(data.users.botBlocked, data.users.total) }} از کاربران
+            </span>
+          </p>
+        </div>
       </section>
 
       <section class="grid gap-4 lg:grid-cols-2">

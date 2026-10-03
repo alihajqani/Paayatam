@@ -781,6 +781,16 @@ export const adminDashboardResponse = z.object({
     newLast7Days: z.number().int().nonnegative(),
     /** Somebody who *did* something, not somebody who exists. */
     activeLast7Days: z.number().int().nonnegative(),
+    /** Finished onboarding — what the acquisition report calls «پروفایل کامل». */
+    profileComplete: z.number().int().nonnegative(),
+    /** Among finished profiles; `unspecified` includes deleted accounts. */
+    byGender: z.object({
+      female: z.number().int().nonnegative(),
+      male: z.number().int().nonnegative(),
+      unspecified: z.number().int().nonnegative(),
+    }),
+    /** Blocked the bot right now; unblocking clears it. */
+    botBlocked: z.number().int().nonnegative(),
   }),
   events: z.object({ total: z.number().int().nonnegative(), byStatus: tally }),
   participations: z.object({ byStatus: tally }),
