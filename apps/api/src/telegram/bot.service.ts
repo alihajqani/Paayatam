@@ -1723,8 +1723,8 @@ export class BotService {
 
     if (link.action === 'join' && consented) {
       try {
-        // The post names no price and no city's caveat, so a paid or
-        // out-of-town request is asked about here instead of charged on the tap.
+        // The post names no price, so a paid request is asked about here instead
+        // of charged on the tap. One for another city is refused by the ask.
         if (await this.askBeforeJoining(updateId, user, link.id)) return;
         const participation = await this.participation.join(user.id, link.id);
         return this.notice(
@@ -2708,11 +2708,11 @@ export class BotService {
     try {
       switch (callback.action) {
         /**
-         * «پایتم» — asked first whenever it costs coins or is in another city.
+         * «پایتم» — asked first whenever it costs coins.
          *
-         * `askBeforeJoining` decides; only a free request in the joiner's own
-         * city still joins on the tap. Everything else goes through `joinyes`,
-         * which is where the charge happens.
+         * `askBeforeJoining` decides; a free request still joins on the tap.
+         * Everything else goes through `joinyes`, which is where the charge
+         * happens. Another city is refused before either, by `previewJoin`.
          */
         case 'join': {
           if (await this.askBeforeJoining(updateId, user, callback.id)) {
@@ -5455,16 +5455,17 @@ export class BotService {
   /**
    * Ask before a request is made, when there is something to say first.
    *
-   * Something to say is a price or a city: a request that costs coins, or one
-   * for an activity outside the city on the joiner's profile. Neither is on the
-   * channel post, and the price is not on the detail screen either. A free
-   * request in the joiner's own city has nothing to confirm and is left to the
+   * Something to say is a price: it is not on the channel post, nor on the
+   * detail screen. A free request has nothing to confirm and is left to the
    * caller to make on the tap, as the button was built to.
    *
-   * `previewJoin` refuses exactly as `join` would, so a host, a duplicate or an
-   * ineligible joiner hears so now rather than after agreeing to pay; the caller
-   * handles those refusals the way it handled `join`'s. Affordability is checked
-   * before the ask, so «بله» is never the moment somebody learns they are short.
+   * A city used to be the other thing worth saying — the ask named both and let
+   * a reader in Mashhad say yes to Tehran. It is a refusal now, and `previewJoin`
+   * makes it: it refuses exactly as `join` would, so a host, a duplicate, a
+   * reader in another city or an ineligible joiner hears so now rather than after
+   * agreeing to pay; the caller handles those refusals the way it handled
+   * `join`'s. Affordability is checked before the ask, so «بله» is never the
+   * moment somebody learns they are short.
    *
    * Returns true when it answered — asked, or showed the coins-short screen —
    * and the caller must not join.
@@ -5475,7 +5476,7 @@ export class BotService {
     eventPublicId: string,
   ): Promise<boolean> {
     const preview = await this.participation.previewJoin(user.id, eventPublicId);
-    if (preview.coins === 0 && preview.sameCity) return false;
+    if (preview.coins === 0) return false;
     if (await this.affordBlocked(updateId, user, preview.coins, JOIN_ACTION_FA)) return true;
 
     const ask = joinAsk(preview);
@@ -7784,6 +7785,9 @@ function costSummary(form: CreateEventForm): string {
  * a city that was not theirs, without seeing either fact. The ask is drawn from
  * `ParticipationService.previewJoin`, so the figure is the one `join` charges.
  *
+ * The city was a line in this ask until a reader in Mashhad agreed to it for an
+ * activity in Tehran. `previewJoin` refuses that now, so the ask never sees one.
+ *
  * It says when the coins come back as well as what they are, because that is
  * the part that cost money: a request is a deposit that a rejection, an expiry
  * or an unreached waiting place returns, and only a withdrawal keeps.
@@ -7792,12 +7796,6 @@ export function joinAsk(preview: JoinPreview): { text: string; label: string } {
   const waiting = preview.status === 'WAITLISTED';
   const lines = [`<b>درخواست شرکت در «${escapeHtml(preview.eventTitle)}»</b>`, ''];
 
-  if (!preview.sameCity) {
-    lines.push(
-      `📍 این رویداد در <b>${escapeHtml(preview.eventCityNameFa)}</b> برگزار می‌شود، ولی ` +
-        `شهری که در پروفایلتان ثبت کرده‌اید <b>${escapeHtml(preview.joinerCityNameFa)}</b> است.`,
-    );
-  }
   if (waiting) lines.push('⏳ ظرفیت تکمیل است و در نوبت انتظار ثبت می‌شوید.');
 
   if (preview.coins > 0) {

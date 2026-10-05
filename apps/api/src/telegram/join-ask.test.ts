@@ -17,9 +17,6 @@ describe('joinAsk', () => {
     eventTitle: 'کوه نوردی',
     coins: 20,
     status: 'PENDING' as const,
-    eventCityNameFa: 'تهران',
-    joinerCityNameFa: 'تهران',
-    sameCity: true,
   };
 
   it('names the price, when it comes back, and that a withdrawal keeps it', () => {
@@ -39,19 +36,6 @@ describe('joinAsk', () => {
     expect(text).toContain('نوبت انتظار');
     expect(text).toContain('تا شروع رویداد');
     expect(label).toContain('نوبت انتظار');
-  });
-
-  it('names both cities when the activity is not in the joiner’s', () => {
-    const { text } = joinAsk({ ...base, joinerCityNameFa: 'ارومیه', sameCity: false });
-
-    expect(text).toContain('تهران');
-    expect(text).toContain('ارومیه');
-  });
-
-  it('says nothing about coins when asking is free', () => {
-    const { text } = joinAsk({ ...base, coins: 0, joinerCityNameFa: 'ارومیه', sameCity: false });
-
-    expect(text).not.toContain('سکه');
   });
 
   it('escapes the host’s title, which is user text inside HTML', () => {

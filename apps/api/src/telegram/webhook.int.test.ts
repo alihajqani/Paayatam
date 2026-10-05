@@ -11,7 +11,7 @@ import {
   TrustService,
   normalize,
 } from '@payetam/domain';
-import { EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
+import { ERROR_MESSAGES_FA, EVENT_DISCLAIMER_SHORT_FA } from '@payetam/shared';
 import {
   TEMPLATES,
   encodeChannelRecheckCallback,
@@ -617,7 +617,13 @@ describe('/start', () => {
       expect(hostId).toBeTruthy();
     });
 
-    it('says so when the activity is in another city', async () => {
+    /**
+     * The channel shows every city's activities, so this is the reader the rule
+     * is for. They used to be asked «بله؟» with both cities named, and a reader
+     * in Mashhad said yes to a gallery walk in Tehran; now the request is
+     * refused, nothing is asked, and the activity is shown under the refusal.
+     */
+    it('refuses an activity in another city, and asks nothing', async () => {
       const { eventPublicId } = await seedHostAndEvent();
       const guestId = await seedGuest(GUEST_TELEGRAM_ID);
       await prisma.userProfile.update({
@@ -630,18 +636,20 @@ describe('/start', () => {
       );
 
       expect(await prisma.eventParticipant.count()).toBe(0);
-      const ask = await joinAsk();
-      expect(ask.text).toContain('تهران');
-      expect(ask.text).toContain('کرج');
+      const replies = await replyTo(GUEST_TELEGRAM_ID);
+      expect(replies.map((row) => row.templateKey)).toEqual([
+        TEMPLATES.BOT_NOTICE,
+        TEMPLATES.BOT_EVENT_DETAIL,
+      ]);
+      expect(replies[0]?.text).toBe(ERROR_MESSAGES_FA.NOT_ELIGIBLE_CITY);
     });
 
-    /** A free request elsewhere is still asked about — the city is the reason. */
-    it('asks about another city even when asking is free', async () => {
-      await prisma.appSetting.upsert({
-        where: { key: 'economy.event_join_coins' },
-        create: { key: 'economy.event_join_coins', value: 0 },
-        update: { value: 0 },
-      });
+    /**
+     * An ask sent before the rule existed is still in people's chats with its
+     * «بله» under it. `joinyes` goes straight to `join`, which is why the rule
+     * is in the domain and not in the ask.
+     */
+    it('refuses «بله» under an old ask for an activity in another city', async () => {
       const { eventPublicId } = await seedHostAndEvent();
       const guestId = await seedGuest(GUEST_TELEGRAM_ID);
       await prisma.userProfile.update({
@@ -649,13 +657,9 @@ describe('/start', () => {
         data: { cityId: fixture.karajId },
       });
 
-      await post(
-        update({ message: textMessage(sender(GUEST_TELEGRAM_ID), `/start join_${eventPublicId}`) }),
-      );
+      await tapAs(GUEST_TELEGRAM_ID, `ev:joinyes:${eventPublicId}`);
 
-      const ask = await joinAsk();
-      expect(ask.text).toContain('کرج');
-      expect(ask.text).not.toContain('سکه');
+      expect(await prisma.eventParticipant.count()).toBe(0);
     });
 
     /** Nothing to warn about and nothing to pay: the one-tap join the button was built as. */

@@ -618,10 +618,11 @@ export class ParticipationService {
   /**
    * What asking to join would cost and where it would land, without asking.
    *
-   * The confirmation the bot draws before a paid or out-of-town request is built
-   * from this, so it runs the checks `join` runs, in the order `join` runs them,
-   * and refuses the same way: a host is told they cannot join their own activity
-   * before a dialog offers to charge them for it, not after they agree.
+   * The confirmation the bot draws before a paid request is built from this, so
+   * it runs the checks `join` runs, in the order `join` runs them, and refuses
+   * the same way: a host is told they cannot join their own activity, and a
+   * reader in another city that it is not theirs, before a dialog offers to
+   * charge them for it, not after they agree.
    *
    * **Not binding.** Nothing is locked, so a seat can go between this and the
    * request — `join` decides again under the event lock and may waitlist what
@@ -644,7 +645,6 @@ export class ParticipationService {
         startsAt: true,
         capacity: true,
         acceptedCount: true,
-        city: { select: { id: true, nameFa: true } },
       },
     });
     if (!event) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
@@ -667,9 +667,6 @@ export class ParticipationService {
       coins,
       // The same arithmetic `join` admits against: seats plus open requests.
       status: event.acceptedCount + outstanding < event.capacity ? 'PENDING' : 'WAITLISTED',
-      eventCityNameFa: event.city.nameFa,
-      joinerCityNameFa: joiner.city.nameFa,
-      sameCity: joiner.city.id === event.city.id,
     };
   }
 
@@ -1562,9 +1559,7 @@ export class ParticipationService {
       select: {
         status: true,
         onboardingState: true,
-        profile: {
-          select: { birthYear: true, gender: true, city: { select: { id: true, nameFa: true } } },
-        },
+        profile: { select: { birthYear: true, gender: true, cityId: true } },
       },
     });
 
@@ -1587,7 +1582,7 @@ export class ParticipationService {
     return {
       birthYear: user.profile.birthYear,
       gender: user.profile.gender,
-      city: user.profile.city,
+      cityId: user.profile.cityId,
     };
   }
 
@@ -1615,8 +1610,15 @@ export class ParticipationService {
   ): Promise<void> {
     const event = await tx.event.findUniqueOrThrow({
       where: { id: eventId },
-      select: { genderPreference: true, minAge: true, maxAge: true },
+      select: { cityId: true, genderPreference: true, minAge: true, maxAge: true },
     });
+
+    // Not the host's restriction but the product's: the city on the profile is
+    // the one a person can ask to join in. It was a warning with a «بله» under it
+    // until a user in Mashhad said yes to a gallery walk in Tehran. Here rather
+    // than in the bot, because the channel link, an old «بله» and the HTTP route
+    // all reach `join` without passing through the ask.
+    if (joiner.cityId !== event.cityId) throw new AppError(ErrorCode.NOT_ELIGIBLE_CITY);
 
     if (event.genderPreference !== null) {
       const required = event.genderPreference === 'MALE_ONLY' ? 'MALE' : 'FEMALE';
@@ -1802,17 +1804,13 @@ export interface JoinPreview {
   coins: number;
   /** Where the request would land if nothing changes before it is made. */
   status: 'PENDING' | 'WAITLISTED';
-  eventCityNameFa: string;
-  joinerCityNameFa: string;
-  /** False is the case the confirmation exists to warn about. */
-  sameCity: boolean;
 }
 
 interface Joiner {
   birthYear: number;
   gender: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null;
-  /** For `previewJoin`'s «not your city» — eligibility does not read it. */
-  city: { id: string; nameFa: string };
+  /** The only city this person can ask to join in (`assertEligible`). */
+  cityId: string;
 }
 
 interface PromotedParticipant {

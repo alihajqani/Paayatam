@@ -90,6 +90,11 @@ export const ErrorCode = {
   CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',
   NOT_ELIGIBLE_GENDER: 'NOT_ELIGIBLE_GENDER',
   NOT_ELIGIBLE_AGE: 'NOT_ELIGIBLE_AGE',
+  /**
+   * An activity outside the city on the joiner's profile. It used to be a
+   * warning the joiner could say yes to; it is a refusal since 2026-10-05.
+   */
+  NOT_ELIGIBLE_CITY: 'NOT_ELIGIBLE_CITY',
   TRUST_TOO_LOW: 'TRUST_TOO_LOW',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
 
@@ -315,6 +320,8 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   CAPACITY_EXCEEDED: 'متأسفانه آخرین ظرفیت هم‌زمان توسط فرد دیگری پر شد.',
   NOT_ELIGIBLE_GENDER: 'این رویداد برای گروه دیگری در نظر گرفته شده است.',
   NOT_ELIGIBLE_AGE: 'سن شما در محدودهٔ تعیین‌شده برای این رویداد نیست.',
+  NOT_ELIGIBLE_CITY:
+    'این رویداد در شهر دیگری برگزار می‌شود. فقط در رویدادهای شهری که در پروفایلتان ثبت کرده‌اید می‌توانید شرکت کنید.',
   TRUST_TOO_LOW: 'امتیاز اعتماد شما برای شرکت در این رویداد کافی نیست.',
   INVALID_STATE_TRANSITION: 'این عملیات در وضعیت فعلی امکان‌پذیر نیست.',
 
