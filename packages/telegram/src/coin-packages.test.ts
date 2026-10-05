@@ -105,7 +105,7 @@ describe('the coin price list', () => {
    * which makes it the exact screen a scammer would imitate.
    */
   it('says plainly that the bot never asks for a card number', () => {
-    expect(render()).toContain('پایه‌تَم هرگز شمارهٔ کارت');
+    expect(render()).toContain('پایتم هیچ‌وقت شمارهٔ کارت');
   });
 
   it('shows the balance the reader is trying to change', () => {

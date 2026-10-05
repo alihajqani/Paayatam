@@ -70,23 +70,23 @@ const LEDGER_TYPE_FA: Record<string, string> = {
   REFERRAL_REWARD: 'پاداش معرفی',
   REVIEW_REWARD: 'پاداش نظر',
   GIFT_CODE_REDEEM: 'کد هدیه',
-  BOOST_SPEND: 'ارتقای رویداد',
+  BOOST_SPEND: 'ارتقای برنامه',
   VIP_SPEND: 'اشتراک ویژه',
-  EVENT_CREATE_SPEND: 'ساختن رویداد',
+  EVENT_CREATE_SPEND: 'ساختن برنامه',
   CHANNEL_POST_SPEND: 'انتشار در کانال',
-  INVITE_SPEND: 'دعوت از افراد',
+  INVITE_SPEND: 'دعوت ویژه',
   EVENT_JOIN_SPEND: 'درخواست شرکت',
-  CANCELLATION_PENALTY: 'جریمهٔ لغو',
-  NO_SHOW_PENALTY: 'جریمهٔ غیبت',
-  HOST_CANCELLATION_REFUND: 'بازگشت وجه لغو میزبان',
-  ADMIN_ADJUSTMENT: 'اصلاح توسط پشتیبانی',
+  CANCELLATION_PENALTY: 'جریمهٔ کنسلی',
+  NO_SHOW_PENALTY: 'جریمهٔ نیومدن',
+  HOST_CANCELLATION_REFUND: 'برگشت سکه، میزبان کنسل کرد',
+  ADMIN_ADJUSTMENT: 'اصلاح از طرف پشتیبانی',
   REVERSAL: 'برگشت تراکنش',
   // The four the coin economy rebalance added (v0.11.0), which went three
   // releases without a label — so a wallet showed «+۳۰ — FOUNDING_REWARD» to a
   // Persian reader. `labelFor` falling back to the raw value is what kept that
   // from being a crash, and it is also what kept it from being noticed.
   FOUNDING_REWARD: 'پاداش بنیان‌گذاری',
-  EVENT_DEPOSIT_REFUND: 'بازگشت سپردهٔ رویداد',
+  EVENT_DEPOSIT_REFUND: 'برگشت سپردهٔ برنامه',
   HOST_REWARD: 'پاداش میزبانی',
   COMEBACK_GRANT: 'سکهٔ بازگشت',
 };
@@ -109,13 +109,13 @@ export function formatWallet(
 
     return (
       `<b>${amount}</b> — ${escapeHtml(ledgerLabelFa(line.type))}\n` +
-      `  🗓 ${formatJalali(line.createdAt)} · موجودی پس از آن: ${toPersianDigits(
+      `  🗓 ${formatJalali(line.createdAt)} · موجودی بعدش: ${toPersianDigits(
         String(line.balanceAfter),
       )}`
     );
   });
 
-  const heading = `<b>کیف پول شما</b>\n\n💰 موجودی: ${toPersianDigits(String(balance))} سکه`;
+  const heading = `<b>کیف پولت</b>\n\n💰 موجودی: ${toPersianDigits(String(balance))} سکه`;
 
   /**
    * «تراکنش‌های اخیر» only on the first page.
@@ -125,8 +125,8 @@ export function formatWallet(
    */
   const history = buildDigest({
     title:
-      page === 0 ? 'تراکنش‌های اخیر' : `تراکنش‌ها — صفحهٔ ${toPersianDigits(String(page + 1))}`,
-    empty: page === 0 ? 'هنوز تراکنشی ندارید.' : 'تراکنش دیگری نیست.',
+      page === 0 ? 'آخرین تغییرهای سکه' : `ریز سکه‌ها، صفحهٔ ${toPersianDigits(String(page + 1))}`,
+    empty: page === 0 ? 'هنوز تغییری توی سکه‌هات نبوده.' : 'دیگه چیزی نیست.',
     entries,
   });
 

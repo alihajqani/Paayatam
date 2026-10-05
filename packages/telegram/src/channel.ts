@@ -214,7 +214,7 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
     keyboard = [
       [
         {
-          text: '👀 مشاهده در ربات',
+          text: '👀 دیدن توی ربات',
           url: botStartUrl(content.botUsername, encodeStartPayload('event', content.eventPublicId)),
         },
       ],
@@ -227,7 +227,7 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
       ],
     ];
   } catch {
-    keyboard = [[{ text: '👀 مشاهده در ربات', url: `https://t.me/${content.botUsername}` }]];
+    keyboard = [[{ text: '👀 دیدن توی ربات', url: `https://t.me/${content.botUsername}` }]];
   }
 
   return { text, keyboard };
@@ -244,7 +244,7 @@ export function renderChannelPost(content: ChannelPostContent): RenderedChannelP
  * expired posts are closed in place (`renderClosedChannelPost`) rather than
  * removed, and «حذف» alone promised what the channel could not do.
  */
-export const CHANNEL_EXPIRY_NOTE = '⏳ رویدادهای منقضی‌شده از کانال حذف یا بسته می‌شوند.';
+export const CHANNEL_EXPIRY_NOTE = '⏳ برنامه‌هایی که وقتشون گذشته از کانال پاک یا بسته میشن.';
 
 /**
  * Why a post is coming down, as far as its reader is concerned.
@@ -276,12 +276,12 @@ export interface ClosedChannelPostContent {
  * the only way left to take that text out of the channel.
  */
 export function renderClosedChannelPost(content: ClosedChannelPostContent): string {
-  if (content.reason === 'WITHDRAWN') return '🚫 این رویداد دیگر در دسترس نیست.';
+  if (content.reason === 'WITHDRAWN') return '🚫 این برنامه دیگه در دسترس نیست.';
 
   const line =
     content.reason === 'ENDED'
-      ? '⏰ این رویداد پایان یافت.'
-      : '🔄 این رویداد دوباره در کانال منتشر شد؛ پست تازه‌اش پایین‌تر است.';
+      ? '⏰ این برنامه تموم شد.'
+      : '🔄 این برنامه دوباره توی کانال منتشر شد؛ پست تازه‌ش پایین‌تره.';
   // The number first, as on the live post: a tap searches the channel for it,
   // which for a renewed post is the way to the copy that replaced it.
   return [

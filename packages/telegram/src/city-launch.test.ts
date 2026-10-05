@@ -6,7 +6,7 @@ import { MAIN_MENU_LABEL, menuPathFor } from './keyboards';
 describe('cityLaunchAnnouncement', () => {
   it('names the city and says it is open', () => {
     const text = cityLaunchAnnouncement('شیراز');
-    expect(text).toContain('پایه‌تَم در شیراز باز شد');
+    expect(text).toContain('پایتم توی شیراز باز شد');
   });
 
   /** A path a reader can follow: the button under the compose box, then the group. */

@@ -32,6 +32,10 @@ import {
 /**
  * Every Persian message the bot sends (plan §3.2).
  *
+ * **The voice is `docs/bot-voice-fa.md`:** spoken Persian, «تو», «برنامه» for an
+ * event, short sentences, and no jokes on a message about a penalty. Read it before
+ * writing a sentence here; a new template in the old formal register is a bug.
+ *
  * A **message catalogue, not an i18n framework** — the product is fa-IR only
  * (assumption 10), and a framework here would be indirection over a single
  * locale. Keeping the text in code rather than in `notification.payload` is what
@@ -507,10 +511,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const requester = requesterLine(payload);
       return {
         text:
-          `<b>درخواست تازه</b>\n\n` +
+          `<b>یکی پایه‌ست!</b> 🙋\n\n` +
           (requester === null
-            ? `یک نفر می‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`
-            : `${requester}\nمی‌خواهد به «${str(payload, 'eventTitle')}» بپیوندد.`),
+            ? `یه نفر می‌خواد بیاد «${str(payload, 'eventTitle')}». قبولش می‌کنی؟`
+            : `${requester}\nمی‌خواد بیاد «${str(payload, 'eventTitle')}». قبولش می‌کنی؟`),
         deepLink,
         ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
       };
@@ -520,8 +524,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const event = id(payload, 'eventPublicId');
       return {
         text:
-          `درخواست شما برای «${str(payload, 'eventTitle')}» ثبت شد.` +
-          (event === null ? '' : `\nاگر سؤالی دارید، با دکمهٔ زیر به میزبان پیام بدهید.`),
+          `درخواستت برای «${str(payload, 'eventTitle')}» ثبت شد؛ حالا منتظر جواب میزبانیم.` +
+          (event === null ? '' : `\nسؤالی داری؟ با دکمهٔ زیر به میزبان پیام بده.`),
         deepLink: `my-requests`,
         ...(event !== null ? { keyboard: guestEventKeyboard(event) } : {}),
       };
@@ -539,9 +543,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const event = id(payload, 'eventPublicId');
       return {
         text:
-          `<b>درخواست شما پذیرفته شد</b> 🎉\n\n` +
-          `«${str(payload, 'eventTitle')}»\n` +
-          (event === null ? '' : `برای هماهنگی، با دکمهٔ زیر به میزبان پیام بدهید.\n`) +
+          `<b>میزبان قبولت کرد!</b> 🎉\n\n` +
+          `«${str(payload, 'eventTitle')}» منتظرته.\n` +
+          (event === null ? '' : `برای هماهنگی، با دکمهٔ زیر به میزبان پیام بده.\n`) +
           `\n<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`,
         deepLink: `my-requests`,
         ...(event !== null ? { keyboard: guestEventKeyboard(event) } : {}),
@@ -561,13 +565,13 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const refunded = payload['coinsRefunded'];
       const refund =
         typeof refunded === 'number' && refunded > 0
-          ? `\n<b>${toPersianDigits(refunded)} سکه</b> بابت این درخواست به شما بازگشت.`
+          ? `\n<b>${toPersianDigits(refunded)} سکه</b> برگشت تو حسابت.`
           : '';
       return {
         text:
-          `درخواست شما برای «${str(payload, 'eventTitle')}» پذیرفته نشد.` +
+          `این بار برای «${str(payload, 'eventTitle')}» جور نشد.` +
           `${refund}\n` +
-          `رویدادهای دیگری هم هست — سری بزنید.`,
+          `کلی برنامهٔ دیگه هست، یه سر بزن.`,
       };
     }
 
@@ -584,7 +588,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const refunded = payload['coinsRefunded'];
       const refund =
         typeof refunded === 'number' && refunded > 0
-          ? `\n<b>${toPersianDigits(refunded)} سکه</b> بابت این درخواست به شما بازگشت.`
+          ? `\n<b>${toPersianDigits(refunded)} سکه</b> برگشت تو حسابت.`
           : '';
       /**
        * The waiting list that never moved (v0.21.0): the activity started with
@@ -593,18 +597,18 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       if (bool(payload, 'waitlisted')) {
         return {
           text:
-            `<b>جایی در «${str(payload, 'eventTitle')}» باز نشد</b>\n\n` +
-            `رویداد شروع شد و تا آن لحظه کسی انصراف نداد، بنابراین جای شما در ` +
-            `لیست انتظار بسته شد.${refund}\n` +
-            `رویدادهای دیگری هم هست؛ سری بزنید.`,
+            `<b>توی «${str(payload, 'eventTitle')}» جا باز نشد</b>\n\n` +
+            `برنامه شروع شد و تا اون موقع کسی کنسل نکرد، برای همین صف انتظارت ` +
+            `بسته شد.${refund}\n` +
+            `کلی برنامهٔ دیگه هست، یه سر بزن.`,
         };
       }
       return {
         text:
-          `<b>مهلت پاسخ میزبان گذشت</b>\n\n` +
-          `میزبان «${str(payload, 'eventTitle')}» در مهلت تعیین‌شده پاسخی نداد، ` +
-          `بنابراین درخواست شما بسته شد.${refund}\n` +
-          `رویدادهای دیگری هم هست — سری بزنید.`,
+          `<b>میزبان به‌موقع جواب نداد</b>\n\n` +
+          `میزبانِ «${str(payload, 'eventTitle')}» تا آخر وقت جوابی نداد، ` +
+          `برای همین درخواستت بسته شد.${refund}\n` +
+          `کلی برنامهٔ دیگه هست، یه سر بزن.`,
       };
     }
 
@@ -618,11 +622,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const decided = str(payload, 'statusBefore') === 'ACCEPTED';
       return {
         text:
-          `<b>یک درخواست لغو شد</b>\n\n` +
+          `<b>یه درخواست کنسل شد</b>\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
           (decided
-            ? `یکی از مهمان‌های پذیرفته‌شده شرکت خود را لغو کرد و یک جا آزاد شد.`
-            : `درخواستی که در انتظار پاسخ شما بود، از سوی خودِ فرد لغو شد. کاری لازم نیست.`),
+            ? `یکی از مهمان‌هایی که قبول کرده بودی کنسل کرد و یه جا خالی شد.`
+            : `کسی که منتظر جوابت بود، خودش درخواستش رو پس گرفت. لازم نیست کاری بکنی.`),
       };
     }
 
@@ -631,9 +635,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const event = id(payload, 'eventPublicId');
       return {
         text:
-          `<b>یک جا باز شد</b>\n\n` +
-          `درخواست شما برای «${str(payload, 'eventTitle')}» از لیست انتظار خارج شد و ` +
-          `اکنون در انتظار تصمیم میزبان است.`,
+          `<b>یه جا باز شد!</b> 🎉\n\n` +
+          `درخواستت برای «${str(payload, 'eventTitle')}» از صف انتظار دراومد و ` +
+          `حالا منتظر جواب میزبانه.`,
         deepLink: `my-requests`,
         ...(event !== null ? { keyboard: guestEventKeyboard(event, false) } : {}),
       };
@@ -646,8 +650,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const requester = requesterLine(payload);
       return {
         text:
-          `یک درخواست از لیست انتظار به «${str(payload, 'eventTitle')}» منتقل شد و ` +
-          `منتظر تصمیم شماست.` +
+          `یه درخواست از صف انتظارِ «${str(payload, 'eventTitle')}» اومد جلو و ` +
+          `منتظر جوابته.` +
           (requester === null ? '' : `\n\n${requester}`),
         deepLink,
         ...(participant !== null ? { keyboard: hostDecisionKeyboard(participant) } : {}),
@@ -657,9 +661,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.EVENT_CANCELLED:
       return {
         text:
-          `<b>این رویداد لغو شد</b>\n\n` +
-          `«${str(payload, 'eventTitle')}» توسط میزبان لغو شده است. ` +
-          `اگر بابت شرکت در آن سکه‌ای پرداخت کرده بودید، به حساب شما بازگشته است.`,
+          `<b>این برنامه کنسل شد</b> 😕\n\n` +
+          `میزبان «${str(payload, 'eventTitle')}» رو کنسل کرد. ` +
+          `اگه براش سکه داده بودی، برگشته تو حسابت.`,
       };
 
     /**
@@ -689,15 +693,15 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
 
       return opened(
         second
-          ? `<b>تا چند ساعت دیگر</b> ⏰\n\n` +
+          ? `<b>چند ساعت دیگه شروع میشه</b> ⏰\n\n` +
               `«${str(payload, 'eventTitle')}»\n` +
               `${when}\n` +
-              `اگر نمی‌توانید بیایید، همین حالا لغو کنید — بعد از این، لغو گران‌تر ` +
-              `می‌شود و نیامدن بدون خبر از همه گران‌تر.`
+              `نمی‌تونی بیای؟ همین الان کنسل کن. از این به بعد کنسل کردن گرون‌تر ` +
+              `میشه و نیومدنِ بی‌خبر از همه گرون‌تر.`
           : `<b>فردا</b> 📅\n\n` +
               `«${str(payload, 'eventTitle')}»\n` +
               `${when}\n` +
-              `اگر برنامه‌تان عوض شده، تا پیش از چند ساعت مانده به شروع، لغو ارزان‌تر است.`,
+              `کاری پیش اومده؟ تا چند ساعت قبل از شروع، کنسل کردن ارزون‌تره.`,
         `my-events`,
         // The cancellation the text asks for, and the page (plan 11). `ev:cancel`
         // asks and quotes the price; `cancelyes` does it — so this is safe to tap.
@@ -705,11 +709,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           ? [
               [
                 {
-                  text: '✖️ لغو شرکت',
+                  text: '✖️ نمی‌تونم بیام',
                   callbackData: encodeEventCallback('cancel', participant),
                   style: 'danger',
                 },
-                { text: '📄 صفحهٔ رویداد', callbackData: encodeEventCallback('show', event) },
+                { text: '📄 صفحهٔ برنامه', callbackData: encodeEventCallback('show', event) },
               ],
             ]
           : undefined,
@@ -730,11 +734,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const host = id(payload, 'eventPublicId');
 
       return opened(
-        `<b>فردا میزبانید</b> 📅\n\n` +
+        `<b>فردا میزبانی!</b> 📅\n\n` +
           `«${str(payload, 'eventTitle')}»\n` +
           `${when}` +
-          `${count} نفر پذیرفته‌شده\n\n` +
-          `اگر چیزی عوض شده، همین امروز از «👥 مهمان‌ها» به هر کدام پیام بدهید.`,
+          `${count} نفر قبول شدن\n\n` +
+          `اگه چیزی عوض شده، همین امروز از «👥 مهمان‌ها» بهشون پیام بده.`,
         `my-events`,
         // The guest list, where «✉️ پیام» now reaches each guest (plan 13).
         host !== null
@@ -756,15 +760,15 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const event = id(payload, 'eventPublicId');
       const settles = new Date(raw(payload, 'settlesAt'));
       const deadline = Number.isNaN(settles.getTime())
-        ? `از «👥 مهمان‌ها» «🚫 غایب بود» را بزنید؛ `
-        : `تا <b>${formatTehran(settles)}</b> از «👥 مهمان‌ها» «🚫 غایب بود» را بزنید؛ `;
+        ? `از «👥 مهمان‌ها» «🚫 نیومد» رو بزن؛ `
+        : `تا <b>${formatTehran(settles)}</b> از «👥 مهمان‌ها» «🚫 نیومد» رو بزن؛ `;
 
       return opened(
-        `<b>«${str(payload, 'eventTitle')}» تمام شد</b> — همه آمدند؟\n\n` +
-          `${num(payload, 'acceptedCount')} نفر پذیرفته شده بودند.\n` +
-          `اگر کسی نیامد، ${deadline}` +
-          `بعد از آن همه حاضر ثبت می‌شوند.\n\n` +
-          `<i>اگر همه آمدند، کاری لازم نیست.</i>`,
+        `<b>«${str(payload, 'eventTitle')}» تموم شد. همه اومدن؟</b>\n\n` +
+          `${num(payload, 'acceptedCount')} نفر قبول شده بودن.\n` +
+          `اگه کسی نیومد، ${deadline}` +
+          `بعدش همه «اومده» ثبت میشن.\n\n` +
+          `<i>اگه همه اومدن، لازم نیست کاری بکنی.</i>`,
         `my-events`,
         event !== null
           ? [[{ text: '👥 مهمان‌ها', callbackData: encodeEventCallback('who', event) }]]
@@ -793,12 +797,12 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return opened(
         `چطور بود؟\n\n` +
           (other === ''
-            ? `می‌توانید تا ${num(payload, 'daysLeft')} روز آینده بازخورد خود را درباره ` +
-              `«${str(payload, 'eventTitle')}» ثبت کنید.`
-            : `نظرتان دربارهٔ <b>${other}</b> در «${str(payload, 'eventTitle')}» چیست؟ ` +
-              `تا ${num(payload, 'daysLeft')} روز آینده می‌توانید با ستاره‌های زیر ثبتش کنید.`) +
+            ? `تا ${num(payload, 'daysLeft')} روز دیگه می‌تونی نظرت رو دربارهٔ ` +
+              `«${str(payload, 'eventTitle')}» بنویسی.`
+            : `نظرت دربارهٔ <b>${other}</b> توی «${str(payload, 'eventTitle')}» چیه؟ ` +
+              `تا ${num(payload, 'daysLeft')} روز دیگه می‌تونی با ستاره‌های زیر ثبتش کنی.`) +
           (role === 'HOST'
-            ? `\n\n<i>سپردهٔ ثبت رویداد وقتی برمی‌گردد که برای همهٔ مهمان‌هایی که آمدند نظر نوشته باشید.</i>`
+            ? `\n\n<i>سپردهٔ ثبت برنامه وقتی برمی‌گرده که برای همهٔ مهمان‌هایی که اومدن نظر نوشته باشی.</i>`
             : ''),
         `reviews/pending`,
         participant === null
@@ -817,7 +821,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
                 ? [
                     [
                       {
-                        text: '🚫 میزبان نیامد',
+                        text: '🚫 میزبان نیومد',
                         callbackData: encodeEventCallback('habs', participant),
                       },
                     ],
@@ -830,8 +834,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     /** D7: both sides learn at the same instant, which is why one event fans out. */
     case TEMPLATES.REVIEW_REVEALED:
       return opened(
-        `<b>بازخوردها منتشر شد</b>\n\n` +
-          `بازخورد «${str(payload, 'eventTitle')}» اکنون قابل مشاهده است.`,
+        `<b>نظرها اومد</b> 👀\n\n` +
+          `نظرهای «${str(payload, 'eventTitle')}» منتشر شد؛ برو ببین چی گفتن.`,
         `reviews/pending`,
       );
 
@@ -845,7 +849,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const charged = payload['coinsCharged'];
       const cost =
         typeof charged === 'number' && charged > 0
-          ? `\n<b>${toPersianDigits(charged)} سکه</b> بابت غیبت از حساب شما کم شد.`
+          ? `\n<b>${toPersianDigits(charged)} سکه</b> بابت نیومدن از حسابت کم شد.`
           : '';
       const seat = id(payload, 'participantPublicId');
       /**
@@ -859,16 +863,16 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       if (seat === null) {
         return {
           text:
-            `میزبان اعلام کرده که شما در «${str(payload, 'eventTitle')}» حاضر نشده‌اید.${cost}\n\n` +
-            `اگر این درست نیست، از «${MAIN_MENU_LABEL}» ← ` +
-            `«${menuPathFor('bug') ?? 'راهنما و پشتیبانی'}» برای ما بنویسید.`,
+            `میزبانِ «${str(payload, 'eventTitle')}» ثبت کرده که نیومدی.${cost}\n\n` +
+            `اگه درست نیست، از «${MAIN_MENU_LABEL}» ← ` +
+            `«${menuPathFor('bug') ?? 'راهنما و پشتیبانی'}» برامون بنویس.`,
         };
       }
       return {
         text:
-          `میزبان اعلام کرده که شما در «${str(payload, 'eventTitle')}» حاضر نشده‌اید.${cost}\n\n` +
-          `اگر این درست نیست، ${disputeDeadline(payload)}با یکی از دکمه‌های زیر بگویید چه شد. ` +
-          `یک داور هر دو طرف را می‌خواند و تصمیم می‌گیرد.`,
+          `میزبانِ «${str(payload, 'eventTitle')}» ثبت کرده که نیومدی.${cost}\n\n` +
+          `اگه درست نیست، ${disputeDeadline(payload)}با یکی از دکمه‌های زیر بگو چی شد. ` +
+          `یه داور حرف هر دو طرف رو می‌خونه و تصمیم می‌گیره.`,
         keyboard: noShowClaimKeyboard(seat),
       };
     }
@@ -884,10 +888,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const seat = id(payload, 'participantPublicId');
       return {
         text:
-          `<b>غیبتی که برای شما ثبت شده، قابل اعتراض است</b>\n\n` +
-          `میزبان «${str(payload, 'eventTitle')}» شما را غایب ثبت کرده بود و آن وقت راهی ` +
-          `برای اعتراض نبود. اگر این درست نیست، ${disputeDeadline(payload)}` +
-          `با یکی از دکمه‌های زیر بگویید چه شد.`,
+          `<b>می‌تونی به «نیومد»ی که برات ثبت شده اعتراض کنی</b>\n\n` +
+          `میزبانِ «${str(payload, 'eventTitle')}» ثبت کرده بود که نیومدی و اون موقع راهی ` +
+          `برای اعتراض نبود. اگه درست نیست، ${disputeDeadline(payload)}` +
+          `با یکی از دکمه‌های زیر بگو چی شد.`,
         ...(seat !== null ? { keyboard: noShowClaimKeyboard(seat) } : {}),
       };
     }
@@ -907,14 +911,14 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         : `تا <b>${formatTehran(respondBy)}</b> `;
       return {
         text:
-          `<b>گزارشی دربارهٔ حضور شما</b>\n\n` +
-          `دربارهٔ «${str(payload, 'eventTitle')}» گزارش شده که شما به رویداد نیامده‌اید.\n\n` +
-          `پیش از تصمیم داور، ${deadline}می‌توانید توضیح بدهید. تا تصمیم، هیچ سکه‌ای ` +
-          `جابه‌جا نمی‌شود.`,
+          `<b>یه گزارش دربارهٔ اومدنت</b>\n\n` +
+          `گزارش شده که خودت سر «${str(payload, 'eventTitle')}» نیومدی.\n\n` +
+          `قبل از تصمیم داور، ${deadline}می‌تونی توضیح بدی. تا تصمیم، هیچ سکه‌ای ` +
+          `جابه‌جا نمیشه.`,
         ...(event !== null
           ? {
               keyboard: [
-                [{ text: '✍️ پاسخ من', callbackData: encodeEventCallback('hresp', event) }],
+                [{ text: '✍️ جواب من', callbackData: encodeEventCallback('hresp', event) }],
               ],
             }
           : {}),
@@ -940,40 +944,39 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
         if (role === 'HOST') {
           return {
             text:
-              `<b>غیبت برداشته شد</b>\n\n` +
-              `غیبتی که برای یکی از مهمان‌های «${title}» ثبت کرده بودید، پس از بررسی ` +
-              `داور برداشته شد.`,
+              `<b>«نیومد» برداشته شد</b>\n\n` +
+              `برای یکی از مهمان‌های «${title}» ثبت کرده بودی که نیومده؛ داور بررسی کرد ` +
+              `و این ثبت برداشته شد.`,
           };
         }
         return {
           text: upheld
-            ? `<b>اعتراض شما پذیرفته شد ✅</b>\n\n` +
-              `غیبت «${title}» از سابقهٔ شما برداشته شد و اعتماد کم‌شده برگشت.` +
-              (coins === null ? '' : `\n<b>${coins} سکه</b> به حسابتان برگشت.`)
-            : `<b>اعتراض شما پذیرفته نشد</b>\n\n` +
-              `اعتراض شما دربارهٔ «${title}» بررسی شد و غیبت ثبت‌شده سر جایش می‌ماند.`,
+            ? `<b>اعتراضت قبول شد ✅</b>\n\n` +
+              `نیومدنِ «${title}» از سابقه‌ت پاک شد و امتیاز اعتمادی که کم شده بود برگشت.` +
+              (coins === null ? '' : `\n<b>${coins} سکه</b> برگشت تو حسابت.`)
+            : `<b>اعتراضت قبول نشد</b>\n\n` +
+              `اعتراضت دربارهٔ «${title}» بررسی شد و «نیومد»ی که ثبت شده سر جاش می‌مونه.`,
         };
       }
 
       if (role === 'HOST') {
         return {
           text: upheld
-            ? `<b>نیامدن شما ثبت شد</b>\n\n` +
-              `پس از بررسی، داور نتیجه گرفت که شما در «${title}» حاضر نبودید.` +
-              (coins === null ? '' : `\n<b>${coins} سکه</b> جریمه از حسابتان کم شد.`) +
-              `\nسپردهٔ ثبت این رویداد برنمی‌گردد و ورودی مهمان‌ها به آن‌ها برگشت.`
-            : `<b>گزارش پذیرفته نشد ✅</b>\n\n` +
-              `گزارشی که دربارهٔ حضور شما در «${title}» ثبت شده بود بررسی شد و ` +
-              `پذیرفته نشد. هیچ چیزی از حساب شما کم نشد.`,
+            ? `<b>نیومدنت ثبت شد</b>\n\n` +
+              `داور بعد از بررسی به این نتیجه رسید که سر «${title}» نبودی.` +
+              (coins === null ? '' : `\n<b>${coins} سکه</b> جریمه از حسابت کم شد.`) +
+              `\nسپردهٔ ثبت این برنامه برنمی‌گرده و ورودی مهمان‌ها بهشون برگشت.`
+            : `<b>گزارش قبول نشد ✅</b>\n\n` +
+              `گزارشی که دربارهٔ اومدنت سر «${title}» ثبت شده بود بررسی شد و ` +
+              `قبول نشد. چیزی از حسابت کم نشد.`,
         };
       }
       return {
         text: upheld
-          ? `<b>میزبان حاضر نبوده است</b>\n\n` +
-            `بررسی نشان داد میزبان «${title}» حاضر نبوده است.` +
-            (coins === null ? '' : `\n<b>${coins} سکه</b> به حسابتان برگشت.`)
-          : `<b>گزارش شما پذیرفته نشد</b>\n\n` +
-            `گزارش شما دربارهٔ «${title}» بررسی شد و پذیرفته نشد.`,
+          ? `<b>میزبان نیومده بود</b>\n\n` +
+            `بررسی نشون داد میزبانِ «${title}» نیومده بود.` +
+            (coins === null ? '' : `\n<b>${coins} سکه</b> برگشت تو حسابت.`)
+          : `<b>گزارشت قبول نشد</b>\n\n` + `گزارشت دربارهٔ «${title}» بررسی شد و قبول نشد.`,
       };
     }
 
@@ -998,11 +1001,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const support = str(payload, 'supportContact');
       return {
         text:
-          `<b>دسترسی شما به پایه‌تَم مسدود شد</b>\n\n` +
-          `از این پس ربات به پیام‌های شما پاسخ نمی‌دهد.\n\n` +
+          `<b>حسابت توی پایتم مسدود شد</b>\n\n` +
+          `از این به بعد ربات به پیام‌هات جواب نمیده.\n\n` +
           (support === ''
-            ? `اگر فکر می‌کنید اشتباهی رخ داده، از راه‌های ارتباطی اعلام‌شده با پشتیبانی تماس بگیرید.`
-            : `اگر فکر می‌کنید اشتباهی رخ داده یا برای بررسی دوباره، با پشتیبانی در ارتباط باشید: ${support}`),
+            ? `اگه فکر می‌کنی اشتباه شده، از راه‌های ارتباطی‌ای که اعلام شده با پشتیبانی تماس بگیر.`
+            : `اگه فکر می‌کنی اشتباه شده یا می‌خوای دوباره بررسی بشه، به پشتیبانی پیام بده: ${support}`),
       };
     }
 
@@ -1019,25 +1022,25 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       if (str(payload, 'subjectType') === 'USER') {
         return {
           text:
-            `<b>گزارشی دربارهٔ حساب شما ثبت شد</b>\n\n` +
-            `چند نفر دربارهٔ حساب شما گزارش داده‌اند و تیم ما در حال بررسی آن است.`,
+            `<b>یه گزارش دربارهٔ حسابت ثبت شده</b>\n\n` +
+            `چند نفر دربارهٔ حسابت گزارش دادن و تیم ما داره بررسیش می‌کنه.`,
         };
       }
       if (str(payload, 'subjectType') === 'REVIEW') {
         return {
           text:
-            `<b>گزارشی دربارهٔ یکی از نظرهای شما ثبت شد</b>\n\n` +
-            `چند نفر دربارهٔ نظری که نوشته‌اید گزارش داده‌اند و تیم ما در حال بررسی آن است.`,
+            `<b>یه گزارش دربارهٔ یکی از نظرهات ثبت شده</b>\n\n` +
+            `چند نفر دربارهٔ نظری که نوشتی گزارش دادن و تیم ما داره بررسیش می‌کنه.`,
         };
       }
       return {
         text:
-          `<b>رویداد شما موقتاً پنهان شد</b>\n\n` +
-          `تعدادی گزارش دربارهٔ آن ثبت شده و در حال بررسی توسط تیم ماست. ` +
-          `تا پایان بررسی در فهرست‌ها و کانال دیده نمی‌شود و کسی نمی‌تواند به آن ` +
-          `بپیوندد.\n\n` +
-          `کسانی که پیش‌تر پذیرفته شده‌اند سر جای خود می‌مانند، و نتیجهٔ بررسی را ` +
-          `همین‌جا به شما می‌گوییم.`,
+          `<b>برنامه‌ت موقتاً پنهان شد</b>\n\n` +
+          `چند تا گزارش دربارهٔ برنامه‌ت رسیده و تیم ما داره بررسیش می‌کنه. ` +
+          `تا آخر بررسی توی فهرست‌ها و کانال دیده نمیشه و کسی نمی‌تونه بهش ` +
+          `درخواست بده.\n\n` +
+          `کسایی که قبلاً قبول شدن سر جاشون می‌مونن و نتیجهٔ بررسی رو ` +
+          `همین‌جا بهت می‌گیم.`,
       };
 
     /**
@@ -1054,13 +1057,13 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
 
       return {
         text:
-          `<b>${reply ? 'پاسخ تازه' : 'پیام تازه'}</b> ✉️\n\n` +
+          `<b>${reply ? 'جواب تازه' : 'پیام تازه'}</b> ✉️\n\n` +
           `${str(payload, 'senderDisplayName')} دربارهٔ «${str(payload, 'eventTitle')}» ` +
-          `${reply ? 'به شما پاسخ داد' : 'برای شما پیام فرستاد'}.`,
+          `${reply ? 'جوابت رو داد' : 'بهت پیام داد'}.`,
         ...(message !== null
           ? {
               keyboard: [
-                [{ text: '👁 مشاهدهٔ پیام', callbackData: encodeDirectCallback('view', message) }],
+                [{ text: '👀 دیدن پیام', callbackData: encodeDirectCallback('view', message) }],
               ],
             }
           : {}),
@@ -1078,8 +1081,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.DIRECT_MESSAGE_SEEN:
       return {
         text:
-          `<b>پیامتان دیده شد</b> 👁\n\n` +
-          `پیامی که دربارهٔ «${str(payload, 'eventTitle')}» فرستادید خوانده شد.`,
+          `<b>پیامت دیده شد</b> 👀\n\n` +
+          `پیامی که دربارهٔ «${str(payload, 'eventTitle')}» فرستادی خونده شد.`,
       };
 
     /**
@@ -1092,9 +1095,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.CONTENT_RESTORED:
       return {
         text:
-          `<b>رویداد شما دوباره نمایش داده می‌شود</b> ✅\n\n` +
-          `بررسی تمام شد و موردی پیدا نشد. رویداد از همین حالا دوباره در فهرست‌ها ` +
-          `دیده می‌شود و می‌توان به آن پیوست.`,
+          `<b>برنامه‌ت دوباره دیده میشه</b> ✅\n\n` +
+          `بررسی تموم شد و مشکلی پیدا نشد. از همین الان برنامه‌ت دوباره توی فهرست‌هاست ` +
+          `و میشه بهش درخواست داد.`,
       };
 
     /**
@@ -1113,14 +1116,14 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      */
     case TEMPLATES.BOT_WELCOME:
       return openedWithMenu(
-        `<b>به پایه‌تم خوش آمدید</b> 👋\n\n` +
-          `اینجا برای رویدادهای گروهی کوچک — کافه و بازی، پیاده‌روی و کوهنوردی — ` +
-          `همراه پیدا می‌کنید.\n\n` +
-          `نام و شمارهٔ شما به کسی نشان داده نمی‌شود؛ هر چیزی که می‌خواهید طرف ` +
-          `مقابل بداند، خودتان در پیام می‌نویسید.` +
+        `<b>سلام، به پایتم خوش اومدی</b> 👋\n\n` +
+          `اینجا برای کافه، بازی، پیاده‌روی و کوه آدمِ پایه پیدا می‌کنی؛ ` +
+          `همه‌ش با گروه‌های کوچیک.\n\n` +
+          `اسم و شماره‌ت به کسی نشون داده نمیشه؛ هر چی بخوای طرف مقابل بدونه، ` +
+          `خودت توی پیام می‌نویسی.` +
           (bool(payload, 'onboarding')
-            ? `\n\n<b>پیش از شروع:</b> قوانین را بپذیرید و پروفایلتان را بسازید. ` +
-              `چند دقیقه بیشتر طول نمی‌کشد و تا تمام نشود، منو و دکمه‌های ربات کار نمی‌کنند. 👇`
+            ? `\n\n<b>قبل از شروع:</b> قوانین رو قبول کن و پروفایلت رو بساز. ` +
+              `چند دقیقه بیشتر طول نمی‌کشه و تا تموم نشه، منو و دکمه‌های ربات باز نمیشن. 👇`
             : ''),
         `home`,
       );
@@ -1137,10 +1140,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_REFERRAL_ACCEPTED:
       return opened(
         `<b>کد دعوت ثبت شد</b> ✅\n\n` +
-          `${num(payload, 'pendingCoins')} سکه پس از نخستین رویدادی که در آن شرکت کنید ` +
-          `به حساب شما اضافه می‌شود.\n\n` +
-          `<i>یعنی: به رویدادی «پایتم» بگویید، میزبان بپذیردتان، رویداد برگزار شود و ` +
-          `چند ساعت از پایانش بگذرد. آن‌وقت سکه‌ها را می‌گیرید و همین‌جا خبرتان می‌کنیم.</i>`,
+          `${num(payload, 'pendingCoins')} سکه بعد از اولین برنامه‌ای که بری ` +
+          `میاد تو حسابت.\n\n` +
+          `<i>یعنی: به یه برنامه «پایتم» بگی، میزبان قبولت کنه، برنامه برگزار بشه و ` +
+          `چند ساعت از تموم شدنش بگذره. اون موقع سکه‌ها میان و همین‌جا خبرت می‌کنیم.</i>`,
         `home`,
       );
 
@@ -1153,9 +1156,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.REFERRAL_QUALIFIED_REFERRER:
       return {
         text:
-          `<b>پاداش دعوت شما رسید</b> 🎁\n\n` +
-          `کسی که با کد شما آمده بود در نخستین رویدادش شرکت کرد، و ` +
-          `${num(payload, 'referrerCoins')} سکه به حساب شما اضافه شد.`,
+          `<b>پاداش دعوتت رسید</b> 🎁\n\n` +
+          `کسی که با کدت اومده بود رفت سر اولین برنامه‌ش و ` +
+          `${num(payload, 'referrerCoins')} سکه اومد تو حسابت.`,
       };
 
     /**
@@ -1168,10 +1171,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.REFERRAL_QUALIFIED_REFERRER_CAPPED:
       return {
         text:
-          `<b>دعوت شما به نتیجه رسید</b> ✅\n\n` +
-          `کسی که با کد شما آمده بود در نخستین رویدادش شرکت کرد.\n\n` +
-          `<i>سقف سکهٔ دعوت در این ماه پر شده، پس این‌بار سکه‌ای اضافه نشد. ` +
-          `دعوت‌های بعدی دوباره سکه می‌گیرند.</i>`,
+          `<b>دعوتت جواب داد</b> ✅\n\n` +
+          `کسی که با کدت اومده بود رفت سر اولین برنامه‌ش.\n\n` +
+          `<i>سقف سکهٔ دعوتِ این ماه پر شده، برای همین این بار سکه‌ای اضافه نشد. ` +
+          `دعوت‌های بعدی دوباره سکه دارن.</i>`,
       };
 
     /** And to the person who used the code, naming the condition that was met. */
@@ -1179,8 +1182,8 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       return {
         text:
           `<b>پاداش کد دعوت رسید</b> 🎁\n\n` +
-          `در نخستین رویدادتان شرکت کردید، پس ${num(payload, 'referredCoins')} سکه ` +
-          `به حساب شما اضافه شد.`,
+          `رفتی سر اولین برنامه‌ت، پس ${num(payload, 'referredCoins')} سکه ` +
+          `اومد تو حسابت.`,
       };
 
     /**
@@ -1200,14 +1203,14 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const refund = num(payload, 'refund');
       const bonus = num(payload, 'bonus');
       const lines = [
-        `<b>رویداد شما تسویه شد</b> 🎉`,
+        `<b>حساب برنامه‌ت صاف شد</b> 🎉`,
         ``,
-        `«${str(payload, 'eventTitle')}» با ${num(payload, 'attendees')} مهمان برگزار شد.`,
+        `«${str(payload, 'eventTitle')}» با ${num(payload, 'attendees')} مهمان برگزار شد. دمت گرم!`,
         ``,
       ];
-      if (refund !== '۰') lines.push(`• سپردهٔ ثبت رویداد: ${refund} سکه برگشت`);
+      if (refund !== '۰') lines.push(`• سپردهٔ ثبت برنامه: ${refund} سکه برگشت`);
       if (bonus !== '۰') lines.push(`• پاداش میزبانی: ${bonus} سکه`);
-      lines.push(``, `<i>میزبانی که رویدادش را برگزار می‌کند، در سکه ضرر نمی‌کند.</i>`);
+      lines.push(``, `<i>میزبانی که برنامه‌ش رو برگزار کنه، سکه ضرر نمی‌کنه.</i>`);
       return { text: lines.join('\n') };
     }
 
@@ -1220,10 +1223,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
      */
     case TEMPLATES.COMEBACK_GRANTED:
       return opened(
-        `<b>${num(payload, 'coins')} سکه برایتان کنار گذاشتیم</b> 🎁\n\n` +
-          `چند رویداد رفته‌اید و موجودی‌تان تمام شده. این سکه‌ها هدیهٔ ماست ` +
-          `تا یکی دیگر را از دست ندهید.\n\n` +
-          `موجودی شما: ${num(payload, 'balance')} سکه`,
+        `<b>${num(payload, 'coins')} سکه برات کنار گذاشتیم</b> 🎁\n\n` +
+          `چند تا برنامه رفتی و سکه‌هات تموم شده. این‌ها هدیهٔ ماست ` +
+          `که برنامهٔ بعدی رو از دست ندی.\n\n` +
+          `الان ${num(payload, 'balance')} سکه داری.`,
         `discover`,
       );
 
@@ -1262,7 +1265,7 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_BALANCE: {
       const keyboard = parseKeyboard(payload);
       return {
-        text: `<b>موجودی شما</b>\n\n${num(payload, 'balance')} سکه`,
+        text: `<b>سکه‌هات</b>\n\n${num(payload, 'balance')} سکه`,
         deepLink: `wallet`,
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
@@ -1449,11 +1452,11 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const medal = typeof tier === 'number' ? `${foundingTierMedal(tier)} ` : '';
       return {
         text:
-          `<b>پروفایل شما</b>\n\n` +
+          `<b>پروفایلت</b>\n\n` +
           `${str(payload, 'displayName')}\n` +
           `📍 ${str(payload, 'cityName')}\n` +
           `⭐️ امتیاز اعتماد: ${num(payload, 'trustScore')} از ۱۰۰\n` +
-          `🏷 علاقه‌مندی‌ها: ${interests === '' ? 'هنوز چیزی انتخاب نکرده‌اید' : interests}` +
+          `🏷 علاقه‌مندی‌ها: ${interests === '' ? 'هنوز چیزی انتخاب نکردی' : interests}` +
           (founding === '' ? '' : `\n${medal}${founding}`),
         deepLink: `profile/edit`,
         ...(keyboard !== undefined ? { keyboard } : {}),
@@ -1493,9 +1496,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_CONSENT_ACCEPTED:
       return opened(
         `<b>ثبت شد</b> ✅\n\n` +
-          `حالا می‌توانید از پایه‌تم استفاده کنید. دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ ` +
-          `در «${menuPathFor('discover') ?? 'رویدادها'}» هم رویدادهای نزدیک شما هست ` +
-          `و هم ساختن رویداد تازه.`,
+          `حالا دیگه می‌تونی از پایتم استفاده کنی. دکمهٔ «${MAIN_MENU_LABEL}» رو بزن؛ ` +
+          `توی «${menuPathFor('discover') ?? 'برنامه‌ها'}» هم برنامه‌های اطرافت هست ` +
+          `و هم ساختن برنامهٔ تازه.`,
         `home`,
       );
 
@@ -1511,9 +1514,9 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const keyboard = parseKeyboard(payload);
       return {
         text:
-          `<b>عضویت در کانال</b>\n\n` +
-          `برای استفاده از پایه‌تَم باید در همهٔ کانال‌های زیر عضو باشید.\n` +
-          `پس از عضویت، «بررسی دوباره» را بزنید.`,
+          `<b>یه قدم مونده: عضویت در کانال</b>\n\n` +
+          `برای استفاده از پایتم باید عضو همهٔ کانال‌های زیر باشی.\n` +
+          `عضو که شدی، «✅ عضو شدم» رو بزن.`,
         ...(keyboard !== undefined ? { keyboard } : {}),
       };
     }
@@ -1566,13 +1569,13 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.BOT_EVENT_HELD:
       return {
         text:
-          `<b>رویداد شما در انتظار بررسی است</b> ⏳\n\n` +
-          `«${str(payload, 'title')}» ثبت شد، اما هنوز منتشر نشده است: ` +
-          `متن آن نیاز به بررسی انسانی دارد.\n\n` +
-          `بیشتر وقت‌ها دلیلش کلمه‌ای است که در فهرست رویدادها مجاز نیست — ` +
+          `<b>برنامه‌ت منتظر بررسیه</b> ⏳\n\n` +
+          `«${str(payload, 'title')}» ثبت شد ولی هنوز منتشر نشده؛ ` +
+          `یه نفر از تیم باید متنش رو ببینه.\n\n` +
+          `بیشتر وقت‌ها دلیلش یه کلمه‌ست که توی فهرست برنامه‌ها مجاز نیست: ` +
           `الکل، مواد، شرط‌بندی، سلاح یا پیشنهادهای غیرمجاز. ` +
-          `اگر فکر می‌کنید اشتباه شده، منتظر بمانید؛ نتیجه به شما اطلاع داده می‌شود.\n\n` +
-          `<i>سکه‌ای بابت انتشار در کانال از شما کم نشده است.</i>`,
+          `اگه فکر می‌کنی اشتباه شده، صبر کن؛ نتیجه رو همین‌جا بهت می‌گیم.\n\n` +
+          `<i>بابت انتشار در کانال سکه‌ای ازت کم نشده.</i>`,
         keyboard: menuOpenerKeyboard(),
       };
 
@@ -1592,26 +1595,26 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
       const share = raw(payload, 'shareUrl');
       const inChannel = bool(payload, 'publishedToChannel');
       return opened(
-        `<b>رویداد ثبت شد</b> ✅\n\n` +
+        `<b>برنامه‌ت ثبت شد</b> ✅\n\n` +
           (inChannel
-            ? `«${str(payload, 'title')}» ساخته شد و در کانال پایه‌تَم منتشر می‌شود.\n`
+            ? `«${str(payload, 'title')}» ساخته شد و توی کانال پایتم منتشر میشه.\n`
             : `«${str(payload, 'title')}» ساخته شد.\n`) +
           (manage === null
-            ? `از دکمهٔ «${menuPathFor('myevents') ?? 'رویدادها'}» می‌توانید `
-            : `با ${manage} یا از «${menuPathFor('myevents') ?? 'رویدادها'}» می‌توانید `) +
-          `درخواست‌ها را ببینید و پاسخ بدهید.\n\n` +
-          `<b>اگر بخواهید بیشتر دیده شود:</b>\n` +
-          `📨 <b>دعوت ویژه</b> — رویداد شما با پیام اختصاصی برای حداکثر ` +
-          `${str(payload, 'inviteRecipients')} نفر از مناسب‌ترین کاربران فرستاده می‌شود ` +
+            ? `از دکمهٔ «${menuPathFor('myevents') ?? 'برنامه‌ها'}» می‌تونی `
+            : `با ${manage} یا از «${menuPathFor('myevents') ?? 'برنامه‌ها'}» می‌تونی `) +
+          `درخواست‌ها رو ببینی و جواب بدی.\n\n` +
+          `<b>می‌خوای بیشتر دیده بشه؟</b>\n` +
+          `📨 <b>دعوت ویژه:</b> برنامه‌ت با یه پیام اختصاصی برای حداکثر ` +
+          `${str(payload, 'inviteRecipients')} نفر از مناسب‌ترین کاربرها فرستاده میشه ` +
           `(${str(payload, 'inviteCost')} سکه).\n` +
           (inChannel
-            ? `🔄 <b>انتشار دوباره</b> — رویداد دوباره در کانال منتشر می‌شود تا از نو دیده شود ` +
+            ? `🔄 <b>انتشار دوباره:</b> برنامه دوباره توی کانال منتشر میشه که از نو دیده بشه ` +
               `(${str(payload, 'republishCost')} سکه).\n\n` +
-              `<i>هر دو از همان بخش «رویدادهای من»، زیر همین رویداد.</i>`
-            : `\n<i>از همان بخش «رویدادهای من»، زیر همین رویداد.</i>`),
+              `<i>هر دو از همون بخش «برنامه‌های من»، زیر همین برنامه.</i>`
+            : `\n<i>از همون بخش «برنامه‌های من»، زیر همین برنامه.</i>`),
         `my-events`,
         share.startsWith(SHARE_URL_PREFIX)
-          ? [[{ text: '🔗 اشتراک‌گذاری', url: share }]]
+          ? [[{ text: '🔗 بفرست برای دوستات', url: share }]]
           : undefined,
       );
     }
@@ -1804,10 +1807,10 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
     case TEMPLATES.PROFILE_GENDER_REQUEST:
       return {
         text:
-          `<b>لطفاً جنسیت خود را انتخاب کنید</b>\n\n` +
-          `گزینهٔ «ترجیح می‌دهم نگویم» دیگر در پایتم نیست، چون بعضی رویدادها فقط برای ` +
-          `بانوان یا فقط برای آقایان برگزار می‌شوند. یکی از دو دکمهٔ زیر را بزنید.\n\n` +
-          `<i>این انتخاب پس از ثبت قابل تغییر نیست؛ تغییر آن فقط از طریق پشتیبانی ممکن است.</i>`,
+          `<b>جنسیتت رو انتخاب کن</b>\n\n` +
+          `گزینهٔ «ترجیح می‌دم نگم» دیگه توی پایتم نیست، چون بعضی برنامه‌ها فقط برای ` +
+          `خانم‌ها یا فقط برای آقایان برگزار میشن. یکی از دو دکمهٔ زیر رو بزن.\n\n` +
+          `<i>این انتخاب بعد از ثبت عوض نمیشه؛ برای تغییرش باید به پشتیبانی پیام بدی.</i>`,
         keyboard: [
           [
             { text: 'آقا', callbackData: encodeGenderChoice('MALE') },
@@ -1939,8 +1942,8 @@ function openedWithMenu(text: string, deepLink: string): RenderedMessage {
  */
 function noShowClaimKeyboard(participantPublicId: string): InlineKeyboard {
   return [
-    [{ text: '🙋 من حاضر بودم', callbackData: encodeEventCallback('disp', participantPublicId) }],
-    [{ text: '🚫 میزبان نیامد', callbackData: encodeEventCallback('habs', participantPublicId) }],
+    [{ text: '🙋 من اومده بودم', callbackData: encodeEventCallback('disp', participantPublicId) }],
+    [{ text: '🚫 میزبان نیومد', callbackData: encodeEventCallback('habs', participantPublicId) }],
   ];
 }
 

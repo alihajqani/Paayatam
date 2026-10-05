@@ -65,14 +65,14 @@ describe('formatSuggestionCard', () => {
   });
 
   it('says what the button does', () => {
-    expect(text).toContain('میزبانش می‌شوم');
+    expect(text).toContain('میزبانش میشم');
   });
 });
 
 describe('the suggestion keyboards', () => {
   it('offers to host, carrying the suggestion', () => {
     const [[button]] = suggestionKeyboard(ID, null) as [[{ text: string; callbackData: string }]];
-    expect(button.text).toContain('میزبانش می‌شوم');
+    expect(button.text).toContain('میزبانش میشم');
     expect(parseSuggestionCallback(button.callbackData)).toEqual({ id: ID });
   });
 

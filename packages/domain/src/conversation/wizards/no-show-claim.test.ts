@@ -12,7 +12,7 @@ function prompt(mode: string): string {
 /** The one question all three claims ask (plan 08): what happened, in a sentence. */
 describe('the no-show claim form', () => {
   it('asks each side its own question', () => {
-    expect(prompt('dispute')).toContain('حاضر بودید');
+    expect(prompt('dispute')).toContain('اومده بودی');
     expect(prompt('absent')).toContain('میزبان');
     expect(prompt('response')).toContain('توضیح');
   });

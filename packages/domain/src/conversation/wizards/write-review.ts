@@ -76,14 +76,14 @@ const TAGS = reviewTag.options;
  * that flatters.
  */
 const TAG_FA: Record<ReviewTag, string> = {
-  PUNCTUAL: '⏰ سر وقت آمد',
+  PUNCTUAL: '⏰ سر وقت اومد',
   FRIENDLY: '😊 خوش‌برخورد',
   GOOD_CONVERSATION: '💬 هم‌صحبت خوب',
   WELL_ORGANISED: '📋 برنامه‌ریزی خوب',
   AS_DESCRIBED: '✅ مطابق توضیحات',
-  WOULD_MEET_AGAIN: '🔁 دوباره شرکت می‌کنم',
-  LATE: '🐢 دیر آمد',
-  UNCOMMUNICATIVE: '🔇 کم‌پاسخ بود',
+  WOULD_MEET_AGAIN: '🔁 بازم میام',
+  LATE: '🐢 دیر اومد',
+  UNCOMMUNICATIVE: '🔇 کم‌جواب بود',
 };
 
 const steps: WizardStep<WriteReviewForm>[] = [
@@ -91,8 +91,7 @@ const steps: WizardStep<WriteReviewForm>[] = [
     key: 'tag',
     ui: 'multi',
     optional: true,
-    prompt: () =>
-      'کدام موردها به این تجربه می‌خورد؟ هر تعداد که می‌خواهید انتخاب کنید، بعد «تمام» را بزنید.',
+    prompt: () => 'کدوم‌ها به این تجربه می‌خوره؟ هر چند تا که خواستی انتخاب کن، بعد «تموم» رو بزن.',
     load: () => Promise.resolve(TAGS.map((value) => ({ value, label: TAG_FA[value] }))),
     selectedOf: (form) => form.tags ?? [],
     accept: (input: WizardInput, form: WriteReviewForm) => {
@@ -109,13 +108,13 @@ const steps: WizardStep<WriteReviewForm>[] = [
         return {
           ok: false,
           error:
-            'برای انتخاب برچسب‌ها از دکمه‌های زیر استفاده کنید. ' +
-            'اگر می‌خواهید توضیح بنویسید، اول «تمام» را بزنید.',
+            'برای انتخاب برچسب‌ها از دکمه‌های زیر استفاده کن. ' +
+            'اگه می‌خوای توضیح بنویسی، اول «تموم» رو بزن.',
         };
       }
 
       const value = TAGS.find((candidate) => candidate === input.value);
-      if (value === undefined) return { ok: false, error: 'یکی از گزینه‌ها را انتخاب کنید.' };
+      if (value === undefined) return { ok: false, error: 'یکی از گزینه‌ها رو انتخاب کن.' };
 
       const current = form.tags ?? [];
       // A second tap removes it. One control for both directions, and the tick
@@ -127,8 +126,8 @@ const steps: WizardStep<WriteReviewForm>[] = [
         return {
           ok: false,
           error:
-            `حداکثر ${toPersianDigits(String(MAX_REVIEW_TAGS))} مورد می‌توانید انتخاب کنید. ` +
-            `برای انتخاب این یکی، اول یکی از موردهای تیک‌خورده را بردارید.`,
+            `حداکثر ${toPersianDigits(String(MAX_REVIEW_TAGS))} تا می‌تونی انتخاب کنی. ` +
+            `برای انتخاب این یکی، اول یکی از تیک‌خورده‌ها رو بردار.`,
         };
       }
       return { ok: true, patch: { tags: [...current, value] } };
@@ -138,14 +137,14 @@ const steps: WizardStep<WriteReviewForm>[] = [
     key: 'comment',
     ui: 'text',
     optional: true,
-    prompt: () => 'اگر توضیحی دارید بنویسید. برای رد شدن، «رد کردن» را بزنید.',
+    prompt: () => 'اگه توضیحی داری بنویس. اگه نه، «فعلاً نه» رو بزن.',
     accept: (input: WizardInput) => {
-      if (input.kind !== 'text') return { ok: false, error: 'توضیح را بنویسید و بفرستید.' };
+      if (input.kind !== 'text') return { ok: false, error: 'توضیحت رو بنویس و بفرست.' };
       const value = input.value.trim();
       // The contract's own bounds, restated because a refusal from Zod at the
       // service boundary would reach the user as «اطلاعات نامعتبر» with no field.
-      if (value.length === 0) return { ok: false, error: 'توضیح خالی است.' };
-      if (value.length > 500) return { ok: false, error: 'توضیح باید حداکثر ۵۰۰ نویسه باشد.' };
+      if (value.length === 0) return { ok: false, error: 'توضیح خالیه.' };
+      if (value.length > 500) return { ok: false, error: 'توضیح باید حداکثر ۵۰۰ حرف باشه.' };
       return { ok: true, patch: { comment: value } };
     },
   },

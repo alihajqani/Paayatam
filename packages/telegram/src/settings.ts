@@ -96,15 +96,15 @@ export function formatSettings(state: SettingsState): string {
     `<b>تنظیمات</b>\n\n` +
     `<b>اعلان‌ها</b>\n` +
     `✉️ پیام‌های مستقیم: ${onOff(state.notifyChat)}\n` +
-    `🎟 رویدادها و درخواست‌ها: ${onOff(state.notifyEvents)}\n\n` +
+    `🎟 برنامه‌ها و درخواست‌ها: ${onOff(state.notifyEvents)}\n\n` +
     `<b>حریم خصوصی</b>\n` +
     (state.hasProfile
       ? `✉️ دریافت دعوت از میزبان‌ها: ${onOff(!state.inviteOptOut)}\n\n`
-      : `✉️ دریافت دعوت از میزبان‌ها: پس از تکمیل پروفایل\n\n`) +
+      : `✉️ دریافت دعوت از میزبان‌ها: بعد از کامل کردن پروفایل\n\n`) +
     `<b>زبان</b>\n` +
     `🌐 ${LOCALE_FA[state.locale] ?? state.locale}\n\n` +
-    `<i>اعلان‌های مربوط به قوانین، تصمیم‌های پشتیبانی و پاسخ به دستورهای خودتان ` +
-    `همیشه فرستاده می‌شوند.</i>`
+    `<i>پیام‌های مربوط به قوانین، تصمیم‌های پشتیبانی و جواب کارهایی که خودت می‌کنی ` +
+    `همیشه میان.</i>`
   );
 }
 
@@ -133,7 +133,7 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
 
   const rows = [
     row('پیام‌های مستقیم', state.notifyChat, 'c'),
-    row('رویدادها', state.notifyEvents, 'e'),
+    row('برنامه‌ها', state.notifyEvents, 'e'),
   ];
 
   /**
@@ -148,7 +148,7 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
   } else {
     rows.push([
       {
-        text: '👤 تکمیل پروفایل، برای تنظیم دعوت‌ها',
+        text: '👤 اول پروفایلت رو کامل کن',
         callbackData: encodeSettingCallback(SETTING_PROFILE, true),
       },
     ]);
@@ -156,7 +156,7 @@ export function settingsRows(state: SettingsState): { text: string; callbackData
 
   rows.push([
     {
-      text: '🚫 کاربران مسدودشده',
+      text: '🚫 بلاک‌شده‌ها',
       callbackData: encodeSettingCallback(SETTING_BLOCKED, true),
     },
   ]);
@@ -187,17 +187,17 @@ export interface BlockedEntry {
 export function formatBlockedList(blocked: readonly BlockedEntry[]): string {
   if (blocked.length === 0) {
     return (
-      `<b>🚫 کاربران مسدودشده</b>\n\n` +
-      `کسی را مسدود نکرده‌اید.\n\n` +
-      `<i>زیر هر پیام مستقیمی که دریافت می‌کنید، دکمهٔ «مسدود کردن فرستنده» هست.</i>`
+      `<b>🚫 بلاک‌شده‌ها</b>\n\n` +
+      `کسی رو بلاک نکردی.\n\n` +
+      `<i>زیر هر پیام مستقیمی که می‌گیری، دکمهٔ «بلاک کردن فرستنده» هست.</i>`
     );
   }
   const lines = blocked.map((entry) => `• ${escapeHtml(entry.displayName)}`).join('\n');
   return (
-    `<b>🚫 کاربران مسدودشده</b>\n\n` +
+    `<b>🚫 بلاک‌شده‌ها</b>\n\n` +
     `${lines}\n\n` +
-    `<i>این افراد نمی‌توانند به شما پیام مستقیم بدهند و شما هم به آن‌ها. ` +
-    `مسدود کردن روی درخواست‌ها و رویدادها اثری ندارد.</i>`
+    `<i>این آدم‌ها نمی‌تونن بهت پیام مستقیم بدن و تو هم به اون‌ها. ` +
+    `بلاک کردن روی درخواست‌ها و برنامه‌ها اثری نداره.</i>`
   );
 }
 
@@ -210,12 +210,12 @@ export function blockedListRows(
     .filter((entry) => isPublicId(entry.userPublicId))
     .map((entry) => [
       {
-        text: `✅ رفع مسدودی ${entry.displayName}`,
+        text: `✅ رفع بلاک ${entry.displayName}`,
         callbackData: encodeDirectCallback('unblock', entry.userPublicId),
       },
     ]);
   rows.push([
-    { text: '↩️ بازگشت به تنظیمات', callbackData: encodeSettingCallback(SETTING_BLOCKED, false) },
+    { text: '↩️ برگشت به تنظیمات', callbackData: encodeSettingCallback(SETTING_BLOCKED, false) },
   ]);
   return rows;
 }

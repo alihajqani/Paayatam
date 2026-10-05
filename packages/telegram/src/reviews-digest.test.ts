@@ -19,7 +19,7 @@ function line(over: Partial<PendingReviewLine> = {}): PendingReviewLine {
 
 describe('formatPendingReviews', () => {
   it('says so plainly when nothing is owed', () => {
-    expect(formatPendingReviews([])).toContain('نظر منتظری ندارید');
+    expect(formatPendingReviews([])).toContain('نظری منتظرت نیست');
   });
 
   it('names who is owed a review and for what', () => {
@@ -47,7 +47,7 @@ describe('formatPendingReviews', () => {
     it('says when it opens instead of when it expires', () => {
       const text = formatPendingReviews([line({ opensAt: OPENS })]);
 
-      expect(text).toContain('می‌توانید بنویسید');
+      expect(text).toContain('می‌تونی بنویسی');
       expect(text).toContain('سارا');
     });
 
@@ -69,14 +69,14 @@ describe('formatPendingReviews', () => {
     it('does not promise star rows when none of them is writable', () => {
       const text = formatPendingReviews([line({ opensAt: OPENS })]);
 
-      expect(text).toContain('هنوز هیچ‌کدام باز نشده‌اند');
+      expect(text).toContain('هنوز هیچ‌کدوم باز نشدن');
       expect(text).not.toContain('ردیف «۱»');
     });
   });
 
   /** And the empty screen says *why* it is empty rather than only that it is. */
   it('names the condition that opens a window', () => {
-    expect(formatPendingReviews([])).toContain('پس از پایان هر رویدادی');
+    expect(formatPendingReviews([])).toContain('بعد از تموم شدن هر برنامه‌ای');
   });
 
   it('escapes markup in a name and a title', () => {

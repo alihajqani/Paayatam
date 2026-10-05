@@ -61,7 +61,7 @@ describe('the filter panel', () => {
    */
   it('always offers the way back to the list', () => {
     const rows = discoverFilterPanelRows(filters({ view: 'f' }), categories);
-    const back = rows.flat().find((button) => button.text.includes('بازگشت'));
+    const back = rows.flat().find((button) => button.text.includes('برگشت'));
 
     expect(back).toBeDefined();
     expect(parseDiscoverCallback(back?.callbackData ?? '')?.view).toBe('l');
@@ -77,7 +77,7 @@ describe('the filter panel', () => {
     for (const button of rows.flat()) {
       const decoded = parseDiscoverCallback(button.callbackData);
       if (decoded === null) continue;
-      if (button.text.includes('بازگشت')) continue;
+      if (button.text.includes('برگشت')) continue;
       expect(decoded.view, button.text).toBe('f');
     }
   });

@@ -47,7 +47,7 @@ describe('the description', () => {
     const result = accept('what', 'file-1', {}, 'photo');
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('تصویر');
+    if (!result.ok) expect(result.error).toContain('عکس');
   });
 });
 
@@ -86,7 +86,7 @@ describe('the screenshots', () => {
     const result = accept('shots', 'اینم عکسش', { screenshotFileIds: [] });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('تصویر');
+    if (!result.ok) expect(result.error).toContain('عکس');
   });
 
   /** «رد کردن» has to file the report, so the step cannot be required. */

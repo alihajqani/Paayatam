@@ -96,7 +96,7 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
   return [
     [
       {
-        text: '✅ پذیرش',
+        text: '✅ قبول',
         callbackData: encodeChatCallback('accept', participantPublicId),
         style: 'success',
       },
@@ -123,7 +123,7 @@ export function hostDecisionKeyboard(participantPublicId: string): InlineKeyboar
  */
 export function guestEventKeyboard(eventPublicId: string, withHost = true): InlineKeyboard {
   const page = {
-    text: '📄 صفحهٔ رویداد',
+    text: '📄 صفحهٔ برنامه',
     callbackData: encodeEventCallback('show', eventPublicId),
   };
   // Green because agreeing where to meet is the step this message leads to.
@@ -259,13 +259,19 @@ export function mainMenuReplyKeyboard({ moderator }: { moderator: boolean }): Re
 export const MENU_COMMANDS: ReadonlyMap<string, string> = new Map([
   [MAIN_MENU_LABEL, 'menu'],
   [HELP_BUTTON_LABEL, 'help'],
-  ['➕ ساختن رویداد', 'create_event'],
-  ['🔎 دیدن رویدادها', 'discover'],
-  ['🎟 رویدادهای من', 'myevents'],
+  ['➕ ساختن برنامه', 'create_event'],
+  ['🔎 دیدن برنامه‌ها', 'discover'],
+  ['🎟 برنامه‌های من', 'myevents'],
   ['📨 درخواست‌های من', 'requests'],
   ['👤 پروفایل من', 'profile'],
   ['⚙️ تنظیمات', 'settings'],
   ['🐞 گزارش مشکل', 'bug'],
+  // The same three as they read from v0.18.4 until v0.23.0 renamed «رویداد» to
+  // «برنامه» (docs/bot-voice-fa.md). After the new ones for `menuLabelFor`, and
+  // kept because a reply keyboard lives on the client (see above).
+  ['➕ ساختن رویداد', 'create_event'],
+  ['🔎 دیدن رویدادها', 'discover'],
+  ['🎟 رویدادهای من', 'myevents'],
   // The same three as drawn before v0.18.4 called an event «فعالیت». Kept after
   // the new ones, so `menuLabelFor` answers with the new wording, and kept at
   // all because a reply keyboard lives on the client (see above).
@@ -317,7 +323,11 @@ export function menuGroupKeyFor(text: string): string | null {
  * resolved for the same reason `MENU_COMMANDS` keeps old labels: text a client
  * may still be holding must not fall through to «پیام شما را دریافت کردم».
  */
-const LEGACY_GROUP_LABELS: ReadonlyMap<string, string> = new Map([['🎟 فعالیت‌ها', 'ev']]);
+const LEGACY_GROUP_LABELS: ReadonlyMap<string, string> = new Map([
+  ['🎟 فعالیت‌ها', 'ev'],
+  // And as it read until v0.23.0 called an event «برنامه».
+  ['🎟 رویدادها', 'ev'],
+]);
 
 /**
  * Whether a plain text message is a menu tap rather than something to relay.
@@ -407,7 +417,7 @@ export function menuCommandFor(text: string): string | null {
  */
 /** The heading over the board. One line: the buttons say the rest. */
 export function profileEditText(): string {
-  return '<b>ویرایش پروفایل</b>\n\nکدام بخش را می‌خواهید عوض کنید؟';
+  return '<b>ویرایش پروفایل</b>\n\nکدوم بخش رو می‌خوای عوض کنی؟';
 }
 
 export function profileEditKeyboard(): InlineKeyboard {
@@ -463,7 +473,7 @@ export function menuGroupKeyboard(group: CommandGroup): InlineKeyboard {
       callbackData: encodeMenuCommand(command),
     },
   ]);
-  rows.push([{ text: '↩️ بازگشت به منو', callbackData: encodeMenuRoot() }]);
+  rows.push([{ text: '↩️ برگشت به منو', callbackData: encodeMenuRoot() }]);
   return rows;
 }
 
@@ -479,7 +489,7 @@ export function menuGroupKeyboard(group: CommandGroup): InlineKeyboard {
  * lead to all of them in two taps.
  */
 export function menuOpenerKeyboard(): InlineKeyboard {
-  return [[{ text: '☰ فهرست دستورها', callbackData: encodeMenuRoot() }]];
+  return [[{ text: '☰ منو', callbackData: encodeMenuRoot() }]];
 }
 
 /**
@@ -492,9 +502,7 @@ export function menuOpenerKeyboard(): InlineKeyboard {
  */
 export function menuRootText(status?: MenuStatus): string {
   return (
-    `<b>فهرست دستورها</b>\n\n` +
-    menuStatusLine(status) +
-    `دنبال چه چیزی هستید؟ یکی از بخش‌ها را انتخاب کنید.`
+    `<b>منو</b>\n\n` + menuStatusLine(status) + `دنبال چی می‌گردی؟ یکی از بخش‌ها رو انتخاب کن.`
   );
 }
 
@@ -518,10 +526,10 @@ function menuStatusLine(status: MenuStatus | undefined): string {
   if (status === undefined) return '';
   const parts: string[] = [];
   if (status.pendingForMe > 0) {
-    parts.push(`📥 ${toPersianDigits(String(status.pendingForMe))} درخواست منتظر پاسخ شما`);
+    parts.push(`📥 ${toPersianDigits(String(status.pendingForMe))} درخواست منتظر جوابته`);
   }
   if (status.reviewsOwed > 0) {
-    parts.push(`⭐️ ${toPersianDigits(String(status.reviewsOwed))} نظر مانده`);
+    parts.push(`⭐️ ${toPersianDigits(String(status.reviewsOwed))} نظر مونده`);
   }
   if (status.balance > 0) parts.push(`🪙 ${toPersianDigits(String(status.balance))} سکه`);
   return parts.length === 0 ? '' : `${parts.join(' · ')}\n\n`;
@@ -529,8 +537,6 @@ function menuStatusLine(status: MenuStatus | undefined): string {
 
 export function menuGroupText(group: CommandGroup): string {
   return (
-    `<b>${escapeHtml(group.label)}</b>\n\n` +
-    `${escapeHtml(group.hint)}\n\n` +
-    `یکی را انتخاب کنید:`
+    `<b>${escapeHtml(group.label)}</b>\n\n` + `${escapeHtml(group.hint)}\n\n` + `یکی رو انتخاب کن:`
   );
 }

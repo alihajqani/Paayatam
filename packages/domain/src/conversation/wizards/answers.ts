@@ -46,7 +46,7 @@ export function quoted(value: string): string {
 
 /** «۱۲ نویسه», for a length the user is being told about. */
 function characters(count: number): string {
-  return `${toPersianDigits(String(count))} نویسه`;
+  return `${toPersianDigits(String(count))} حرف`;
 }
 
 /**
@@ -60,9 +60,9 @@ function characters(count: number): string {
  */
 export function wrongShape(input: WizardInput, what: string): string {
   if (input.kind === 'photo') {
-    return `این مرحله تصویر نمی‌گیرد. ${what} را بنویسید و بفرستید.`;
+    return `این مرحله عکس نمی‌گیره. ${what} رو بنویس و بفرست.`;
   }
-  return `این مرحله با دکمه پاسخ داده نمی‌شود. ${what} را بنویسید و بفرستید.`;
+  return `این مرحله با دکمه جواب داده نمیشه. ${what} رو بنویس و بفرست.`;
 }
 
 /** Free text, trimmed and bounded, with both the bound and what arrived stated. */
@@ -82,11 +82,11 @@ export function acceptText(input: WizardInput, min: number, max: number, what: s
      */
     const received =
       value.length === 0
-        ? 'چیزی در پیام شما نبود'
-        : `${quoted(value)} ${characters(value.length)} است`;
+        ? 'چیزی توی پیامت نبود'
+        : `${quoted(value)} ${characters(value.length)} بود`;
     return {
       ok: false,
-      error: `${what} باید دست‌کم ${characters(min)} باشد — ${received}.`,
+      error: `${what} باید دست‌کم ${characters(min)} باشه؛ ${received}.`,
     };
   }
 
@@ -95,9 +95,9 @@ export function acceptText(input: WizardInput, min: number, max: number, what: s
     return {
       ok: false,
       error:
-        `${what} نباید بیش از ${characters(max)} باشد — ` +
-        `آنچه فرستادید ${characters(value.length)} بود. ` +
-        `${toPersianDigits(String(value.length - max))} نویسه کوتاه‌ترش کنید.`,
+        `${what} نباید بیشتر از ${characters(max)} باشه؛ ` +
+        `چیزی که فرستادی ${characters(value.length)} بود. ` +
+        `${toPersianDigits(String(value.length - max))} حرف کوتاه‌ترش کن.`,
     };
   }
 
@@ -140,7 +140,7 @@ export function acceptInteger(
   const typed = input.value.trim();
   const raw = toAsciiDigits(typed).replace(/[,٬\s]/g, '');
 
-  if (raw.length === 0) return `${what} را با عدد بنویسید — پیام شما خالی بود.`;
+  if (raw.length === 0) return `${what} رو با عدد بنویس؛ پیامت خالی بود.`;
   if (!/^\d{1,9}$/.test(raw)) {
     /**
      * The refusal names the thing that is not a number, which is the whole
@@ -148,14 +148,14 @@ export function acceptInteger(
      * A negative sign, a decimal point and a word all land here, and quoting the
      * answer is what tells the user which of those they wrote.
      */
-    return `${what} را فقط با عدد بنویسید — ${quoted(typed)} عدد نیست.`;
+    return `${what} رو فقط با عدد بنویس؛ ${quoted(typed)} عدد نیست.`;
   }
 
   const value = Number.parseInt(raw, 10);
   if (value < min || value > max) {
     return (
-      `${what} باید بین ${toPersianDigits(String(min))} و ${toPersianDigits(String(max))} باشد — ` +
-      `${toPersianDigits(String(value))} فرستادید.`
+      `${what} باید بین ${toPersianDigits(String(min))} و ${toPersianDigits(String(max))} باشه؛ ` +
+      `${toPersianDigits(String(value))} فرستادی.`
     );
   }
   return value;

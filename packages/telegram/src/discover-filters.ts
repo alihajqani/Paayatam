@@ -169,7 +169,7 @@ export function discoverFilterPanelRows(
     ...discoverCategoryRows(current, categories),
     [
       {
-        text: `${BACK_ICON} بازگشت به فهرست`,
+        text: `${BACK_ICON} برگشت به فهرست`,
         callbackData: encodeDiscoverCallback({ ...current, view: 'l' }),
       },
     ],

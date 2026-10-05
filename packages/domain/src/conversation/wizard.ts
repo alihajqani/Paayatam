@@ -209,7 +209,7 @@ function applies<F>(step: WizardStep<F>, form: F): boolean {
 export function apply<F>(step: WizardStep<F>, input: WizardInput, form: F): StepResult<F> {
   if (input.action === 'skip') {
     if (step.optional !== true) {
-      return { ok: false, error: 'این مورد را نمی‌توان رد کرد.' };
+      return { ok: false, error: 'از این مرحله نمیشه گذشت.' };
     }
     return { ok: true, patch: {} };
   }

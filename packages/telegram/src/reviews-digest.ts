@@ -68,7 +68,7 @@ export function formatPendingReviews(lines: readonly PendingReviewLine[]): strin
     const when =
       line.opensAt === null
         ? `  ⏳ تا ${formatJalali(line.deadlineAt)}`
-        : `  🔒 از ${formatJalali(line.opensAt)} می‌توانید بنویسید`;
+        : `  🔒 از ${formatJalali(line.opensAt)} می‌تونی بنویسی`;
 
     return (
       `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.revieweeDisplayName)}</b>\n` +
@@ -78,7 +78,7 @@ export function formatPendingReviews(lines: readonly PendingReviewLine[]): strin
   });
 
   const digest = buildDigest({
-    title: 'نظرهایی که هنوز ننوشته‌اید',
+    title: 'نظرهایی که هنوز ننوشتی',
     /**
      * Why there is nothing, rather than only that there is nothing.
      *
@@ -88,19 +88,19 @@ export function formatPendingReviews(lines: readonly PendingReviewLine[]): strin
      * the condition instead.
      */
     empty:
-      'نظر منتظری ندارید. پس از پایان هر رویدادی که در آن شرکت کرده‌اید و ' +
-      'گذشتن چند ساعت، فرصت نوشتن نظر باز می‌شود و همین‌جا نشان داده می‌شود.',
+      'نظری منتظرت نیست. چند ساعت بعد از تموم شدن هر برنامه‌ای که رفتی، ' +
+      'نوشتن نظر باز میشه و همین‌جا نشونت میدیم.',
     entries,
   });
 
   if (entries.length === 0) return digest;
   if (open.length === 0) {
-    return `${digest}\n\n<i>هنوز هیچ‌کدام باز نشده‌اند؛ کمی بعد دوباره سر بزنید.</i>`;
+    return `${digest}\n\n<i>هنوز هیچ‌کدوم باز نشدن؛ یه کم بعد دوباره سر بزن.</i>`;
   }
 
   return (
     `${digest}\n\n` +
-    `<i>ردیف‌های ستاره زیر با شمارهٔ همین فهرست مشخص شده‌اند: ردیف «۱» برای نفر ۱، ` +
+    `<i>ردیف‌های ستارهٔ زیر با شمارهٔ همین فهرست مشخص شدن: ردیف «۱» برای نفر ۱، ` +
     `ردیف «۲» برای نفر ۲ و همین‌طور تا آخر.</i>`
   );
 }
@@ -138,8 +138,8 @@ export function formatEditableReviews(lines: readonly EditableReviewLine[]): str
   );
 
   return (
-    `\n\n<b>✏️ هنوز می‌توانید ویرایش کنید</b>\n\n` +
+    `\n\n<b>✏️ هنوز می‌تونی ویرایشش کنی</b>\n\n` +
     `${entries.join('\n\n')}\n\n` +
-    `<i>تا وقتی طرف مقابل نظرش را ننوشته، امتیاز و متن را می‌شود عوض کرد.</i>`
+    `<i>تا وقتی طرف مقابل نظرش رو ننوشته، امتیاز و متن رو میشه عوض کرد.</i>`
   );
 }

@@ -40,10 +40,10 @@ describe('the Trust Score history pages', () => {
 
   /** «تغییرهای اخیر» on page three would be a heading that lies. */
   it('stops calling the rows recent once the reader has paged on', () => {
-    expect(formatTrust(45, [LINE], 0)).toContain('تغییرهای اخیر');
+    expect(formatTrust(45, [LINE], 0)).toContain('آخرین تغییرها');
 
     const later = formatTrust(45, [LINE], 2);
-    expect(later).not.toContain('تغییرهای اخیر');
+    expect(later).not.toContain('آخرین تغییرها');
     expect(later).toContain('صفحهٔ ۳');
   });
 
@@ -53,8 +53,8 @@ describe('the Trust Score history pages', () => {
 
   /** A page past the end is an empty page, not «هنوز تغییری ثبت نشده». */
   it('does not tell a paging reader nothing has ever moved', () => {
-    expect(formatTrust(45, [], 3)).toContain('تغییر دیگری نیست');
-    expect(formatTrust(45, [], 0)).toContain('هنوز تغییری ثبت نشده است');
+    expect(formatTrust(45, [], 3)).toContain('دیگه تغییری نیست');
+    expect(formatTrust(45, [], 0)).toContain('هنوز تغییری ثبت نشده');
   });
 
   /**
@@ -63,7 +63,7 @@ describe('the Trust Score history pages', () => {
    */
   it('names the kind of movement and not its author', () => {
     const rendered = formatTrust(50, [{ ...LINE, type: 'REVIEW' }], 0);
-    expect(rendered).toContain('نظری که دریافت کردید');
+    expect(rendered).toContain('نظری که گرفتی');
     expect(rendered).toContain('−۵');
   });
 });

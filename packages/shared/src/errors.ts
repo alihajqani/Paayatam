@@ -270,83 +270,83 @@ export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
  * The test asserts this record is total over ErrorCode.
  */
 export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
-  INVALID_INIT_DATA: 'اطلاعات ورود معتبر نیست. لطفاً برنامه را از داخل تلگرام باز کنید.',
+  INVALID_INIT_DATA: 'اطلاعات ورود معتبر نیست. لطفاً مینی‌اپ را از داخل تلگرام باز کنید.',
   INIT_DATA_EXPIRED: 'نشست شما منقضی شده است. لطفاً دوباره وارد شوید.',
   UNAUTHENTICATED: 'برای ادامه، لطفاً دوباره وارد شوید.',
-  USER_BANNED: 'دسترسی این حساب کاربری محدود شده است.',
+  USER_BANNED: 'حسابت محدود شده.',
 
-  TERMS_NOT_ACCEPTED: 'برای استفاده از این بخش، ابتدا قوانین را بپذیرید.',
-  POLICY_VERSION_STALE: 'قوانین به‌روزرسانی شده است. لطفاً نسخهٔ جدید را مطالعه و تأیید کنید.',
-  AGE_BELOW_MINIMUM: 'استفاده از پایه‌تَم برای افراد زیر ۱۸ سال امکان‌پذیر نیست.',
-  PROFILE_INCOMPLETE: 'برای ادامه، ابتدا پروفایل خود را کامل کنید.',
+  TERMS_NOT_ACCEPTED: 'برای استفاده از این بخش، اول قوانین رو قبول کن.',
+  POLICY_VERSION_STALE: 'قوانین عوض شده. نسخهٔ تازه رو بخون و قبولش کن.',
+  AGE_BELOW_MINIMUM: 'استفاده از پایتم فقط برای ۱۸ سال به بالاست.',
+  PROFILE_INCOMPLETE: 'برای ادامه، اول پروفایلت رو کامل کن.',
   // Not «با پشتیبانی تماس بگیرید»: this catalogue cannot interpolate
   // `SUPPORT_CONTACT` (it is static strings keyed by code), and the codebase's
   // own rule for that env var is that a call to action with no channel behind
   // it is worse than not raising the subject (`suspendedNotice`). Stated as a
   // fact instead — and in practice unreachable through the bot or the Mini
   // App, since neither offers a control that could send this.
-  GENDER_NOT_EDITABLE: 'جنسیت پس از ثبت قابل تغییر نیست؛ تغییر آن فقط از طریق پشتیبانی ممکن است.',
-  GENDER_NOT_SELECTABLE: 'جنسیت را «زن» یا «مرد» انتخاب کنید.',
-  INVALID_INTEREST: 'یکی از علاقه‌مندی‌های انتخاب‌شده معتبر نیست.',
+  GENDER_NOT_EDITABLE: 'جنسیت بعد از ثبت عوض نمیشه؛ برای تغییرش باید به پشتیبانی پیام بدی.',
+  GENDER_NOT_SELECTABLE: 'جنسیت رو «زن» یا «مرد» انتخاب کن.',
+  INVALID_INTEREST: 'یکی از علاقه‌مندی‌هایی که انتخاب کردی معتبر نیست.',
   // Reworded in M21: the product serves 1,252 cities, and a message naming
   // Tehran would now be wrong in 1,251 of them.
-  CITY_NOT_AVAILABLE: 'پایه‌تَم هنوز در شهر انتخاب‌شده فعال نیست.',
-  CITY_NOT_LAUNCHED: 'پایه‌تَم هنوز در شهر شما رویداد ندارد — ولی می‌توانید در فهرست انتظار باشید.',
-  INVALID_DISTRICT: 'منطقهٔ انتخاب‌شده با شهر انتخابی هم‌خوانی ندارد.',
-  CUSTOM_LABEL_NOT_ALLOWED: 'برای این دستهٔ تفریح نمی‌توان عنوان دلخواه ثبت کرد.',
-  CUSTOM_LABEL_REQUIRED: 'برای دستهٔ «سایر» باید نوع تفریح را بنویسید.',
+  CITY_NOT_AVAILABLE: 'پایتم هنوز توی شهری که انتخاب کردی فعال نیست.',
+  CITY_NOT_LAUNCHED: 'پایتم هنوز توی شهرت برنامه نداره، ولی می‌تونی توی صف انتظارش باشی.',
+  INVALID_DISTRICT: 'منطقه‌ای که انتخاب کردی با شهرش جور نیست.',
+  CUSTOM_LABEL_NOT_ALLOWED: 'برای این دسته نمیشه عنوان دلخواه گذاشت.',
+  CUSTOM_LABEL_REQUIRED: 'برای دستهٔ «سایر» باید بنویسی چه تفریحیه.',
 
-  EVENT_NOT_FOUND: 'این رویداد یافت نشد.',
-  EVENT_NOT_JOINABLE: 'امکان ثبت درخواست برای این رویداد وجود ندارد.',
-  EVENT_QUOTA_EXCEEDED: 'به سقف ساخت رویداد در روز رسیده‌اید. فردا دوباره تلاش کنید.',
+  EVENT_NOT_FOUND: 'این برنامه پیدا نشد.',
+  EVENT_NOT_JOINABLE: 'فعلاً نمیشه برای این برنامه درخواست داد.',
+  EVENT_QUOTA_EXCEEDED: 'امروز به سقف ساختن برنامه رسیدی. فردا دوباره امتحان کن.',
   EVENT_ACTIVE_QUOTA_EXCEEDED:
-    'به سقف رویدادهای همزمان رسیده‌اید. یکی از رویدادهای در پیش رو را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.',
-  CONTENT_BLOCKED: 'متن واردشده با قوانین انتشار مطابقت ندارد. لطفاً آن را ویرایش کنید.',
-  CAPACITY_BELOW_ACCEPTED: 'ظرفیت نمی‌تواند کمتر از تعداد افراد پذیرفته‌شده باشد.',
+    'به سقف برنامه‌های همزمان رسیدی. یکی از برنامه‌های پیش روت رو تموم یا کنسل کن و دوباره امتحان کن.',
+  CONTENT_BLOCKED: 'این متن با قوانین انتشار جور نیست. یه کم ویرایشش کن.',
+  CAPACITY_BELOW_ACCEPTED: 'ظرفیت نمی‌تونه از تعداد آدم‌هایی که قبول کردی کمتر باشه.',
   CONFLICT_STALE_VERSION: 'این مورد در جای دیگری ویرایش شده است. لطفاً صفحه را تازه کنید.',
-  EVENT_ALREADY_STARTED: 'این رویداد شروع شده است و دیگر نمی‌توان آن را لغو کرد.',
+  EVENT_ALREADY_STARTED: 'این برنامه شروع شده و دیگه نمیشه کنسلش کرد.',
 
-  DUPLICATE_REQUEST: 'شما قبلاً برای این رویداد درخواست داده‌اید.',
-  HOST_CANNOT_JOIN: 'شما میزبان این رویداد هستید.',
-  DIRECT_BLOCKED_BY_RECIPIENT: 'این کاربر دریافت پیام از شما را مسدود کرده است.',
+  DUPLICATE_REQUEST: 'قبلاً برای این برنامه درخواست دادی.',
+  HOST_CANNOT_JOIN: 'خودت میزبان این برنامه‌ای.',
+  DIRECT_BLOCKED_BY_RECIPIENT: 'این کاربر پیام‌هات رو بلاک کرده.',
   DIRECT_BLOCKED_BY_YOU:
-    'شما این کاربر را مسدود کرده‌اید. برای پیام دادن، اول از «تنظیمات» مسدودی را بردارید.',
-  EVENT_FULL_NO_WAITLIST: 'ظرفیت این رویداد تکمیل شده است.',
-  CAPACITY_EXCEEDED: 'متأسفانه آخرین ظرفیت هم‌زمان توسط فرد دیگری پر شد.',
-  NOT_ELIGIBLE_GENDER: 'این رویداد برای گروه دیگری در نظر گرفته شده است.',
-  NOT_ELIGIBLE_AGE: 'سن شما در محدودهٔ تعیین‌شده برای این رویداد نیست.',
-  TRUST_TOO_LOW: 'امتیاز اعتماد شما برای شرکت در این رویداد کافی نیست.',
-  INVALID_STATE_TRANSITION: 'این عملیات در وضعیت فعلی امکان‌پذیر نیست.',
+    'این کاربر رو بلاک کردی. برای پیام دادن، اول از «تنظیمات» از بلاک درش بیار.',
+  EVENT_FULL_NO_WAITLIST: 'جای این برنامه پر شده.',
+  CAPACITY_EXCEEDED: 'آخرین جا همین الان پر شد؛ یکی زودتر رسید.',
+  NOT_ELIGIBLE_GENDER: 'این برنامه برای گروه دیگه‌ایه.',
+  NOT_ELIGIBLE_AGE: 'سنت توی بازه‌ای که این برنامه می‌خواد نیست.',
+  TRUST_TOO_LOW: 'امتیاز اعتمادت برای این برنامه کافی نیست.',
+  INVALID_STATE_TRANSITION: 'الان نمیشه این کار رو کرد.',
 
-  CHAT_MEDIA_UNSUPPORTED: 'در این نسخه فقط ارسال متن امکان‌پذیر است.',
+  CHAT_MEDIA_UNSUPPORTED: 'فعلاً فقط میشه متن فرستاد.',
 
-  INSUFFICIENT_COINS: 'سکهٔ کافی ندارید.',
+  INSUFFICIENT_COINS: 'سکه‌ت کافی نیست.',
   INVALID_REFERRAL_CODE: 'این کد دعوت معتبر نیست.',
-  SELF_REFERRAL: 'نمی‌توانید کد دعوت خودتان را استفاده کنید.',
-  ALREADY_REFERRED: 'شما پیش‌تر کد معرف ثبت کرده‌اید. هر حساب فقط یک بار و فقط یک کد می‌پذیرد.',
+  SELF_REFERRAL: 'نمی‌تونی از کد دعوت خودت استفاده کنی.',
+  ALREADY_REFERRED: 'قبلاً یه کد دعوت ثبت کردی. هر حساب فقط یه بار و فقط یه کد قبول می‌کنه.',
   REFERRAL_WINDOW_CLOSED:
-    'کد دعوت فقط در روزهای نخست پس از ساختن حساب پذیرفته می‌شود و این مهلت برای حساب شما گذشته است.',
-  EVENT_NOT_BOOSTABLE: 'این رویداد قابل نردبان کردن نیست.',
+    'کد دعوت فقط توی چند روز اولِ ساختن حساب قبول میشه و این وقت برای حسابت گذشته.',
+  EVENT_NOT_BOOSTABLE: 'این برنامه رو نمیشه نردبان کرد.',
   EVENT_NOT_INVITABLE:
-    'برای این رویداد نمی‌توان دعوت‌نامه فرستاد. رویداد باید منتشر شده و هنوز شروع نشده باشد.',
-  EVENT_ALREADY_IN_CHANNEL: 'این رویداد پیش‌تر برای انتشار در کانال ثبت شده است.',
-  CHANNEL_UNAVAILABLE: 'انتشار در کانال پایه‌تَم در حال حاضر ممکن نیست. سکه‌ای از شما کم نشد.',
+    'برای این برنامه نمیشه دعوت‌نامه فرستاد. برنامه باید منتشر شده باشه و هنوز شروع نشده باشه.',
+  EVENT_ALREADY_IN_CHANNEL: 'این برنامه قبلاً برای انتشار توی کانال ثبت شده.',
+  CHANNEL_UNAVAILABLE: 'الان نمیشه توی کانال پایتم منتشر کرد. سکه‌ای ازت کم نشد.',
   GIFT_CODE_INVALID: 'این کد هدیه معتبر نیست.',
-  GIFT_CODE_EXPIRED: 'مهلت استفاده از این کد هدیه به پایان رسیده است.',
-  GIFT_CODE_ALREADY_REDEEMED: 'شما پیش‌تر از این کد هدیه استفاده کرده‌اید.',
-  GIFT_CODE_EXHAUSTED: 'ظرفیت استفاده از این کد هدیه تکمیل شده است.',
+  GIFT_CODE_EXPIRED: 'وقت استفاده از این کد هدیه تموم شده.',
+  GIFT_CODE_ALREADY_REDEEMED: 'قبلاً از این کد هدیه استفاده کردی.',
+  GIFT_CODE_EXHAUSTED: 'ظرفیت این کد هدیه پر شده.',
   GIFT_CODE_DUPLICATE: 'کدی با این عنوان از قبل وجود دارد.',
-  GIFT_CODE_DISABLED: 'استفاده از کدهای هدیه در حال حاضر غیرفعال است.',
+  GIFT_CODE_DISABLED: 'کدهای هدیه فعلاً غیرفعالن.',
 
-  ALREADY_REVIEWED: 'شما قبلاً بازخورد خود را ثبت کرده‌اید.',
-  REVIEW_WINDOW_CLOSED: 'مهلت ثبت بازخورد به پایان رسیده است.',
-  REVIEW_NOT_EDITABLE: 'این بازخورد دیگر قابل ویرایش نیست.',
+  ALREADY_REVIEWED: 'قبلاً نظرت رو ثبت کردی.',
+  REVIEW_WINDOW_CLOSED: 'وقت نوشتن نظر تموم شده.',
+  REVIEW_NOT_EDITABLE: 'این نظر دیگه ویرایش نمیشه.',
 
-  ALREADY_REPORTED: 'شما قبلاً این مورد را گزارش کرده‌اید.',
-  CANNOT_REPORT_OWN_CONTENT: 'نمی‌توانید محتوای خودتان را گزارش کنید.',
+  ALREADY_REPORTED: 'قبلاً این رو گزارش کردی.',
+  CANNOT_REPORT_OWN_CONTENT: 'نمی‌تونی چیزی رو که خودت ساختی یا نوشتی گزارش کنی.',
   CLAIM_WINDOW_CLOSED:
-    'مهلت ثبت این مورد تمام شده است. اگر هنوز فکر می‌کنید اشتباهی رخ داده، با پشتیبانی در تماس باشید.',
-  ALREADY_CLAIMED: 'شما پیش‌تر دربارهٔ این رویداد نوشته‌اید و در حال بررسی است.',
+    'وقت ثبت این مورد تموم شده. اگه هنوز فکر می‌کنی اشتباه شده، به پشتیبانی پیام بده.',
+  ALREADY_CLAIMED: 'قبلاً دربارهٔ این برنامه نوشتی و داره بررسی میشه.',
   WRONG_CASE_DECISION: 'این پرونده با این نوع تصمیم بسته نمی‌شود.',
 
   INVALID_CREDENTIALS: 'ایمیل، رمز عبور یا کد تأیید نادرست است.',
@@ -366,8 +366,7 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   // an instruction somebody cannot follow when they have joined one of three.
   // Which ones are outstanding is in `details.channels`; this is the fallback the
   // client renders when it has nothing better.
-  CHANNEL_MEMBERSHIP_REQUIRED:
-    'برای انجام این کار، ابتدا در کانال‌های پایه‌تَم عضو شوید و سپس دوباره تلاش کنید.',
+  CHANNEL_MEMBERSHIP_REQUIRED: 'برای این کار، اول عضو کانال‌های پایتم شو و بعد دوباره امتحان کن.',
   // Two situations, one sentence, because both are the same mistake seen from
   // different ends: a requirement with nothing behind it. `details.reason` says
   // which — `NO_JOIN_LINK` or `LAST_ACTIVE_CHANNEL` — and the panel renders it.
@@ -386,11 +385,11 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
     'این شهر در پروفایل‌ها یا رویدادهای ثبت‌شده استفاده شده است. برای غیرفعال کردن، تأیید کنید.',
 
   FORBIDDEN: 'شما به این بخش دسترسی ندارید.',
-  NOT_FOUND: 'مورد درخواستی یافت نشد.',
-  VALIDATION_FAILED: 'اطلاعات واردشده کامل یا معتبر نیست.',
-  RATE_LIMITED: 'تعداد درخواست‌های شما زیاد است. لطفاً کمی بعد دوباره تلاش کنید.',
-  BOT_BLOCKED: 'ربات پایه‌تَم را در تلگرام از حالت مسدود خارج کنید تا اعلان‌ها را دریافت کنید.',
-  INTERNAL_ERROR: 'خطایی رخ داد. لطفاً دوباره تلاش کنید.',
+  NOT_FOUND: 'چیزی که دنبالش بودی پیدا نشد.',
+  VALIDATION_FAILED: 'اطلاعاتی که فرستادی کامل یا درست نیست.',
+  RATE_LIMITED: 'یه کم تند رفتی! چند لحظه صبر کن و دوباره امتحان کن.',
+  BOT_BLOCKED: 'ربات پایتم رو توی تلگرام از بلاک دربیار تا پیام‌هاش بهت برسه.',
+  INTERNAL_ERROR: 'یه مشکلی پیش اومد. دوباره امتحان کن.',
 };
 
 /** HTTP status per code. Anything unlisted is a 400. */

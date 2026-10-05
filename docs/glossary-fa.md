@@ -6,27 +6,31 @@ Two purposes: keep **user-facing Persian consistent** across the Mini App, bot a
 **Rule:** Persian appears only in user-facing strings and in this file. Never in an identifier, a column name,
 an enum value, a log line or an API field name.
 
+**The bot's voice is [`bot-voice-fa.md`](bot-voice-fa.md)** (v0.23.0): spoken Persian, «تو», «برنامه» for an
+event. Where it and this file disagree, it wins for anything a user reads in the bot or the channel. §2–§4 below
+record the older formal wording of the Mini App and are kept as history, not as a style to copy.
+
 ---
 
 ## 1. Domain concepts
 
 | English (code) | Persian (UI) | Notes |
 |---|---|---|
-| Activity / Event | فعالیت | The core entity. Prefer **فعالیت** over «رویداد» — warmer, matches the product's tone |
+| Activity / Event | برنامه | The core entity. «فعالیت» until v0.18.4, «رویداد» until v0.23.0, «برنامه» since. «رویداد» stays in legal text, the admin panel and the channel hashtag `#رویداد_N` |
 | Host | میزبان | The creator of an activity |
 | Participant | شرکت‌کننده | Someone who requested to join |
 | Guest | مهمان | The participant's role inside a chat |
 | Request (to join) | درخواست شرکت | |
 | Capacity | ظرفیت | |
 | Remaining capacity | ظرفیت باقی‌مانده | |
-| Waitlist | لیست انتظار | |
-| Waitlist position | جایگاه در لیست انتظار | |
+| Waitlist | صف انتظار | «صف» for short |
+| Waitlist position | جایگاه در صف انتظار | |
 | Promotion (from waitlist) | ارتقا از لیست انتظار | |
 | Anonymous chat | گفتگوی ناشناس | The differentiator; name it prominently |
 | Alias | نام مستعار | Per-chat, e.g. «میهمان ۱» |
 | Coin | سکه | |
 | Trust Score | امتیاز اعتماد | Never «نمره» — that reads as a school grade |
-| Review | بازخورد | Prefer **بازخورد** over «نظر»: it is mutual and structured, not a public opinion |
+| Review | نظر | «نظر» in the bot (v0.23.0); «بازخورد» read as formal |
 | Blind review | بازخورد دوسویهٔ پنهان | Explain on first use |
 | Report | گزارش تخلف | «گزارش» alone is ambiguous |
 | Moderation | بررسی و تأیید | |
@@ -42,8 +46,8 @@ an enum value, a log line or an API field name.
 | Category | دسته‌بندی | |
 | City | شهر | |
 | District / Area | منطقه | |
-| Cancellation | لغو | |
-| No-show | عدم حضور | |
+| Cancellation | کنسل کردن | «لغو» in legal text only |
+| No-show | نیومدن | A host's mark is «🚫 نیومد»; «عدم حضور» in legal text only |
 | Grace period | مهلت بدون جریمه | |
 | Penalty | جریمه | |
 | Terms and conditions | قوانین و شرایط استفاده | |
@@ -185,4 +189,5 @@ do next, never expose internals, never blame the user.
 - **Latin identifiers inside Persian text (M19):** always wrapped in `<bdi>`. A UUID or a code renders
   with its segments reversed under `dir="rtl"` otherwise, and these are the strings an operator copies
   into a report. They stay Latin — a `public_id` in Persian digits is not the same string.
-- **Tone:** polite plural (شما), warm and direct. Avoid bureaucratic phrasing and avoid exclamation marks.
+- **Tone:** spoken Persian with «تو», short and direct, since v0.23.0. The rules, the word list and what stays
+  formal are in [`bot-voice-fa.md`](bot-voice-fa.md).

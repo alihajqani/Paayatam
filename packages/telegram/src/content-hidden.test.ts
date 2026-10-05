@@ -12,26 +12,26 @@ import { TEMPLATES, render } from './templates';
 describe('content hidden after reports', () => {
   it('keeps the activity sentence for an activity', () => {
     const text = String(render(TEMPLATES.CONTENT_HIDDEN, { subjectType: 'EVENT' })?.text);
-    expect(text).toContain('رویداد شما');
+    expect(text).toContain('برنامه‌ت');
     expect(text).toContain('پنهان');
   });
 
   it('does not tell a reported person that an activity was hidden', () => {
     const text = String(render(TEMPLATES.CONTENT_HIDDEN, { subjectType: 'USER' })?.text);
-    expect(text).not.toContain('رویداد');
+    expect(text).not.toContain('برنامه');
     expect(text).not.toContain('پنهان');
     expect(text).toContain('حساب');
   });
 
   it('names a review as a review', () => {
     const text = String(render(TEMPLATES.CONTENT_HIDDEN, { subjectType: 'REVIEW' })?.text);
-    expect(text).not.toContain('رویداد');
+    expect(text).not.toContain('برنامه');
     expect(text).not.toContain('پنهان');
     expect(text).toContain('نظر');
   });
 
   /** Every row written before this change is about an event, but none says so. */
   it('reads an unlabelled payload as the activity it always was', () => {
-    expect(render(TEMPLATES.CONTENT_HIDDEN, {})?.text).toContain('رویداد شما');
+    expect(render(TEMPLATES.CONTENT_HIDDEN, {})?.text).toContain('برنامه‌ت');
   });
 });

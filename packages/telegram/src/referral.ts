@@ -39,14 +39,14 @@ export function formatReferral(
   const link = `https://t.me/${botUsername}?start=${summary.code}`;
 
   return (
-    `<b>کد معرفی شما</b>\n\n` +
+    `<b>کد دعوتت</b>\n\n` +
     `<code>${escapeHtml(summary.code)}</code>\n\n` +
-    `این پیوند را برای دوستانتان بفرستید:\n${escapeHtml(link)}\n\n` +
+    `این لینک رو برای دوستات بفرست:\n${escapeHtml(link)}\n\n` +
     `👥 دعوت‌شده: ${toPersianDigits(String(summary.invited))}\n` +
     `✅ فعال‌شده: ${toPersianDigits(String(summary.qualified))}\n` +
     `💰 سکهٔ دریافتی: ${toPersianDigits(String(summary.coinsEarned))}\n\n` +
     foundingProgressLine(founding) +
-    `<i>وقتی کسی با این پیوند بیاید و در رویدادی شرکت کند، هر دو سکه می‌گیرید.</i>`
+    `<i>هر کی با این لینک بیاد و سر یه برنامه بره، هر دوتون سکه می‌گیرید.</i>`
   );
 }
 
@@ -64,6 +64,6 @@ function foundingProgressLine(founding: FoundingProgressLine | undefined): strin
   const max = toPersianDigits(String(founding.max));
   return (
     `🏅 ${awarded} از ${max} جای «${max} نفر اول» پر شده. ` +
-    `دوستی که پیش از پر شدن پروفایلش را کامل کند، نشان همیشگی و سکه می‌گیرد.\n\n`
+    `دوستی که قبل از پر شدنش پروفایلش رو کامل کنه، نشان همیشگی و سکه می‌گیره.\n\n`
   );
 }

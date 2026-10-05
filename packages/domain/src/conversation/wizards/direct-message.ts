@@ -57,31 +57,31 @@ const steps: WizardStep<DirectMessageForm>[] = [
      */
     prompt: (form) =>
       (form.mode === 'reply'
-        ? 'پاسخ خود را بنویسید.'
+        ? 'جوابت رو بنویس.'
         : form.mode === 'guest'
-          ? 'پیامتان را برای این مهمان بنویسید.'
-          : 'پیامتان را برای میزبان این رویداد بنویسید.') +
+          ? 'پیامت رو برای این مهمان بنویس.'
+          : 'پیامت رو برای میزبان این برنامه بنویس.') +
       '\n\n' +
-      'می‌توانید برای هماهنگی شمارهٔ تماس یا شناسهٔ تلگرامتان را بفرستید — ' +
-      'اما این کار با مسئولیت خودتان است و پایه‌تَم در این میان هیچ نقشی ندارد. ' +
-      'اطلاعات شخصی را با احتیاط و فقط با کسی که به او اطمینان دارید در میان بگذارید.',
+      'می‌تونی برای هماهنگی شماره یا آیدی تلگرامت رو بفرستی، ' +
+      'ولی این کار با مسئولیت خودته و پایتم این وسط هیچ نقشی نداره. ' +
+      'اطلاعات شخصی‌ت رو با احتیاط و فقط با کسی که بهش اطمینان داری در میون بذار.',
     accept: (input: WizardInput) => {
       // A photo and a tapped button are both refused here, and differently from
       // each other: «بنویسید» is useless advice to somebody who just sent a
       // picture believing it was the message.
       if (input.kind === 'photo') {
-        return { ok: false, error: 'فعلاً فقط متن فرستاده می‌شود. پیامتان را بنویسید.' };
+        return { ok: false, error: 'فعلاً فقط متن فرستاده میشه. پیامت رو بنویس.' };
       }
-      if (input.kind !== 'text') return { ok: false, error: 'پیامتان را بنویسید و بفرستید.' };
+      if (input.kind !== 'text') return { ok: false, error: 'پیامت رو بنویس و بفرست.' };
 
       const value = input.value.trim();
       if (value.length < MIN_LENGTH) {
-        return { ok: false, error: 'پیام خیلی کوتاه است. کمی بیشتر بنویسید.' };
+        return { ok: false, error: 'پیام خیلی کوتاهه. یه کم بیشتر بنویس.' };
       }
       if (value.length > MAX_LENGTH) {
         return {
           ok: false,
-          error: 'پیام خیلی بلند است. آن را کوتاه‌تر کنید و دوباره بفرستید.',
+          error: 'پیام خیلی بلنده. کوتاه‌ترش کن و دوباره بفرست.',
         };
       }
 

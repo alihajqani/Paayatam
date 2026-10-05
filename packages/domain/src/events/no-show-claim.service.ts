@@ -451,7 +451,7 @@ export class NoShowClaimService {
     return rows.map((row) => ({
       kind: row.kind,
       authorRole: row.kind === 'HOST_ABSENT_RESPONSE' ? 'HOST' : 'GUEST',
-      authorDisplayName: row.author.profile?.displayName ?? 'کاربر پایه‌تَم',
+      authorDisplayName: row.author.profile?.displayName ?? 'کاربر پایتم',
       statement: row.statement,
       createdAt: row.createdAt,
     }));

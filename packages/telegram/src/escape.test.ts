@@ -327,7 +327,7 @@ describe('BOT_WIZARD', () => {
       keyboard: JSON.stringify(screen.keyboard),
     });
 
-    expect(message?.text).toContain('<i>گام ۱ از ۱۱</i>');
+    expect(message?.text).toContain('<i>مرحلهٔ ۱ از ۱۱</i>');
     expect(message?.text).not.toContain('&lt;i&gt;');
   });
 

@@ -51,9 +51,9 @@ export function formatSuggestionCard(line: SuggestionCardLine): string {
     `🗓 ${formatJalali(line.startsAt)} — ساعت ${formatJalaliTime(line.startsAt)}` +
     ` (${toPersianDigits(String(line.durationHours))} ساعت)\n` +
     `${costLine(line)}\n\n` +
-    `این برنامه واقعی است و بیرون از پایتم برگزار می‌شود. اگر می‌خواهید بروید، ` +
-    `«میزبانش می‌شوم» را بزنید: رویدادش به اسم شما ساخته می‌شود و دیگران می‌توانند ` +
-    `درخواست بدهند که همراهتان بیایند.`
+    `این یه برنامهٔ واقعیه که بیرون از پایتم برگزار میشه. اگه می‌خوای بری، ` +
+    `«میزبانش میشم» رو بزن: توی پایتم به اسم تو ساخته میشه و بقیه می‌تونن ` +
+    `درخواست بدن که باهات بیان.`
   );
 }
 
@@ -68,7 +68,7 @@ export function suggestionKeyboard(publicId: string, externalLink: string | null
   return [
     [
       {
-        text: '🙋 میزبانش می‌شوم',
+        text: '🙋 میزبانش میشم',
         callbackData: encodeSuggestionCallback(publicId),
         style: 'primary',
       },
@@ -82,8 +82,8 @@ export function suggestionKeyboard(publicId: string, externalLink: string | null
  * them is the suggestion the bot makes, not a rule it enforces.
  */
 export const JOIN_EXISTING_LINE =
-  'برای همین برنامه یک نفر رویداد ساخته است و هنوز جا دارد؛ می‌توانید همراهش شوید. ' +
-  'اگر ترجیح می‌دهید جدا بروید، رویداد خودتان را بسازید.';
+  'یه نفر برای همین برنامه توی پایتم جمع راه انداخته و هنوز جا داره؛ می‌تونی همراهش بشی. ' +
+  'اگه ترجیح میدی جدا بری، خودت یکی بساز.';
 
 export function joinExistingKeyboard(publicId: string): InlineKeyboard {
   return [[{ text: '✍️ خودم یکی جدا می‌سازم', callbackData: encodeSuggestionCallback(publicId) }]];
@@ -91,5 +91,5 @@ export function joinExistingKeyboard(publicId: string): InlineKeyboard {
 
 /** A suggestion that was closed, has started, or never existed. */
 export const SUGGESTION_GONE_FA =
-  'این پیشنهاد دیگر باز نیست؛ یا زمانش گذشته یا بسته شده است. ' +
-  'رویدادهای باز را از منو، بخش «🎟 رویدادها»، ببینید.';
+  'این پیشنهاد دیگه باز نیست؛ یا وقتش گذشته یا بسته شده. ' +
+  'برنامه‌های باز رو از منو، بخش «🎟 برنامه‌ها»، ببین.';

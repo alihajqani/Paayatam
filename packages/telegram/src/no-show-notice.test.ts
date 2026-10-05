@@ -68,7 +68,7 @@ describe('the host asked about «میزبان نیامد»', () => {
       respondBy: '2026-09-12T09:00:00.000Z',
     });
     expect(message?.text).toContain('کوه');
-    expect(message?.text).toContain('سکه‌ای جابه‌جا نمی‌شود');
+    expect(message?.text).toContain('سکه‌ای جابه‌جا نمیشه');
     expect(buttons(message)).toEqual([`ev:hresp:${EVENT}`]);
   });
 });
@@ -84,7 +84,7 @@ describe('a claim, decided', () => {
       upheld: true,
       coins: 60,
     });
-    expect(text).toContain('پذیرفته شد');
+    expect(text).toContain('قبول شد');
     expect(text).toContain('۶۰ سکه');
   });
 
@@ -96,7 +96,7 @@ describe('a claim, decided', () => {
   it('tells a guest a dispute was not upheld', () => {
     expect(
       decided({ recipientRole: 'GUEST', kind: 'GUEST_ABSENT_DISPUTE', upheld: false }),
-    ).toContain('پذیرفته نشد');
+    ).toContain('قبول نشد');
   });
 
   it('tells the host the no-show they recorded was removed', () => {
@@ -123,17 +123,17 @@ describe('a claim, decided', () => {
       upheld: true,
       coins: 20,
     });
-    expect(text).toContain('حاضر نبوده');
+    expect(text).toContain('نیومده بود');
     expect(text).toContain('۲۰ سکه');
   });
 
   it('tells the host and a reporter when the report was not upheld', () => {
     expect(decided({ recipientRole: 'HOST', kind: 'HOST_ABSENT_REPORT', upheld: false })).toContain(
-      'پذیرفته نشد',
+      'قبول نشد',
     );
     expect(
       decided({ recipientRole: 'GUEST', kind: 'HOST_ABSENT_REPORT', upheld: false }),
-    ).toContain('پذیرفته نشد');
+    ).toContain('قبول نشد');
   });
 
   it('escapes the title', () => {

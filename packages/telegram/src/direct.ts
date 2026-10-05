@@ -38,8 +38,8 @@ export function formatDirectMessage(line: DirectMessageLine): string {
     `<i>از ${escapeHtml(line.senderDisplayName)} · ` +
     `${formatJalali(line.createdAt)} — ${formatJalaliTime(line.createdAt)}</i>\n\n` +
     `${escapeHtml(line.body)}\n\n` +
-    `<i>⚠️ اگر شمارهٔ تماس یا شناسه‌ای رد و بدل می‌کنید، با احتیاط و به مسئولیت ` +
-    `خودتان باشد؛ پایه‌تَم در این میان هیچ نقشی ندارد.</i>`
+    `<i>⚠️ اگه شماره یا آیدی رد و بدل می‌کنید، با احتیاط و به مسئولیت ` +
+    `خودتون باشه؛ پایتم این وسط هیچ نقشی نداره.</i>`
   );
 }
 
@@ -52,9 +52,9 @@ export function formatDirectMessage(line: DirectMessageLine): string {
  */
 export function formatBlockedNotice(displayName: string): string {
   return (
-    `<b>🚫 ${escapeHtml(displayName)} مسدود شد</b>\n\n` +
-    `از این پس نه او می‌تواند به شما پیام مستقیم بدهد و نه شما به او. ` +
-    `درخواست‌ها و رویدادها تغییری نمی‌کنند.\n\n` +
-    `<i>فهرست افراد مسدودشده در «تنظیمات» است.</i>`
+    `<b>🚫 ${escapeHtml(displayName)} بلاک شد</b>\n\n` +
+    `از این به بعد نه اون می‌تونه بهت پیام مستقیم بده و نه تو به اون. ` +
+    `درخواست‌ها و برنامه‌ها عوض نمیشن.\n\n` +
+    `<i>فهرست بلاک‌شده‌ها توی «تنظیمات» هست.</i>`
   );
 }

@@ -242,7 +242,7 @@ async function walk<F>(
       if (current.ui === 'multi') await draw();
     }
 
-    if (current.ui === 'multi') console.log('\n    ⟵ «تمام»');
+    if (current.ui === 'multi') console.log('\n    ⟵ «تموم»');
     step = nextStep(definition, current.key, form);
   }
   return form;
@@ -257,7 +257,7 @@ async function main(): Promise<void> {
     `\n\n${'═'.repeat(72)}\n  CONSENT GATE — what a new user meets first\n${'═'.repeat(72)}`,
   );
   const gate = renderStep({
-    prompt: 'برای استفاده از ربات پایتم، لازم است سندهای زیر را بخوانید و بپذیرید.',
+    prompt: 'برای استفاده از ربات پایتم، باید سندهای زیر رو بخونی و قبول کنی.',
     ui: 'confirm',
     stepKey: 'review',
     actions: [[{ text: '✅ می‌پذیرم', callbackData: 'wz:agree:' }]],

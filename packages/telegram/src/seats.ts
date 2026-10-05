@@ -24,7 +24,7 @@ export function seatsLine(capacity: number, acceptedCount: number): string {
   if (isUnlimitedCapacity(capacity)) return 'بدون محدودیت';
 
   const remaining = Math.max(capacity - acceptedCount, 0);
-  if (remaining === 0) return 'ظرفیت تکمیل';
+  if (remaining === 0) return 'پر شد';
 
   return `${toPersianDigits(String(remaining))} جای خالی از ${toPersianDigits(String(capacity))}`;
 }

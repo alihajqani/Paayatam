@@ -27,18 +27,18 @@ describe('joinAsk', () => {
 
     expect(text).toContain('«کوه نوردی»');
     expect(text).toContain('<b>۲۰ سکه</b>');
-    expect(text).toContain('رد کند یا تا مهلت پاسخ ندهد');
-    expect(text).toContain('خودتان درخواست را لغو کنید');
+    expect(text).toContain('ردت کنه یا به‌موقع جواب نده');
+    expect(text).toContain('خودت درخواست رو کنسل کنی');
     expect(text).not.toContain('شهر');
-    expect(label).toBe('✅ بله، درخواست بده');
+    expect(label).toBe('✅ آره، درخواست بده');
   });
 
   it('says it is the waiting list, and when a waiting place pays back', () => {
     const { text, label } = joinAsk({ ...base, status: 'WAITLISTED' });
 
-    expect(text).toContain('نوبت انتظار');
-    expect(text).toContain('تا شروع رویداد');
-    expect(label).toContain('نوبت انتظار');
+    expect(text).toContain('صف انتظار');
+    expect(text).toContain('تا شروع برنامه');
+    expect(label).toContain('صف');
   });
 
   it('names both cities when the activity is not in the joiner’s', () => {
@@ -68,15 +68,15 @@ describe('withdrawalCostLine', () => {
     const line = withdrawalCostLine({ price: free, joinCharge: 20, status: 'PENDING' });
 
     expect(line).toContain('<b>۲۰ سکه‌ای</b>');
-    expect(line).toContain('برنمی‌گردد');
-    expect(line).toContain('رد کند یا تا مهلت پاسخ ندهد');
-    expect(line).not.toContain('هزینه‌ای ندارد');
+    expect(line).toContain('برنمی‌گرده');
+    expect(line).toContain('ردت کنه یا به‌موقع جواب نده');
+    expect(line).not.toContain('هزینه‌ای نداره');
   });
 
   it('says when a waiting place would have paid back', () => {
     const line = withdrawalCostLine({ price: free, joinCharge: 20, status: 'WAITLISTED' });
 
-    expect(line).toContain('تا شروع رویداد');
+    expect(line).toContain('تا شروع برنامه');
   });
 
   it('adds the late-cancellation fine to the forfeit rather than replacing it', () => {
@@ -93,7 +93,7 @@ describe('withdrawalCostLine', () => {
 
   it('is free only when nothing is fined and nothing is kept', () => {
     expect(withdrawalCostLine({ price: free, joinCharge: 0, status: 'PENDING' })).toBe(
-      'این کار هزینه‌ای ندارد.',
+      'این کار هزینه‌ای نداره.',
     );
   });
 });

@@ -353,7 +353,7 @@ export class ConversationService {
           kind: 'step',
           step,
           snapshot,
-          error: 'دست‌کم یک مورد را انتخاب کنید.',
+          error: 'دست‌کم یکی رو انتخاب کن.',
           position,
           total,
         };

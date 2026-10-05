@@ -63,6 +63,6 @@ describe.each([TEMPLATES.PARTICIPATION_REQUESTED_HOST, TEMPLATES.WAITLIST_PROMOT
 
 describe('a request queued before the requester was named', () => {
   it('still renders, without a name', () => {
-    expect(render(TEMPLATES.PARTICIPATION_REQUESTED_HOST, base)?.text).toContain('یک نفر');
+    expect(render(TEMPLATES.PARTICIPATION_REQUESTED_HOST, base)?.text).toContain('یه نفر');
   });
 });

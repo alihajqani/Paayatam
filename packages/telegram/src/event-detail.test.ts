@@ -37,12 +37,12 @@ describe('the viewer’s own status on the activity page', () => {
   it('says an accepted guest has a seat', () => {
     expect(
       formatEventDetail({ ...line, viewer: { status: 'ACCEPTED', waitlistRank: null } }),
-    ).toContain('وضعیت شما: پذیرفته شد');
+    ).toContain('وضعیتت: قبول شدی');
   });
 
   it('gives a waiting guest their place in the queue', () => {
     const text = formatEventDetail({ ...line, viewer: { status: 'WAITLISTED', waitlistRank: 3 } });
-    expect(text).toContain('نوبت انتظار');
+    expect(text).toContain('توی صف انتظار');
     expect(text).toContain('نفر ۳');
   });
 

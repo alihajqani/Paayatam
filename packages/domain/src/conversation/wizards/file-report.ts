@@ -62,7 +62,7 @@ const REASON_FA: Record<string, string> = {
   SCAM: '🎣 کلاهبرداری',
   IMPERSONATION: '🎭 جعل هویت',
   SAFETY: '🆘 نگرانی برای ایمنی',
-  OTHER: '❓ موردی دیگر',
+  OTHER: '❓ یه چیز دیگه',
 };
 
 const steps: WizardStep<FileReportForm>[] = [
@@ -70,12 +70,12 @@ const steps: WizardStep<FileReportForm>[] = [
     key: 'why',
     ui: 'choice',
     // Not optional: a report with no reason is a report a moderator cannot sort.
-    prompt: () => 'دلیل گزارش چیست؟ گزارش شما محرمانه است و به طرف مقابل اطلاع داده نمی‌شود.',
+    prompt: () => 'دلیل گزارش چیه؟ گزارشت محرمانه‌ست و به طرف مقابل گفته نمیشه.',
     load: () =>
       Promise.resolve(REASONS.map((value) => ({ value, label: REASON_FA[value] ?? value }))),
     accept: (input: WizardInput) => {
       const value = REASONS.find((candidate) => candidate === input.value);
-      if (value === undefined) return { ok: false, error: 'یکی از گزینه‌ها را انتخاب کنید.' };
+      if (value === undefined) return { ok: false, error: 'یکی از گزینه‌ها رو انتخاب کن.' };
       return { ok: true, patch: { reason: value } };
     },
   },
@@ -84,15 +84,14 @@ const steps: WizardStep<FileReportForm>[] = [
     ui: 'text',
     optional: true,
     prompt: () =>
-      'اگر توضیحی دارید بنویسید — چه اتفاقی افتاد، و کِی. ' +
-      'برای فرستادن گزارش بدون توضیح، «رد کردن» را بزنید.',
+      'اگه توضیحی داری بنویس: چی شد و کِی. ' + 'برای فرستادن گزارش بدون توضیح، «فعلاً نه» رو بزن.',
     accept: (input: WizardInput) => {
-      if (input.kind !== 'text') return { ok: false, error: 'توضیح را بنویسید و بفرستید.' };
+      if (input.kind !== 'text') return { ok: false, error: 'توضیحت رو بنویس و بفرست.' };
       const value = input.value.trim();
       // The contract's own bounds, restated so a refusal names the field rather
       // than arriving from Zod as «اطلاعات نامعتبر».
-      if (value.length === 0) return { ok: false, error: 'توضیح خالی است.' };
-      if (value.length > 1000) return { ok: false, error: 'توضیح باید حداکثر ۱۰۰۰ نویسه باشد.' };
+      if (value.length === 0) return { ok: false, error: 'توضیح خالیه.' };
+      if (value.length > 1000) return { ok: false, error: 'توضیح باید حداکثر ۱۰۰۰ حرف باشه.' };
       return { ok: true, patch: { description: value } };
     },
   },

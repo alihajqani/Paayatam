@@ -34,7 +34,7 @@ const REASON_FA: Record<ReportReasonValue, string> = {
   SCAM: '🎣 کلاهبرداری',
   IMPERSONATION: '🎭 جعل هویت',
   SAFETY: '🆘 نگرانی برای ایمنی',
-  OTHER: '❓ موردی دیگر',
+  OTHER: '❓ یه چیز دیگه',
 };
 
 export function reportReasonLabel(reason: ReportReasonValue): string {
@@ -47,7 +47,7 @@ export const REPORT_REASON_CHOICES: readonly { reason: ReportReasonValue; label:
 
 /** What the target of a report is called, for the question above the buttons. */
 const TARGET_FA: Record<string, string> = {
-  e: 'این رویداد',
+  e: 'این برنامه',
   c: 'این گفتگو',
   u: 'این کاربر',
   v: 'این نظر',
@@ -57,6 +57,6 @@ export function reportPrompt(target: string): string {
   const what = TARGET_FA[target] ?? 'این مورد';
   return (
     `<b>گزارش ${what}</b>\n\n` +
-    `دلیل گزارش را انتخاب کنید. گزارش شما محرمانه است و به طرف مقابل اطلاع داده نمی‌شود.`
+    `دلیل گزارش رو انتخاب کن. گزارشت محرمانه‌ست و به طرف مقابل گفته نمیشه.`
   );
 }

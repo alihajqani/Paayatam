@@ -596,7 +596,7 @@ describe('/start', () => {
       const price = toPersianDigits(String(SETTING_DEFAULTS['economy.event_join_coins']));
       expect(ask.text).toContain(`${price} سکه`);
       // What a withdrawal keeps is said before the coins are taken, not after.
-      expect(ask.text).toContain('برنمی‌گردد');
+      expect(ask.text).toContain('برنمی‌گرده');
       expect(ask.callbackData).toBe(`ev:joinyes:${eventPublicId}`);
 
       await tapAs(GUEST_TELEGRAM_ID, ask.callbackData);
@@ -826,7 +826,7 @@ describe('commands', () => {
       select: { payload: true },
     });
 
-    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز درخواستی نداده‌اید');
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز درخواستی ندادی');
   });
 
   /**
@@ -854,7 +854,7 @@ describe('commands', () => {
     ).title;
 
     expect(text).toContain(title);
-    expect(text).toContain('در انتظار پاسخ میزبان');
+    expect(text).toContain('منتظر جواب میزبان');
   });
 
   it('answers /myevents with nothing hosted yet', async () => {
@@ -866,7 +866,7 @@ describe('commands', () => {
       select: { payload: true },
     });
 
-    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز رویدادی نساخته‌اید');
+    expect((row.payload as Record<string, unknown>)['text']).toContain('هنوز برنامه‌ای نساختی');
   });
 
   /** The seats are the point: "do I still need people" without opening anything. */
@@ -911,7 +911,7 @@ describe('commands', () => {
     expect(await prisma.notification.count()).toBeGreaterThan(before);
     expect(rows[0]?.templateKey).toBe(TEMPLATES.BOT_NOTICE);
     expect(String((rows[0]?.payload as Record<string, unknown>)['text'])).toContain(
-      'این فرمان را نمی‌شناسم',
+      'این دستور رو نمی‌شناسم',
     );
   });
 
@@ -1028,7 +1028,7 @@ describe('commands', () => {
       select: { payload: true },
     });
 
-    expect((row.payload as Record<string, unknown>)['text']).toContain('نظر منتظری ندارید');
+    expect((row.payload as Record<string, unknown>)['text']).toContain('نظری منتظرت نیست');
   });
 
   /** A command is a command, not chat text: it is never relayed to a stranger. */
@@ -1070,9 +1070,7 @@ describe('message:text', () => {
     expect(row.templateKey).toBe(TEMPLATES.BOT_NOTICE);
     // It says where writing to a host actually happens, because that is the
     // change somebody typing into an empty chat has not noticed yet.
-    expect(String((row.payload as Record<string, unknown>)['text'])).toContain(
-      'پیام مستقیم به میزبان',
-    );
+    expect(String((row.payload as Record<string, unknown>)['text'])).toContain('✉️ پیام به میزبان');
     // And nothing was delivered to anybody.
     await expect(prisma.directMessage.count()).resolves.toBe(0);
   });
@@ -2159,7 +2157,7 @@ describe('POST /telegram/:secret — acting on your own events', () => {
     expect(data).toContain(`ev:cancel:${joined.publicId}`);
     expect(data).not.toContain(`ev:join:${eventPublicId}`);
     expect(data).toContain(`dm:write:${eventPublicId}`);
-    expect(String(payload['text'])).toContain('وضعیت شما: پذیرفته شد');
+    expect(String(payload['text'])).toContain('وضعیتت: قبول شدی');
   });
 
   /** Each guest can be reported from the host's own list (plan 16, review M5). */
@@ -2379,7 +2377,7 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
     await type(GUEST_TELEGRAM_ID, '/wallet');
 
     const text = await bodyOf(TEMPLATES.BOT_WALLET);
-    expect(text).toContain('کیف پول شما');
+    expect(text).toContain('کیف پولت');
     // The ledger line, in the language the user reads rather than the enum.
     expect(text).toContain('هدیهٔ خوش‌آمد');
     expect(text).not.toContain('ONBOARDING_REWARD');
@@ -2404,7 +2402,7 @@ describe('POST /telegram/:secret — wallet, referral and gift codes', () => {
     await type(GUEST_TELEGRAM_ID, '/trust');
 
     const text = await bodyOf(TEMPLATES.BOT_TRUST);
-    expect(text).toContain('امتیاز اعتماد شما');
+    expect(text).toContain('امتیاز اعتمادت');
     // The movement, in the language the user reads rather than the enum.
     expect(text).toContain('کامل کردن پروفایل');
     expect(text).not.toContain('PROFILE_COMPLETE');
@@ -2729,7 +2727,7 @@ describe('POST /telegram/:secret — rating somebody', () => {
       select: { payload: true },
     });
     expect(String((row.payload as Record<string, unknown>)['text'])).toContain(
-      'هنوز نظری درباره شما ثبت نشده است',
+      'هنوز نظری دربارهٔ تو ثبت نشده',
     );
     void guestId;
   });
@@ -2779,7 +2777,7 @@ describe('POST /telegram/:secret — rating somebody', () => {
     expect(String(payload['text'])).toContain('⭐️⭐️☆☆☆');
     // D7a asks for a one-sided reveal to be *marked*: a review that arrived
     // because the window closed reads differently from a reciprocated one.
-    expect(String(payload['text'])).toContain('بدون بازخورد متقابل');
+    expect(String(payload['text'])).toContain('فقط یه طرف نوشته');
 
     const buttons = JSON.parse(String(payload['keyboard'])) as { callbackData: string }[][];
     expect(buttons[0]?.[0]?.callbackData).toBe(`rp:askv:${review.publicId}`);
@@ -2906,8 +2904,8 @@ describe('POST /telegram/:secret — rating somebody', () => {
       select: { payload: true },
     });
     const text = String((notice.payload as Record<string, unknown>)['text']);
-    expect(text).toContain('نظر شما کامل شد');
-    expect(text).toContain('هر دو نظرتان را نوشته باشید');
+    expect(text).toContain('نظرت کامل شد');
+    expect(text).toContain('هر دوتون نوشته باشید');
   });
 
   /** Skipping both steps leaves the rating alone rather than saying «ثبت شد» twice. */
@@ -3150,7 +3148,7 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     });
     const body = String((digest.payload as Record<string, unknown>)['text']);
     expect(body).toContain('دورهمی بازی رومیزی');
-    expect(body).toContain('ظرفیت تکمیل');
+    expect(body).toContain('پر شد');
 
     const code = eventPublicId.replaceAll('-', '').slice(0, 10);
     await type(GUEST_TELEGRAM_ID, `/event_${code}`);
@@ -3162,7 +3160,7 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     const join = keyboardOf(detail.payload)
       .flat()
       .find((button) => button.callbackData === `ev:join:${eventPublicId}`);
-    expect(join?.text).toContain('نوبت انتظار');
+    expect(join?.text).toContain('صف');
 
     await tap(GUEST_TELEGRAM_ID, `ev:join:${eventPublicId}`);
     // The ask says it is the waiting list too, and when the coins come back from it.
@@ -3171,9 +3169,9 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       orderBy: { createdAt: 'desc' },
       select: { payload: true },
     });
-    expect(String((ask.payload as Record<string, unknown>)['text'])).toContain('نوبت انتظار');
+    expect(String((ask.payload as Record<string, unknown>)['text'])).toContain('صف انتظار');
     const yes = keyboardOf(ask.payload).flat()[0];
-    expect(yes?.text).toContain('نوبت انتظار');
+    expect(yes?.text).toContain('صف');
     await tap(GUEST_TELEGRAM_ID, yes?.callbackData ?? '');
     const participant = await prisma.eventParticipant.findFirstOrThrow({
       where: { userId: guestId },
@@ -3214,7 +3212,7 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       orderBy: { createdAt: 'desc' },
       select: { payload: true },
     });
-    expect(String((digest.payload as Record<string, unknown>)['text'])).toContain('🔴 ظرفیت تکمیل');
+    expect(String((digest.payload as Record<string, unknown>)['text'])).toContain('🔴 پر شد');
 
     const code = eventPublicId.replaceAll('-', '').slice(0, 10);
     await type(GUEST_TELEGRAM_ID, `/event_${code}`);
@@ -3223,11 +3221,11 @@ describe('POST /telegram/:secret — joining and standing down', () => {
       orderBy: { createdAt: 'desc' },
       select: { payload: true },
     });
-    expect(String((detail.payload as Record<string, unknown>)['text'])).toContain('🔴 ظرفیت تکمیل');
+    expect(String((detail.payload as Record<string, unknown>)['text'])).toContain('🔴 پر شد');
     const join = keyboardOf(detail.payload)
       .flat()
       .find((button) => button.callbackData === `ev:join:${eventPublicId}`);
-    expect(join?.text).toContain('نوبت انتظار');
+    expect(join?.text).toContain('صف');
   });
 
   /** A code that names nothing is refused the way an unknown activity is. */
@@ -3484,8 +3482,8 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     const askText = String((ask.payload as Record<string, unknown>)['text']);
     const price = toPersianDigits(String(SETTING_DEFAULTS['economy.event_join_coins']));
     expect(askText).toContain(`${price} سکه`);
-    expect(askText).toContain('برنمی‌گردد');
-    expect(askText).not.toContain('هزینه‌ای ندارد');
+    expect(askText).toContain('برنمی‌گرده');
+    expect(askText).not.toContain('هزینه‌ای نداره');
 
     await tap(GUEST_TELEGRAM_ID, confirm?.callbackData ?? '');
 
@@ -3528,7 +3526,7 @@ describe('POST /telegram/:secret — joining and standing down', () => {
     });
     // Inside the grace window the honest answer is that it is free, and the ask
     // says so rather than quoting a figure nobody will be charged.
-    expect(String((ask.payload as Record<string, unknown>)['text'])).toContain('لغو شرکت');
+    expect(String((ask.payload as Record<string, unknown>)['text'])).toContain('نمی‌تونی بیای؟');
 
     await tap(GUEST_TELEGRAM_ID, keyboardOf(ask.payload).flat()[0]?.callbackData ?? '');
 
@@ -3652,7 +3650,7 @@ describe('POST /telegram/:secret — direct messages', () => {
     await tap(HOST_TELEGRAM_ID, `dm:block:${message.publicId}`);
     await expect(prisma.directMessageBlock.count()).resolves.toBe(1);
     const notice = await latest(TEMPLATES.BOT_DIRECT_MESSAGE);
-    expect(String(notice['text'])).toContain('مسدود شد');
+    expect(String(notice['text'])).toContain('بلاک شد');
     expect(String(notice['keyboard'])).toContain(`dm:unblock:${guest.publicId}`);
 
     // The sender tries again and is refused; nothing is written.
@@ -3669,7 +3667,7 @@ describe('POST /telegram/:secret — direct messages', () => {
     await tap(HOST_TELEGRAM_ID, `dm:unblock:${guest.publicId}`);
     await expect(prisma.directMessageBlock.count()).resolves.toBe(0);
     const list = await latest(TEMPLATES.BOT_SETTINGS);
-    expect(String(list['text'])).toContain('کسی را مسدود نکرده‌اید');
+    expect(String(list['text'])).toContain('کسی رو بلاک نکردی');
   });
 
   it('carries a message from a guest to the host and a reply back', async () => {
@@ -3683,17 +3681,17 @@ describe('POST /telegram/:secret — direct messages', () => {
     const direct = keyboardOf(detail)
       .flat()
       .find((button) => button.callbackData === `dm:write:${eventPublicId}`);
-    expect(direct?.text).toContain('پیام مستقیم به میزبان');
+    expect(direct?.text).toContain('✉️ پیام به میزبان');
 
     // 2–3. Pressing it asks for the message, with «انصراف» under the prompt, and
     // says out loud that sharing contact details is the sender's own risk.
     await tap(GUEST_TELEGRAM_ID, direct?.callbackData ?? '');
     const prompt = await latest(TEMPLATES.BOT_WIZARD);
-    expect(String(prompt['text'])).toContain('مسئولیت خودتان');
+    expect(String(prompt['text'])).toContain('مسئولیت خودته');
     expect(
       keyboardOf(prompt)
         .flat()
-        .some((button) => button.text.includes('انصراف')),
+        .some((button) => button.text.includes('بی‌خیال')),
     ).toBe(true);
 
     // 4–5. The host is told, naming the writer and the activity — and not the
@@ -3711,7 +3709,7 @@ describe('POST /telegram/:secret — direct messages', () => {
     const view = (rendered?.keyboard ?? [])
       .flat()
       .find((button) => button.callbackData?.startsWith('dm:view:') === true);
-    expect(view?.text).toContain('مشاهده');
+    expect(view?.text).toContain('دیدن پیام');
 
     // 7. Pressing it shows the message and tells the guest it was seen.
     await tap(HOST_TELEGRAM_ID, view?.callbackData ?? '');
@@ -3734,7 +3732,7 @@ describe('POST /telegram/:secret — direct messages', () => {
     const reply = (openedRender?.keyboard ?? [])
       .flat()
       .find((button) => button.callbackData?.startsWith('dm:reply:') === true);
-    expect(reply?.text).toContain('پاسخ');
+    expect(reply?.text).toContain('جواب');
 
     await tap(HOST_TELEGRAM_ID, reply?.callbackData ?? '');
     await type(HOST_TELEGRAM_ID, 'بله، هماهنگ می‌کنیم. آیدی من @host است.');
@@ -3758,7 +3756,7 @@ describe('POST /telegram/:secret — direct messages', () => {
       TEMPLATES.DIRECT_MESSAGE_RECEIVED,
       await latest(TEMPLATES.DIRECT_MESSAGE_RECEIVED),
     );
-    expect(back?.text).toContain('پاسخ تازه');
+    expect(back?.text).toContain('جواب تازه');
     const viewBack = (back?.keyboard ?? [])
       .flat()
       .find((button) => button.callbackData?.startsWith('dm:view:') === true);
@@ -3774,7 +3772,7 @@ describe('POST /telegram/:secret — direct messages', () => {
     const replyBack = (openedBack?.keyboard ?? [])
       .flat()
       .find((button) => button.callbackData?.startsWith('dm:reply:') === true);
-    expect(replyBack?.text).toContain('پاسخ');
+    expect(replyBack?.text).toContain('جواب');
 
     await tap(GUEST_TELEGRAM_ID, replyBack?.callbackData ?? '');
     await type(GUEST_TELEGRAM_ID, 'عالی، ممنون.');
@@ -3813,7 +3811,7 @@ describe('POST /telegram/:secret — direct messages', () => {
       TEMPLATES.DIRECT_MESSAGE_RECEIVED,
       await latest(TEMPLATES.DIRECT_MESSAGE_RECEIVED),
     );
-    expect(notice?.text).toContain('پاسخ تازه');
+    expect(notice?.text).toContain('جواب تازه');
     expect(notice?.replyTo).toBe(written);
 
     const answer = await prisma.directMessage.findFirstOrThrow({
@@ -3860,7 +3858,7 @@ describe('POST /telegram/:secret — direct messages', () => {
     const prompt = await latest(TEMPLATES.BOT_WIZARD);
     const cancel = keyboardOf(prompt)
       .flat()
-      .find((button) => button.text.includes('انصراف'));
+      .find((button) => button.text.includes('بی‌خیال'));
 
     await tap(GUEST_TELEGRAM_ID, cancel?.callbackData ?? '');
 
@@ -4387,7 +4385,7 @@ describe('POST /telegram/:secret — after event editing was removed', () => {
     });
     // The unknown-command sentence, byte for byte — the same one a typo gets.
     expect(String((notice.payload as Record<string, unknown>)['text'])).toContain(
-      'این فرمان را نمی‌شناسم',
+      'این دستور رو نمی‌شناسم',
     );
     expect(await prisma.conversationState.count()).toBe(0);
   });
@@ -4840,8 +4838,8 @@ describe('sealing the request notification (v0.8.1)', () => {
 
     const seal = await sealOf(updateId, messageId);
     expect(seal).not.toBeNull();
-    expect(seal!.text).toContain('درخواست پذیرفته شد');
-    expect(seal!.text).not.toContain('درخواست تازه');
+    expect(seal!.text).toContain('قبولش کردی');
+    expect(seal!.text).not.toContain('یکی پایه‌ست');
     /**
      * Empty, not absent. Telegram reads `inline_keyboard: []` as "remove the
      * keyboard"; there is no such thing as a disabled button, and a greyed-looking
@@ -4859,7 +4857,7 @@ describe('sealing the request notification (v0.8.1)', () => {
     );
 
     const seal = await sealOf(updateId, messageId);
-    expect(seal!.text).toContain('درخواست رد شد');
+    expect(seal!.text).toContain('ردش کردی');
     expect(seal!.keyboard).toEqual([]);
   });
 
@@ -4880,7 +4878,7 @@ describe('sealing the request notification (v0.8.1)', () => {
     );
 
     const seal = await sealOf(updateId, messageId);
-    expect(seal!.text).toContain('این درخواست دیگر باز نیست');
+    expect(seal!.text).toContain('این درخواست دیگه باز نیست');
     expect(seal!.keyboard).toEqual([]);
 
     // The decision itself is untouched by the second tap.
@@ -4908,7 +4906,7 @@ describe('sealing the request notification (v0.8.1)', () => {
     );
 
     const seal = await sealOf(updateId, messageId);
-    expect(seal!.text).toContain('این درخواست دیگر باز نیست');
+    expect(seal!.text).toContain('این درخواست دیگه باز نیست');
   });
 
   /**
@@ -5219,7 +5217,7 @@ describe('POST /telegram/:secret — onboarding before anything else', () => {
         await prisma.conversationState.findUniqueOrThrow({ where: { userId: user.id } }),
       ).toMatchObject({ kind: 'EDIT_PROFILE', step: 'name' });
       const texts = (await replyTo(NEWCOMER_TELEGRAM_ID)).map((reply) => reply.text);
-      expect(texts.join('\n')).not.toContain('حالا می‌توانید از پایه‌تَم استفاده کنید');
+      expect(texts.join('\n')).not.toContain('حالا می‌تونی از پایتم استفاده کنی');
     } finally {
       await channel.release();
     }
@@ -5471,7 +5469,7 @@ describe('POST /telegram/:secret — onboarding before anything else', () => {
       const coins = await tapPage('gd:g:coins');
       expect(coins.text).toContain('<b>🪙 سکه‌ها</b>');
       // `economy.event_join_coins`, read live rather than written into the text.
-      expect(coins.text).toContain('۲۰ سکه از حسابتون کم میشه');
+      expect(coins.text).toContain('۲۰ سکه از حسابت کم میشه');
       expect(coins.text).not.toContain('{{');
       expect(coins.keyboard).toContain('gd:g:discover');
       expect(coins.keyboard).toContain('gd:g:cancel');
@@ -5492,7 +5490,7 @@ describe('POST /telegram/:secret — onboarding before anything else', () => {
       await type(NEWCOMER_TELEGRAM_ID, '/start');
 
       const coins = await tapPage('gd:g:coins');
-      expect(coins.text).toContain('۱۲ سکه از حسابتون کم میشه');
+      expect(coins.text).toContain('۱۲ سکه از حسابت کم میشه');
     });
 
     it('answers a hidden section with the contents', async () => {
@@ -5500,7 +5498,7 @@ describe('POST /telegram/:secret — onboarding before anything else', () => {
       await type(NEWCOMER_TELEGRAM_ID, '/start');
 
       const page = await tapPage('gd:g:trust');
-      expect(page.text).toContain('دیگر در راهنما نیست');
+      expect(page.text).toContain('دیگه توی راهنما نیست');
       expect(page.keyboard).not.toContain('gd:g:trust');
       expect(page.keyboard).toContain('gd:g:intro');
     });
@@ -6109,6 +6107,6 @@ describe('a suggestion link (migration 0064)', () => {
 
     const replies = await replyTo(GUEST_TELEGRAM_ID);
     expect(replies.map((row) => row.templateKey)).toEqual([TEMPLATES.BOT_NOTICE]);
-    expect(replies[0]?.text).toContain('دیگر باز نیست');
+    expect(replies[0]?.text).toContain('دیگه باز نیست');
   });
 });

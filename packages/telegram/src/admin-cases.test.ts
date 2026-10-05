@@ -267,7 +267,7 @@ describe('a dispute case', () => {
 
   it('names the trigger and shows each side’s words, by side and name', () => {
     const prompt = formatAdminCasePrompt(dispute);
-    expect(prompt).toContain('میزبان نیامد');
+    expect(prompt).toContain('میزبان نیومد');
     expect(prompt).toContain('مهمان — سارا');
     expect(prompt).toContain('ساعت هفت رسیدم');
     expect(prompt).toContain('میزبان — مریم');
@@ -291,7 +291,7 @@ describe('a dispute case', () => {
       ],
     });
     expect(prompt).toContain('حضور');
-    expect(prompt).toContain('من حاضر بودم');
+    expect(prompt).toContain('من اومده بودم');
   });
 
   it('still stays inside one Telegram message', () => {

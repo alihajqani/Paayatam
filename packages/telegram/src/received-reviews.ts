@@ -83,7 +83,7 @@ export function formatHostReviews(
   const title = `<b>نظرها دربارهٔ ${escapeHtml(hostDisplayName)}</b>`;
   const overall = reviewSummaryLine(summary);
   if (overall === null || lines.length === 0) {
-    return `${title}\n\nهنوز نظری دربارهٔ این میزبان منتشر نشده است.`;
+    return `${title}\n\nهنوز نظری دربارهٔ این میزبان منتشر نشده.`;
   }
 
   const entries = lines.map((line) => {
@@ -99,7 +99,7 @@ export function formatHostReviews(
     `${title}\n\n⭐️ ${overall}\n\n` +
     `${entries.join('\n\n')}\n\n` +
     `<i>${toPersianDigits(String(lines.length))} نظر آخر از ` +
-    `${toPersianDigits(String(summary.count))} نظر. نام نویسنده‌ها نمایش داده نمی‌شود.</i>`
+    `${toPersianDigits(String(summary.count))} نظر. اسم نویسنده‌ها نشون داده نمیشه.</i>`
   );
 }
 
@@ -113,7 +113,7 @@ export function formatReceivedReviews(
         ? ''
         : `\n  ${line.tags.map((tag) => escapeHtml(tagLabel(tag))).join(' · ')}`;
     const comment = line.comment === null ? '' : `\n  «${escapeHtml(line.comment)}»`;
-    const oneSided = line.withoutCounterpart ? '\n  <i>بدون بازخورد متقابل</i>' : '';
+    const oneSided = line.withoutCounterpart ? '\n  <i>فقط یه طرف نوشته</i>' : '';
 
     return (
       `<b>${toPersianDigits(String(index + 1))}. ${stars(line.rating)}</b>` +
@@ -122,13 +122,13 @@ export function formatReceivedReviews(
   });
 
   const digest = buildDigest({
-    title: 'نظرهایی که درباره شما نوشته‌اند',
+    title: 'نظرهایی که دربارهٔ تو نوشتن',
     empty:
-      'هنوز نظری درباره شما ثبت نشده است. نظرها پس از پایان رویداد و نوشتن هر دو طرف نمایش داده می‌شوند.',
+      'هنوز نظری دربارهٔ تو ثبت نشده. نظرها بعد از تموم شدن برنامه و وقتی هر دو طرف نوشتن نشون داده میشن.',
     entries,
   });
 
   if (entries.length === 0) return digest;
 
-  return `${digest}\n\n<i>اگر نظری نامناسب است، از دکمهٔ هم‌شمارهٔ زیر گزارش کنید.</i>`;
+  return `${digest}\n\n<i>اگه نظری نامناسبه، با دکمهٔ هم‌شماره‌ش گزارشش کن.</i>`;
 }

@@ -22,13 +22,13 @@ function line(over: Partial<ParticipantLine> = {}): ParticipantLine {
 describe('formatParticipants', () => {
   it('says a pending request is waiting on the reader', () => {
     const text = formatParticipants('قهوه', [line({ status: 'PENDING' })]);
-    expect(text).toContain('در انتظار پاسخ شما');
+    expect(text).toContain('منتظر جوابته');
     expect(text).not.toContain('پاسخ میزبان');
   });
 
   it('says a guest who withdrew did so themselves', () => {
     const text = formatParticipants('قهوه', [line({ status: 'CANCELLED_BY_PARTICIPANT' })]);
-    expect(text).toContain('خودش لغو کرد');
+    expect(text).toContain('خودش کنسل کرد');
     expect(text).not.toContain('شما لغو کردید');
   });
 });

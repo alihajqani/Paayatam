@@ -73,7 +73,7 @@ export interface StepScreenInput {
  * that kept counting it would promise a question that is never coming.
  */
 export function renderStep(input: StepScreenInput): WizardScreen {
-  const head = `<i>گام ${toPersianDigits(String(input.position))} از ${toPersianDigits(
+  const head = `<i>مرحلهٔ ${toPersianDigits(String(input.position))} از ${toPersianDigits(
     String(input.total),
   )}</i>`;
 
@@ -190,7 +190,7 @@ export interface SummaryLine {
 export function renderSummary(
   lines: readonly SummaryLine[],
   canAddDetails: boolean,
-  commitLabel = 'ثبت رویداد',
+  commitLabel = 'ثبت برنامه',
   note?: string,
 ): WizardScreen {
   const body = lines
@@ -209,21 +209,21 @@ export function renderSummary(
   if (canAddDetails) {
     buttons.push([
       {
-        text: '➕ افزودن جزئیات بیشتر',
+        text: '➕ جزئیات بیشتر',
         callbackData: encodeWizardCallback({ action: 'details', value: '' }),
       },
     ]);
   }
   buttons.push([
     { text: '✏️ ویرایش', callbackData: encodeWizardCallback({ action: 'back', value: '' }) },
-    { text: '✖️ انصراف', callbackData: encodeWizardCallback({ action: 'cancel', value: '' }) },
+    { text: '✖️ بی‌خیال', callbackData: encodeWizardCallback({ action: 'cancel', value: '' }) },
   ]);
 
   return {
     text:
-      `<b>بازبینی نهایی</b>\n\n${body}\n\n` +
+      `<b>یه نگاه آخر</b>\n\n${body}\n\n` +
       (note === undefined ? '' : `${escapeHtml(note)}\n\n`) +
-      `<i>اگر همه‌چیز درست است، «${commitLabel}» را بزنید.</i>`,
+      `<i>اگه همه‌چی درسته، «${commitLabel}» رو بزن.</i>`,
     keyboard: buttons,
   };
 }

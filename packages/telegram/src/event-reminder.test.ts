@@ -48,15 +48,15 @@ describe('the guest reminder', () => {
   it('tells the second wave that cancelling is still the cheaper choice', () => {
     const text = guest({ wave: 'SECOND' })?.text ?? '';
 
-    expect(text).toContain('همین حالا لغو کنید');
-    expect(text).toContain('چند ساعت دیگر');
+    expect(text).toContain('همین الان کنسل کن');
+    expect(text).toContain('چند ساعت دیگه');
   });
 
   it('says «فردا» in the first wave, not «چند ساعت دیگر»', () => {
     const text = guest({ wave: 'FIRST' })?.text ?? '';
 
     expect(text).toContain('فردا');
-    expect(text).not.toContain('همین حالا لغو کنید');
+    expect(text).not.toContain('همین الان کنسل کن');
   });
 
   /**
@@ -103,7 +103,7 @@ describe('the host reminder', () => {
   it('carries the head count, in Persian digits', () => {
     const text = host()?.text ?? '';
 
-    expect(text).toContain('۴ نفر پذیرفته‌شده');
+    expect(text).toContain('۴ نفر قبول شدن');
     expect(text).toContain('۲۱ شهریور ۱۴۰۵');
   });
 
@@ -112,11 +112,11 @@ describe('the host reminder', () => {
    * table would rather learn it the day before than on the evening.
    */
   it('is still sent with nobody accepted', () => {
-    expect(host({ acceptedCount: 0 })?.text).toContain('۰ نفر پذیرفته‌شده');
+    expect(host({ acceptedCount: 0 })?.text).toContain('۰ نفر قبول شدن');
   });
 
   it('says the host is hosting, not attending', () => {
-    expect(host()?.text).toContain('میزبانید');
+    expect(host()?.text).toContain('میزبانی!');
   });
 });
 

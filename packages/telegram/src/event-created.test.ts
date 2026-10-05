@@ -38,7 +38,7 @@ describe('the activity-created message', () => {
       publishedToChannel: true,
       republishCost: '۸',
     })?.text;
-    expect(inChannel).toContain('در کانال پایه‌تَم منتشر می‌شود');
+    expect(inChannel).toContain('توی کانال پایتم منتشر میشه');
     expect(inChannel).toContain('انتشار دوباره');
 
     const notInChannel = render(TEMPLATES.BOT_EVENT_CREATED, {
@@ -46,7 +46,7 @@ describe('the activity-created message', () => {
       publishedToChannel: false,
       republishCost: '۸',
     })?.text;
-    expect(notInChannel).not.toContain('در کانال');
+    expect(notInChannel).not.toContain('کانال پایتم');
     expect(notInChannel).not.toContain('انتشار دوباره');
     expect(notInChannel).toContain('دعوت ویژه');
   });
