@@ -90,6 +90,11 @@ export const ErrorCode = {
   CAPACITY_EXCEEDED: 'CAPACITY_EXCEEDED',
   NOT_ELIGIBLE_GENDER: 'NOT_ELIGIBLE_GENDER',
   NOT_ELIGIBLE_AGE: 'NOT_ELIGIBLE_AGE',
+  /**
+   * An activity outside the city on the joiner's profile. It used to be a
+   * warning the joiner could say yes to; it is a refusal since 2026-10-05.
+   */
+  NOT_ELIGIBLE_CITY: 'NOT_ELIGIBLE_CITY',
   TRUST_TOO_LOW: 'TRUST_TOO_LOW',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
 
@@ -315,6 +320,8 @@ export const ERROR_MESSAGES_FA: Record<ErrorCode, string> = {
   CAPACITY_EXCEEDED: 'آخرین جا همین الان پر شد؛ یکی زودتر رسید.',
   NOT_ELIGIBLE_GENDER: 'این برنامه برای گروه دیگه‌ایه.',
   NOT_ELIGIBLE_AGE: 'سنت توی بازه‌ای که این برنامه می‌خواد نیست.',
+  NOT_ELIGIBLE_CITY:
+    'این برنامه توی یه شهر دیگه‌ست. فقط می‌تونی به برنامه‌های شهری که توی پروفایلت زدی درخواست بدی.',
   TRUST_TOO_LOW: 'امتیاز اعتمادت برای این برنامه کافی نیست.',
   INVALID_STATE_TRANSITION: 'الان نمیشه این کار رو کرد.',
 

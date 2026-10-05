@@ -149,14 +149,18 @@ const JOIN_COST = SETTING_DEFAULTS['economy.event_join_coins'];
 const JOIN_BUDGET = 100 * JOIN_COST;
 
 async function createJoiner(
-  overrides: { birthYear?: number; gender?: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null } = {},
+  overrides: {
+    birthYear?: number;
+    gender?: 'MALE' | 'FEMALE' | 'PREFER_NOT_SAY' | null;
+    cityId?: string;
+  } = {},
 ): Promise<string> {
   const userId = await createUser(prisma, 'PROFILE_COMPLETE', { coins: JOIN_BUDGET });
   await prisma.userProfile.create({
     data: {
       userId,
       displayName: 'شرکت‌کننده',
-      cityId: fixture.tehranId,
+      cityId: overrides.cityId ?? fixture.tehranId,
       birthYear: overrides.birthYear ?? 1995,
       gender: overrides.gender ?? 'FEMALE',
     },
@@ -539,6 +543,33 @@ describe('eligibility, judged against the server’s copy of the profile', () =>
     await expect(participation.join(tooOld, eventPublicId)).rejects.toMatchObject({
       code: 'NOT_ELIGIBLE_AGE',
     });
+  });
+
+  /**
+   * The city on the profile is the only city a person can ask to join in.
+   *
+   * It used to be a warning: the bot named both cities and let the request go
+   * through on «بله» (v0.21.3). A user in Mashhad then asked to join a gallery
+   * walk in Tehran that same week, and the host was handed a request nobody
+   * could keep. The rule lives here rather than in the bot so that the channel
+   * link, a «بله» left under an old ask and the HTTP route all refuse alike.
+   */
+  it('refuses an activity outside the joiner’s profile city, and charges nothing', async () => {
+    const eventPublicId = await createEvent();
+    const [local, visitor] = await Promise.all([
+      createJoiner(),
+      createJoiner({ cityId: fixture.karajId }),
+    ]);
+    const balanceBefore = await coins.balanceOf(visitor);
+
+    await expect(participation.join(local, eventPublicId)).resolves.toMatchObject({
+      status: 'PENDING',
+    });
+    await expect(participation.join(visitor, eventPublicId)).rejects.toMatchObject({
+      code: 'NOT_ELIGIBLE_CITY',
+    });
+    expect(await prisma.eventParticipant.count({ where: { userId: visitor } })).toBe(0);
+    expect(await coins.balanceOf(visitor)).toBe(balanceBefore);
   });
 });
 
@@ -968,9 +999,6 @@ describe('previewJoin', () => {
       eventTitle: expect.stringContaining('دورهمی') as unknown,
       coins: JOIN_COST,
       status: 'PENDING',
-      eventCityNameFa: 'تهران',
-      joinerCityNameFa: 'تهران',
-      sameCity: true,
     });
     expect(await prisma.eventParticipant.count()).toBe(0);
     expect(await coins.balanceOf(joiner)).toBe(balanceBefore);
@@ -985,20 +1013,13 @@ describe('previewJoin', () => {
     expect(preview.status).toBe('WAITLISTED');
   });
 
-  it('names both cities when the activity is not in the joiner’s', async () => {
+  /** Refused before the ask, not warned about inside it — `join` would refuse anyway. */
+  it('refuses an activity outside the joiner’s city before anything is asked', async () => {
     const eventPublicId = await createEvent();
-    const joiner = await createJoiner();
-    await prisma.userProfile.update({
-      where: { userId: joiner },
-      data: { cityId: fixture.karajId },
-    });
+    const visitor = await createJoiner({ cityId: fixture.karajId });
 
-    const preview = await participation.previewJoin(joiner, eventPublicId);
-
-    expect(preview).toMatchObject({
-      eventCityNameFa: 'تهران',
-      joinerCityNameFa: 'کرج',
-      sameCity: false,
+    await expect(participation.previewJoin(visitor, eventPublicId)).rejects.toMatchObject({
+      code: ErrorCode.NOT_ELIGIBLE_CITY,
     });
   });
 
