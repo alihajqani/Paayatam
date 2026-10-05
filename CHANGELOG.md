@@ -14,6 +14,58 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.23.0] — 2026-10-05
+
+The bot talks like a friend now. Feedback was that its messages read as if written for developers:
+formal written Persian, the polite plural, the state machine's own words («تسویه شد», «از لیست
+انتظار خارج شد») and an em dash in nearly every sentence. Every user-facing string is rewritten in
+spoken Persian with «تو», and an event is called «برنامه».
+
+The same release makes the city on a profile the only city its owner can ask to join in. Joining
+an activity elsewhere used to be a warning with «بله» under it, and a reader in Mashhad agreed to a
+gallery walk in Tehran.
+
+**No migration. No setting change. The bot's command menu changes** (every description), so the
+deploy republishes it.
+
+### ⚠️ What a deploy changes for people
+
+- **A request for an activity outside the city on the joiner's profile is refused**, whether it
+  comes from the channel's «🤝 پایتم», the bot, a «بله» left under an old ask, or the HTTP route:
+  «این برنامه توی یه شهر دیگه‌ست. فقط می‌تونی به برنامه‌های شهری که توی پروفایلت زدی درخواست
+  بدی.» Nothing is charged. Requests already made are untouched.
+- Every screen of the bot reads differently, from the welcome to the error messages. Nothing a
+  button does changes, and no callback changes, so a button under an old message still works.
+- «رویداد» is «برنامه» everywhere in the bot and the channel's notes; «پایه‌تَم» is «پایتم».
+  The channel hashtag stays `#رویداد_N`, because searching the channel's old posts depends on it.
+- The menu's category is «🎟 برنامه‌ها» and the command descriptions are new; the old reply-keyboard
+  labels («➕ ساختن رویداد», «🔎 دیدن رویدادها», «🎟 رویدادهای من», «🎟 رویدادها») still work.
+- Several buttons are renamed: «⏳ می‌رم تو صف», «✖️ نمی‌تونم بیام», «✅ قبول», «🚫 نیومد»,
+  «🙋 من اومده بودم», «🚫 میزبان نیومد», «👀 دیدن پیام», «✅ عضو شدم», «⏭ فعلاً نه», «✖️ بی‌خیال».
+- A user-to-user block is «بلاک»; an account suspended by staff is still «مسدود».
+- The in-bot guide's default text moves to «تو» too. **A section the operator edited in the panel
+  keeps the operator's text** (the `help_guide` row wins over the default), so it may now name an
+  old button; reset or re-edit it from «راهنمای ربات».
+- If the release broadcast is on, it goes out in the new voice («پایتم آپدیت شد»). It was turned
+  off for v0.22.2; whether to turn it back on for this release is the operator's call.
+
+### Changed
+
+- **Joining is limited to the profile's city.** `ParticipationService.assertEligible` refuses an
+  activity in another city with the new `NOT_ELIGIBLE_CITY`, so every path to `join` refuses alike;
+  `previewJoin` refuses before the bot asks anything, and the ask lost its city line
+  (`JoinPreview` no longer carries `eventCityNameFa`, `joinerCityNameFa` or `sameCity`).
+- **`docs/bot-voice-fa.md`** is the voice: «تو», three tones by how sensitive a message is (no jokes
+  on a penalty, a block or a dispute), the word list, the spelling of short spoken verbs («میشه»,
+  «میده»), and what stays formal: legal text, the admin panel, moderator screens in the bot, seed
+  events, the channel hashtag and the «✅ می‌پذیرم» under the policies. `docs/glossary-fa.md` points
+  to it and its tone line is updated.
+- Rewritten: `templates.ts`, `BotService`, every user wizard and its refusals, the in-bot guide
+  defaults, the menu and command descriptions, the settings, wallet, trust, review, request and
+  event screens, the channel's closing notes, the shared disclaimer and status labels, the release
+  broadcast, and the user-facing codes of `ERROR_MESSAGES_FA`. Staff-only error codes are unchanged.
+- The fallback display name is «کاربر پایتم».
+
 ## [v0.22.2] — 2026-10-03
 
 The panel's «نمای کلی» shows how far the bot's users got: how many pressed /start, how many
