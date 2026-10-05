@@ -19,7 +19,7 @@ describe('the gender question', () => {
         { text: 'خانم', callbackData: 'gn:F' },
       ],
     ]);
-    expect(message?.text).toContain('قابل تغییر نیست');
+    expect(message?.text).toContain('عوض نمیشه');
   });
 
   it('round-trips both answers and refuses anything else', () => {

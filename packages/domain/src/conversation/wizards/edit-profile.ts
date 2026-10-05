@@ -164,7 +164,7 @@ const GENDERS = selectableGender.options;
 const GENDER_FA: Record<Gender, string> = {
   MALE: 'آقا',
   FEMALE: 'خانم',
-  PREFER_NOT_SAY: 'ترجیح می‌دهم نگویم',
+  PREFER_NOT_SAY: 'ترجیح می‌دم نگم',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -247,7 +247,7 @@ function birthYearOf(input: WizardInput): number | string {
   const raw = toAsciiDigits(input.value.trim());
   if (!/^\d{4}$/.test(raw)) {
     return (
-      `سال تولد را به شمسی و با چهار رقم بنویسید — برای نمونه ۱۳۷۰. ` +
+      `سال تولدت رو به شمسی و با چهار رقم بنویس، مثلاً ۱۳۷۰. ` +
       `${quoted(input.value)} چهار رقم نبود.`
     );
   }
@@ -257,15 +257,15 @@ function birthYearOf(input: WizardInput): number | string {
   if (year >= 1900 && year <= 2200) {
     const asJalali = gregorianYearToJalali(year);
     return (
-      `سال تولد را به شمسی بنویسید. ` +
-      `${String(year)} میلادی می‌شود ${toPersianDigits(String(asJalali))} شمسی.`
+      `سال تولد رو به شمسی بنویس. ` +
+      `${String(year)} میلادی میشه ${toPersianDigits(String(asJalali))} شمسی.`
     );
   }
   if (year < MIN_JALALI_BIRTH_YEAR || year > MAX_JALALI_BIRTH_YEAR) {
     return (
       `سال تولد باید بین ${toPersianDigits(String(MIN_JALALI_BIRTH_YEAR))} و ` +
-      `${toPersianDigits(String(MAX_JALALI_BIRTH_YEAR))} شمسی باشد — ` +
-      `${toPersianDigits(String(year))} فرستادید.`
+      `${toPersianDigits(String(MAX_JALALI_BIRTH_YEAR))} شمسی باشه؛ ` +
+      `${toPersianDigits(String(year))} فرستادی.`
     );
   }
 
@@ -278,16 +278,16 @@ const steps: WizardStep<EditProfileForm>[] = [
     when: scopedTo('name'),
     ui: 'text',
     prompt: () =>
-      'نام نمایشی‌تان چه باشد؟ (اجباری)\nفقط حروف فارسی یا انگلیسی و فاصله — بدون عدد، ایموجی یا نماد.',
+      'اسم نمایشی‌ت چی باشه؟ (اجباری)\nفقط حروف فارسی یا انگلیسی و فاصله؛ بدون عدد، ایموجی یا علامت.',
     accept: (input) => {
-      const result = acceptText(input, 2, 40, 'نام نمایشی');
+      const result = acceptText(input, 2, 40, 'اسم نمایشی');
       if (!result.ok) return result;
       if (!DISPLAY_NAME_PATTERN.test(result.value)) {
         return {
           ok: false,
           error:
-            `نام نمایشی فقط می‌تواند حروف فارسی یا انگلیسی و فاصله داشته باشد — ` +
-            `بدون عدد، ایموجی یا نماد. ${quoted(result.value)} نویسهٔ غیرمجاز دارد.`,
+            `اسم نمایشی فقط می‌تونه حروف فارسی یا انگلیسی و فاصله داشته باشه؛ ` +
+            `بدون عدد، ایموجی یا علامت. ${quoted(result.value)} حرف غیرمجاز داره.`,
         };
       }
       return { ok: true, patch: { displayName: result.value } };
@@ -300,17 +300,17 @@ const steps: WizardStep<EditProfileForm>[] = [
     when: (form) => form.onlyInterests !== true && form.field === undefined,
     ui: 'choice',
     prompt: (form) =>
-      'جنسیت؟ (اجباری)\nاین گزینه پس از ثبت قابل تغییر نیست.' +
+      'جنسیت؟ (اجباری)\nاین گزینه بعد از ثبت عوض نمیشه.' +
       (form.supportContact === undefined
-        ? ' تغییر آن فقط از طریق پشتیبانی ممکن است.'
-        : ` تغییر آن فقط از طریق پشتیبانی (${form.supportContact}) ممکن است.`),
+        ? ' برای تغییرش باید به پشتیبانی پیام بدی.'
+        : ` برای تغییرش باید به پشتیبانی (${form.supportContact}) پیام بدی.`),
     load: () => Promise.resolve(GENDERS.map((value) => ({ value, label: GENDER_FA[value] }))),
     accept: (input) => {
       const value = GENDERS.find((candidate) => candidate === input.value);
       if (value === undefined) {
         return {
           ok: false,
-          error: `یکی از دکمه‌های زیر را بزنید — ${quoted(input.value)} گزینهٔ این مرحله نیست.`,
+          error: `یکی از دکمه‌های زیر رو بزن؛ ${quoted(input.value)} جزو گزینه‌های این مرحله نیست.`,
         };
       }
       return { ok: true, patch: { gender: value } };
@@ -320,7 +320,7 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'birth',
     when: scopedTo('birth'),
     ui: 'text',
-    prompt: () => 'سال تولد شما به شمسی؟ (اجباری)\nبرای نمونه: ۱۳۷۰',
+    prompt: () => 'سال تولدت به شمسی؟ (اجباری)\nمثلاً: ۱۳۷۰',
     accept: (input) => {
       const value = birthYearOf(input);
       if (typeof value === 'string') return { ok: false, error: value };
@@ -345,18 +345,18 @@ const steps: WizardStep<EditProfileForm>[] = [
      */
     prompt: (form) =>
       form.locationNotice === true
-        ? 'در کدام استان هستید؟ (اجباری)\n\n' +
-          'فعلاً فقط تهران و مشهد باز است — این عمدی است: پایه‌تَم وقتی کار می‌کند ' +
-          'که در شهرتان به‌اندازهٔ کافی آدم باشد. شهر بعدی را بر اساس همین‌که از کجا ' +
-          'بیشتر ثبت‌نام می‌شود باز می‌کنیم.'
-        : 'در کدام استان هستید؟ (اجباری)',
+        ? 'کدوم استانی؟ (اجباری)\n\n' +
+          'فعلاً فقط تهران و مشهد بازه، و این عمدیه: پایتم وقتی جواب میده ' +
+          'که توی شهرت به‌اندازهٔ کافی آدم باشه. شهر بعدی رو بر اساس اینکه از کجا ' +
+          'بیشتر ثبت‌نام میشه باز می‌کنیم.'
+        : 'کدوم استانی؟ (اجباری)',
     load: (_form, deps) => deps.provinces(),
     accept: (input) => {
       const id = chosenId(input);
       if (id === null) {
         return {
           ok: false,
-          error: `استان را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+          error: `استان رو از دکمه‌های زیر انتخاب کن؛ ${quoted(input.value)} جزوشون نیست.`,
         };
       }
       // The city belonged to the old province; keeping it would put somebody in
@@ -368,7 +368,7 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'city',
     when: scopedTo('loc'),
     ui: 'choice',
-    prompt: () => 'کدام شهر؟ (اجباری)',
+    prompt: () => 'کدوم شهر؟ (اجباری)',
     load: (form, deps) => deps.citiesOf(form.provinceId ?? ''),
     accept: (input) => {
       const id = chosenId(input);
@@ -376,8 +376,8 @@ const steps: WizardStep<EditProfileForm>[] = [
         return {
           ok: false,
           error:
-            `شهر را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست. ` +
-            `اگر شهرتان در فهرست نیست، با «بازگشت» استان دیگری را امتحان کنید.`,
+            `شهر رو از دکمه‌های زیر انتخاب کن؛ ${quoted(input.value)} جزوشون نیست. ` +
+            `اگه شهرت توی فهرست نیست، با «برگشت» یه استان دیگه رو امتحان کن.`,
         };
       }
       return { ok: true, patch: { cityId: id, districtId: undefined } };
@@ -388,7 +388,7 @@ const steps: WizardStep<EditProfileForm>[] = [
     when: scopedTo('bio'),
     ui: 'text',
     optional: true,
-    prompt: () => 'یکی دو جمله دربارهٔ خودتان.',
+    prompt: () => 'یکی دو جمله دربارهٔ خودت بنویس.',
     accept: (input) => {
       // One character is a legitimate bio; the floor is only "you sent something".
       const result = acceptText(input, 1, 500, 'معرفی');
@@ -428,8 +428,7 @@ const steps: WizardStep<EditProfileForm>[] = [
     key: 'tags',
     when: scopedTo('tags'),
     ui: 'multi',
-    prompt: () =>
-      'به چه چیزهایی علاقه دارید؟ (اجباری)\nدست‌کم یکی را انتخاب کنید، بعد «تمام» را بزنید.',
+    prompt: () => 'به چیا علاقه داری؟ (اجباری)\nدست‌کم یکی رو انتخاب کن، بعد «تموم» رو بزن.',
     load: (_form, deps) => deps.interests(),
     selectedOf: (form) => form.interestIds ?? [],
     accept: (input, form) => {
@@ -440,8 +439,7 @@ const steps: WizardStep<EditProfileForm>[] = [
         return {
           ok: false,
           error:
-            'علاقه‌مندی‌ها را از دکمه‌های زیر انتخاب کنید. ' +
-            'وقتی انتخابتان تمام شد، «تمام» را بزنید.',
+            'علاقه‌مندی‌ها رو از دکمه‌های زیر انتخاب کن. ' + 'انتخابت که تموم شد، «تموم» رو بزن.',
         };
       }
 
@@ -450,8 +448,8 @@ const steps: WizardStep<EditProfileForm>[] = [
         return {
           ok: false,
           error:
-            `علاقه‌مندی‌ها را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از ` +
-            `آن‌ها نیست. وقتی تمام شد «تمام» را بزنید.`,
+            `علاقه‌مندی‌ها رو از دکمه‌های زیر انتخاب کن؛ ${quoted(input.value)} ` +
+            `جزوشون نیست. وقتی تموم شد «تموم» رو بزن.`,
         };
       }
 

@@ -68,7 +68,7 @@ describe('HELP_GUIDE_DEFAULTS', () => {
     expect(all).not.toContain('event_create_coins');
     expect(all).not.toContain('event_channel_publish_coins');
     // A full event's button in the bot is the waiting list's.
-    expect(all).toContain('⏳ ثبت در نوبت انتظار');
+    expect(all).toContain('⏳ می‌رم تو صف');
     // There is no «سایر» with a name of your own (v0.6.7).
     expect(all).not.toContain('اسم دسته رو خودش');
     // The join charge is not a deposit returned on attendance.

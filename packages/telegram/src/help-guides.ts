@@ -39,15 +39,15 @@ type Row = { text: string; callbackData: string }[];
 
 /** The one button that offers the guide, under a message that suggests reading it. */
 export function readGuideRow(): Row {
-  return [{ text: '📖 خواندن راهنمای پایتم', callbackData: encodeGuideIndex() }];
+  return [{ text: '📖 راهنمای پایتم رو بخون', callbackData: encodeGuideIndex() }];
 }
 
 export function formatGuideIndex(): string {
   return (
     `<b>📖 راهنمای پایتم</b>\n\n` +
-    `هر بخش را بزنید تا توضیحش باز شود؛ هر کدام یکی دو دقیقه وقت می‌گیرد.\n\n` +
-    `<i>هر وقت خواستید، دکمهٔ «${escapeHtml(HELP_BUTTON_LABEL)}» پایین صفحه یا /help ` +
-    `شما را به همین‌جا برمی‌گرداند.</i>`
+    `هر بخش رو بزن تا توضیحش باز بشه؛ هر کدوم یکی دو دقیقه وقت می‌بره.\n\n` +
+    `<i>هر وقت خواستی، دکمهٔ «${escapeHtml(HELP_BUTTON_LABEL)}» پایین صفحه یا /help ` +
+    `برت می‌گردونه همین‌جا.</i>`
   );
 }
 
@@ -111,19 +111,19 @@ export function formatCommandList(): string {
   return (
     `<b>⌨️ فهرست دستورها</b>\n\n` +
     `${helpCommandLines()}\n\n` +
-    `<i>لازم نیست چیزی تایپ کنید: دکمهٔ «${escapeHtml(MAIN_MENU_LABEL)}» پایین صفحه ` +
-    `همهٔ این‌ها را به‌صورت دکمه باز می‌کند.</i>`
+    `<i>لازم نیست چیزی تایپ کنی: دکمهٔ «${escapeHtml(MAIN_MENU_LABEL)}» پایین صفحه ` +
+    `همهٔ این‌ها رو با دکمه باز می‌کنه.</i>`
   );
 }
 
 export function commandListRows(): Row[] {
   return [
-    [{ text: '☰ فهرست دستورها به‌صورت دکمه', callbackData: encodeMenuRoot() }],
+    [{ text: '☰ همین‌ها، با دکمه', callbackData: encodeMenuRoot() }],
     [{ text: `${BACK_ICON} فهرست راهنما`, callbackData: encodeGuideIndex() }],
   ];
 }
 
 /** When a section was hidden or removed after its button was drawn. */
 export function formatGuideGone(): string {
-  return `<b>📖 راهنمای پایتم</b>\n\nاین بخش دیگر در راهنما نیست. بخش‌های فعلی را از فهرست زیر ببینید.`;
+  return `<b>📖 راهنمای پایتم</b>\n\nاین بخش دیگه توی راهنما نیست. بخش‌های فعلی رو از فهرست زیر ببین.`;
 }

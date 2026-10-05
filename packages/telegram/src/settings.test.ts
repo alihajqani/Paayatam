@@ -53,7 +53,7 @@ describe('the settings board', () => {
     const chat = buttons(base).find((button) => button.text.includes('پیام‌های مستقیم'));
     expect(parseSettingCallback(chat?.callbackData ?? '')).toEqual({ field: 'c', value: false });
 
-    const events = buttons(base).find((button) => button.text.includes('رویدادها'));
+    const events = buttons(base).find((button) => button.text.includes('برنامه‌ها'));
     expect(parseSettingCallback(events?.callbackData ?? '')).toEqual({ field: 'e', value: false });
   });
 
@@ -108,7 +108,7 @@ describe('the settings board', () => {
     // A switch that exists to be refused is worse than the button that fixes it.
     expect(fields).not.toContain(SETTING_PRIVACY);
     expect(fields).toContain(SETTING_PROFILE);
-    expect(formatSettings(state)).toContain('پس از تکمیل پروفایل');
+    expect(formatSettings(state)).toContain('بعد از کامل کردن پروفایل');
   });
 
   it('keeps the language row tappable even though there is one language', () => {
@@ -128,12 +128,12 @@ describe('the blocked list', () => {
   const P = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
 
   it('opens from the board', () => {
-    const row = buttons(base).find((button) => button.text.includes('مسدودشده'));
+    const row = buttons(base).find((button) => button.text.includes('بلاک‌شده‌ها'));
     expect(parseSettingCallback(row?.callbackData ?? '')).toEqual({ field: 'b', value: true });
   });
 
   it('says so when nobody is blocked, and still offers the way back', () => {
-    expect(formatBlockedList([])).toContain('کسی را مسدود نکرده‌اید');
+    expect(formatBlockedList([])).toContain('کسی رو بلاک نکردی');
     const rows = blockedListRows([]).flat();
     expect(rows).toHaveLength(1);
     expect(parseSettingCallback(rows[0]?.callbackData ?? '')).toEqual({ field: 'b', value: false });

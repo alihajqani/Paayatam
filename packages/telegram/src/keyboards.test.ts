@@ -81,7 +81,7 @@ describe('the menu group buttons', () => {
       const rows = menuGroupKeyboard(group);
       const back = rows[rows.length - 1]?.[0];
 
-      expect(back?.text).toBe('↩️ بازگشت به منو');
+      expect(back?.text).toBe('↩️ برگشت به منو');
       for (const [button] of rows.slice(0, -1)) {
         expect(button?.text).toMatch(/^\S+ \S/u);
       }

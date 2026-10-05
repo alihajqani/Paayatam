@@ -18,14 +18,14 @@ function line(over: Partial<MyRequestLine> = {}): MyRequestLine {
 
 describe('formatMyRequests', () => {
   it('says so plainly when nothing has been asked for', () => {
-    expect(formatMyRequests([])).toContain('هنوز درخواستی نداده‌اید');
+    expect(formatMyRequests([])).toContain('هنوز درخواستی ندادی');
   });
 
   it('names the event and where the request stands', () => {
     const text = formatMyRequests([line()]);
 
     expect(text).toContain('کوهنوردی');
-    expect(text).toContain('در انتظار پاسخ میزبان');
+    expect(text).toContain('منتظر جواب میزبان');
   });
 
   /** The rank is the answer to "how far off am I", and only means anything queued. */

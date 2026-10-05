@@ -69,7 +69,7 @@ describe('the shape of the form', () => {
     const step = stepByKey(redeemCodeWizard, 'code');
     if (step === null) throw new Error('no step code');
     expect(step.prompt({ codeKind: 'gift' })).toContain('هدیه');
-    expect(step.prompt({ codeKind: 'referral' })).toContain('معرفی');
+    expect(step.prompt({ codeKind: 'referral' })).toContain('کد دعوت');
   });
 });
 

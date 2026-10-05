@@ -46,21 +46,21 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
    * First, because it is the one the announcement points at and the one somebody
    * reaches for when the bot has stopped making sense to them.
    */
-  { command: 'start', description: 'شروع دوباره و باز کردن منوی اصلی' },
-  { command: 'menu', description: 'فهرست دستورها به‌صورت دکمه' },
-  { command: 'help', description: 'راهنمای کار با ربات' },
-  { command: 'create_event', description: 'ساختن رویداد تازه' },
-  { command: 'discover', description: 'رویدادهای نزدیک شما' },
-  { command: 'balance', description: 'موجودی سکه‌های شما' },
-  { command: 'wallet', description: 'کیف پول و تراکنش‌ها' },
-  { command: 'referral', description: 'کد معرفی و پاداش‌ها' },
-  { command: 'gift', description: 'استفاده از کد هدیه' },
-  { command: 'requests', description: 'درخواست‌هایی که داده‌اید' },
-  { command: 'myevents', description: 'رویدادهایی که ساخته‌اید' },
-  { command: 'reviews', description: 'نظرهایی که هنوز ننوشته‌اید' },
-  { command: 'myreviews', description: 'نظرهایی که درباره شما نوشته‌اند' },
-  { command: 'profile', description: 'پروفایل و امتیاز اعتماد شما' },
-  { command: 'trust', description: 'امتیاز اعتماد و تغییرهای آن' },
+  { command: 'start', description: 'از اول، با منوی اصلی' },
+  { command: 'menu', description: 'همهٔ کارها، با دکمه' },
+  { command: 'help', description: 'راهنمای پایتم' },
+  { command: 'create_event', description: 'ساختن برنامهٔ تازه' },
+  { command: 'discover', description: 'برنامه‌های اطرافت' },
+  { command: 'balance', description: 'چند تا سکه دارم؟' },
+  { command: 'wallet', description: 'کیف پول و ریز سکه‌ها' },
+  { command: 'referral', description: 'دعوت دوستات و پاداشش' },
+  { command: 'gift', description: 'کد هدیه دارم' },
+  { command: 'requests', description: 'درخواست‌هایی که دادی' },
+  { command: 'myevents', description: 'برنامه‌هایی که ساختی' },
+  { command: 'reviews', description: 'نظرهایی که هنوز ننوشتی' },
+  { command: 'myreviews', description: 'نظرهایی که دربارهٔ تو نوشتن' },
+  { command: 'profile', description: 'پروفایل و امتیاز اعتمادت' },
+  { command: 'trust', description: 'امتیاز اعتماد و ریز تغییراتش' },
   { command: 'edit_profile', description: 'ویرایش پروفایل' },
   /**
    * The interests, on their own (v0.8.1).
@@ -73,7 +73,7 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
    * the other six `when`'d out, so there is one definition of what an interest
    * is and one place it is validated.
    */
-  { command: 'interests', description: 'علاقه‌مندی‌های شما' },
+  { command: 'interests', description: 'علاقه‌مندی‌هات' },
   { command: 'terms', description: 'قوانین و حریم خصوصی' },
   { command: 'settings', description: 'تنظیمات اعلان‌ها و حریم خصوصی' },
   /**
@@ -82,7 +82,7 @@ export const BOT_COMMANDS: readonly BotCommand[] = [
    * fine — but it has to be *in* the menu, because a user who cannot find how to
    * report a problem reports it by leaving.
    */
-  { command: 'bug', description: 'گزارش مشکل و فرستادن تصویر' },
+  { command: 'bug', description: 'یه مشکل دیدم' },
 ] as const;
 
 /**
@@ -139,20 +139,20 @@ export interface CommandGroup {
 export const COMMAND_GROUPS: readonly CommandGroup[] = [
   {
     key: 'ev',
-    label: '🎟 رویدادها',
-    hint: 'ساختن، پیدا کردن و اداره کردن رویدادها',
+    label: '🎟 برنامه‌ها',
+    hint: 'برنامه بساز، برنامه پیدا کن یا برنامه‌هات رو مدیریت کن',
     commands: ['create_event', 'discover', 'myevents', 'requests'],
   },
   {
     key: 'ms',
     label: '⭐️ نظرها',
-    hint: 'نظرهایی که مانده است و نظرهایی که درباره شما نوشته‌اند',
+    hint: 'نظرهایی که مونده و نظرهایی که دربارهٔ تو نوشتن',
     commands: ['reviews', 'myreviews'],
   },
   {
     key: 'ec',
     label: '💰 سکه و پاداش',
-    hint: 'موجودی، تراکنش‌ها، معرفی دوستان و کد هدیه',
+    hint: 'موجودی، ریز سکه‌ها، دعوت دوستات و کد هدیه',
     commands: ['balance', 'wallet', 'referral', 'gift'],
   },
   {
@@ -164,7 +164,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
   {
     key: 'hp',
     label: '🆘 راهنما و پشتیبانی',
-    hint: 'اگر جایی گیر کردید یا چیزی درست کار نکرد',
+    hint: 'جایی گیر کردی یا چیزی درست کار نمی‌کنه؟',
     // `start` first, and in this group rather than «حساب من»: it is not
     // something you do to your account, it is what you reach for when the bot
     // has stopped making sense — which is what this group is for.

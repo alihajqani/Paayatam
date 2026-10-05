@@ -301,8 +301,8 @@ const JOIN_BUTTON_FA = '🤝 پایتم';
  * queue rather than a seat. Both are fixed at once — the list shows full
  * activities, and the button on one says what it is.
  */
-const WAITLIST_BUTTON_FA = '⏳ ثبت در نوبت انتظار';
-const JOIN_ACTION_FA = 'پایتم گفتن به این رویداد';
+const WAITLIST_BUTTON_FA = '⏳ می‌رم تو صف';
+const JOIN_ACTION_FA = 'پایتم گفتن به این برنامه';
 
 /**
  * The button that writes to the host, saying who it reaches.
@@ -313,7 +313,7 @@ const JOIN_ACTION_FA = 'پایتم گفتن به این رویداد';
  * elsewhere, because this is the one control on the activity screen that sends a
  * stranger a message rather than filing something with the product.
  */
-const DIRECT_BUTTON_FA = '✉️ پیام مستقیم به میزبان';
+const DIRECT_BUTTON_FA = '✉️ پیام به میزبان';
 
 /**
  * The button under a message somebody has just read.
@@ -324,7 +324,7 @@ const DIRECT_BUTTON_FA = '✉️ پیام مستقیم به میزبان';
  * that — only the parent's *recipient* may answer — so what was missing was the
  * control, not the permission.
  */
-const DIRECT_REPLY_BUTTON_FA = '✍️ پاسخ به این پیام';
+const DIRECT_REPLY_BUTTON_FA = '✍️ جواب بده';
 
 /**
  * The sentence above an onboarding form, by why it is being shown (v0.18.3).
@@ -338,20 +338,19 @@ const ONBOARDING_LEAD_FA = {
   /** Somebody who tried to do something else first. */
   gate: {
     terms:
-      'برای شروع، اول قوانین پایه‌تَم را بخوانید و «✅ می‌پذیرم» را بزنید.\n' +
-      'تا این کار انجام نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
+      'برای شروع، اول قوانین پایتم رو بخون و «✅ می‌پذیرم» رو بزن.\n' +
+      'تا قبولشون نکنی، منو و دکمه‌های ربات باز نمیشن.',
     profile:
-      '⚠️ هنوز پروفایلتان کامل نشده است.\n' +
-      'تا پروفایل کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند. به سؤال زیر پاسخ دهید تا ادامه دهیم.',
+      '⚠️ پروفایلت هنوز کامل نشده.\n' +
+      'فقط همین یه قدم مونده؛ بعدش منو و دکمه‌های ربات باز میشن. به سؤال زیر جواب بده تا ادامه بدیم.',
   },
   /** Right after «بررسی دوباره» found them in every channel. */
   channel: {
     terms:
-      'عضویت شما تأیید شد ✅\n\n' +
-      'یک کار دیگر مانده: قوانین زیر را بخوانید و «✅ می‌پذیرم» را بزنید.',
+      'عضویتت تأیید شد ✅\n\n' + 'یه کار دیگه مونده: قوانین زیر رو بخون و «✅ می‌پذیرم» رو بزن.',
     profile:
-      'عضویت شما تأیید شد ✅\n\n' +
-      'قدم آخر: پروفایلتان را کامل کنید. چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
+      'عضویتت تأیید شد ✅\n\n' +
+      'قدم آخر: پروفایلت رو کامل کن. چند تا سؤال کوتاهه و بعدش منو و دکمه‌های ربات باز میشن.',
   },
 } as const;
 
@@ -1050,7 +1049,7 @@ export class BotService {
           ...(canClaim
             ? {
                 keyboard: JSON.stringify([
-                  [{ text: '🔑 کد معرفی دارم', callbackData: encodeCodeCallback('ref') }],
+                  [{ text: '🔑 کد دعوت دارم', callbackData: encodeCodeCallback('ref') }],
                 ]),
               }
             : {}),
@@ -1126,7 +1125,7 @@ export class BotService {
             isPublicId(row.publicId),
         );
         const buttons = cancellable.map((row) => ({
-          text: `${toPersianDigits(String(mine.indexOf(row) + 1))} ✖️ لغو`,
+          text: `${toPersianDigits(String(mine.indexOf(row) + 1))} ✖️ کنسل`,
           callbackData: encodeEventCallback('cancel', row.publicId),
         }));
         const rows: { text: string; callbackData: string }[][] = [];
@@ -1390,8 +1389,8 @@ export class BotService {
             updateId,
             user,
             this.env.SUPPORT_CONTACT === undefined
-              ? 'گزارش مشکل موقتاً در دسترس نیست.'
-              : `گزارش مشکل موقتاً در دسترس نیست. مشکل را برای پشتیبانی بفرستید: ${this.env.SUPPORT_CONTACT}`,
+              ? 'گزارش مشکل فعلاً در دسترس نیست.'
+              : `گزارش مشکل فعلاً در دسترس نیست. مشکل رو برای پشتیبانی بفرست: ${this.env.SUPPORT_CONTACT}`,
           );
         }
 
@@ -1413,7 +1412,7 @@ export class BotService {
           return this.notice(
             updateId,
             user,
-            'گزارش‌های زیادی در ساعت گذشته فرستاده‌اید. کمی بعد دوباره تلاش کنید.',
+            'توی یه ساعت گذشته کلی گزارش فرستادی. یه کم بعد دوباره امتحان کن.',
           );
         }
 
@@ -1437,11 +1436,7 @@ export class BotService {
          * says so and opens the whole walk, which is what completion needs.
          */
         if ((await this.profiles.find(user.id)) === null) {
-          return this.openProfileForm(
-            updateId,
-            user,
-            'هنوز پروفایلی نساخته‌اید. بیایید کاملش کنیم.',
-          );
+          return this.openProfileForm(updateId, user, 'هنوز پروفایل نساختی. بیا کاملش کنیم.');
         }
         return this.reply(updateId, user.id, TEMPLATES.BOT_PROFILE_EDIT, {});
       }
@@ -1480,7 +1475,7 @@ export class BotService {
           return this.openProfileForm(
             updateId,
             user,
-            'هنوز پروفایلی نساخته‌اید. ابتدا پروفایلتان را کامل کنید؛ علاقه‌مندی‌ها هم در همین فرم پرسیده می‌شود.',
+            'هنوز پروفایل نساختی. اول پروفایلت رو کامل کن؛ علاقه‌مندی‌ها هم توی همین فرم پرسیده میشه.',
           );
         }
         const outcome = await this.startProfileWizard(user.id, updateId, 'tags');
@@ -1508,7 +1503,7 @@ export class BotService {
 
       case 'cancel': {
         await this.conversations.clear(user.id);
-        return this.notice(updateId, user, 'لغو شد.');
+        return this.notice(updateId, user, 'کنسل شد.');
       }
 
       /**
@@ -1547,11 +1542,7 @@ export class BotService {
    * an oracle for whether a staff surface exists.
    */
   private async unknownCommand(updateId: number, user: BotUser): Promise<void> {
-    return this.notice(
-      updateId,
-      user,
-      'این فرمان را نمی‌شناسم. برای دیدن فهرست فرمان‌ها /help را بفرستید.',
-    );
+    return this.notice(updateId, user, 'این دستور رو نمی‌شناسم. برای دیدن دستورها /help رو بفرست.');
   }
 
   /**
@@ -1731,8 +1722,8 @@ export class BotService {
           updateId,
           user,
           participation.status === 'WAITLISTED'
-            ? 'ظرفیت تکمیل بود، پس در لیست انتظار ثبت شدید ⏳ اگر جایی باز شود خبرتان می‌کنیم.'
-            : 'درخواست شما فرستاده شد ✅ منتظر پاسخ میزبان بمانید.',
+            ? 'جا پر بود، برای همین رفتی تو صف انتظار ⏳ اگه جایی باز بشه خبرت می‌کنیم.'
+            : 'درخواستت رفت ✅ حالا منتظر جواب میزبان باش.',
         );
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
@@ -1765,7 +1756,7 @@ export class BotService {
       return this.openProfileForm(
         updateId,
         user,
-        'برای پایتم گفتن به رویدادها نخست پروفایلتان را کامل کنید.',
+        'برای پایتم گفتن به برنامه‌ها، اول پروفایلت رو کامل کن.',
       );
     }
 
@@ -1984,9 +1975,9 @@ export class BotService {
     return this.notice(
       updateId,
       user,
-      `پیام شما را دریافت کردم، ولی همین‌طوری جایی فرستاده نمی‌شود.\n\n` +
-        `برای نوشتن به میزبان، صفحهٔ همان رویداد را باز کنید و «پیام مستقیم به میزبان» را بزنید. ` +
-        `برای بقیهٔ کارها دکمهٔ «${MAIN_MENU_LABEL}» را بزنید.`,
+      `پیامت رسید، ولی همین‌طوری جایی فرستاده نمیشه.\n\n` +
+        `برای نوشتن به میزبان، صفحهٔ همون برنامه رو باز کن و «✉️ پیام به میزبان» رو بزن. ` +
+        `برای بقیهٔ کارها دکمهٔ «${MAIN_MENU_LABEL}» رو بزن.`,
     );
   }
 
@@ -2060,7 +2051,7 @@ export class BotService {
   ): Promise<void> {
     const user = await this.knownUser(from);
     if (user === null) {
-      await this.answer(callbackQueryId, 'برای شروع /start را بفرستید.');
+      await this.answer(callbackQueryId, 'برای شروع /start رو بفرست.');
       return;
     }
 
@@ -2104,11 +2095,11 @@ export class BotService {
         return this.notice(
           update.updateId,
           user,
-          'عضویت شما تأیید شد ✅ حالا می‌توانید از پایه‌تَم استفاده کنید.',
+          'عضویتت تأیید شد ✅ حالا می‌تونی از پایتم استفاده کنی.',
         );
       }
 
-      await this.answer(callbackQueryId, 'هنوز در همهٔ کانال‌ها عضو نیستید.');
+      await this.answer(callbackQueryId, 'هنوز عضو همهٔ کانال‌ها نشدی.');
       return this.drawChannelGate(
         update.updateId,
         user,
@@ -2175,12 +2166,12 @@ export class BotService {
      */
     const onboarding = await this.onboardingGate(update.updateId, user, update.intent);
     if (onboarding === 'drawn') {
-      await this.answer(callbackQueryId, 'اول ثبت‌نام را تمام کنید 👇');
+      await this.answer(callbackQueryId, 'اول ثبت‌نام رو تموم کن 👇');
       return;
     }
 
     if (onboarding === 'clear' && (await this.channelsBlock(update.updateId, user, 'APP_ACCESS'))) {
-      await this.answer(callbackQueryId, 'برای ادامه باید در کانال‌های اعلام‌شده عضو شوید.');
+      await this.answer(callbackQueryId, 'برای ادامه باید عضو کانال‌هایی که گفتیم بشی.');
       return;
     }
 
@@ -2198,9 +2189,9 @@ export class BotService {
       const chosen = await this.profiles.chooseGender(user.id, genderChoice);
       const text =
         chosen.outcome === 'set'
-          ? `<b>جنسیت شما ثبت شد: ${genderLabel(chosen.gender)}</b>\n\nممنون که وقت گذاشتید.`
-          : `جنسیت شما پیش‌تر ثبت شده است: ${genderLabel(chosen.gender)}.\n\n` +
-            `<i>تغییر آن فقط از طریق پشتیبانی ممکن است.</i>`;
+          ? `<b>جنسیتت ثبت شد: ${genderLabel(chosen.gender)}</b>\n\nمرسی که وقت گذاشتی.`
+          : `جنسیتت قبلاً ثبت شده: ${genderLabel(chosen.gender)}.\n\n` +
+            `<i>برای تغییرش باید به پشتیبانی پیام بدی.</i>`;
       if (messageId !== undefined) {
         return this.repaint(update.updateId, user, messageId, text, []);
       }
@@ -2227,7 +2218,7 @@ export class BotService {
       // The tap is acknowledged before the form is drawn: Telegram spins the
       // button until the query is answered, and building a wizard step reads the
       // profile and the catalogue.
-      await this.answer(callbackQueryId, 'باشد');
+      await this.answer(callbackQueryId, 'باشه');
       if (!(await this.mayWrite(update.updateId, user))) return;
       const outcome = await this.startProfileWizard(user.id, update.updateId, profileField);
       return this.drawWizard(update.updateId, user, outcome);
@@ -2251,7 +2242,7 @@ export class BotService {
       };
       const outcome = await this.conversations.handle(user.id, update.updateId, input);
       if (outcome === null) {
-        await this.answer(callbackQueryId, 'این فرم دیگر باز نیست.');
+        await this.answer(callbackQueryId, 'این فرم دیگه باز نیست.');
         return;
       }
 
@@ -2300,7 +2291,7 @@ export class BotService {
     if (adminCallback !== null) {
       const session = await this.adminTelegram.sessionFor(user.telegramUserId);
       if (session === null) {
-        await this.answer(callbackQueryId, 'این دکمه دیگر کار نمی‌کند.');
+        await this.answer(callbackQueryId, 'این دکمه دیگه کار نمی‌کنه.');
         return;
       }
       await this.answer(callbackQueryId, '');
@@ -2455,7 +2446,7 @@ export class BotService {
     const reportCallback = parseReportCallback(data);
     if (reportCallback !== null) {
       if (!(await this.mayWrite(update.updateId, user))) {
-        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        await this.answer(callbackQueryId, 'اول قوانین رو قبول کن.');
         return;
       }
       return this.onReportCallback(update.updateId, user, callbackQueryId, reportCallback);
@@ -2471,7 +2462,7 @@ export class BotService {
     const reviewEdit = parseReviewEditCallback(data);
     if (reviewEdit !== null) {
       if (!(await this.mayWrite(update.updateId, user))) {
-        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        await this.answer(callbackQueryId, 'اول قوانین رو قبول کن.');
         return;
       }
       const editable = (await this.reviews.listEditable(user.id)).find(
@@ -2487,7 +2478,7 @@ export class BotService {
           `<b>✏️ ویرایش نظر دربارهٔ ${escapeHtml(editable.revieweeDisplayName)}</b>\n\n` +
           `امتیاز فعلی: ${toPersianDigits(String(editable.rating))}⭐ در ` +
           `«${escapeHtml(editable.eventTitle)}».\n` +
-          `امتیاز تازه را انتخاب کنید؛ بعد از آن می‌توانید برچسب‌ها و متن را هم عوض کنید.`,
+          `امتیاز تازه رو انتخاب کن؛ بعدش می‌تونی برچسب‌ها و متن رو هم عوض کنی.`,
         keyboard: JSON.stringify([
           REVIEW_RATINGS.map((rating) => ({
             text: `${toPersianDigits(String(rating))}⭐`,
@@ -2503,12 +2494,12 @@ export class BotService {
     const reviewCallback = parseReviewCallback(data);
     if (reviewCallback !== null) {
       if (!(await this.mayWrite(update.updateId, user))) {
-        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        await this.answer(callbackQueryId, 'اول قوانین رو قبول کن.');
         return;
       }
       try {
         const rating = toPersianDigits(String(reviewCallback.rating));
-        let toast = `نظر شما ثبت شد ✅ (${rating} از ۵)`;
+        let toast = `نظرت ثبت شد ✅ (${rating} از ۵)`;
         try {
           await this.reviews.submit(user.id, reviewCallback.id, { rating: reviewCallback.rating });
         } catch (error) {
@@ -2530,7 +2521,7 @@ export class BotService {
             tags: own.tags,
             ...(own.comment !== null ? { comment: own.comment } : {}),
           });
-          toast = `امتیاز شما به ${rating} از ۵ تغییر کرد ✅`;
+          toast = `امتیازت شد ${rating} از ۵ ✅`;
         }
         await this.answer(callbackQueryId, toast);
         /**
@@ -2569,7 +2560,7 @@ export class BotService {
     const eventCallback = parseEventCallback(data);
     if (eventCallback !== null) {
       if (!(await this.mayWrite(update.updateId, user))) {
-        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        await this.answer(callbackQueryId, 'اول قوانین رو قبول کن.');
         return;
       }
       return this.onEventCallback(update.updateId, user, callbackQueryId, eventCallback, messageId);
@@ -2579,7 +2570,7 @@ export class BotService {
     if (callback === null) {
       // An old build's button, or a tampered one. Indistinguishable to the person
       // who pressed it, and the same sentence serves both.
-      await this.answer(callbackQueryId, 'این دکمه دیگر کار نمی‌کند.');
+      await this.answer(callbackQueryId, 'این دکمه دیگه کار نمی‌کنه.');
       return;
     }
 
@@ -2588,7 +2579,7 @@ export class BotService {
     // button that silently opens a different screen is worse than one that
     // explains itself.
     if (!(await this.mayWrite(update.updateId, user))) {
-      await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+      await this.answer(callbackQueryId, 'اول قوانین رو قبول کن.');
       return;
     }
 
@@ -2596,7 +2587,7 @@ export class BotService {
       switch (callback.action) {
         case 'accept':
           await this.participation.accept(user.id, callback.id);
-          await this.answer(callbackQueryId, 'پذیرفته شد ✅');
+          await this.answer(callbackQueryId, 'قبول شد ✅');
           return this.sealDecision(update.updateId, user, messageId, 'ACCEPTED');
 
         case 'reject':
@@ -2660,11 +2651,11 @@ export class BotService {
 
     const text =
       outcome === 'ACCEPTED'
-        ? '<b>درخواست پذیرفته شد</b> ✅\n\nبه این نفر اطلاع داده شد.'
+        ? '<b>قبولش کردی</b> ✅\n\nبهش خبر دادیم.'
         : outcome === 'REJECTED'
-          ? '<b>درخواست رد شد</b>\n\nبه این نفر اطلاع داده شد.'
-          : '<b>این درخواست دیگر باز نیست</b>\n\n' +
-            'پیش‌تر تصمیم گرفته شده، یا پس گرفته شده، یا مهلتش گذشته است.';
+          ? '<b>ردش کردی</b>\n\nبهش خبر دادیم.'
+          : '<b>این درخواست دیگه باز نیست</b>\n\n' +
+            'یا قبلاً تصمیمش گرفته شده، یا پس گرفته شده، یا وقتش گذشته.';
 
     await this.repaint(updateId, user, messageId, text, []);
   }
@@ -2757,11 +2748,11 @@ export class BotService {
           return this.confirmSpend(
             updateId,
             user,
-            `<b>لغو شرکت در این رویداد</b>\n\n` +
+            `<b>نمی‌تونی بیای؟</b>\n\n` +
               `${cost}\n\n` +
-              `اگر پذیرفته شده بودید، جای شما به نفر بعدی در نوبت انتظار می‌رسد و ` +
-              `میزبان خبردار می‌شود.`,
-            '✖️ بله، لغو کن',
+              `اگه قبول شده بودی، جات به نفر بعدیِ صف انتظار می‌رسه و ` +
+              `میزبان خبردار میشه.`,
+            '✖️ آره، کنسل کن',
             encodeEventCallback('cancelyes', callback.id),
             'danger',
           );
@@ -2769,7 +2760,7 @@ export class BotService {
 
         case 'cancelyes':
           await this.participation.cancel(user.id, callback.id);
-          await this.answer(callbackQueryId, 'شرکت شما در این رویداد لغو شد.');
+          await this.answer(callbackQueryId, 'کنسل شد ✅');
           return;
 
         /**
@@ -2886,10 +2877,10 @@ export class BotService {
             updateId,
             user,
             `<b>انتشار دوباره در کانال</b>\n\n` +
-              `این رویداد دوباره در کانال پایه‌تَم منتشر می‌شود تا از نو دیده شود، و ` +
-              `<b>${toPersianDigits(String(cost))} سکه</b> از موجودی شما کم می‌شود.\n` +
-              `پست قبلی برداشته می‌شود تا کانال دو نسخه از یک رویداد نداشته باشد.`,
-            '🔄 بله، دوباره منتشر کن',
+              `این برنامه دوباره توی کانال پایتم منتشر میشه که از نو دیده بشه، و ` +
+              `<b>${toPersianDigits(String(cost))} سکه</b> ازت کم میشه.\n` +
+              `پست قبلی برداشته میشه که از یه برنامه دو تا پست توی کانال نباشه.`,
+            '🔄 آره، دوباره منتشر کن',
             encodeEventCallback('postyes', callback.id),
             'success',
           );
@@ -2897,7 +2888,7 @@ export class BotService {
 
         case 'postyes':
           await this.events.publishToChannel(user.id, callback.id);
-          await this.answer(callbackQueryId, 'دوباره در کانال منتشر شد 🔄');
+          await this.answer(callbackQueryId, 'دوباره توی کانال منتشر شد 🔄');
           return;
 
         /**
@@ -2916,25 +2907,25 @@ export class BotService {
             return this.notice(
               updateId,
               user,
-              `برای دعوت به ${toPersianDigits(String(preview.cost))} سکه نیاز است و ` +
-                `موجودی شما ${toPersianDigits(String(preview.balance))} سکه است.`,
+              `دعوت ${toPersianDigits(String(preview.cost))} سکه خرج داره و ` +
+                `الان ${toPersianDigits(String(preview.balance))} سکه داری.`,
             );
           }
           if (preview.selected === 0) {
             return this.notice(
               updateId,
               user,
-              'فعلاً کسی برای دعوت پیدا نشد. کمی بعد دوباره تلاش کنید.',
+              'فعلاً کسی برای دعوت پیدا نشد. یه کم بعد دوباره امتحان کن.',
             );
           }
           return this.confirmSpend(
             updateId,
             user,
-            `<b>دعوت از افراد</b>\n\n` +
-              `${toPersianDigits(String(preview.selected))} نفر دعوت می‌شوند ` +
-              `(از ${toPersianDigits(String(preview.candidates))} نفر واجد شرایط).\n` +
-              `<b>${toPersianDigits(String(preview.cost))} سکه</b> از موجودی شما کم می‌شود.`,
-            '📨 بله، دعوت کن',
+            `<b>دعوت ویژه</b>\n\n` +
+              `${toPersianDigits(String(preview.selected))} نفر دعوت میشن ` +
+              `(از ${toPersianDigits(String(preview.candidates))} نفری که شرایطش رو دارن).\n` +
+              `<b>${toPersianDigits(String(preview.cost))} سکه</b> ازت کم میشه.`,
+            '📨 آره، دعوت کن',
             encodeEventCallback('inviteyes', callback.id),
             'success',
           );
@@ -2967,10 +2958,10 @@ export class BotService {
           return this.confirmSpend(
             updateId,
             user,
-            `<b>لغو رویداد</b>\n\n` +
-              `${toPersianDigits(String(preview.affected))} نفر پذیرفته شده‌اند و ` +
-              `به همه اطلاع داده می‌شود.\n\n<i>این کار برگشت‌پذیر نیست.</i>`,
-            '✖️ بله، لغو کن',
+            `<b>کنسل کردن برنامه</b>\n\n` +
+              `${toPersianDigits(String(preview.affected))} نفر قبول شدن و ` +
+              `به همه‌شون خبر میدیم.\n\n<i>این کار برگشت نداره.</i>`,
+            '✖️ آره، کنسل کن',
             encodeEventCallback('dropyes', callback.id),
             'danger',
           );
@@ -2978,7 +2969,7 @@ export class BotService {
 
         case 'dropyes':
           await this.events.cancelByHost(user.id, callback.id);
-          await this.answer(callbackQueryId, 'رویداد لغو شد');
+          await this.answer(callbackQueryId, 'برنامه کنسل شد');
           return;
 
         /**
@@ -3008,10 +2999,10 @@ export class BotService {
           return this.confirmSpend(
             updateId,
             user,
-            `<b>ثبت غیبت</b>\n\n` +
-              `این کار امتیاز اعتماد این نفر را کم می‌کند و به او اطلاع داده می‌شود.\n\n` +
-              `<i>فقط وقتی ثبت کنید که واقعاً نیامده باشد.</i>`,
-            '🚫 بله، غایب بود',
+            `<b>ثبت «نیومد»</b>\n\n` +
+              `این کار از امتیاز اعتماد این نفر کم می‌کنه و بهش خبر میدیم.\n\n` +
+              `<i>فقط وقتی ثبت کن که واقعاً نیومده باشه.</i>`,
+            '🚫 آره، نیومد',
             encodeEventCallback('noshowyes', callback.id),
             'danger',
           );
@@ -3019,7 +3010,7 @@ export class BotService {
 
         case 'noshowyes':
           await this.lifecycle.markNoShow(user.id, callback.id);
-          await this.answer(callbackQueryId, 'غیبت ثبت شد');
+          await this.answer(callbackQueryId, '«نیومد» ثبت شد');
           return;
 
         /**
@@ -3037,7 +3028,7 @@ export class BotService {
          */
         case 'acc': {
           const decided = await this.participation.accept(user.id, callback.id);
-          await this.answer(callbackQueryId, 'پذیرفته شد ✅');
+          await this.answer(callbackQueryId, 'قبول شد ✅');
           return this.drawParticipants(updateId, user, decided.eventPublicId, messageId);
         }
 
@@ -3081,7 +3072,7 @@ export class BotService {
         await this.openProfileForm(
           updateId,
           user,
-          'برای پایتم گفتن به رویدادها نخست پروفایلتان را کامل کنید.',
+          'برای پایتم گفتن به برنامه‌ها، اول پروفایلت رو کامل کن.',
         );
       }
     }
@@ -3171,8 +3162,8 @@ export class BotService {
       await this.answer(
         callbackQueryId,
         filed.triggeredReview
-          ? 'گزارش شما ثبت شد و در حال بررسی است. ممنون که اطلاع دادید.'
-          : 'گزارش شما ثبت شد. ممنون که اطلاع دادید.',
+          ? 'گزارشت ثبت شد و داریم بررسیش می‌کنیم. مرسی که خبر دادی.'
+          : 'گزارشت ثبت شد. مرسی که خبر دادی.',
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -3202,7 +3193,7 @@ export class BotService {
 
     const target = form.target;
     if (targetPublicId === null || target === undefined || form.reason === undefined) {
-      return this.notice(updateId, user, 'گزارش ثبت نشد. دوباره تلاش کنید.');
+      return this.notice(updateId, user, 'گزارش ثبت نشد. دوباره امتحان کن.');
     }
     if (!isReportTarget(target)) return;
 
@@ -3217,8 +3208,8 @@ export class BotService {
         updateId,
         user,
         filed.triggeredReview
-          ? 'گزارش شما ثبت شد و در حال بررسی است. ممنون که اطلاع دادید.'
-          : 'گزارش شما ثبت شد. ممنون که اطلاع دادید.',
+          ? 'گزارشت ثبت شد و داریم بررسیش می‌کنیم. مرسی که خبر دادی.'
+          : 'گزارشت ثبت شد. مرسی که خبر دادی.',
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
@@ -3626,7 +3617,7 @@ export class BotService {
         : [
             [
               {
-                text: `${BACK_ICON} بازگشت به فهرست`,
+                text: `${BACK_ICON} برگشت به فهرست`,
                 callbackData: encodeBackCallback(back.target, back.commandMessageId),
               },
             ],
@@ -3692,7 +3683,7 @@ export class BotService {
                 ? [
                     [
                       {
-                        text: '✖️ لغو',
+                        text: '✖️ نمی‌تونم بیام',
                         callbackData: encodeEventCallback('cancel', mine.publicId),
                         style: 'danger',
                       },
@@ -3749,7 +3740,7 @@ export class BotService {
                   ]
                 : []),
               [
-                { text: '🚩 گزارش رویداد', callbackData: encodeReportAsk('e', eventPublicId) },
+                { text: '🚩 گزارش برنامه', callbackData: encodeReportAsk('e', eventPublicId) },
                 ...(isPublicId(event.hostPublicId)
                   ? [
                       {
@@ -3930,7 +3921,7 @@ export class BotService {
         ...(event.status === 'PUBLISHED'
           ? [
               {
-                text: '🔗 اشتراک‌گذاری',
+                text: '🔗 بفرست برای دوستات',
                 url: shareUrl(
                   this.env.TELEGRAM_BOT_USERNAME ?? DEFAULT_BOT_USERNAME,
                   event.publicId,
@@ -3959,7 +3950,7 @@ export class BotService {
       ]);
       rows.push([
         {
-          text: '✖️ لغو رویداد',
+          text: '✖️ کنسل کردن برنامه',
           callbackData: encodeEventCallback('drop', event.publicId),
           style: 'danger',
         },
@@ -3967,7 +3958,7 @@ export class BotService {
     }
     rows.push([
       {
-        text: `${BACK_ICON} بازگشت به فهرست`,
+        text: `${BACK_ICON} برگشت به فهرست`,
         callbackData: encodeBackCallback('m', commandMessageId ?? null),
       },
     ]);
@@ -4041,7 +4032,7 @@ export class BotService {
        */
       return [
         {
-          text: `${number} ✅ پذیرش`,
+          text: `${number} ✅ قبول`,
           callbackData: encodeEventCallback('acc', row.publicId),
         },
         { text: `${number} ✖️ رد`, callbackData: encodeEventCallback('rej', row.publicId) },
@@ -4059,7 +4050,7 @@ export class BotService {
     if (row.status === 'ACCEPTED' && ended) {
       return [
         {
-          text: `${number} 🚫 غایب بود`,
+          text: `${number} 🚫 نیومد`,
           callbackData: encodeEventCallback('noshow', row.publicId),
         },
         write,
@@ -4193,7 +4184,7 @@ export class BotService {
   private async openCodeForm(updateId: number, user: BotUser, codeKind: CodeKind): Promise<void> {
     if (!this.env.ENABLE_CONVERSATION_WIZARD) {
       return codeKind === 'gift'
-        ? this.notice(updateId, user, 'کد را همراه دستور بفرستید — مثال: /gift ABCD1234')
+        ? this.notice(updateId, user, 'کد رو همراه دستور بفرست، مثلاً: /gift ABCD1234')
         : this.wizardsOff(updateId, user);
     }
     if (!(await this.mayWrite(updateId, user))) return;
@@ -4230,7 +4221,7 @@ export class BotService {
     // There is nothing to retry against, so this one *is* cleared.
     if (form.code === undefined || !isCodeKind(form.codeKind)) {
       await this.conversations.clear(user.id);
-      return this.notice(updateId, user, 'کد ثبت نشد. دوباره تلاش کنید.');
+      return this.notice(updateId, user, 'کد ثبت نشد. دوباره امتحان کن.');
     }
 
     const accepted =
@@ -4262,7 +4253,7 @@ export class BotService {
 
     if (form.description === undefined) {
       await this.conversations.clear(user.id);
-      return this.notice(updateId, user, 'گزارش ثبت نشد. دوباره تلاش کنید.');
+      return this.notice(updateId, user, 'گزارش ثبت نشد. دوباره امتحان کن.');
     }
 
     try {
@@ -4280,8 +4271,8 @@ export class BotService {
     await this.notice(
       updateId,
       user,
-      'گزارش شما ثبت شد ✅ ممنون که وقت گذاشتید.\n\n' +
-        'تیم ما آن را بررسی می‌کند. اگر برای پیگیری لازم باشد، از همین‌جا با شما تماس می‌گیریم.',
+      'گزارشت ثبت شد ✅ مرسی که وقت گذاشتی.\n\n' +
+        'تیم ما بررسیش می‌کنه. اگه برای پیگیری لازم باشه، از همین‌جا بهت پیام میدیم.',
     );
   }
 
@@ -4321,8 +4312,8 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        `کد پذیرفته شد ✅\n\n${toPersianDigits(String(redeemed.coins))} سکه به حساب شما اضافه شد. ` +
-          `موجودی: ${toPersianDigits(String(redeemed.balance))} سکه`,
+        `کد قبول شد ✅\n\n${toPersianDigits(String(redeemed.coins))} سکه اومد تو حسابت. ` +
+          `الان ${toPersianDigits(String(redeemed.balance))} سکه داری.`,
       );
       return true;
     } catch (error) {
@@ -4371,7 +4362,7 @@ export class BotService {
   ): Promise<void> {
     if (claim.status === 'QUALIFIED') {
       return this.reply(updateId, userId, TEMPLATES.BOT_NOTICE, {
-        text: 'کد دعوت ثبت شد ✅\n\nپاداش آن به حساب شما اضافه شد.',
+        text: 'کد دعوت ثبت شد ✅\n\nپاداشش اومد تو حسابت.',
       });
     }
     return this.reply(updateId, userId, TEMPLATES.BOT_REFERRAL_ACCEPTED, {
@@ -4472,7 +4463,7 @@ export class BotService {
       }
       await this.answer(
         callbackQueryId,
-        callback.value ? 'دعوت‌ها روشن شد' : 'دیگر دعوتی دریافت نمی‌کنید',
+        callback.value ? 'دعوت‌ها روشن شد' : 'دیگه دعوتی برات نمیاد',
       );
       return this.drawSettings(updateId, user, editMessageId);
     }
@@ -4488,11 +4479,11 @@ export class BotService {
      */
     if (callback.field === SETTING_PROFILE) {
       if (!this.env.ENABLE_CONVERSATION_WIZARD) {
-        await this.answer(callbackQueryId, 'این بخش موقتاً در دسترس نیست.');
+        await this.answer(callbackQueryId, 'این بخش فعلاً در دسترس نیست.');
         return;
       }
       if (!(await this.mayWrite(updateId, user))) {
-        await this.answer(callbackQueryId, 'ابتدا قوانین را بپذیرید.');
+        await this.answer(callbackQueryId, 'اول قوانین رو قبول کن.');
         return;
       }
       /**
@@ -4522,7 +4513,7 @@ export class BotService {
      * tap happened instead of leaving a line of italics to be read.
      */
     if (callback.field === SETTING_LANGUAGE) {
-      await this.answer(callbackQueryId, 'فعلاً فقط فارسی در دسترس است.');
+      await this.answer(callbackQueryId, 'فعلاً فقط فارسی داریم.');
       return;
     }
   }
@@ -4617,11 +4608,11 @@ export class BotService {
                       [
                         message.senderBlocked
                           ? {
-                              text: '✅ رفع مسدودی فرستنده',
+                              text: '✅ رفع بلاک فرستنده',
                               callbackData: encodeDirectCallback('unblock', message.senderPublicId),
                             }
                           : {
-                              text: '🚫 مسدود کردن فرستنده',
+                              text: '🚫 بلاک کردن فرستنده',
                               callbackData: encodeDirectCallback('block', message.publicId),
                               style: 'danger' as const,
                             },
@@ -4656,12 +4647,12 @@ export class BotService {
          */
         case 'block': {
           const blocked = await this.directs.block(user.id, callback.id);
-          await this.answer(callbackQueryId, 'مسدود شد');
+          await this.answer(callbackQueryId, 'بلاک شد');
           const rows = isPublicId(blocked.userPublicId)
             ? [
                 [
                   {
-                    text: '✅ رفع مسدودی',
+                    text: '✅ رفع بلاک',
                     callbackData: encodeDirectCallback('unblock', blocked.userPublicId),
                   },
                 ],
@@ -4676,7 +4667,7 @@ export class BotService {
         /** Lift a block this user made, from the message that made it or the list. */
         case 'unblock': {
           await this.directs.unblock(user.id, callback.id);
-          await this.answer(callbackQueryId, 'مسدودی برداشته شد');
+          await this.answer(callbackQueryId, 'از بلاک دراومد');
           return this.drawBlockedList(updateId, user);
         }
 
@@ -4745,7 +4736,7 @@ export class BotService {
     await this.conversations.clear(user.id);
 
     if (targetPublicId === null || form.body === undefined || !isDirectMessageMode(form.mode)) {
-      return this.notice(updateId, user, 'پیام فرستاده نشد. دوباره تلاش کنید.');
+      return this.notice(updateId, user, 'پیام نرفت. دوباره امتحان کن.');
     }
 
     /**
@@ -4777,11 +4768,7 @@ export class BotService {
       } else {
         await this.directs.send(user.id, targetPublicId, form.body, typedMessageId);
       }
-      return this.notice(
-        updateId,
-        user,
-        'پیامتان فرستاده شد ✉️ وقتی خوانده شود، همین‌جا خبرتان می‌کنیم.',
-      );
+      return this.notice(updateId, user, 'پیامت رفت ✉️ وقتی خونده بشه، همین‌جا خبرت می‌کنیم.');
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       return this.refuse(updateId, user, error);
@@ -4806,7 +4793,7 @@ export class BotService {
     await this.conversations.clear(user.id);
 
     if (targetPublicId === null || form.statement === undefined || !isNoShowClaimMode(form.mode)) {
-      return this.notice(updateId, user, 'ثبت نشد. دوباره از دکمهٔ پیام تلاش کنید.');
+      return this.notice(updateId, user, 'ثبت نشد. دوباره از دکمهٔ پیام امتحان کن.');
     }
 
     try {
@@ -4826,9 +4813,9 @@ export class BotService {
       updateId,
       user,
       form.mode === 'response'
-        ? 'توضیح شما ثبت شد ✅ داور آن را کنار گزارش‌ها می‌خواند و نتیجه را همین‌جا به شما می‌گوییم.'
-        : 'ثبت شد ✅ یک داور آن را بررسی می‌کند و نتیجه را همین‌جا به شما می‌گوییم. ' +
-            'تا تصمیم داور، هیچ سکه‌ای جابه‌جا نمی‌شود.',
+        ? 'توضیحت ثبت شد ✅ داور کنار گزارش‌ها می‌خونتش و نتیجه رو همین‌جا بهت می‌گیم.'
+        : 'ثبت شد ✅ یه داور بررسیش می‌کنه و نتیجه رو همین‌جا بهت می‌گیم. ' +
+            'تا تصمیم داور، هیچ سکه‌ای جابه‌جا نمیشه.',
     );
   }
 
@@ -5010,7 +4997,7 @@ export class BotService {
 
     const text = formatCoinPackages({ packages, referencePrice, contact, balance });
     const keyboard = [
-      [{ text: `${BACK_ICON} بازگشت به کیف پول`, callbackData: encodeWalletCallback(0) }],
+      [{ text: `${BACK_ICON} برگشت به کیف پول`, callbackData: encodeWalletCallback(0) }],
     ];
 
     if (editMessageId !== undefined) {
@@ -5188,7 +5175,7 @@ export class BotService {
       return this.openProfileForm(
         updateId,
         user,
-        'برای دیدن رویدادهای نزدیک، نخست پروفایلتان را کامل کنید.',
+        'برای دیدن برنامه‌های اطرافت، اول پروفایلت رو کامل کن.',
       );
     }
 
@@ -5209,7 +5196,7 @@ export class BotService {
         updateId,
         user,
         cityQueueLine(launch) +
-          'به‌محض باز شدن، همین‌جا خبرتان می‌کنیم. تا آن موقع می‌توانید پروفایلتان را کامل نگه دارید.',
+          'همین که باز بشه، همین‌جا خبرت می‌کنیم. تا اون موقع پروفایلت رو کامل نگه دار.',
       );
     }
 
@@ -5500,8 +5487,8 @@ export class BotService {
     await this.answer(
       callbackQueryId,
       participation.status === 'WAITLISTED'
-        ? 'در لیست انتظار ثبت شدید ⏳'
-        : 'درخواست شما فرستاده شد ✅ منتظر پاسخ میزبان بمانید.',
+        ? 'رفتی تو صف انتظار ⏳'
+        : 'درخواستت رفت ✅ حالا منتظر جواب میزبان باش.',
     );
   }
 
@@ -5605,7 +5592,7 @@ export class BotService {
       this.settings.getInt('economy.host_deposit_refund_coins'),
     ]);
 
-    const price = `ثبت رویداد ${toPersianDigits(String(cost))} سکه است.`;
+    const price = `ثبت برنامه ${toPersianDigits(String(cost))} سکه خرج داره.`;
     if (refund <= 0) return price;
 
     // The conditions `HostRewardService.assess` checks for the deposit, including
@@ -5613,9 +5600,9 @@ export class BotService {
     // (review H5). The attendee threshold gates only the bonus since plan 10, so
     // it is not a condition here.
     return (
-      `${price} این مبلغ سپرده است: اگر رویداد برگزار شود، دست‌کم یک مهمان پذیرفته‌شده ` +
-      `داشته باشد و شما برای همهٔ مهمان‌هایی که آمدند نظر بنویسید، ` +
-      `${toPersianDigits(String(Math.min(refund, cost)))} سکه به شما برمی‌گردد.`
+      `${price} این سکه‌ها سپرده‌ست: اگه برنامه برگزار بشه، دست‌کم یه مهمانِ قبول‌شده ` +
+      `داشته باشه و تو برای همهٔ مهمان‌هایی که اومدن نظر بنویسی، ` +
+      `${toPersianDigits(String(Math.min(refund, cost)))} سکه بهت برمی‌گرده.`
     );
   }
 
@@ -5695,7 +5682,7 @@ export class BotService {
         ...(this.env.ENABLE_CONVERSATION_WIZARD
           ? [{ text: '🎁 کد هدیه دارم', callbackData: encodeCodeCallback('gift') }]
           : []),
-        { text: '💌 دعوت دوستان', callbackData: encodeMenuCommand('referral') },
+        { text: '💌 دعوت دوستات', callbackData: encodeMenuCommand('referral') },
       ],
     ];
     await this.reply(updateId, user.id, TEMPLATES.BOT_COINS_SHORT, {
@@ -5716,7 +5703,7 @@ export class BotService {
    * somebody will actually do during an incident.
    */
   private async wizardsOff(updateId: number, user: BotUser): Promise<void> {
-    await this.notice(updateId, user, 'این بخش موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید.');
+    await this.notice(updateId, user, 'این بخش فعلاً در دسترس نیست. یه کم بعد دوباره امتحان کن.');
   }
 
   /**
@@ -5755,14 +5742,14 @@ export class BotService {
             updateId,
             user,
             'فرم بسته شد.\n\n' +
-              'تا ثبت‌نام‌تان تمام نشود، منو و دکمه‌های ربات کار نمی‌کنند. ' +
-              'هر وقت آماده بودید، یک پیام بفرستید تا فرم دوباره باز شود.',
+              'تا ثبت‌نامت تموم نشه، منو و دکمه‌های ربات باز نمیشن. ' +
+              'هر وقت آماده بودی، یه پیام بفرست تا فرم دوباره باز بشه.',
           );
         }
         return this.notice(
           updateId,
           user,
-          `فرم بسته شد. هر وقت خواستید، از «${MAIN_MENU_LABEL}» ادامه دهید.`,
+          `فرم بسته شد. هر وقت خواستی، از «${MAIN_MENU_LABEL}» ادامه بده.`,
         );
 
       case 'submit':
@@ -5846,10 +5833,10 @@ export class BotService {
           const shots = form.screenshotFileIds?.length ?? 0;
           const screen = renderSummary(
             [
-              { label: 'شرح مشکل', value: form.description ?? '—' },
+              { label: 'مشکل', value: form.description ?? '—' },
               {
-                label: 'تصویرها',
-                value: shots === 0 ? 'بدون تصویر' : `${toPersianDigits(String(shots))} تصویر`,
+                label: 'عکس‌ها',
+                value: shots === 0 ? 'بدون عکس' : `${toPersianDigits(String(shots))} عکس`,
               },
             ],
             false,
@@ -5906,7 +5893,7 @@ export class BotService {
           }
           if (form.comment !== undefined) lines.push({ label: 'توضیح', value: form.comment });
           const screen = renderSummary(
-            lines.length > 0 ? lines : [{ label: 'چیزی اضافه نشد', value: 'هر دو مرحله رد شد' }],
+            lines.length > 0 ? lines : [{ label: 'چیزی اضافه نشد', value: 'از هر دو مرحله گذشتی' }],
             false,
             'ثبت نظر',
           );
@@ -5916,7 +5903,7 @@ export class BotService {
         const screen = renderSummary(
           await this.summaryLines(form),
           form.wantsDetails !== true,
-          'ثبت رویداد',
+          'ثبت برنامه',
           /**
            * The deposit sentence, read live at the moment it is shown.
            *
@@ -6105,7 +6092,7 @@ export class BotService {
       (candidate) => candidate.type === type,
     );
     if (type === null || policy === undefined) {
-      return this.notice(updateId, user, 'این سند در حال حاضر منتشر نشده است.');
+      return this.notice(updateId, user, 'این سند الان منتشر نشده.');
     }
 
     const pages = paginatePolicy(policy.contentMd);
@@ -6324,9 +6311,9 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        'قوانین پذیرفته شد ✅\n\n' +
-          'قدم آخر: پروفایلتان را کامل کنید تا بتوانید رویداد بسازید و در رویدادهای نزدیک شرکت کنید. ' +
-          'چند سؤال کوتاه است و تا کامل نشود، منو و دکمه‌های ربات کار نمی‌کنند.',
+        'قوانین رو قبول کردی ✅\n\n' +
+          'قدم آخر: پروفایلت رو کامل کن تا بتونی برنامه بسازی و به برنامه‌های اطرافت بری. ' +
+          'چند تا سؤال کوتاهه و بعدش منو و دکمه‌های ربات باز میشن.',
       );
       const outcome = await this.startProfileWizard(user.id, updateId);
       return this.drawWizard(updateId, user, outcome);
@@ -6387,7 +6374,7 @@ export class BotService {
       // Configured as required but with no join link — the operator's mistake,
       // and `ChannelConfigStatus` warns about it. Say what is true rather than
       // showing an empty keyboard.
-      await this.notice(updateId, user, 'برای ادامه باید در کانال‌های اعلام‌شده عضو باشید.');
+      await this.notice(updateId, user, 'برای ادامه باید عضو کانال‌هایی که گفتیم باشی.');
       return;
     }
 
@@ -6397,7 +6384,7 @@ export class BotService {
         // The way out. Without it the only way to clear the gate is to guess that
         // repeating the original action might now work — and for the length of
         // the probe's cache it would not.
-        [{ text: '🔄 بررسی دوباره', callbackData: encodeChannelRecheckCallback() }],
+        [{ text: '✅ عضو شدم', callbackData: encodeChannelRecheckCallback() }],
       ]),
     });
   }
@@ -6520,7 +6507,7 @@ export class BotService {
      * choice they are being offered, so quoting it would be describing an
      * internal boundary.
      */
-    if (await this.affordBlocked(updateId, user, await this.registrationCost(), 'ثبت رویداد')) {
+    if (await this.affordBlocked(updateId, user, await this.registrationCost(), 'ثبت برنامه')) {
       return true;
     }
     return false;
@@ -6545,9 +6532,9 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        `فرم هنوز کامل نیست. این مورد${missingFields(form).length > 1 ? 'ها' : ''} مانده است: ` +
+        `فرم هنوز کامل نیست. این مورد${missingFields(form).length > 1 ? 'ها' : ''} مونده: ` +
           `${missingFields(form).join('، ')}.\n\n` +
-          `با «ویرایش» به فرم برگردید و آن را کامل کنید.`,
+          `با «ویرایش» به فرم برگرد و کاملش کن.`,
       );
       return;
     }
@@ -6684,7 +6671,7 @@ export class BotService {
       return this.notice(
         updateId,
         user,
-        'تعداد ویرایش‌های پروفایل در یک ساعت گذشته زیاد بوده است. کمی بعد دوباره تلاش کنید.',
+        'توی یه ساعت گذشته پروفایلت رو زیاد ویرایش کردی. یه کم بعد دوباره امتحان کن.',
       );
     }
 
@@ -6722,7 +6709,7 @@ export class BotService {
         { kind: 'USER' },
       );
       await this.conversations.clear(user.id);
-      await this.notice(updateId, user, 'پروفایل شما به‌روز شد ✅');
+      await this.notice(updateId, user, 'پروفایلت به‌روز شد ✅');
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       // The draft survives, for the reason it survives a refused event.
@@ -6752,7 +6739,7 @@ export class BotService {
     form: EditProfileForm,
   ): Promise<void> {
     const missing: string[] = [];
-    if (form.displayName === undefined) missing.push('نام');
+    if (form.displayName === undefined) missing.push('اسم');
     if (form.gender === undefined) missing.push('جنسیت');
     if (form.birthYear === undefined) missing.push('سال تولد');
     if (form.cityId === undefined) missing.push('شهر');
@@ -6776,8 +6763,8 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        `برای ساختن پروفایل به این مورد${missing.length > 1 ? 'ها' : ''} هم نیاز داریم: ` +
-          `${missing.join('، ')}.\n\nروی «ویرایش» بزنید و کامل کنید.`,
+        `برای ساختن پروفایل این مورد${missing.length > 1 ? 'ها' : ''} رو هم لازم داریم: ` +
+          `${missing.join('، ')}.\n\n«ویرایش» رو بزن و کاملش کن.`,
       );
       return;
     }
@@ -6802,7 +6789,7 @@ export class BotService {
       await this.notice(
         updateId,
         user,
-        'پروفایل شما ساخته شد ✅\n\n' +
+        'پروفایلت ساخته شد 🎉\n\n' +
           // Ahead of the menu hints on purpose: the rank is the one thing in this
           // message that is true only for this person and only once, and burying
           // it under two button names would waste the only moment it lands.
@@ -6824,8 +6811,8 @@ export class BotService {
            * that was already complete.
            */
           onboardingGiftLine(completion.rewardCoins, completion.joinCost, completion.reviewReward) +
-          `حالا دکمهٔ «${MAIN_MENU_LABEL}» را بزنید؛ در «${menuPathFor('discover') ?? 'رویدادها'}» ` +
-          `هم رویدادهای نزدیک هست و هم ساختن رویداد تازه.` +
+          `حالا دکمهٔ «${MAIN_MENU_LABEL}» رو بزن؛ توی «${menuPathFor('discover') ?? 'برنامه‌ها'}» ` +
+          `هم برنامه‌های اطرافت هست و هم ساختن برنامهٔ تازه.` +
           /**
            * The guide, offered once: when signing up has just finished
            * (migration 0063). `rewardGranted` is true exactly on the first
@@ -6833,9 +6820,9 @@ export class BotService {
            * city is not told to read the guide again.
            */
           (completion.rewardGranted
-            ? `\n\nاگر تازه آمده‌اید، راهنمای کوتاه پایتم را بخوانید: امتیاز اعتماد، سکه‌ها و ` +
-              `لغو شرکت هر کدام یکی دو دقیقه وقت می‌گیرد. بعداً هم از دکمهٔ «${HELP_BUTTON_LABEL}» ` +
-              `پایین صفحه در دسترس است.`
+            ? `\n\nتازه اومدی؟ راهنمای کوتاه پایتم رو بخون: امتیاز اعتماد، سکه‌ها و ` +
+              `کنسل کردن، هر کدوم یکی دو دقیقه وقت می‌بره. بعداً هم از دکمهٔ «${HELP_BUTTON_LABEL}» ` +
+              `پایین صفحه در دسترسه.`
             : ''),
         { withGuide: completion.rewardGranted },
       );
@@ -6909,10 +6896,10 @@ export class BotService {
         tags: tags.length > 0 ? tags : existing.tags,
         ...(comment !== null ? { comment } : {}),
       });
-      await this.notice(updateId, user, `نظر شما کامل شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`);
+      await this.notice(updateId, user, `نظرت کامل شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
-      await this.notice(updateId, user, `امتیاز شما ثبت شده است. ${ERROR_MESSAGES_FA[error.code]}`);
+      await this.notice(updateId, user, `امتیازت ثبت شده. ${ERROR_MESSAGES_FA[error.code]}`);
     }
   }
 
@@ -6926,7 +6913,7 @@ export class BotService {
     const city = catalog.cities.find((candidate) => candidate.id === form.cityId);
 
     const lines: SummaryLine[] = [];
-    if (form.displayName !== undefined) lines.push({ label: 'نام', value: form.displayName });
+    if (form.displayName !== undefined) lines.push({ label: 'اسم', value: form.displayName });
     if (form.gender !== undefined) {
       lines.push({ label: 'جنسیت', value: genderLabel(form.gender) });
     }
@@ -6957,12 +6944,14 @@ export class BotService {
         // An empty selection is «تمام» with nothing ticked, which is a real
         // answer — the profile's interests are being cleared — and the summary
         // has to show that rather than omitting the line and reading as "unchanged".
-        value: chosen.length > 0 ? chosen.join('، ') : 'هیچ‌کدام',
+        value: chosen.length > 0 ? chosen.join('، ') : 'هیچ‌کدوم',
       });
     }
 
     // Everything skipped: the summary would be a heading over nothing.
-    return lines.length > 0 ? lines : [{ label: 'تغییری ثبت نشد', value: 'همهٔ مرحله‌ها رد شدند' }];
+    return lines.length > 0
+      ? lines
+      : [{ label: 'تغییری ثبت نشد', value: 'از همهٔ مرحله‌ها گذشتی' }];
   }
 
   /** What the wizard's `choice` steps load, resolved against the live catalog. */
@@ -7035,7 +7024,7 @@ export class BotService {
      * that matter.
      */
     const lines: SummaryLine[] = [
-      { label: 'نام', value: form.title ?? '—' },
+      { label: 'اسم', value: form.title ?? '—' },
       { label: 'دسته', value: category?.nameFa ?? '—' },
       { label: 'مکان', value: where },
       {
@@ -7064,7 +7053,7 @@ export class BotService {
     if (form.genderPreference !== undefined) {
       lines.push({
         label: 'برای',
-        value: form.genderPreference === 'MALE_ONLY' ? 'فقط آقایان' : 'فقط بانوان',
+        value: form.genderPreference === 'MALE_ONLY' ? 'فقط آقایان' : 'فقط خانم‌ها',
       });
     }
     if (form.minAge !== undefined || form.maxAge !== undefined) {
@@ -7217,7 +7206,7 @@ export class BotService {
       return this.notice(
         updateId,
         user,
-        `${ERROR_MESSAGES_FA[error.code]}\n\nاین مورد را بررسی کنید: ${named.join('، ')}.`,
+        `${ERROR_MESSAGES_FA[error.code]}\n\nاین مورد رو یه نگاه بنداز: ${named.join('، ')}.`,
       );
     }
 
@@ -7378,21 +7367,21 @@ function whereOf(event: {
 
 function quotaMessage(quota: HostQuotaStatus): string {
   return quota.blockedBy === 'per_day'
-    ? `امروز به سقف ساخت رویداد رسیده‌اید ` +
-        `(${toPersianDigits(String(quota.maxPerDay))} رویداد در روز). ` +
-        `فردا دوباره می‌توانید رویداد تازه‌ای بسازید.`
-    : `به سقف رویدادهای همزمان رسیده‌اید ` +
-        `(${toPersianDigits(String(quota.maxConcurrentActive))} رویداد در پیش رو). ` +
-        `یکی از رویدادهای خود را به پایان برسانید یا لغو کنید و دوباره تلاش کنید.`;
+    ? `امروز به سقف ساختن برنامه رسیدی ` +
+        `(${toPersianDigits(String(quota.maxPerDay))} برنامه در روز). ` +
+        `فردا دوباره می‌تونی برنامهٔ تازه بسازی.`
+    : `به سقف برنامه‌های همزمان رسیدی ` +
+        `(${toPersianDigits(String(quota.maxConcurrentActive))} برنامهٔ پیش رو). ` +
+        `یکی از برنامه‌هات رو تموم یا کنسل کن و دوباره امتحان کن.`;
 }
 
 function suspendedNotice(supportContact: string | undefined): string {
   const base =
-    `حساب شما موقتاً تعلیق شده است و امکان انجام این کار وجود ندارد.\n\n` +
-    `همچنان می‌توانید رویدادها و گفتگوهای خود را ببینید.`;
+    `حسابت موقتاً معلق شده و فعلاً نمی‌تونی این کار رو بکنی.\n\n` +
+    `هنوز می‌تونی برنامه‌ها و گفتگوهات رو ببینی.`;
   return supportContact === undefined
     ? base
-    : `${base} برای پیگیری با پشتیبانی در ارتباط باشید: ${supportContact}`;
+    : `${base} برای پیگیری به پشتیبانی پیام بده: ${supportContact}`;
 }
 
 /**
@@ -7414,12 +7403,12 @@ function suspendedNotice(supportContact: string | undefined): string {
  * this screen. What belongs here is the consequence.
  */
 const REVIEW_BLIND_NOTE_FA =
-  'نظرها دوطرفه و پنهان‌اند: نظر طرف مقابل دربارهٔ شما وقتی نشان داده می‌شود که ' +
-  'هر دو نظرتان را نوشته باشید. نظرهایی که دربارهٔ شما نوشته شده در ' +
-  '«نظرهایی که درباره شما نوشته‌اند» می‌آید.';
+  'نظرها دوطرفه و پنهانن: نظر طرف مقابل دربارهٔ تو وقتی نشون داده میشه که ' +
+  'هر دوتون نوشته باشید. نظرهایی که دربارهٔ تو نوشتن توی ' +
+  '«نظرهایی که دربارهٔ تو نوشتن» میاد.';
 
 /** The same note, under the confirmation that the rating alone was enough. */
-const REVIEW_RECORDED_FA = `نظر شما ثبت شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`;
+const REVIEW_RECORDED_FA = `نظرت ثبت شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`;
 
 /**
  * How much of the ledger one page of `/wallet` shows.
@@ -7598,7 +7587,7 @@ export function toCreateEventRequest(form: CreateEventForm): CreateEventInput | 
  * answered it on.
  */
 const FIELD_LABELS_FA: Record<string, string> = {
-  title: 'نام رویداد',
+  title: 'اسم برنامه',
   description: 'توضیح',
   categoryId: 'دسته',
   cityId: 'شهر',
@@ -7615,7 +7604,7 @@ const FIELD_LABELS_FA: Record<string, string> = {
   minAge: 'کمترین سن',
   maxAge: 'بیشترین سن',
   externalLink: 'لینک',
-  displayName: 'نام نمایشی',
+  displayName: 'اسم نمایشی',
   birthYear: 'سال تولد',
   gender: 'جنسیت',
   bio: 'معرفی',
@@ -7647,7 +7636,7 @@ function validationFields(error: AppError): string[] {
 
 function missingFields(form: CreateEventForm): string[] {
   const missing: string[] = [];
-  if (form.title === undefined) missing.push('نام رویداد');
+  if (form.title === undefined) missing.push('اسم برنامه');
   if (form.description === undefined) missing.push('توضیح');
   if (form.categoryId === undefined) missing.push('دسته');
   if (form.cityId === undefined) missing.push('شهر');
@@ -7692,10 +7681,10 @@ export function cityQueueLine(status: CityLaunchStatus | null): string {
   const position = toPersianDigits(String(status.waiting));
   const threshold = toPersianDigits(String(status.threshold));
   return (
-    `📍 پایه‌تَم هنوز در ${status.cityNameFa} رویداد ندارد.\n` +
-    `شما نفر ${position} از ${status.cityNameFa} هستید — با ${threshold} نفر، ` +
-    `${status.cityNameFa} آمادهٔ باز شدن می‌شود.\n` +
-    `هر هم‌شهری که دعوت کنید، این عدد را جلو می‌برد.\n\n`
+    `📍 پایتم هنوز توی ${status.cityNameFa} برنامه نداره.\n` +
+    `تو نفر ${position} از ${status.cityNameFa} هستی؛ با ${threshold} نفر، ` +
+    `${status.cityNameFa} آمادهٔ باز شدن میشه.\n` +
+    `هر هم‌شهری که دعوت کنی، این عدد رو جلو می‌بره.\n\n`
   );
 }
 
@@ -7730,7 +7719,7 @@ export function cityQueueLine(status: CityLaunchStatus | null): string {
 export function onboardingGiftLine(coins: number, joinCost: number, reviewReward = 0): string {
   if (coins <= 0) return '';
   const amount = toPersianDigits(String(coins));
-  const plain = `🎁 ${amount} سکه هدیه گرفتید.\n\n`;
+  const plain = `🎁 ${amount} سکه هدیه گرفتی.\n\n`;
 
   const effective = joinCost - reviewReward;
   if (effective <= 0) return plain;
@@ -7739,8 +7728,8 @@ export function onboardingGiftLine(coins: number, joinCost: number, reviewReward
   if (activities < 1) return plain;
 
   return (
-    `🎁 ${amount} سکه هدیه گرفتید — تقریباً ` +
-    `${toPersianDigits(String(activities))} بار شرکت در رویداد.\n\n`
+    `🎁 ${amount} سکه هدیه گرفتی؛ یعنی تقریباً ` +
+    `${toPersianDigits(String(activities))} بار رفتن سر یه برنامه.\n\n`
   );
 }
 
@@ -7752,8 +7741,8 @@ export function foundingLine(award: FoundingAward | null, max: number): string {
   // is capped at 500 is wrong on the one screen it is quoted from most.
   const total = toPersianDigits(String(max));
   return (
-    `${foundingTierMedal(award.tier)} شما نفر ${rank} از ${total} نفر اولِ پایه‌تم هستید.\n` +
-    `نشان «${foundingTierName(award.tier)}» برای همیشه روی پروفایل شما می‌ماند.\n\n`
+    `${foundingTierMedal(award.tier)} تو نفر ${rank} از ${total} نفر اولِ پایتمی.\n` +
+    `نشان «${foundingTierName(award.tier)}» برای همیشه روی پروفایلت می‌مونه.\n\n`
   );
 }
 
@@ -7790,31 +7779,31 @@ function costSummary(form: CreateEventForm): string {
  */
 export function joinAsk(preview: JoinPreview): { text: string; label: string } {
   const waiting = preview.status === 'WAITLISTED';
-  const lines = [`<b>درخواست شرکت در «${escapeHtml(preview.eventTitle)}»</b>`, ''];
+  const lines = [`<b>درخواست برای «${escapeHtml(preview.eventTitle)}»</b>`, ''];
 
   if (!preview.sameCity) {
     lines.push(
-      `📍 این رویداد در <b>${escapeHtml(preview.eventCityNameFa)}</b> برگزار می‌شود، ولی ` +
-        `شهری که در پروفایلتان ثبت کرده‌اید <b>${escapeHtml(preview.joinerCityNameFa)}</b> است.`,
+      `📍 این برنامه توی <b>${escapeHtml(preview.eventCityNameFa)}</b> برگزار میشه، ولی ` +
+        `شهری که توی پروفایلت زدی <b>${escapeHtml(preview.joinerCityNameFa)}</b> هست.`,
     );
   }
-  if (waiting) lines.push('⏳ ظرفیت تکمیل است و در نوبت انتظار ثبت می‌شوید.');
+  if (waiting) lines.push('⏳ جا پر شده و می‌ری تو صف انتظار.');
 
   if (preview.coins > 0) {
     if (lines.length > 2) lines.push('');
     lines.push(
-      `🪙 با فرستادن درخواست، <b>${toPersianDigits(String(preview.coins))} سکه</b> از موجودی ` +
-        `شما کم می‌شود.`,
+      `🪙 با فرستادن درخواست، <b>${toPersianDigits(String(preview.coins))} سکه</b> ` +
+        `ازت کم میشه.`,
       waiting
-        ? 'اگر تا شروع رویداد جایی برایتان باز نشود، این سکه خودکار برمی‌گردد.'
-        : 'اگر میزبان درخواست را رد کند یا تا مهلت پاسخ ندهد، این سکه خودکار برمی‌گردد.',
-      'ولی اگر خودتان درخواست را لغو کنید، برنمی‌گردد.',
+        ? 'اگه تا شروع برنامه جایی برات باز نشه، این سکه خودش برمی‌گرده.'
+        : 'اگه میزبان ردت کنه یا به‌موقع جواب نده، این سکه خودش برمی‌گرده.',
+      'ولی اگه خودت درخواست رو کنسل کنی، برنمی‌گرده.',
     );
   }
 
   return {
     text: lines.join('\n').trimEnd(),
-    label: waiting ? '⏳ بله، در نوبت انتظار ثبت کن' : '✅ بله، درخواست بده',
+    label: waiting ? '⏳ آره، برم تو صف' : '✅ آره، درخواست بده',
   };
 }
 
@@ -7834,26 +7823,24 @@ export function withdrawalCostLine(
 
   if (preview.price.coins > 0 || preview.price.trust > 0) {
     lines.push(
-      `<b>${toPersianDigits(String(preview.price.coins))} سکه</b> از موجودی شما کم ` +
-        `می‌شود و <b>${toPersianDigits(String(preview.price.trust))} امتیاز</b> از ` +
-        `امتیاز اعتمادتان کاسته می‌شود.`,
+      `<b>${toPersianDigits(String(preview.price.coins))} سکه</b> ازت کم میشه ` +
+        `و <b>${toPersianDigits(String(preview.price.trust))} امتیاز</b> از ` +
+        `امتیاز اعتمادت کم میشه.`,
     );
   }
 
   if (preview.joinCharge > 0) {
     const kept =
       `<b>${toPersianDigits(String(preview.joinCharge))} سکه‌ای</b> که برای این درخواست ` +
-      `دادید برنمی‌گردد.`;
+      `دادی برنمی‌گرده.`;
     lines.push(
       preview.status === 'PENDING'
-        ? `${kept} اگر لغو نکنید و میزبان درخواست را رد کند یا تا مهلت پاسخ ندهد، ` +
-            `این سکه خودکار برمی‌گردد.`
+        ? `${kept} اگه کنسل نکنی و میزبان ردت کنه یا به‌موقع جواب نده، ` + `این سکه خودش برمی‌گرده.`
         : preview.status === 'WAITLISTED'
-          ? `${kept} اگر لغو نکنید و تا شروع رویداد جایی برایتان باز نشود، ` +
-            `این سکه خودکار برمی‌گردد.`
+          ? `${kept} اگه کنسل نکنی و تا شروع برنامه جایی برات باز نشه، ` + `این سکه خودش برمی‌گرده.`
           : kept,
     );
   }
 
-  return lines.length === 0 ? 'این کار هزینه‌ای ندارد.' : lines.join('\n');
+  return lines.length === 0 ? 'این کار هزینه‌ای نداره.' : lines.join('\n');
 }

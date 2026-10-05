@@ -16,12 +16,12 @@ describe('seatsLine', () => {
   });
 
   it('says «ظرفیت تکمیل» rather than «۰ جای خالی»', () => {
-    expect(seatsLine(6, 6)).toBe('ظرفیت تکمیل');
+    expect(seatsLine(6, 6)).toBe('پر شد');
   });
 
   /** Overbooking is a CHECK violation, but a renderer must not print a negative. */
   it('floors at full rather than going negative', () => {
-    expect(seatsLine(6, 9)).toBe('ظرفیت تکمیل');
+    expect(seatsLine(6, 9)).toBe('پر شد');
   });
 
   it('never counts down from the unlimited sentinel', () => {

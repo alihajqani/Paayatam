@@ -158,7 +158,7 @@ describe('a takedown Telegram refuses', () => {
 
     await sync(processors);
 
-    expect(telegram.editChannelPost).toHaveBeenCalledWith(11, '🚫 این رویداد دیگر در دسترس نیست.');
+    expect(telegram.editChannelPost).toHaveBeenCalledWith(11, '🚫 این برنامه دیگه در دسترس نیست.');
   });
 
   it('does not edit a post Telegram deleted', async () => {
@@ -256,7 +256,7 @@ describe('a seats line that fell behind (v0.16.0)', () => {
     const [messageId, text, keyboard] = telegram.editChannelPost.mock.calls[0] ?? [];
     expect(messageId).toBe(4242);
     // Four accepted plus two pending is six of six.
-    expect(text).toContain('🔴 ظرفیت تکمیل');
+    expect(text).toContain('🔴 پر شد');
     expect(text).toContain('#رویداد_۲۵');
     // Without `reply_markup` the edit would strip «🤝 پایتم» off the post.
     expect((keyboard as unknown[][]).flat().length).toBeGreaterThan(0);

@@ -63,22 +63,22 @@ const steps: WizardStep<RedeemCodeForm>[] = [
      */
     prompt: (form) =>
       form.codeKind === 'referral'
-        ? 'کد معرفی کسی که شما را دعوت کرده بفرستید.\n\n' +
-          'بعد از شرکت در نخستین رویداد، هم شما و هم او سکه می‌گیرید.'
-        : 'کد هدیه را بفرستید.\n\n' +
-          'همان‌طور که دریافت کرده‌اید بنویسید؛ بزرگی و کوچکی حروف و خط تیره مهم نیست.',
+        ? 'کد دعوت کسی که دعوتت کرده رو بفرست.\n\n' +
+          'بعد از اولین برنامه‌ای که بری، هم تو و هم اون سکه می‌گیرید.'
+        : 'کد هدیه رو بفرست.\n\n' +
+          'همون‌طور که گرفتی بنویس؛ بزرگی و کوچیکی حروف و خط تیره مهم نیست.',
     accept: (input: WizardInput) => {
-      if (input.kind !== 'text') return { ok: false, error: 'کد را بنویسید و بفرستید.' };
+      if (input.kind !== 'text') return { ok: false, error: 'کد رو بنویس و بفرست.' };
       const value = input.value.trim();
 
       // Two sentences rather than one, because the two mistakes have different
       // fixes: a short answer is usually half a code, and a long one is usually
       // a whole sentence pasted around it.
       if (value.length < MIN_LENGTH) {
-        return { ok: false, error: 'این کد کوتاه‌تر از آن است که درست باشد. دوباره نگاه کنید.' };
+        return { ok: false, error: 'این کد کوتاه‌تر از اونه که درست باشه. دوباره نگاه کن.' };
       }
       if (value.length > MAX_LENGTH) {
-        return { ok: false, error: 'فقط خودِ کد را بفرستید، بدون توضیح دیگری.' };
+        return { ok: false, error: 'فقط خودِ کد رو بفرست، بدون توضیح اضافه.' };
       }
 
       return { ok: true, patch: { code: value } };

@@ -42,7 +42,7 @@ describe('which steps may be skipped', () => {
       if (step === null) throw new Error(`no step ${key}`);
       expect(apply(step, { kind: 'callback', action: 'skip', value: '' }, {})).toEqual({
         ok: false,
-        error: 'این مورد را نمی‌توان رد کرد.',
+        error: 'از این مرحله نمیشه گذشت.',
       });
     }
   });
@@ -374,7 +374,7 @@ describe('the province prompt', () => {
   const prov = editProfileWizard.steps.find((step) => step.key === 'prov');
 
   it('says nothing extra by default', () => {
-    expect(prov?.prompt({})).toBe('در کدام استان هستید؟ (اجباری)');
+    expect(prov?.prompt({})).toBe('کدوم استانی؟ (اجباری)');
   });
 
   /**
@@ -384,7 +384,7 @@ describe('the province prompt', () => {
   it('explains the two open cities when the caller asks it to', () => {
     const text = prov?.prompt({ locationNotice: true }) ?? '';
 
-    expect(text).toContain('در کدام استان هستید؟');
+    expect(text).toContain('کدوم استانی؟');
     expect(text).toContain('تهران و مشهد');
     expect(text).toContain('عمدی');
   });

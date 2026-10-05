@@ -12,8 +12,8 @@ import type { ParticipantStatus } from './contracts/participation';
  * catalogue, the channel renderer and the admin panel — and `shared` is the only
  * package all of them already depend on.
  *
- * Wording follows `docs/glossary-fa.md`: «رویداد», polite plural, no exclamation
- * marks.
+ * Wording follows `docs/bot-voice-fa.md` (v0.23.0): spoken Persian, «تو», and
+ * «برنامه» for an event. It replaced the glossary's polite plural.
  */
 
 /**
@@ -38,12 +38,12 @@ import type { ParticipantStatus } from './contracts/participation';
  * other.
  */
 export const EVENT_DISCLAIMER_FA =
-  'پایه‌تَم هیچ مسئولیتی در قبال برگزاری این رویداد و آنچه در آن رخ می‌دهد ندارد. ' +
-  'مسئولیت حضور و تصمیم‌گیری با خود شماست؛ لطفاً احتیاط کنید.';
+  'پایتم هیچ مسئولیتی در قبال برگزاری این برنامه و اتفاق‌هایی که توش می‌افته نداره. ' +
+  'تصمیم رفتن و مسئولیتش با خودته؛ حواست به خودت باشه.';
 
 /** The one-line form, for a channel post and anywhere else space is the constraint. */
 export const EVENT_DISCLAIMER_SHORT_FA =
-  '⚠️ پایه‌تَم مسئولیتی در قبال این رویداد ندارد؛ لطفاً احتیاط کنید.';
+  '⚠️ پایتم مسئولیتی در قبال این برنامه نداره؛ حواست به خودت باشه.';
 
 /**
  * What each participation status is called, in Persian — **from each side**.
@@ -67,28 +67,28 @@ export const EVENT_DISCLAIMER_SHORT_FA =
  * `CANCELLED_BY_HOST` at somebody.
  */
 export const PARTICIPANT_STATUS_GUEST_FA: Record<ParticipantStatus, string> = {
-  PENDING: 'در انتظار پاسخ میزبان',
-  WAITLISTED: 'نوبت انتظار',
-  ACCEPTED: 'پذیرفته شد',
-  REJECTED: 'رد شد',
-  EXPIRED: 'مهلت میزبان گذشت',
-  CANCELLED_BY_PARTICIPANT: 'شما لغو کردید',
-  CANCELLED_BY_HOST: 'میزبان لغو کرد',
+  PENDING: 'منتظر جواب میزبان',
+  WAITLISTED: 'توی صف انتظار',
+  ACCEPTED: 'قبول شدی',
+  REJECTED: 'جور نشد',
+  EXPIRED: 'میزبان به‌موقع جواب نداد',
+  CANCELLED_BY_PARTICIPANT: 'خودت کنسل کردی',
+  CANCELLED_BY_HOST: 'میزبان کنسل کرد',
   COMPLETED: 'برگزار شد',
-  NO_SHOW: 'غایب ثبت شد',
+  NO_SHOW: '«نیومد» ثبت شد',
 };
 
 /** The same nine statuses, as the host of the event reads them. */
 export const PARTICIPANT_STATUS_HOST_FA: Record<ParticipantStatus, string> = {
-  PENDING: 'در انتظار پاسخ شما',
-  WAITLISTED: 'نوبت انتظار',
-  ACCEPTED: 'پذیرفته‌شده',
+  PENDING: 'منتظر جوابته',
+  WAITLISTED: 'توی صف انتظار',
+  ACCEPTED: 'قبول شده',
   REJECTED: 'رد شده',
-  EXPIRED: 'مهلت پاسخ گذشت',
-  CANCELLED_BY_PARTICIPANT: 'خودش لغو کرد',
-  CANCELLED_BY_HOST: 'شما لغو کردید',
+  EXPIRED: 'وقت جواب گذشت',
+  CANCELLED_BY_PARTICIPANT: 'خودش کنسل کرد',
+  CANCELLED_BY_HOST: 'خودت کنسل کردی',
   COMPLETED: 'برگزار شد',
-  NO_SHOW: 'غایب',
+  NO_SHOW: 'نیومد',
 };
 
 /**
@@ -103,9 +103,9 @@ export const EVENT_STATUS_FA: Record<EventStatus, string> = {
   PUBLISHED: 'منتشرشده',
   HIDDEN: 'پنهان',
   REJECTED: 'رد شده',
-  CANCELLED_BY_HOST: 'لغو شده',
+  CANCELLED_BY_HOST: 'کنسل شده',
   ONGOING: 'در حال برگزاری',
   COMPLETED: 'برگزار شده',
-  EXPIRED: 'منقضی',
+  EXPIRED: 'وقتش گذشته',
   DELETED: 'حذف شده',
 };

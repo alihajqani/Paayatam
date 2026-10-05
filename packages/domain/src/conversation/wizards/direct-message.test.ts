@@ -28,7 +28,7 @@ describe('the direct message prompt', () => {
 
   it('keeps the warning about contact details in every mode', () => {
     for (const mode of ['new', 'reply', 'guest']) {
-      expect(promptFor(mode), mode).toContain('مسئولیت خودتان');
+      expect(promptFor(mode), mode).toContain('مسئولیت خودته');
     }
   });
 

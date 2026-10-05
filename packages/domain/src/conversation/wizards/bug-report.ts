@@ -59,7 +59,7 @@ const steps: WizardStep<BugReportForm>[] = [
     key: 'what',
     ui: 'text',
     prompt: () =>
-      'چه مشکلی پیش آمد؟ تا جای ممکن دقیق بنویسید — چه کاری می‌کردید، چه انتظاری داشتید، و چه چیزی دیدید.',
+      'چه مشکلی پیش اومد؟ تا جایی که می‌تونی دقیق بنویس: داشتی چی کار می‌کردی، انتظار چی رو داشتی و چی دیدی.',
     accept: (input: WizardInput) => {
       if (input.kind !== 'text') {
         // A photo arriving here is not a mistake worth scolding: the user has
@@ -68,15 +68,15 @@ const steps: WizardStep<BugReportForm>[] = [
         // of screenshots altogether — the thing this form exists to accept.
         return {
           ok: false,
-          error: 'ابتدا مشکل را بنویسید. در گام بعد می‌توانید تصویر بفرستید.',
+          error: 'اول مشکل رو بنویس. توی مرحلهٔ بعد می‌تونی عکس بفرستی.',
         };
       }
       const value = input.value.trim();
       if (value.length < MIN_DESCRIPTION) {
-        return { ok: false, error: 'توضیح باید دست‌کم ۱۰ نویسه باشد.' };
+        return { ok: false, error: 'توضیح باید دست‌کم ۱۰ حرف باشه.' };
       }
       if (value.length > MAX_DESCRIPTION) {
-        return { ok: false, error: 'توضیح نباید بیش از ۲۰۰۰ نویسه باشد.' };
+        return { ok: false, error: 'توضیح نباید بیشتر از ۲۰۰۰ حرف باشه.' };
       }
       return { ok: true, patch: { description: value } };
     },
@@ -88,10 +88,10 @@ const steps: WizardStep<BugReportForm>[] = [
     prompt: (form) => {
       const count = form.screenshotFileIds?.length ?? 0;
       return count === 0
-        ? 'اگر تصویری از مشکل دارید بفرستید. می‌توانید چند تصویر پشت هم بفرستید.\n\n' +
-            'برای فرستادن گزارش بدون تصویر، «رد کردن» را بزنید.'
-        : `${count} تصویر دریافت شد. می‌توانید تصویر دیگری بفرستید، ` +
-            `یا برای ثبت گزارش «رد کردن» را بزنید.`;
+        ? 'اگه از مشکل عکس داری بفرست. می‌تونی چند تا عکس پشت هم بفرستی.\n\n' +
+            'برای فرستادن گزارش بدون عکس، «فعلاً نه» رو بزن.'
+        : `${count} عکس رسید. می‌تونی عکس دیگه‌ای بفرستی، ` +
+            `یا اگه عکس دیگه‌ای نداری «فعلاً نه» رو بزن تا گزارش ثبت بشه.`;
     },
     /**
      * A photo **adds** rather than answers.
@@ -112,13 +112,13 @@ const steps: WizardStep<BugReportForm>[] = [
       if (input.kind !== 'photo') {
         return {
           ok: false,
-          error: 'یک تصویر بفرستید، یا برای ثبت گزارش «رد کردن» را بزنید.',
+          error: 'یه عکس بفرست، یا برای ثبت گزارش «فعلاً نه» رو بزن.',
         };
       }
 
       const existing = form.screenshotFileIds ?? [];
       if (existing.length >= MAX_SCREENSHOTS) {
-        return { ok: false, error: 'بیشتر از ۱۰ تصویر نمی‌توان فرستاد.' };
+        return { ok: false, error: 'بیشتر از ۱۰ عکس نمیشه فرستاد.' };
       }
       // A resent identical photo is one screenshot, not two: Telegram gives the
       // same `file_id` for the same file to the same bot, and a duplicate here

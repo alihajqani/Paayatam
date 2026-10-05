@@ -68,8 +68,8 @@ export function formatDiscovered(
 ): string {
   if (lines.length === 0) {
     return (
-      `<b>رویدادهای نزدیک شما</b>\n\n` +
-      `با این فیلترها رویدادی پیدا نشد. فیلترها را باز کنید و بازه یا دسته را عوض کنید.`
+      `<b>برنامه‌های اطرافت</b>\n\n` +
+      `با این فیلترها برنامه‌ای پیدا نشد. فیلترها رو باز کن و بازه یا دسته رو عوض کن.`
     );
   }
 
@@ -101,7 +101,7 @@ export function formatDiscovered(
   });
 
   return (
-    `<b>رویدادهای نزدیک شما</b>\n\n` +
+    `<b>برنامه‌های اطرافت</b>\n\n` +
     `${entries.join(`\n${ENTRY_SEPARATOR}\n`)}\n\n` +
     `<i>${escapeHtml(EVENT_DISCLAIMER_SHORT_FA)}</i>`
   );

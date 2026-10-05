@@ -159,7 +159,7 @@ describe('the command menu', () => {
     expect(Object.keys(COMMAND_ICONS).sort()).toEqual([...commands].sort());
     const icons = Object.values(COMMAND_ICONS);
     expect(new Set(icons).size).toBe(icons.length);
-    expect(commandButtonLabel('discover')).toBe('🔎 رویدادهای نزدیک شما');
+    expect(commandButtonLabel('discover')).toBe('🔎 برنامه‌های اطرافت');
   });
 
   /** `setMyCommands` and `/help` publish the description, which stays text only. */

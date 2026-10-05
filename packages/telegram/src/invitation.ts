@@ -41,7 +41,7 @@ export function renderEventInvitation(content: EventInvitationContent): string {
       : `${escapeHtml(content.cityName)}، ${escapeHtml(content.districtName)}`;
 
   return [
-    '✉️ یک دعوت‌نامه برای شما',
+    '✉️ یه دعوت‌نامه برای تو',
     '',
     // Above the event (report 8). This message is an *advertisement* somebody paid
     // to put in a stranger's inbox, which makes it the place the disclaimer is
@@ -67,8 +67,8 @@ export function renderEventInvitation(content: EventInvitationContent): string {
     // Said in the message rather than only in a settings screen: somebody who does
     // not want these should not have to go looking for how to stop them. The
     // switch is on the settings board, not the profile-edit one it used to name.
-    `<i>اگر نمی‌خواهید دعوت‌نامه دریافت کنید، از «${MAIN_MENU_LABEL}» ← ` +
+    `<i>اگه نمی‌خوای دعوت‌نامه بگیری، از «${MAIN_MENU_LABEL}» ← ` +
       `«${menuPathFor('settings') ?? 'حساب من'}» ← تنظیمات، «دریافت دعوت از میزبان‌ها» ` +
-      `را خاموش کنید.</i>`,
+      `رو خاموش کن.</i>`,
   ].join('\n');
 }

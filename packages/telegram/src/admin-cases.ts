@@ -68,7 +68,7 @@ export const CASE_TRIGGER_FA: Record<string, string> = {
  */
 export function caseTriggerFa(trigger: string, subjectType: string): string {
   if (trigger === 'DISPUTE') {
-    return subjectType === 'EVENT' ? 'گزارش «میزبان نیامد»' : 'اعتراض «من حاضر بودم»';
+    return subjectType === 'EVENT' ? 'گزارش «میزبان نیومد»' : 'اعتراض «من اومده بودم»';
   }
   return CASE_TRIGGER_FA[trigger] ?? trigger;
 }

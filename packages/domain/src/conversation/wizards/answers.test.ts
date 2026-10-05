@@ -17,7 +17,7 @@ describe('a refused text answer', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain('«ab»');
-    expect(result.error).toContain('۲ نویسه');
+    expect(result.error).toContain('۲ حرف');
     expect(result.error).toContain('نام رویداد');
   });
 
@@ -32,7 +32,7 @@ describe('a refused text answer', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).not.toContain('«»');
-    expect(result.error).toContain('چیزی در پیام شما نبود');
+    expect(result.error).toContain('چیزی توی پیامت نبود');
   });
 
   it('says how much too long, and does not echo the whole thing', () => {
@@ -41,8 +41,8 @@ describe('a refused text answer', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toContain('۱۲۰ نویسه');
-    // «۴۰ نویسه کوتاه‌ترش کنید» — the number that turns a rule into an action.
+    expect(result.error).toContain('۱۲۰ حرف');
+    // «۴۰ حرف کوتاه‌ترش کن» — the number that turns a rule into an action.
     expect(result.error).toContain('۴۰');
     expect(result.error).not.toContain(long);
   });
@@ -55,7 +55,7 @@ describe('a refused text answer', () => {
    */
   it('tells a tap and a photo apart', () => {
     expect(wrongShape(tap('FREE'), 'نام رویداد')).toContain('دکمه');
-    expect(wrongShape(photo, 'نام رویداد')).toContain('تصویر');
+    expect(wrongShape(photo, 'نام رویداد')).toContain('عکس');
   });
 
   it('refuses a tap where text was asked for', () => {

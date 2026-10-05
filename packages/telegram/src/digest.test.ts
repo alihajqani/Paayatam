@@ -46,7 +46,7 @@ describe('buildDigest', () => {
   it('says how many it did not show, in Persian digits', () => {
     const text = buildDigest({ title: 'ع', empty: '-', entries: entries(63) });
 
-    expect(text).toContain('و ۴۳ مورد دیگر');
+    expect(text).toContain('و ۴۳ مورد دیگه');
   });
 
   it('trims from the end, so the most relevant entries survive', () => {

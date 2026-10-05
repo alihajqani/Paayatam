@@ -138,7 +138,7 @@ describe('errors', () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: { code: 'VALIDATION_FAILED' } }, 400));
 
     await expect(request('/settings/x', { method: 'POST' })).rejects.toMatchObject({
-      messageFa: 'اطلاعات واردشده کامل یا معتبر نیست.',
+      messageFa: 'اطلاعاتی که فرستادی کامل یا درست نیست.',
     });
   });
 

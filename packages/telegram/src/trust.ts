@@ -46,15 +46,15 @@ export interface TrustLine {
 }
 
 const TRUST_TYPE_FA: Record<string, string> = {
-  INITIAL: 'امتیاز آغازین',
+  INITIAL: 'امتیاز شروع',
   PROFILE_COMPLETE: 'کامل کردن پروفایل',
-  ATTENDANCE: 'شرکت در رویداد',
-  REVIEW: 'نظری که دریافت کردید',
-  CANCELLATION: 'لغو درخواست',
-  NO_SHOW: 'غیبت بدون اطلاع',
+  ATTENDANCE: 'اومدن سر برنامه',
+  REVIEW: 'نظری که گرفتی',
+  CANCELLATION: 'کنسل کردن',
+  NO_SHOW: 'نیومدنِ بی‌خبر',
   MODERATION: 'تصمیم پشتیبانی',
   REHABILITATION: 'بازیابی امتیاز',
-  ADMIN_ADJUSTMENT: 'اصلاح توسط پشتیبانی',
+  ADMIN_ADJUSTMENT: 'اصلاح از طرف پشتیبانی',
   REVERSAL: 'برگشت',
 };
 
@@ -75,16 +75,16 @@ export function formatTrust(
 
     return (
       `<b>${delta}</b> — ${escapeHtml(trustLabelFa(line.type))}\n` +
-      `  🗓 ${formatJalali(line.createdAt)} · امتیاز پس از آن: ${toPersianDigits(
+      `  🗓 ${formatJalali(line.createdAt)} · امتیاز بعدش: ${toPersianDigits(
         String(line.scoreAfter),
       )}`
     );
   });
 
   const heading =
-    `<b>امتیاز اعتماد شما</b>\n\n⭐️ ${toPersianDigits(String(score))} از ۱۰۰\n\n` +
-    `<i>این امتیاز با شرکت در رویدادها و نظرهایی که می‌گیرید بالا می‌رود، ` +
-    `و با لغو دیرهنگام یا غیبت پایین می‌آید.</i>`;
+    `<b>امتیاز اعتمادت</b>\n\n⭐️ ${toPersianDigits(String(score))} از ۱۰۰\n\n` +
+    `<i>این امتیاز با اومدن سر برنامه‌ها و نظرهایی که می‌گیری بالا میره، ` +
+    `و با کنسل کردنِ دیرهنگام یا نیومدن پایین میاد.</i>`;
 
   /**
    * «تغییرهای اخیر» only on the first page.
@@ -93,8 +93,8 @@ export function formatTrust(
    * about what the reader is looking at — the same rule `formatWallet` follows.
    */
   const history = buildDigest({
-    title: page === 0 ? 'تغییرهای اخیر' : `تغییرها — صفحهٔ ${toPersianDigits(String(page + 1))}`,
-    empty: page === 0 ? 'هنوز تغییری ثبت نشده است.' : 'تغییر دیگری نیست.',
+    title: page === 0 ? 'آخرین تغییرها' : `تغییرها، صفحهٔ ${toPersianDigits(String(page + 1))}`,
+    empty: page === 0 ? 'هنوز تغییری ثبت نشده.' : 'دیگه تغییری نیست.',
     entries,
   });
 

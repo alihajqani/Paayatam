@@ -38,10 +38,10 @@ describe('the wallet ledger pages', () => {
 
   /** «تراکنش‌های اخیر» on page three would be a heading that lies. */
   it('stops calling the rows recent once the reader has paged on', () => {
-    expect(formatWallet(20, [LINE], 0)).toContain('تراکنش‌های اخیر');
+    expect(formatWallet(20, [LINE], 0)).toContain('آخرین تغییرهای سکه');
 
     const later = formatWallet(20, [LINE], 2);
-    expect(later).not.toContain('تراکنش‌های اخیر');
+    expect(later).not.toContain('آخرین تغییرهای سکه');
     expect(later).toContain('صفحهٔ ۳');
   });
 
@@ -51,8 +51,8 @@ describe('the wallet ledger pages', () => {
 
   /** A page past the end is an empty page, not «هنوز تراکنشی ندارید». */
   it('does not tell a paging reader they have never transacted', () => {
-    expect(formatWallet(20, [], 3)).toContain('تراکنش دیگری نیست');
-    expect(formatWallet(20, [], 0)).toContain('هنوز تراکنشی ندارید');
+    expect(formatWallet(20, [], 3)).toContain('دیگه چیزی نیست');
+    expect(formatWallet(20, [], 0)).toContain('هنوز تغییری توی سکه‌هات نبوده');
   });
 });
 

@@ -20,7 +20,7 @@ describe('a rejected request', () => {
   it('says how many coins came back', () => {
     const message = render(TEMPLATES.PARTICIPATION_REJECTED, { ...payload, coinsRefunded: 5 });
     expect(message?.text).toContain('۵ سکه');
-    expect(message?.text).toContain('بازگشت');
+    expect(message?.text).toContain('برگشت تو حسابت');
   });
 
   /**
@@ -31,13 +31,13 @@ describe('a rejected request', () => {
     for (const coinsRefunded of [0, undefined]) {
       const message = render(TEMPLATES.PARTICIPATION_REJECTED, { ...payload, coinsRefunded });
       expect(message?.text).not.toContain('سکه');
-      expect(message?.text).toContain('پذیرفته نشد');
+      expect(message?.text).toContain('جور نشد');
     }
   });
 
   /** A payload from an older deploy carries no such key, and must still render. */
   it('renders a payload written before the field existed', () => {
-    expect(render(TEMPLATES.PARTICIPATION_REJECTED, payload)?.text).toContain('پذیرفته نشد');
+    expect(render(TEMPLATES.PARTICIPATION_REJECTED, payload)?.text).toContain('جور نشد');
   });
 });
 
@@ -54,7 +54,7 @@ describe('an expired request', () => {
   it('says the host never answered, not that the guest was refused', () => {
     const text = String(render(TEMPLATES.PARTICIPATION_EXPIRED, payload)?.text);
 
-    expect(text).toContain('پاسخی نداد');
+    expect(text).toContain('جوابی نداد');
     // «رد شد» would attribute a decision to a host who made none.
     expect(text).not.toContain('رد شد');
   });
@@ -62,7 +62,7 @@ describe('an expired request', () => {
   it('names the coins that came back', () => {
     const message = render(TEMPLATES.PARTICIPATION_EXPIRED, { ...payload, coinsRefunded: 5 });
     expect(message?.text).toContain('۵ سکه');
-    expect(message?.text).toContain('بازگشت');
+    expect(message?.text).toContain('برگشت تو حسابت');
   });
 
   /** Joining is free until an operator prices it, and «۰ سکه» reads as a bug. */
@@ -82,9 +82,9 @@ describe('an expired request', () => {
         ?.text,
     );
     expect(text).toContain('باز نشد');
-    expect(text).toContain('لیست انتظار');
+    expect(text).toContain('صف انتظار');
     expect(text).toContain('۲۰ سکه');
-    expect(text).not.toContain('پاسخی نداد');
+    expect(text).not.toContain('جوابی نداد');
   });
 });
 
@@ -108,11 +108,11 @@ describe('the profile card', () => {
   /** Empty is a sentence, not a blank field: the blank reads as a broken screen. */
   it('says so plainly when there are none', () => {
     const message = render(TEMPLATES.BOT_PROFILE, { ...payload, interests: '' });
-    expect(message?.text).toContain('هنوز چیزی انتخاب نکرده‌اید');
+    expect(message?.text).toContain('هنوز چیزی انتخاب نکردی');
   });
 
   it('renders a payload written before the field existed', () => {
-    expect(render(TEMPLATES.BOT_PROFILE, payload)?.text).toContain('هنوز چیزی انتخاب نکرده‌اید');
+    expect(render(TEMPLATES.BOT_PROFILE, payload)?.text).toContain('هنوز چیزی انتخاب نکردی');
   });
 
   /** The founding line wears its tier's medal, not a ticket shared by all three. */
@@ -196,7 +196,7 @@ describe('the hosting settlement', () => {
 
   it('omits the deposit line when it was already returned', () => {
     const message = render(TEMPLATES.HOST_SETTLED, { ...payload, refund: 0 });
-    expect(message?.text).not.toContain('سپردهٔ ثبت رویداد');
+    expect(message?.text).not.toContain('سپردهٔ ثبت برنامه');
     expect(message?.text).toContain('۸ سکه');
   });
 
@@ -217,7 +217,7 @@ describe('the comeback grant', () => {
   it('names the grant and the balance it produced', () => {
     const message = render(TEMPLATES.COMEBACK_GRANTED, { coins: 20, balance: 20 });
     expect(message?.text).toContain('۲۰ سکه');
-    expect(message?.text).toContain('موجودی');
+    expect(message?.text).toContain('سکه داری');
   });
 });
 
@@ -232,9 +232,9 @@ describe('the comeback grant', () => {
 describe('a referral that qualified at the monthly cap', () => {
   it('confirms the referral without promising coins', () => {
     const message = render(TEMPLATES.REFERRAL_QUALIFIED_REFERRER_CAPPED, {});
-    expect(message?.text).toContain('شرکت کرد');
+    expect(message?.text).toContain('اولین برنامه‌ش');
     expect(message?.text).toContain('سقف');
-    expect(message?.text).not.toContain('اضافه شد');
+    expect(message?.text).not.toContain('اومد تو حسابت');
   });
 });
 
@@ -255,9 +255,9 @@ describe('asking the host who came', () => {
       settlesAt: '2026-09-21T14:30:00.000Z',
     });
 
-    expect(message?.text).toContain('همه آمدند');
+    expect(message?.text).toContain('همه اومدن');
     expect(message?.text).toContain('۳');
-    expect(message?.text).toContain('غایب بود');
+    expect(message?.text).toContain('🚫 نیومد');
     // 14:30 UTC is 18:00 in Tehran: the deadline is a Tehran wall clock.
     expect(message?.text).toContain('۱۸:۰۰');
     expect((message?.keyboard ?? []).flat().map((b) => b.callbackData)).toEqual([`ev:who:${E}`]);
@@ -270,8 +270,8 @@ describe('asking the host who came', () => {
       acceptedCount: 3,
     });
 
-    expect(message?.text).toContain('همه آمدند');
+    expect(message?.text).toContain('همه اومدن');
     expect(message?.text).not.toContain('۱۸:۰۰');
-    expect(message?.text).toContain('غایب بود');
+    expect(message?.text).toContain('🚫 نیومد');
   });
 });

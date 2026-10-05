@@ -183,8 +183,8 @@ describe('the consent summary', () => {
     expect(text).toContain('۱۸ سال');
     expect(text).toContain('پیام مستقیم ناشناس نیست');
     expect(text).toContain('۱۸۰ روز');
-    expect(text).toContain('برگشت داده نمی‌شود');
-    expect(text).toContain('جای متن کامل را نمی‌گیرد');
+    expect(text).toContain('برنمی‌گرده');
+    expect(text).toContain('جای متن کامل رو نمی‌گیره');
   });
 
   it('says what changed when a new version is being accepted', () => {
@@ -193,7 +193,7 @@ describe('the consent summary', () => {
       changes: [{ title: 'حریم خصوصی', changeSummary: 'مدت نگهداری پیام‌ها ۱۸۰ روز شد' }],
     });
 
-    expect(text).toContain('چه چیزی تغییر کرده است');
+    expect(text).toContain('چی عوض شده');
     expect(text).toContain('مدت نگهداری پیام‌ها ۱۸۰ روز شد');
   });
 
@@ -214,7 +214,7 @@ describe('the consent summary', () => {
  */
 describe('the standing acceptances', () => {
   it('says so plainly when there are none', () => {
-    expect(formatStanding([])).toBe('سندی ثبت نشده است.');
+    expect(formatStanding([])).toBe('سندی ثبت نشده.');
   });
 
   it('lists each document with the date it was accepted', () => {

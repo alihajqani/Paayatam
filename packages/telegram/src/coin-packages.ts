@@ -97,18 +97,18 @@ export function formatCoinPackages(input: {
   balance: number;
 }): string {
   const heading =
-    `<b>خرید سکه</b>\n\n` + `موجودی شما: <b>${toPersianDigits(String(input.balance))} سکه</b>`;
+    `<b>خرید سکه</b>\n\n` + `الان <b>${toPersianDigits(String(input.balance))} سکه</b> داری.`;
 
   if (input.packages.length === 0) {
     return (
       `${heading}\n\n` +
-      `فروش سکه فعلاً باز نیست. اگر سکه لازم دارید، به ${escapeHtml(input.contact)} پیام بدهید.`
+      `فروش سکه فعلاً باز نیست. اگه سکه لازم داری، به ${escapeHtml(input.contact)} پیام بده.`
     );
   }
 
   const anchor =
     input.referencePrice > 0
-      ? `\n\nهر سکه حدود ${toPersianAmount(input.referencePrice)} تومان می‌ارزد.`
+      ? `\n\nهر سکه حدود ${toPersianAmount(input.referencePrice)} تومان می‌ارزه.`
       : '';
 
   const table = input.packages.map((entry) => packageLine(entry, input.referencePrice)).join('\n');
@@ -121,11 +121,11 @@ export function formatCoinPackages(input: {
    * receipt and the thing that stops one transfer being credited twice.
    */
   const how =
-    `<b>چطور بخرید</b>\n` +
-    `۱. به ${escapeHtml(input.contact)} پیام بدهید و بگویید کدام بسته را می‌خواهید.\n` +
-    `۲. شمارهٔ کارت را همان‌جا می‌گیرید و مبلغ را کارت‌به‌کارت می‌کنید.\n` +
-    `۳. شمارهٔ پیگیریِ تراکنش را بفرستید. پس از دیده‌شدن واریز، سکه‌ها به ` +
-    `حسابتان اضافه می‌شود و در «کیف پول» می‌بینیدشان.`;
+    `<b>چطوری بخری</b>\n` +
+    `۱. به ${escapeHtml(input.contact)} پیام بده و بگو کدوم بسته رو می‌خوای.\n` +
+    `۲. شمارهٔ کارت رو همون‌جا می‌گیری و مبلغ رو کارت‌به‌کارت می‌کنی.\n` +
+    `۳. شمارهٔ پیگیری رو بفرست. واریز که دیده شد، سکه‌ها میان تو ` +
+    `حسابت و توی «کیف پول» می‌بینیشون.`;
 
   /**
    * The safety line, and why it is on the screen rather than in a policy page.
@@ -136,8 +136,8 @@ export function formatCoinPackages(input: {
    * else it could be written.
    */
   const safety =
-    `<i>پرداخت بیرون از ربات انجام می‌شود. پایه‌تَم هرگز شمارهٔ کارت، رمز یا ` +
-    `کد پیامکی شما را نمی‌پرسد.</i>`;
+    `<i>پرداخت بیرون از ربات انجام میشه. پایتم هیچ‌وقت شمارهٔ کارت، رمز یا ` +
+    `کد پیامکی‌ت رو نمی‌پرسه.</i>`;
 
   return `${heading}${anchor}\n\n${table}\n\n${how}\n\n${safety}`;
 }

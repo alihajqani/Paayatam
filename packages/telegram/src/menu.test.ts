@@ -48,8 +48,8 @@ describe('the bottom keyboard resolves every label it has ever drawn', () => {
   });
 
   it('tells a category apart from a command', () => {
-    expect(menuGroupKeyFor('➕ ساختن رویداد')).toBeNull();
-    expect(menuCommandFor('🎟 رویدادها')).toBeNull();
+    expect(menuGroupKeyFor('➕ ساختن برنامه')).toBeNull();
+    expect(menuCommandFor('🎟 برنامه‌ها')).toBeNull();
     expect(menuGroupKeyFor('سلام')).toBeNull();
   });
 
@@ -63,7 +63,7 @@ describe('the bottom keyboard resolves every label it has ever drawn', () => {
   });
 
   it('tolerates the whitespace a client may add', () => {
-    expect(menuCommandFor('  ➕ ساختن رویداد  ')).toBe('create_event');
+    expect(menuCommandFor('  ➕ ساختن برنامه  ')).toBe('create_event');
   });
 
   it('is null for anything somebody actually typed', () => {
@@ -102,8 +102,8 @@ describe('menuPathFor', () => {
    * user looking for buttons that do not exist, on the first screen they read.
    */
   it('names the category for the two verbs too, because their buttons are gone', () => {
-    expect(menuPathFor('create_event')).toBe('🎟 رویدادها');
-    expect(menuPathFor('discover')).toBe('🎟 رویدادها');
+    expect(menuPathFor('create_event')).toBe('🎟 برنامه‌ها');
+    expect(menuPathFor('discover')).toBe('🎟 برنامه‌ها');
   });
 
   /**
@@ -169,14 +169,19 @@ describe('menuLabelFor', () => {
   });
 
   /**
-   * v0.18.4 renamed «فعالیت» to «رویداد». A reply keyboard lives on the client,
-   * so the old labels still resolve — and the copy names the new ones.
+   * v0.18.4 renamed «فعالیت» to «رویداد», and v0.23.0 «رویداد» to «برنامه». A
+   * reply keyboard lives on the client, so both generations of old labels still
+   * resolve — and the copy names the new ones.
    */
-  it('still resolves the labels from before «رویداد», and names the new ones', () => {
+  it('still resolves the labels from before «برنامه», and names the new ones', () => {
     expect(menuCommandFor('🎟 فعالیت‌های من')).toBe('myevents');
     expect(menuCommandFor('➕ ساختن فعالیت')).toBe('create_event');
     expect(menuGroupKeyFor('🎟 فعالیت‌ها')).toBe('ev');
-    expect(menuLabelFor('myevents')).toBe('🎟 رویدادهای من');
+    expect(menuCommandFor('🎟 رویدادهای من')).toBe('myevents');
+    expect(menuCommandFor('➕ ساختن رویداد')).toBe('create_event');
+    expect(menuCommandFor('🔎 دیدن رویدادها')).toBe('discover');
+    expect(menuGroupKeyFor('🎟 رویدادها')).toBe('ev');
+    expect(menuLabelFor('myevents')).toBe('🎟 برنامه‌های من');
   });
 
   /** v0.18.5 did the same to «نمایه», which is «پروفایل» now. */
@@ -313,9 +318,9 @@ describe('the main-menu button', () => {
 describe('the menu root’s status line', () => {
   it('names what is waiting, and leaves out what is zero', () => {
     const text = menuRootText({ pendingForMe: 2, reviewsOwed: 0, balance: 45 });
-    expect(text).toContain('۲ درخواست منتظر پاسخ شما');
+    expect(text).toContain('۲ درخواست منتظر جوابته');
     expect(text).toContain('۴۵ سکه');
-    expect(text).not.toContain('نظر مانده');
+    expect(text).not.toContain('نظر مونده');
   });
 
   it('renders exactly as before without a status, or with nothing to say', () => {
@@ -324,7 +329,7 @@ describe('the menu root’s status line', () => {
 
   it('reaches the rendered menu from the payload', () => {
     const message = render(TEMPLATES.BOT_MENU, { pendingForMe: 0, reviewsOwed: 1, balance: 3 });
-    expect(message?.text).toContain('۱ نظر مانده');
+    expect(message?.text).toContain('۱ نظر مونده');
     expect(message?.text).toContain('۳ سکه');
   });
 });

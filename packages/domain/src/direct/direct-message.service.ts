@@ -320,7 +320,7 @@ export class DirectMessageService {
         publicId: row.publicId,
         eventPublicId: row.event.publicId,
         eventTitle: row.event.title,
-        senderDisplayName: row.sender.profile?.displayName ?? 'کاربر پایه‌تَم',
+        senderDisplayName: row.sender.profile?.displayName ?? 'کاربر پایتم',
         senderPublicId: row.sender.publicId,
         // `Buffer.from` because Prisma hands back a `Uint8Array` and the cipher
         // wants a `Buffer` — the same conversion `ChatService.readMessages` makes,
@@ -390,7 +390,7 @@ export class DirectMessageService {
 
     return {
       userPublicId: message.sender.publicId,
-      displayName: message.sender.profile?.displayName ?? 'کاربر پایه‌تَم',
+      displayName: message.sender.profile?.displayName ?? 'کاربر پایتم',
     };
   }
 
@@ -440,7 +440,7 @@ export class DirectMessageService {
     });
     return rows.map((row) => ({
       userPublicId: row.blocked.publicId,
-      displayName: row.blocked.profile?.displayName ?? 'کاربر پایه‌تَم',
+      displayName: row.blocked.profile?.displayName ?? 'کاربر پایتم',
       blockedAt: row.createdAt,
     }));
   }
@@ -588,5 +588,5 @@ async function displayNameOf(tx: Prisma.TransactionClient, userId: string): Prom
     where: { userId },
     select: { displayName: true },
   });
-  return profile?.displayName ?? 'کاربر پایه‌تَم';
+  return profile?.displayName ?? 'کاربر پایتم';
 }

@@ -64,7 +64,7 @@ describe('formatDiscovered', () => {
 
   /** A full event says so rather than rendering «۰ جای خالی». */
   it('names a full event as full', () => {
-    expect(formatDiscovered([line({ remainingCapacity: 0 })])).toContain('ظرفیت تکمیل');
+    expect(formatDiscovered([line({ remainingCapacity: 0 })])).toContain('پر شد');
   });
 
   /**
@@ -112,6 +112,6 @@ describe('formatDiscovered', () => {
     const text = formatDiscovered([line({ title: '<b>ب</b>' })]);
 
     expect(text).toContain('&lt;b&gt;ب&lt;/b&gt;');
-    expect(text).not.toContain('<b>ب');
+    expect(text).not.toContain('<b>ب</b>');
   });
 });

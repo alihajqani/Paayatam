@@ -328,7 +328,7 @@ export class ReviewService {
         eventPublicId: pair.participant.event.publicId,
         eventTitle: pair.participant.event.title,
         revieweePublicId: counterpart.publicId,
-        revieweeDisplayName: counterpart.profile?.displayName ?? 'کاربر پایه‌تَم',
+        revieweeDisplayName: counterpart.profile?.displayName ?? 'کاربر پایتم',
         role,
         opensAt: pair.opensAt,
         deadlineAt: pair.deadlineAt,
@@ -701,7 +701,7 @@ export class ReviewService {
     return rows.map((row) => ({
       participantPublicId: row.participant.publicId,
       eventTitle: row.event.title,
-      revieweeDisplayName: row.reviewee.profile?.displayName ?? 'کاربر پایه‌تَم',
+      revieweeDisplayName: row.reviewee.profile?.displayName ?? 'کاربر پایتم',
       rating: row.rating,
       editableUntil: row.editDeadlineAt,
     }));
@@ -895,8 +895,8 @@ export class ReviewService {
               guestUserPublicId: pair.participant.user.publicId,
               // Who each side is reviewing, so the stars under the message name
               // somebody (plan 11). Display names, as the direct message carries.
-              hostDisplayName: pair.participant.event.host.profile?.displayName ?? 'کاربر پایه‌تَم',
-              guestDisplayName: pair.participant.user.profile?.displayName ?? 'کاربر پایه‌تَم',
+              hostDisplayName: pair.participant.event.host.profile?.displayName ?? 'کاربر پایتم',
+              guestDisplayName: pair.participant.user.profile?.displayName ?? 'کاربر پایتم',
               /**
                * How long is left, rounded **up**.
                *

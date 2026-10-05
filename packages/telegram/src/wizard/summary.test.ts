@@ -21,14 +21,14 @@ describe('renderSummary', () => {
     // The order is the point: it is the last thing read before the button, not a
     // footnote under a form somebody has already scrolled past.
     expect(screen.text.indexOf('۲۵ سکه')).toBeGreaterThan(screen.text.indexOf('قهوه و بازی'));
-    expect(screen.text.indexOf('۲۵ سکه')).toBeLessThan(screen.text.indexOf('اگر همه‌چیز درست است'));
+    expect(screen.text.indexOf('۲۵ سکه')).toBeLessThan(screen.text.indexOf('اگه همه‌چی درسته'));
   });
 
   it('renders exactly as before when there is no note', () => {
     // Four other wizards reach this screen and none of them has a price.
     const screen = renderSummary(LINES, false, 'ثبت پروفایل');
-    expect(screen.text).toContain('بازبینی نهایی');
-    expect(screen.text).toContain('«ثبت پروفایل» را بزنید');
+    expect(screen.text).toContain('یه نگاه آخر');
+    expect(screen.text).toContain('«ثبت پروفایل» رو بزن');
   });
 
   it('escapes the note', () => {

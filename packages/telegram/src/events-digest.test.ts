@@ -29,8 +29,8 @@ describe('formatMyEvents', () => {
   it('points at the way to make the first one', () => {
     const text = formatMyEvents([]);
 
-    expect(text).toContain('هنوز رویدادی نساخته‌اید');
-    expect(text).toContain('ساختن رویداد');
+    expect(text).toContain('هنوز برنامه‌ای نساختی');
+    expect(text).toContain('ساختن برنامهٔ تازه');
   });
 
   /** Seats are the number a host checks; «۳ از ۶» is the answer to "do I need people?". */
@@ -74,7 +74,7 @@ describe('formatMyEvents', () => {
   });
 
   it('renders a cancelled event with its own word', () => {
-    expect(formatMyEvents([line({ status: 'CANCELLED_BY_HOST' })])).toContain('لغو شده');
+    expect(formatMyEvents([line({ status: 'CANCELLED_BY_HOST' })])).toContain('کنسل شده');
   });
 });
 
@@ -134,7 +134,7 @@ describe('formatOwnedEvent', () => {
   it('says how full it is, both ways round', () => {
     const text = formatOwnedEvent(owned());
 
-    expect(text).toContain('۳ نفر پذیرفته‌شده');
+    expect(text).toContain('۳ نفر قبول شدن');
     expect(text).toContain('۳ جای خالی از ۶');
   });
 
@@ -142,12 +142,12 @@ describe('formatOwnedEvent', () => {
   it('counts requests awaiting an answer as taken seats', () => {
     const text = formatOwnedEvent(owned({ capacity: 4, acceptedCount: 1, pendingCount: 2 }));
 
-    expect(text).toContain('۱ نفر پذیرفته‌شده · 🟠 ۱ جای خالی از ۴');
-    expect(text).toContain('۲ درخواست در انتظار پاسخ شما');
+    expect(text).toContain('۱ نفر قبول شدن · 🟠 ۱ جای خالی از ۴');
+    expect(text).toContain('۲ درخواست منتظر جوابته');
   });
 
   it('says «ظرفیت تکمیل» rather than «۰ جای خالی»', () => {
-    expect(formatOwnedEvent(owned({ acceptedCount: 6 }))).toContain('ظرفیت تکمیل');
+    expect(formatOwnedEvent(owned({ acceptedCount: 6 }))).toContain('پر شد');
   });
 
   /** A host who said «بدون محدودیت» has no shortage to be told about. */
@@ -163,8 +163,8 @@ describe('formatOwnedEvent', () => {
    * activity is what makes the one that is not healthy hard to spot.
    */
   it('names waiting requests only when there are some', () => {
-    expect(formatOwnedEvent(owned({ pendingCount: 2 }))).toContain('۲ درخواست در انتظار');
-    expect(formatOwnedEvent(owned())).not.toContain('درخواست در انتظار');
+    expect(formatOwnedEvent(owned({ pendingCount: 2 }))).toContain('۲ درخواست منتظر جوابته');
+    expect(formatOwnedEvent(owned())).not.toContain('درخواست منتظر');
   });
 
   it('states a price when there is one, and «رایگان» when there is not', () => {

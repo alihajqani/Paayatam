@@ -40,10 +40,10 @@ export function insufficientCoinsNotice(
   withButtons = false,
 ): string {
   return (
-    `${what} ${toPersianDigits(String(cost))} سکه هزینه دارد و ` +
-    `موجودی شما ${toPersianDigits(String(balance))} سکه است.\n\n` +
+    `${what} ${toPersianDigits(String(cost))} سکه خرج داره و ` +
+    `الان ${toPersianDigits(String(balance))} سکه داری.\n\n` +
     (withButtons
-      ? `با دکمه‌های زیر می‌توانید سکه به دست بیاورید.`
-      : `می‌توانید با دعوت دوستان یا کد هدیه سکه به دست بیاورید — /referral و /gift.`)
+      ? `با دکمه‌های زیر می‌تونی سکه جمع کنی.`
+      : `با دعوت دوستات یا کد هدیه می‌تونی سکه جمع کنی: /referral و /gift`)
   );
 }

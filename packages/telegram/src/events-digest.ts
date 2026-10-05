@@ -4,7 +4,8 @@ import { ENTRY_SEPARATOR } from './discover-digest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { capacityLabel, seatsFillEmoji, seatsLine } from './seats';
 import { myEventCommandFor } from './event-code';
-import { NEXT_LABEL, PREVIOUS_LABEL, type InlineButton } from './keyboards';
+import { commandButtonLabel } from './commands';
+import { NEXT_LABEL, PREVIOUS_LABEL, menuPathFor, type InlineButton } from './keyboards';
 import { formatJalali, formatJalaliTime } from './wizard/jalali';
 
 /**
@@ -69,8 +70,9 @@ export function formatMyEvents(
 ): string {
   if (lines.length === 0) {
     return (
-      `<b>رویدادهای من</b>\n\n` +
-      `هنوز رویدادی نساخته‌اید. با دکمهٔ «➕ ساختن رویداد» اولی را بسازید.`
+      `<b>برنامه‌های من</b>\n\n` +
+      `هنوز برنامه‌ای نساختی. از «${menuPathFor('create_event') ?? 'برنامه‌ها'}» ← ` +
+      `«${commandButtonLabel('create_event')}» اولیش رو بساز.`
     );
   }
 
@@ -102,7 +104,7 @@ export function formatMyEvents(
     );
   });
 
-  return `<b>رویدادهای من</b>\n\n${entries.join(`\n${ENTRY_SEPARATOR}\n`)}`;
+  return `<b>برنامه‌های من</b>\n\n${entries.join(`\n${ENTRY_SEPARATOR}\n`)}`;
 }
 
 /**
@@ -190,7 +192,7 @@ export function formatOwnedEvent(line: OwnedEventLine): string {
    */
   const pending =
     line.pendingCount > 0
-      ? `\n⏳ ${toPersianDigits(String(line.pendingCount))} درخواست در انتظار پاسخ شما`
+      ? `\n⏳ ${toPersianDigits(String(line.pendingCount))} درخواست منتظر جوابته`
       : '';
 
   return (
@@ -201,7 +203,7 @@ export function formatOwnedEvent(line: OwnedEventLine): string {
     `📍 ${escapeHtml(line.where)}\n` +
     `🗓 ${formatJalali(line.startsAt)} — ${formatJalaliTime(line.startsAt)} تا ` +
     `${formatJalaliTime(line.endsAt)}\n` +
-    `👥 ${toPersianDigits(String(line.acceptedCount))} نفر پذیرفته‌شده · ` +
+    `👥 ${toPersianDigits(String(line.acceptedCount))} نفر قبول شدن · ` +
     // A request waiting on the host closes a seat here as it does in the channel
     // and on the guest's screen (v0.16.0); the line below counts those requests.
     `${seatsFillEmoji(line.capacity, line.acceptedCount + line.pendingCount)} ` +

@@ -58,7 +58,7 @@ export function formatParticipants(eventTitle: string, lines: readonly Participa
 
   const digest = buildDigest({
     title: `مهمان‌های «${escapeHtml(eventTitle)}»`,
-    empty: 'هنوز کسی درخواست نداده است.',
+    empty: 'هنوز کسی درخواست نداده.',
     entries,
   });
 
@@ -66,7 +66,7 @@ export function formatParticipants(eventTitle: string, lines: readonly Participa
 
   return (
     `${digest}\n\n` +
-    `<i>دکمه‌های زیر با شمارهٔ همین فهرست مشخص شده‌اند: دکمهٔ «۱» برای نفر ۱، ` +
+    `<i>دکمه‌های زیر با شمارهٔ همین فهرست مشخص شدن: دکمهٔ «۱» برای نفر ۱، ` +
     `دکمهٔ «۲» برای نفر ۲ و همین‌طور تا آخر.</i>`
   );
 }

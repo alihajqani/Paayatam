@@ -1013,7 +1013,7 @@ export class ParticipationService {
       return {
         publicId: row.publicId,
         userPublicId: row.user.publicId,
-        displayName: row.user.profile?.displayName ?? 'کاربر پایه‌تَم',
+        displayName: row.user.profile?.displayName ?? 'کاربر پایتم',
         trustScore: scores.get(row.userId) ?? null,
         foundingTier: row.user.foundingMember?.tier ?? null,
         status: row.status,
@@ -1048,7 +1048,7 @@ export class ParticipationService {
       tx.foundingMember.findUnique({ where: { userId }, select: { tier: true } }),
     ]);
     return {
-      participantDisplayName: profile?.displayName ?? 'کاربر پایه‌تَم',
+      participantDisplayName: profile?.displayName ?? 'کاربر پایتم',
       participantTrustScore: trust?.score ?? null,
       participantFoundingTier: founding?.tier ?? null,
     };

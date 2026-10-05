@@ -77,7 +77,7 @@ describe('the channel post', () => {
    * closed in place rather than removed. The note must not promise more.
    */
   it('says an expired post is removed or closed', () => {
-    expect(CHANNEL_EXPIRY_NOTE).toBe('⏳ رویدادهای منقضی‌شده از کانال حذف یا بسته می‌شوند.');
+    expect(CHANNEL_EXPIRY_NOTE).toBe('⏳ برنامه‌هایی که وقتشون گذشته از کانال پاک یا بسته میشن.');
   });
 
   /** The kind headed the post until v0.7.0. Why the channel shows it is not news. */
@@ -113,7 +113,7 @@ describe('the channel post', () => {
       expect(post({ capacity: 4, takenCount: 1 })).toContain('🟢 ۳ جای خالی از ۴');
       expect(post({ capacity: 4, takenCount: 2 })).toContain('🟡 ۲ جای خالی از ۴');
       expect(post({ capacity: 4, takenCount: 3 })).toContain('🟠 ۱ جای خالی از ۴');
-      expect(post({ capacity: 4, takenCount: 4 })).toContain('🔴 ظرفیت تکمیل');
+      expect(post({ capacity: 4, takenCount: 4 })).toContain('🔴 پر شد');
     });
 
     it('never counts down from an unlimited capacity', () => {
@@ -183,7 +183,7 @@ describe('the channel post', () => {
     it('offers reading it and joining it, both into the bot', () => {
       const { keyboard } = renderChannelPost(BASE);
 
-      expect(keyboard[0]?.[0]?.text).toContain('مشاهده در ربات');
+      expect(keyboard[0]?.[0]?.text).toContain('دیدن توی ربات');
       expect(keyboard[1]?.[0]?.text).toContain('پایتم');
       for (const button of keyboard.flat()) {
         expect(button.url).toContain('https://t.me/payetam_bot');
@@ -212,14 +212,14 @@ describe('a closed channel post', () => {
 
   it('says an activity that has happened is over, and names it', () => {
     expect(renderClosedChannelPost({ ...CLOSED, reason: 'ENDED' })).toBe(
-      `#رویداد_۲۵\n⏰ این رویداد پایان یافت.\n<b>کافه‌گردی و گپ</b>`,
+      `#رویداد_۲۵\n⏰ این برنامه تموم شد.\n<b>کافه‌گردی و گپ</b>`,
     );
   });
 
   /** The hashtag is a search of the channel, so one tap finds the new copy. */
   it('sends a renewed post’s reader to the copy below it', () => {
     expect(renderClosedChannelPost({ ...CLOSED, reason: 'SUPERSEDED' })).toBe(
-      `#رویداد_۲۵\n🔄 این رویداد دوباره در کانال منتشر شد؛ پست تازه‌اش پایین‌تر است.\n` +
+      `#رویداد_۲۵\n🔄 این برنامه دوباره توی کانال منتشر شد؛ پست تازه‌ش پایین‌تره.\n` +
         `<b>کافه‌گردی و گپ</b>`,
     );
   });
@@ -231,7 +231,7 @@ describe('a closed channel post', () => {
    */
   it('names nothing about an activity that was withdrawn', () => {
     expect(renderClosedChannelPost({ ...CLOSED, reason: 'WITHDRAWN' })).toBe(
-      '🚫 این رویداد دیگر در دسترس نیست.',
+      '🚫 این برنامه دیگه در دسترس نیست.',
     );
   });
 

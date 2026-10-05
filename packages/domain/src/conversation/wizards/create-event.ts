@@ -130,7 +130,7 @@ const COST_TYPE_FA: Record<CostType, string> = {
  */
 const GENDER_FA: Record<GenderPreference, string> = {
   MALE_ONLY: 'فقط آقایان',
-  FEMALE_ONLY: 'فقط بانوان',
+  FEMALE_ONLY: 'فقط خانم‌ها',
 };
 
 /**
@@ -180,8 +180,8 @@ function durationHours(input: WizardInput): number | string {
   const digits = /(\d{1,3})/.exec(raw);
   if (digits === null) {
     return (
-      `در ${quoted(input.value)} عددی پیدا نکردم. ` +
-      `مدت را به ساعت بنویسید — برای نمونه «۳ ساعت» یا «تمام روز».`
+      `توی ${quoted(input.value)} عددی پیدا نکردم. ` +
+      `مدت رو به ساعت بنویس، مثلاً «۳ ساعت» یا «کل روز».`
     );
   }
 
@@ -191,7 +191,7 @@ function durationHours(input: WizardInput): number | string {
   const total = inDays ? hours * 12 : hours;
   if (total < 1 || total > 24) {
     return (
-      `مدت باید بین ۱ تا ۲۴ ساعت باشد — ` +
+      `مدت باید بین ۱ تا ۲۴ ساعت باشه؛ ` +
       `${quoted(input.value)} یعنی ${toPersianDigits(String(total))} ساعت.`
     );
   }
@@ -228,16 +228,16 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'title',
     ui: 'text',
-    prompt: () => 'نام رویداد را بنویسید.\nمثال: «کوهنوردی صبح جمعه — درکه»',
+    prompt: () => 'اسم برنامه‌ت چیه؟\nمثلاً: «کوه صبح جمعه، درکه»',
     accept: (input) => {
-      const result = text(input, 3, 80, 'نام رویداد');
+      const result = text(input, 3, 80, 'اسم برنامه');
       return result.ok ? { ok: true, patch: { title: result.value } } : result;
     },
   },
   {
     key: 'desc',
     ui: 'text',
-    prompt: () => 'کمی درباره‌اش بنویسید — چه می‌کنید، چه چیزی لازم است، برای چه کسانی مناسب است.',
+    prompt: () => 'یه کم دربارهٔ برنامه بگو: قراره چی کار کنید، چی لازمه و به درد کیا می‌خوره.',
     accept: (input) => {
       const result = text(input, 10, 2000, 'توضیح');
       return result.ok ? { ok: true, patch: { description: result.value } } : result;
@@ -246,14 +246,14 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'cat',
     ui: 'choice',
-    prompt: () => 'این رویداد در کدام دسته می‌گنجد؟',
+    prompt: () => 'این برنامه توی کدوم دسته‌ست؟',
     load: (_form, deps) => deps.categories(),
     accept: (input) => {
       const id = chosenId(input);
       if (id === null) {
         return {
           ok: false,
-          error: `دسته را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+          error: `دسته رو از دکمه‌های زیر انتخاب کن؛ ${quoted(input.value)} جزوشون نیست.`,
         };
       }
       return { ok: true, patch: { categoryId: id } };
@@ -262,14 +262,14 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'prov',
     ui: 'choice',
-    prompt: () => 'در کدام استان برگزار می‌شود؟',
+    prompt: () => 'توی کدوم استان برگزار میشه؟',
     load: (_form, deps) => deps.provinces(),
     accept: (input) => {
       const id = chosenId(input);
       if (id === null) {
         return {
           ok: false,
-          error: `استان را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+          error: `استان رو از دکمه‌های زیر انتخاب کن؛ ${quoted(input.value)} جزوشون نیست.`,
         };
       }
       // The city and district are cleared: they belonged to the old province,
@@ -288,7 +288,7 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'city',
     ui: 'choice',
-    prompt: () => 'کدام شهر؟',
+    prompt: () => 'کدوم شهر؟',
     load: (form, deps) => deps.citiesOf(form.provinceId ?? ''),
     accept: (input) => {
       const id = chosenId(input);
@@ -296,8 +296,8 @@ const steps: WizardStep<CreateEventForm>[] = [
         return {
           ok: false,
           error:
-            `شهر را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست. ` +
-            `اگر شهرتان در فهرست نیست، با «بازگشت» استان دیگری را امتحان کنید.`,
+            `شهر رو از دکمه‌های زیر انتخاب کن؛ ${quoted(input.value)} جزوشون نیست. ` +
+            `اگه شهری که می‌خوای توی فهرست نیست، با «برگشت» یه استان دیگه رو امتحان کن.`,
         };
       }
       return { ok: true, patch: { cityId: id, districtId: undefined, districtLabel: undefined } };
@@ -334,8 +334,8 @@ const steps: WizardStep<CreateEventForm>[] = [
     optional: true,
     prompt: (form) =>
       form.districtLabel === undefined
-        ? 'محله را بنویسید — مثلاً «درکه». اگر مهم نیست، «رد کردن» را بزنید.'
-        : `محله: ${form.districtLabel}\n\nبرای تغییر، نام تازه را بنویسید.`,
+        ? 'محله رو بنویس، مثلاً «درکه». اگه مهم نیست، «فعلاً نه» رو بزن.'
+        : `محله: ${form.districtLabel}\n\nبرای عوض کردنش، اسم تازه رو بنویس.`,
     load: (form, deps) => deps.districtsOf(form.cityId ?? ''),
     accept: (input) => {
       if (input.kind === 'text') {
@@ -352,7 +352,7 @@ const steps: WizardStep<CreateEventForm>[] = [
       if (id === null) {
         return {
           ok: false,
-          error: `محله را بنویسید یا یکی از دکمه‌ها را بزنید — ${quoted(input.value)} محله‌ای نبود.`,
+          error: `محله رو بنویس یا یکی از دکمه‌ها رو بزن؛ ${quoted(input.value)} محله نبود.`,
         };
       }
       return { ok: true, patch: { districtId: id, districtLabel: undefined } };
@@ -368,8 +368,8 @@ const steps: WizardStep<CreateEventForm>[] = [
         return {
           ok: false,
           error:
-            'روز را از تقویم زیر انتخاب کنید. تاریخ را دستی ننویسید — ' +
-            'اگر ماه دیگری می‌خواهید، «ماه بعد» را بزنید.',
+            'روز رو از تقویم زیر انتخاب کن. تاریخ رو دستی ننویس؛ ' +
+            'اگه ماه دیگه‌ای می‌خوای، «ماه بعد» رو بزن.',
         };
       }
       return { ok: true, patch: { day: input.value } };
@@ -395,14 +395,14 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'dur',
     ui: 'choice',
-    prompt: () => 'چقدر طول می‌کشد؟ یکی را بزنید یا بنویسید — «۳ ساعت»، «تمام روز».',
+    prompt: () => 'چقدر طول می‌کشه؟ یکی رو بزن یا بنویس: «۳ ساعت»، «کل روز».',
     load: () =>
       Promise.resolve([
         ...DURATIONS.map((hours) => ({
           value: String(hours),
           label: `${toPersianDigits(String(hours))} ساعت`,
         })),
-        { value: '12', label: 'تمام روز' },
+        { value: '12', label: 'کل روز' },
       ]),
     accept: (input) => {
       const value = durationHours(input);
@@ -413,8 +413,7 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'cap',
     ui: 'choice',
-    prompt: () =>
-      'چند نفر جا دارید؟ (بدون احتساب خودتان)\n' + 'یکی را بزنید، یا عدد دلخواهتان را بنویسید.',
+    prompt: () => 'چند نفر جا داری؟ (بدون خودت)\n' + 'یکی رو بزن، یا عدد دلخواهت رو بنویس.',
     load: () =>
       Promise.resolve([
         ...CAPACITIES.map((n) => ({ value: String(n), label: toPersianDigits(String(n)) })),
@@ -434,7 +433,7 @@ const steps: WizardStep<CreateEventForm>[] = [
   {
     key: 'cost',
     ui: 'choice',
-    prompt: () => 'هزینه چطور است؟',
+    prompt: () => 'هزینه‌ش چطوریه؟',
     load: () =>
       Promise.resolve(COST_TYPES.map((type) => ({ value: type, label: COST_TYPE_FA[type] }))),
     accept: (input) => {
@@ -442,7 +441,7 @@ const steps: WizardStep<CreateEventForm>[] = [
       if (type === undefined) {
         return {
           ok: false,
-          error: `نوع هزینه را از دکمه‌های زیر انتخاب کنید — ${quoted(input.value)} یکی از آن‌ها نیست.`,
+          error: `نوع هزینه رو از دکمه‌های زیر انتخاب کن؛ ${quoted(input.value)} جزوشون نیست.`,
         };
       }
       // FREE and SPLIT carry no amount, and the contract refuses one on them.
@@ -473,7 +472,7 @@ const steps: WizardStep<CreateEventForm>[] = [
     ui: 'choice',
     optional: true,
     when: (form) => form.wantsDetails === true,
-    prompt: () => 'برای چه کسانی است؟ اگر فرقی ندارد، «رد کردن» را بزنید.',
+    prompt: () => 'مخصوص کیه؟ اگه فرقی نداره، «فعلاً نه» رو بزن.',
     load: () =>
       Promise.resolve(GENDER_PREFERENCES.map((value) => ({ value, label: GENDER_FA[value] }))),
     accept: (input) => {
@@ -482,8 +481,8 @@ const steps: WizardStep<CreateEventForm>[] = [
         return {
           ok: false,
           error:
-            `یکی از دکمه‌های زیر را بزنید، یا «رد کردن» اگر فرقی ندارد — ` +
-            `${quoted(input.value)} گزینهٔ این مرحله نیست.`,
+            `یکی از دکمه‌های زیر رو بزن، یا اگه فرقی نداره «فعلاً نه»؛ ` +
+            `${quoted(input.value)} جزو گزینه‌های این مرحله نیست.`,
         };
       }
       return { ok: true, patch: { genderPreference: value } };
@@ -494,7 +493,7 @@ const steps: WizardStep<CreateEventForm>[] = [
     ui: 'text',
     optional: true,
     when: (form) => form.wantsDetails === true,
-    prompt: () => 'کمترین سن؟ فقط عدد، یا «رد کردن».',
+    prompt: () => 'کمترین سن؟ فقط عدد، یا «فعلاً نه».',
     accept: (input) => {
       const value = integer(input, 18, 120, 'سن');
       if (typeof value === 'string') return { ok: false, error: value };
@@ -506,7 +505,7 @@ const steps: WizardStep<CreateEventForm>[] = [
     ui: 'text',
     optional: true,
     when: (form) => form.wantsDetails === true,
-    prompt: () => 'بیشترین سن؟ فقط عدد، یا «رد کردن».',
+    prompt: () => 'بیشترین سن؟ فقط عدد، یا «فعلاً نه».',
     accept: (input, form) => {
       const value = integer(input, 18, 120, 'سن');
       if (typeof value === 'string') return { ok: false, error: value };
@@ -516,9 +515,9 @@ const steps: WizardStep<CreateEventForm>[] = [
         return {
           ok: false,
           error:
-            `بیشترین سن نمی‌تواند از کمترین سن کمتر باشد — ` +
-            `کمترین سن را ${toPersianDigits(String(form.minAge))} گذاشتید و ` +
-            `${toPersianDigits(String(value))} فرستادید.`,
+            `بیشترین سن نمی‌تونه از کمترین سن کمتر باشه؛ ` +
+            `کمترین سن رو ${toPersianDigits(String(form.minAge))} گذاشتی و ` +
+            `${toPersianDigits(String(value))} فرستادی.`,
         };
       }
       return { ok: true, patch: { maxAge: value } };
@@ -529,7 +528,7 @@ const steps: WizardStep<CreateEventForm>[] = [
     ui: 'text',
     optional: true,
     when: (form) => form.wantsDetails === true,
-    prompt: () => 'قاعده‌ای هست که شرکت‌کننده‌ها باید بدانند؟',
+    prompt: () => 'قانونی هست که مهمان‌ها باید بدونن؟',
     accept: (input) => {
       const result = text(input, 1, 1000, 'قواعد');
       return result.ok ? { ok: true, patch: { rules: result.value } } : result;
@@ -540,15 +539,15 @@ const steps: WizardStep<CreateEventForm>[] = [
     ui: 'text',
     optional: true,
     when: (form) => form.wantsDetails === true,
-    prompt: () => 'اگر لینکی دارید (کانال، فرم، نقشه) بفرستید.',
+    prompt: () => 'اگه لینکی داری (کانال، فرم، نقشه) بفرست.',
     accept: (input) => {
       const value = input.value.trim();
       if (!/^https:\/\/\S+$/.test(value)) {
         return {
           ok: false,
           error:
-            `لینک باید با https:// شروع شود و فاصله نداشته باشد — ` +
-            `${quoted(value)} این شکل را ندارد. اگر لینکی ندارید، «رد کردن» را بزنید.`,
+            `لینک باید با https:// شروع بشه و فاصله نداشته باشه؛ ` +
+            `${quoted(value)} این شکلی نیست. اگه لینکی نداری، «فعلاً نه» رو بزن.`,
         };
       }
       return { ok: true, patch: { externalLink: value } };

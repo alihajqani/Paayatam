@@ -142,7 +142,7 @@ export function formatEventDetail(line: EventDetailLine): string {
     `\n` +
     (line.viewer === undefined
       ? ''
-      : `<b>وضعیت شما: ${PARTICIPANT_STATUS_GUEST_FA[line.viewer.status]}</b>` +
+      : `<b>وضعیتت: ${PARTICIPANT_STATUS_GUEST_FA[line.viewer.status]}</b>` +
         (line.viewer.status === 'WAITLISTED' && line.viewer.waitlistRank !== null
           ? ` (نفر ${toPersianDigits(String(line.viewer.waitlistRank))})`
           : '') +

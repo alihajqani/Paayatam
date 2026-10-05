@@ -142,9 +142,9 @@ export function releaseAnnouncementKey(version: string): string {
  */
 export function announcementText(version: string): string {
   return (
-    `<b>پایه‌تَم به‌روزرسانی شد</b> 🎉\n\n` +
-    `نسخهٔ تازه (<code>${version}</code>) منتشر شد.\n\n` +
-    `لطفاً یک بار <b>/start</b> را بزنید تا ربات از نو باز شود. ` +
-    `دکمه‌های پیام‌های قدیمی ممکن است دیگر کار نکنند.`
+    `<b>پایتم آپدیت شد</b> 🎉\n\n` +
+    `نسخهٔ تازه (<code>${version}</code>) اومد.\n\n` +
+    `یه بار <b>/start</b> رو بزن تا ربات از نو باز بشه. ` +
+    `دکمه‌های پیام‌های قدیمی شاید دیگه کار نکنن.`
   );
 }

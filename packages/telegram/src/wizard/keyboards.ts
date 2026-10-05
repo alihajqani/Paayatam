@@ -152,8 +152,8 @@ export function multiChoiceKeyboard(
       {
         text:
           chosen.size === 0
-            ? '✔️ تمام'
-            : `✔️ تمام (${toPersianDigits(String(chosen.size))} انتخاب)`,
+            ? '✔️ تموم'
+            : `✔️ تموم (${toPersianDigits(String(chosen.size))} انتخاب)`,
         callbackData: encodeWizardCallback({ action: 'done', value: '' }),
         style: 'success' as const,
       },
@@ -284,19 +284,19 @@ export function controlRow(options: {
   const row: InlineButton[] = [];
   if (options.cancel === true) {
     row.push({
-      text: '✖️ انصراف',
+      text: '✖️ بی‌خیال',
       callbackData: encodeWizardCallback({ action: 'cancel', value: '' }),
     });
   }
   if (options.skip === true) {
     row.push({
-      text: '⏭ رد کردن',
+      text: '⏭ فعلاً نه',
       callbackData: encodeWizardCallback({ action: 'skip', value: '' }),
     });
   }
   if (options.back === true) {
     row.push({
-      text: `${BACK_ICON} بازگشت`,
+      text: `${BACK_ICON} برگشت`,
       callbackData: encodeWizardCallback({ action: 'back', value: '' }),
     });
   }
