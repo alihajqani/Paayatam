@@ -14,6 +14,51 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.24.0] — 2026-10-09
+
+Two things the other side of an activity now tells you. A join request, a direct message or an
+acceptance sent to somebody who has blocked the bot used to vanish: the sender was told «ثبت شد»
+and then nothing ever happened, which reads exactly like the bot being broken. Now the sender is
+told, lightly: «سارا یه کم بی‌معرفتی کرده و پایتم رو بلاک کرده». And wherever the bot names the
+other side, it says how old they are.
+
+**No migration. No setting change. The bot's command menu does not change.** The release broadcast
+lists these two changes, once, for this version only.
+
+### ⚠️ What a deploy changes for people
+
+- **The host's age is on every activity page** («👤 میزبان: سارا، ۲۸ ساله»), and **the requester's
+  age is on the host's guest list and on the join-request and waiting-list notices**. A profile
+  without a birth year shows the name alone. The birth year itself is shown nowhere (ADR-0021).
+- **A sender hears when a message bounced off a blocked bot**: a guest whose join request never
+  reached the host (the request still stands, and expires and refunds as before), anybody whose
+  direct message never arrived, and a host whose acceptance never reached the guest («ممکنه نیاد»).
+  One notice per bounced message. Nothing is sent about a seed activity's host, who has no
+  Telegram account and has blocked nothing.
+- **If the release broadcast is on, it says what changed** (the two items above), then asks for
+  /start as always. Later releases go back to the plain message.
+
+### Added
+
+- `TEMPLATES.COUNTERPART_BLOCKED_BOT` (`delivery.counterpart_blocked`), `essential`: it answers
+  something the reader just did. `NotificationService.markUndeliverable` emits it in the
+  transaction that records the block, from `blockedCounterpartEvent`, which resolves the sender of
+  a `PARTICIPATION_REQUESTED_HOST`, `DIRECT_MESSAGE_RECEIVED` or `PARTICIPATION_ACCEPTED` from the
+  event and the message the payload already names. Only when a `telegram_account` row was marked.
+- `ageSuffix` (`packages/telegram`), one spelling of «، n ساله» for the three places a counterpart
+  is named; `DiscoveryService.findPublished` returns `hostAge` (a `PublishedEvent`), read for that
+  one host rather than added to the search projection; `ParticipantSummary.age`; and
+  `participantAge` on the `participation.requested` and `waitlist.promoted` payloads.
+- `RELEASE_NOTES_FA` in `release-announcement.service.ts`: a note keyed by the exact tag, so a
+  release can say what changed without every later broadcast doing so.
+- **ADR-0021**: a counterpart's age is shown, the birth year never leaves the domain (amends
+  ADR-0014).
+
+### Changed
+
+- `docs/bot-e2e-checklist.md`: the blocked-bot case now expects the sender's notice (13.14, and a
+  new 13.14.1 for a join request and an acceptance); the activity page and guest list show the age.
+
 ## [v0.23.0] — 2026-10-05
 
 The bot talks like a friend now. Feedback was that its messages read as if written for developers:

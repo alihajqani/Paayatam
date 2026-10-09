@@ -129,11 +129,34 @@ export function releaseAnnouncementKey(version: string): string {
 }
 
 /**
+ * What changed, for the few releases worth telling everybody about (v0.24.0).
+ *
+ * Keyed by the exact tag, so a note is said once and the next release falls
+ * back to the plain message without anybody remembering to delete it: a
+ * version that is not here gets no list. The default stays no list on purpose
+ * (see `announcementText`); an entry is added when the operator asks for one,
+ * for a change users would otherwise not notice.
+ *
+ * HTML, under the same `parse_mode` as the rest of the broadcast. Written by us,
+ * never by a user, so it is not escaped.
+ */
+const RELEASE_NOTES_FA: Readonly<Record<string, string>> = {
+  'v0.24.0':
+    `🎂 <b>سن طرف مقابل رو می‌بینی.</b> توی صفحهٔ هر برنامه سن میزبان کنار اسمش ` +
+    `نوشته میشه، و میزبان‌ها هم سن کسی که درخواست داده رو کنار اسم و امتیازش ` +
+    `می‌بینن.\n\n` +
+    `🙈 <b>اگه طرف مقابل ربات رو بلاک کرده باشه، بهت می‌گیم.</b> اگه درخواستت یا ` +
+    `پیامت به کسی نرسه چون پایتم رو بلاک کرده، دیگه بی‌خبر نمی‌مونی. ربات سالمه، ` +
+    `اون بی‌معرفتی کرده!`,
+};
+
+/**
  * What everybody reads after a deploy.
  *
- * Short, and its entire job is the last line. It does not list what changed:
- * a changelog in a broadcast is a message people stop opening, and the thing
- * being asked for — press /start — is the same whatever shipped.
+ * Short, and its entire job is the last line. It does not list what changed
+ * unless `RELEASE_NOTES_FA` has an entry for this exact version: a changelog in
+ * every broadcast is a message people stop opening, and the thing being asked
+ * for — press /start — is the same whatever shipped.
  *
  * `/start` rather than a button, on purpose. A button is `callback_data`, and
  * `callback_data` from a build somebody's client has cached is exactly the class
@@ -141,9 +164,12 @@ export function releaseAnnouncementKey(version: string): string {
  * cannot go stale.
  */
 export function announcementText(version: string): string {
+  const notes = RELEASE_NOTES_FA[version];
   return (
     `<b>پایتم آپدیت شد</b> 🎉\n\n` +
-    `نسخهٔ تازه (<code>${version}</code>) اومد.\n\n` +
+    `نسخهٔ تازه (<code>${version}</code>) اومد.` +
+    (notes === undefined ? '' : ` چی عوض شده:\n\n${notes}`) +
+    `\n\n` +
     `یه بار <b>/start</b> رو بزن تا ربات از نو باز بشه. ` +
     `دکمه‌های پیام‌های قدیمی شاید دیگه کار نکنن.`
   );
