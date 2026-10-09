@@ -108,6 +108,12 @@ export interface ParticipantSummary {
   userPublicId: string;
   displayName: string;
   /**
+   * The age they reach this year, or null for a profile without a year
+   * (v0.24.0, ADR-0021). The bot's guest list draws it; the year it comes from
+   * goes nowhere, and the Mini App's wire view does not carry either.
+   */
+  age: number | null;
+  /**
    * The requester's Trust Score, 0–100, or null when they have never been judged
    * (M18).
    *
@@ -980,7 +986,7 @@ export class ParticipationService {
         user: {
           select: {
             publicId: true,
-            profile: { select: { displayName: true } },
+            profile: { select: { displayName: true, birthYear: true } },
             // The tier only. `rank` is deliberately not selected: a column that
             // is never read cannot be leaked into a response by a later `select`
             // that widens (§3.6 layer 2).
@@ -1001,6 +1007,7 @@ export class ParticipationService {
      * never moved, so the lookup misses and the score reads null.
      */
     const scores = await this.trustScoresFor(rows.map((row) => row.userId));
+    const now = this.clock.now();
 
     let rank = 0;
     return rows.map((row) => {
@@ -1011,6 +1018,7 @@ export class ParticipationService {
         publicId: row.publicId,
         userPublicId: row.user.publicId,
         displayName: row.user.profile?.displayName ?? 'کاربر پایتم',
+        age: this.ageOf(row.user.profile?.birthYear ?? null, now),
         trustScore: scores.get(row.userId) ?? null,
         foundingTier: row.user.foundingMember?.tier ?? null,
         status: row.status,
@@ -1036,19 +1044,33 @@ export class ParticipationService {
     userId: string,
   ): Promise<{
     participantDisplayName: string;
+    participantAge: number | null;
     participantTrustScore: number | null;
     participantFoundingTier: number | null;
   }> {
     const [profile, trust, founding] = await Promise.all([
-      tx.userProfile.findUnique({ where: { userId }, select: { displayName: true } }),
+      tx.userProfile.findUnique({
+        where: { userId },
+        select: { displayName: true, birthYear: true },
+      }),
       tx.trustScore.findUnique({ where: { userId }, select: { score: true } }),
       tx.foundingMember.findUnique({ where: { userId }, select: { tier: true } }),
     ]);
     return {
       participantDisplayName: profile?.displayName ?? 'کاربر پایتم',
+      participantAge: this.ageOf(profile?.birthYear ?? null, this.clock.now()),
       participantTrustScore: trust?.score ?? null,
       participantFoundingTier: founding?.tier ?? null,
     };
+  }
+
+  /**
+   * An age for a counterpart to read (v0.24.0, ADR-0021): the age gate's own
+   * arithmetic, so the number a host reads is the number the age range was
+   * checked against. Null for no year, which every renderer draws as nothing.
+   */
+  private ageOf(birthYear: number | null, now: Date): number | null {
+    return birthYear === null ? null : ageFromBirthYear(birthYear, now, this.env.APP_TIMEZONE);
   }
 
   private async trustScoresFor(userIds: string[]): Promise<Map<string, number>> {

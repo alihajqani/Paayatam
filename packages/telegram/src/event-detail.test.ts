@@ -16,6 +16,7 @@ const line: EventDetailLine = {
   minAge: null,
   maxAge: null,
   hostDisplayName: 'مریم',
+  hostAge: 27,
   hostTrustScore: 80,
 };
 
@@ -68,5 +69,18 @@ describe('the host’s reviews on the activity page', () => {
       'نظر',
     );
     expect(formatEventDetail(line)).not.toContain('از ۵');
+  });
+});
+
+/** The host's age beside their name (v0.24.0, ADR-0021). */
+describe('the host line', () => {
+  it('names the host with their age', () => {
+    expect(formatEventDetail(line)).toContain('👤 میزبان: مریم، ۲۷ ساله');
+  });
+
+  it('draws the name alone when there is no age', () => {
+    const text = formatEventDetail({ ...line, hostAge: null });
+    expect(text).toContain('👤 میزبان: مریم\n');
+    expect(text).not.toContain('ساله');
   });
 });

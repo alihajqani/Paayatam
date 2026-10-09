@@ -536,6 +536,19 @@ describe('the detail endpoint', () => {
     expect(event.publicId).toBe(publicId);
   });
 
+  /**
+   * The host's age, for the page (v0.24.0, ADR-0021): born 1995, and it is
+   * 2026 in Tehran. Read for this one page only; the list's projection above
+   * still carries no year and no age.
+   */
+  it('says how old the host is, and only on the page', async () => {
+    const publicId = await publish();
+
+    await expect(discovery.findPublished(publicId)).resolves.toMatchObject({ hostAge: 31 });
+    const page = await discovery.search(viewerId, {});
+    expect(page.events[0]).not.toHaveProperty('hostAge');
+  });
+
   it('still returns an event that has already started, unlike the list', async () => {
     const publicId = await publish({ startsAt: new Date('2026-08-15T08:00:00.000Z') });
 

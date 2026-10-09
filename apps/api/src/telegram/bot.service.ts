@@ -3661,6 +3661,7 @@ export class BotService {
         minAge: event.minAge,
         maxAge: event.maxAge,
         hostDisplayName: event.hostDisplayName,
+        hostAge: event.hostAge,
         hostTrustScore: event.hostTrustScore,
         hostReviews,
         ...(mine !== null
@@ -3989,6 +3990,7 @@ export class BotService {
       event.title,
       participants.map((row) => ({
         displayName: row.displayName,
+        age: row.age,
         trustScore: row.trustScore,
         foundingTier: row.foundingTier,
         status: row.status,

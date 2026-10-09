@@ -51,6 +51,9 @@ export interface DiscoveryQuery {
   offset?: number;
 }
 
+/** One activity as its own page shows it: a listing, plus the host's age. */
+export type PublishedEvent = DiscoveredEvent & { hostAge: number | null };
+
 export interface DiscoveryPage {
   events: DiscoveredEvent[];
   /** Absent when this was the last page. */
@@ -144,10 +147,10 @@ export class DiscoveryService {
     };
   }
 
-  async findPublished(publicId: string): Promise<DiscoveredEvent> {
+  async findPublished(publicId: string): Promise<PublishedEvent> {
     const event = await this.provider.findPublished(publicId);
     if (!event) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
-    return event;
+    return this.withHostAge(event);
   }
 
   /**
@@ -157,10 +160,41 @@ export class DiscoveryService {
    * unpublished activity, identically — the same non-oracle `findPublished`
    * holds, and a shorter name must not be a weaker one.
    */
-  async findPublishedByPrefix(prefix: string): Promise<DiscoveredEvent> {
+  async findPublishedByPrefix(prefix: string): Promise<PublishedEvent> {
     const event = await this.provider.findPublishedByPrefix(prefix);
     if (!event) throw new AppError(ErrorCode.EVENT_NOT_FOUND);
-    return event;
+    return this.withHostAge(event);
+  }
+
+  /**
+   * The host's age, beside their name on the activity's page (v0.24.0,
+   * ADR-0021).
+   *
+   * ── Why a second query rather than a column in the projection ────────────
+   *
+   * `SELECT_COLUMNS` is an allowlist that every search result carries, and
+   * `discovery.service.int.test.ts` pins it; a birth year there would ride
+   * through every list the product draws so that one page could show one
+   * number. Here it is read for exactly one host, turned into an age at once,
+   * and the year itself goes nowhere.
+   *
+   * The age is the age gate's own arithmetic, with the server clock and the
+   * product timezone (ADR-0008). Null when the profile has no year (an
+   * anonymised one), which the page renders as nothing rather than a guess.
+   */
+  private async withHostAge(event: DiscoveredEvent): Promise<PublishedEvent> {
+    const host = await this.prisma.user.findUnique({
+      where: { publicId: event.hostPublicId },
+      select: { profile: { select: { birthYear: true } } },
+    });
+    const birthYear = host?.profile?.birthYear ?? null;
+    return {
+      ...event,
+      hostAge:
+        birthYear === null
+          ? null
+          : ageFromBirthYear(birthYear, this.clock.now(), this.env.APP_TIMEZONE),
+    };
   }
 
   /**

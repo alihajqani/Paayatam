@@ -29,6 +29,19 @@ describe.each([TEMPLATES.PARTICIPATION_REQUESTED_HOST, TEMPLATES.WAITLIST_PROMOT
       expect(text).toContain('🥈 پیشگام');
     });
 
+    /** Their age beside the name (v0.24.0, ADR-0021); an older payload has none. */
+    it('says how old the requester is, when the payload knows', () => {
+      const withAge = String(
+        render(templateKey, { ...base, participantDisplayName: 'سارا', participantAge: 26 })?.text,
+      );
+      expect(withAge).toContain('سارا</b>، ۲۶ ساله');
+
+      const without = String(
+        render(templateKey, { ...base, participantDisplayName: 'سارا' })?.text,
+      );
+      expect(without).not.toContain('ساله');
+    });
+
     /** Null is «تازه‌وارد», never zero — a new account has done nothing wrong. */
     it('calls an unjudged account new, never zero', () => {
       const text = String(

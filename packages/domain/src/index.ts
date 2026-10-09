@@ -309,7 +309,7 @@ export type {
 } from './discovery/search-provider';
 export { PostgresSearchProvider } from './discovery/postgres-search.provider';
 export { DiscoveryService } from './discovery/discovery.service';
-export type { DiscoveryPage, DiscoveryQuery } from './discovery/discovery.service';
+export type { DiscoveryPage, DiscoveryQuery, PublishedEvent } from './discovery/discovery.service';
 export { DiscoveryModule } from './discovery/discovery.module';
 
 export {
