@@ -1,4 +1,5 @@
 import { PARTICIPANT_STATUS_HOST_FA, type ParticipantStatus } from '@payetam/shared';
+import { ageSuffix } from './age-label';
 import { buildDigest } from './digest';
 import { escapeHtml, toPersianDigits } from './escape';
 import { foundingBadge } from './founding';
@@ -27,6 +28,12 @@ import { foundingBadge } from './founding';
  */
 export interface ParticipantLine {
   displayName: string;
+  /**
+   * The age they reach this year, or null (v0.24.0, ADR-0021). The host is
+   * deciding whether to meet this person, and the activity may have an age
+   * range; the year it comes from is never shown.
+   */
+  age: number | null;
   trustScore: number | null;
   /**
    * The launch-campaign tier, or null (v0.9.0). Never the rank — see
@@ -49,6 +56,7 @@ export function formatParticipants(eventTitle: string, lines: readonly Participa
 
     return (
       `<b>${toPersianDigits(String(index + 1))}. ${escapeHtml(line.displayName)}</b>` +
+      `${ageSuffix(line.age)}` +
       `${foundingBadge(line.foundingTier)}\n` +
       `  ⭐️ ${trust}\n` +
       // The host's map: this is the host's screen (review M3, `copy.ts`).

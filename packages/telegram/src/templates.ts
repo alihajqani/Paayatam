@@ -12,6 +12,7 @@ import { SHARE_URL_PREFIX } from './deep-link';
 import { myEventCommandFor } from './event-code';
 import { formatTehran } from './datetime';
 import { escapeHtml, toPersianDigits } from './escape';
+import { ageSuffix } from './age-label';
 import { foundingBadge, foundingTierMedal } from './founding';
 import { readGuideRow } from './help-guides';
 import {
@@ -425,9 +426,10 @@ function startsAtLine(payload: Payload): string {
 /**
  * Who is asking, as the host's guest list already shows them (plan 11).
  *
- * Name, founding medal, Trust Score — the same three facts `formatParticipants`
+ * Name, founding medal, age, Trust Score — the same facts `formatParticipants`
  * draws, so moving them into the notification discloses nothing new; it puts
- * them where the accept/reject decision is taken. Null trust is «تازه‌وارد»,
+ * them where the accept/reject decision is taken. The age arrived in v0.24.0
+ * (ADR-0021); a payload queued before it simply renders without one. Null trust is «تازه‌وارد»,
  * never zero. Null for a payload without a name, which renders the old
  * «یک نفر» sentence rather than an empty one.
  */
@@ -437,7 +439,10 @@ function requesterLine(payload: Payload): string | null {
   const score = payload['participantTrustScore'];
   const trust = typeof score === 'number' ? `${toPersianDigits(score)} از ۱۰۰` : 'تازه‌وارد';
   const tier = payload['participantFoundingTier'];
-  return `<b>${name}</b>${typeof tier === 'number' ? foundingBadge(tier) : ''} · ⭐️ ${trust}`;
+  return (
+    `<b>${name}</b>${typeof tier === 'number' ? foundingBadge(tier) : ''}` +
+    `${ageSuffix(payload['participantAge'])} · ⭐️ ${trust}`
+  );
 }
 
 function num(payload: Payload, key: string): string {

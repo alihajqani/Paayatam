@@ -3,6 +3,7 @@ import {
   PARTICIPANT_STATUS_GUEST_FA,
   type ParticipantStatus,
 } from '@payetam/shared';
+import { ageSuffix } from './age-label';
 import { reviewSummaryLine, type ReviewSummaryLine } from './received-reviews';
 import { seatsFillEmoji, seatsLine } from './seats';
 import { escapeHtml, toPersianDigits } from './escape';
@@ -50,6 +51,8 @@ export interface EventDetailLine {
   minAge: number | null;
   maxAge: number | null;
   hostDisplayName: string;
+  /** The age the host reaches this year, or null; rendered beside the name (ADR-0021). */
+  hostAge: number | null;
   /** Null when the host has never been judged. Never rendered as zero. */
   hostTrustScore: number | null;
   /**
@@ -136,7 +139,7 @@ export function formatEventDetail(line: EventDetailLine): string {
     `${seats}\n` +
     `${costLine(line)}\n` +
     (age === null ? '' : `${age}\n`) +
-    `\n👤 میزبان: ${escapeHtml(line.hostDisplayName)}\n` +
+    `\n👤 میزبان: ${escapeHtml(line.hostDisplayName)}${ageSuffix(line.hostAge)}\n` +
     `⭐️ امتیاز اعتماد: ${trust}\n` +
     (reviews === null ? '' : `💬 نظر مهمان‌ها: ${reviews}\n`) +
     `\n` +

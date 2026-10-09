@@ -175,8 +175,8 @@ describe('one host, two of their own events, one guest', () => {
     // The same person, and the host can tell. That is R8.
     expect(queueOne[0]?.userPublicId).toBe(queueTwo[0]?.userPublicId);
 
-    // What comes with it is a public id, a name and a reputation number. Not a
-    // Telegram identifier, not a phone, not an email, and not a birth year.
+    // What comes with it is a public id, a name, an age and a reputation number.
+    // Not a Telegram identifier, not a phone, not an email, and not a birth year.
     //
     // ── `foundingTier` was added deliberately (v0.9.0) ──────────────────────
     //
@@ -193,7 +193,15 @@ describe('one host, two of their own events, one guest', () => {
     // precisely the pseudonym ADR-0009 layer 3 refuses to assign. If a later
     // change puts `foundingRank` in this projection, this assertion is the thing
     // that should stop it.
+    //
+    // ── `age` was added deliberately (v0.24.0, ADR-0021) ────────────────────
+    //
+    // An age, not the birth year it comes from, and the host is deciding
+    // whether to meet this person, often under an age range they set. As a
+    // correlation key it adds nothing the name does not: the same guest has the
+    // same name on both queues already. The **year** stays out of this list.
     expect(Object.keys(queueOne[0] ?? {}).sort()).toEqual([
+      'age',
       'displayName',
       'foundingTier',
       'hostDeadlineAt',

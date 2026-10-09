@@ -4,6 +4,7 @@ import { formatParticipants, type ParticipantLine } from './participants';
 function line(over: Partial<ParticipantLine> = {}): ParticipantLine {
   return {
     displayName: 'سارا',
+    age: 24,
     trustScore: 70,
     foundingTier: null,
     status: 'PENDING',
@@ -30,5 +31,16 @@ describe('formatParticipants', () => {
     const text = formatParticipants('قهوه', [line({ status: 'CANCELLED_BY_PARTICIPANT' })]);
     expect(text).toContain('خودش کنسل کرد');
     expect(text).not.toContain('شما لغو کردید');
+  });
+});
+
+/** Each guest's age beside their name (v0.24.0, ADR-0021). */
+describe('the age on a guest line', () => {
+  it('follows the name', () => {
+    expect(formatParticipants('قهوه', [line()])).toContain('سارا</b>، ۲۴ ساله');
+  });
+
+  it('is left out for a profile without a year', () => {
+    expect(formatParticipants('قهوه', [line({ age: null })])).not.toContain('ساله');
   });
 });

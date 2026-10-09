@@ -1298,11 +1298,15 @@ describe('the notification a real acceptance produces', () => {
     expect(payload['participantDisplayName']).toBe('شرکت‌کننده');
     expect(payload['participantTrustScore']).toBeNull();
     expect(payload['participantFoundingTier']).toBe(2);
+    // An age, never the year it came from (v0.24.0, ADR-0021).
+    expect(payload['participantAge']).toBe(31);
+    expect(JSON.stringify(payload)).not.toContain('1995');
     expect(JSON.stringify(payload)).not.toContain(joiner);
 
     const [hostText] = await renderedFor('participation.requested');
     expect(hostText).toContain('شرکت‌کننده');
     expect(hostText).toContain('🥈');
+    expect(hostText).toContain('۳۱ ساله');
   });
 
   it('names the event in both halves of the join notification', async () => {
