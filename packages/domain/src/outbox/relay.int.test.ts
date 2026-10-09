@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient, PrismaService } from '@payetam/db';
 import { FakeClock } from '@payetam/platform';
+import { TEMPLATES } from '@payetam/telegram';
 import {
   createTestPrisma,
   createUser,
@@ -29,7 +30,7 @@ const NOW = new Date('2026-08-15T09:00:00.000Z');
 const clock = new FakeClock(NOW);
 
 const outbox = new OutboxService(service, clock);
-const notifications = new NotificationService(service, clock);
+const notifications = new NotificationService(service, clock, outbox);
 const relay = new OutboxRelayService(service, clock, notifications);
 
 let fixture: CatalogFixture;
@@ -403,6 +404,162 @@ describe('delivery outcomes', () => {
 
     // And it is not loaded again, so the queue cannot retry it.
     await expect(notifications.load(notification.id)).resolves.toBeNull();
+  });
+
+  /**
+   * The other side of an activity blocked the bot, and the sender is told
+   * (v0.24.0). Without this a join request into the void looks exactly like the
+   * bot not working.
+   */
+  describe('telling the sender a counterpart blocked the bot', () => {
+    async function activity(hostId: string): Promise<{ id: string; publicId: string }> {
+      return prisma.event.create({
+        data: {
+          hostUserId: hostId,
+          title: 'شب بازی رومیزی',
+          description: 'یه شب بازی دورهمی',
+          titleNormalized: 'شب بازی رومیزی',
+          descriptionNormalized: 'یه شب بازی دورهمی',
+          categoryId: fixture.categoryId,
+          cityId: fixture.tehranId,
+          startsAt: new Date(NOW.getTime() + 7 * 86_400_000),
+          endsAt: new Date(NOW.getTime() + 7 * 86_400_000 + 3 * 3_600_000),
+          capacity: 5,
+          costType: 'FREE',
+          status: 'PUBLISHED',
+          moderationStatus: 'APPROVED',
+          publishedAt: NOW,
+        },
+        select: { id: true, publicId: true },
+      });
+    }
+
+    async function bounce(
+      recipientId: string,
+      templateKey: string,
+      payload: Record<string, unknown>,
+    ): Promise<void> {
+      const queuedRow = await notifications.queue({
+        userId: recipientId,
+        templateKey,
+        dedupeKey: `bounce-${recipientId}-${templateKey}`,
+        payload: payload as never,
+      });
+      await notifications.markUndeliverable(queuedRow.id, recipientId);
+    }
+
+    async function noticeFor(userId: string) {
+      await relay.drain();
+      return prisma.notification.findMany({
+        where: { userId, templateKey: TEMPLATES.COUNTERPART_BLOCKED_BOT },
+      });
+    }
+
+    it('tells the guest when the host never got their join request', async () => {
+      const host = await createProfiledUser();
+      const guest = await createProfiledUser();
+      await prisma.userProfile.update({
+        where: { userId: host.id },
+        data: { displayName: 'سارا' },
+      });
+      const event = await activity(host.id);
+
+      await bounce(host.id, TEMPLATES.PARTICIPATION_REQUESTED_HOST, {
+        eventPublicId: event.publicId,
+        eventTitle: 'شب بازی رومیزی',
+        participantUserPublicId: guest.publicId,
+      });
+
+      const notices = await noticeFor(guest.id);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]?.payload).toMatchObject({
+        reason: 'JOIN_REQUEST',
+        blockedRole: 'HOST',
+        blockedDisplayName: 'سارا',
+        eventTitle: 'شب بازی رومیزی',
+      });
+      // The notice names nobody by internal id, only by what the reader already saw.
+      expect(JSON.stringify(notices[0]?.payload)).not.toContain(host.id);
+    });
+
+    it('tells whoever wrote a direct message that never arrived', async () => {
+      const host = await createProfiledUser();
+      const guest = await createProfiledUser();
+      const event = await activity(host.id);
+      const message = await prisma.directMessage.create({
+        data: {
+          eventId: event.id,
+          senderUserId: host.id,
+          recipientUserId: guest.id,
+          bodyCiphertext: new Uint8Array([1]),
+          bodyNonce: new Uint8Array([1]),
+          keyVersion: 1,
+          createdAt: NOW,
+        },
+        select: { publicId: true },
+      });
+
+      await bounce(guest.id, TEMPLATES.DIRECT_MESSAGE_RECEIVED, {
+        messagePublicId: message.publicId,
+        eventPublicId: event.publicId,
+        eventTitle: 'شب بازی رومیزی',
+      });
+
+      const notices = await noticeFor(host.id);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]?.payload).toMatchObject({ reason: 'DIRECT_MESSAGE', blockedRole: 'GUEST' });
+    });
+
+    it('tells the host when an accepted guest never heard', async () => {
+      const host = await createProfiledUser();
+      const guest = await createProfiledUser();
+      const event = await activity(host.id);
+
+      await bounce(guest.id, TEMPLATES.PARTICIPATION_ACCEPTED, {
+        eventPublicId: event.publicId,
+        eventTitle: 'شب بازی رومیزی',
+        participantUserPublicId: guest.publicId,
+      });
+
+      const notices = await noticeFor(host.id);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]?.payload).toMatchObject({ reason: 'ACCEPTED', blockedRole: 'GUEST' });
+    });
+
+    /** A rejection has nobody waiting on it, so a bounce of one is nobody's news. */
+    it('says nothing about a notification nobody is waiting on', async () => {
+      const host = await createProfiledUser();
+      const guest = await createProfiledUser();
+      const event = await activity(host.id);
+
+      await bounce(guest.id, TEMPLATES.PARTICIPATION_REJECTED, {
+        eventPublicId: event.publicId,
+        participantUserPublicId: guest.publicId,
+      });
+
+      await expect(noticeFor(host.id)).resolves.toHaveLength(0);
+    });
+
+    /**
+     * No Telegram link is not a block. A seed host has none, and «سارا blocked
+     * the bot» about an account that never had one would be a lie, and a
+     * disclosure that the activity is a seed.
+     */
+    it('says nothing when the recipient has no Telegram account at all', async () => {
+      const seedHost = await prisma.user.create({
+        data: { onboardingState: 'PROFILE_COMPLETE', isSeed: true },
+        select: { id: true },
+      });
+      const guest = await createProfiledUser();
+      const event = await activity(seedHost.id);
+
+      await bounce(seedHost.id, TEMPLATES.PARTICIPATION_REQUESTED_HOST, {
+        eventPublicId: event.publicId,
+        participantUserPublicId: guest.publicId,
+      });
+
+      await expect(noticeFor(guest.id)).resolves.toHaveLength(0);
+    });
   });
 
   it('counts attempts and keeps the last error', async () => {

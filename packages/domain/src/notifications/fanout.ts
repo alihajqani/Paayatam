@@ -191,6 +191,14 @@ export function planNotifications(row: OutboxRow): PlannedNotification[] {
       return recipient(row, 'senderUserPublicId', TEMPLATES.DIRECT_MESSAGE_SEEN);
 
     /**
+     * What one side sent the other bounced off a blocked bot (v0.24.0), and the
+     * sender is told. One per bounced notification: each is a separate thing the
+     * reader is waiting on, so each gets its own answer.
+     */
+    case 'delivery.counterpart_blocked':
+      return recipient(row, 'senderUserPublicId', TEMPLATES.COUNTERPART_BLOCKED_BOT);
+
+    /**
      * The host let the clock run out, and only the guest hears about it (v0.8.1).
      *
      * `recipient` like the other single-recipient participation events. The host

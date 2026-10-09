@@ -117,6 +117,17 @@ export const TEMPLATES = {
   DIRECT_MESSAGE_RECEIVED: 'direct.message_received',
   DIRECT_MESSAGE_SEEN: 'direct.message_seen',
   /**
+   * What somebody sent to the other side of an activity never arrived, because
+   * that side has blocked the bot (v0.24.0).
+   *
+   * Without it a join request, a direct message or an acceptance into the void
+   * looks exactly like the bot not working: the sender is told «ثبت شد», and then
+   * nothing ever happens. `NotificationService.markUndeliverable` emits it in the
+   * transaction that records the block, so it covers a block discovered on this
+   * send and one we already knew about.
+   */
+  COUNTERPART_BLOCKED_BOT: 'delivery.counterpart_blocked',
+  /**
    * The other half of `CONTENT_HIDDEN`, which had no counterpart (v0.7.0).
    *
    * A host was told when their activity was hidden and then told nothing when it
@@ -1084,6 +1095,50 @@ export function render(templateKey: string, payload: Payload): RenderedMessage |
           `<b>پیامت دیده شد</b> 👀\n\n` +
           `پیامی که دربارهٔ «${str(payload, 'eventTitle')}» فرستادی خونده شد.`,
       };
+
+    /**
+     * «فلانی بی‌معرفتی کرده» (v0.24.0): the other side blocked the bot.
+     *
+     * Light on purpose. Nothing was decided about the reader and nothing was
+     * taken from them; the point is that the silence they would otherwise get is
+     * not the bot being broken. One sentence per thing that failed to arrive,
+     * because each leaves the reader with a different next step: a request still
+     * stands and expires on its own, a message is simply lost, and a guest who
+     * never heard they were accepted may not turn up.
+     */
+    case TEMPLATES.COUNTERPART_BLOCKED_BOT: {
+      const name = str(payload, 'blockedDisplayName') || 'طرف مقابل';
+      const title = str(payload, 'eventTitle');
+      const reason = payload['reason'];
+
+      if (reason === 'JOIN_REQUEST') {
+        return {
+          text:
+            `<b>${name} ربات رو بلاک کرده</b> 🙈\n\n` +
+            `درخواستت برای «${title}» ثبت شد، ولی خبرش به میزبان نرسید؛ ` +
+            `${name} یه کم بی‌معرفتی کرده و پایتم رو بلاک کرده.\n` +
+            `ربات سالمه، قول! اگه برگرده درخواستت رو می‌بینه، وگرنه آخر وقت خودش ` +
+            `بسته میشه و اگه سکه‌ای داده بودی برمی‌گرده.\n` +
+            `تا اون موقع یه سر به برنامه‌های دیگه بزن.`,
+        };
+      }
+      if (reason === 'ACCEPTED') {
+        return {
+          text:
+            `<b>${name} ربات رو بلاک کرده</b> 🙈\n\n` +
+            `${name} رو برای «${title}» قبول کردی، ولی خبرش بهش نرسید، ` +
+            `چون بی‌معرفتی کرده و پایتم رو بلاک کرده.\n` +
+            `ممکنه ندونه قبول شده و نیاد، حواست بهش باشه.`,
+        };
+      }
+      return {
+        text:
+          `<b>پیامت به ${name} نرسید</b> 🙈\n\n` +
+          `${name} بی‌معرفتی کرده و پایتم رو بلاک کرده، برای همین پیامت دربارهٔ ` +
+          `«${title}» بهش نرسید.\n` +
+          `ربات سالمه، قول! تا وقتی برنگرده، پیامی ازت بهش نمی‌رسه.`,
+      };
+    }
 
     /**
      * The activity is back. Said because the accusation was said.
