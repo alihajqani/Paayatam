@@ -3,6 +3,8 @@ import { PrismaService } from '@payetam/db';
 import type { Prisma } from '@payetam/db';
 import { CLOCK, type Clock } from '@payetam/platform';
 import { isUniqueViolation } from '../identity/user.service';
+import { OutboxService } from '../outbox/outbox.service';
+import { blockedCounterpartEvent } from './blocked-counterpart';
 
 export interface QueuedNotification {
   id: string;
@@ -39,6 +41,7 @@ export class NotificationService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly outbox: OutboxService,
   ) {}
 
   /**
@@ -172,14 +175,6 @@ export class NotificationService {
   }
 
   /**
-   * The bot is blocked, so there is nobody to deliver to.
-   *
-   * Terminal, and **not** a failure to retry: retrying a block burns the global
-   * rate budget that other users' notifications need (ADR-0005). The flag on
-   * `telegram_account` is what the Mini App reads to show its re-start banner —
-   * the only fix is the user's, and the product cannot make it for them (§12.6).
-   */
-  /**
    * The recipient asked not to receive this category (v0.6.1).
    *
    * Terminal, and it touches nothing but this row: an opt-out is not a block,
@@ -196,16 +191,46 @@ export class NotificationService {
     });
   }
 
+  /**
+   * The bot is blocked, so there is nobody to deliver to.
+   *
+   * Terminal, and **not** a failure to retry: retrying a block burns the global
+   * rate budget that other users' notifications need (ADR-0005). The flag on
+   * `telegram_account` is what the Mini App reads to show its re-start banner —
+   * the only fix is the user's, and the product cannot make it for them (§12.6).
+   *
+   * ── The sender is told, in the same transaction (v0.24.0) ───────────────────
+   *
+   * When what bounced was one side of an activity writing to the other, the
+   * sender gets `delivery.counterpart_blocked` (see `blockedCounterpartEvent`).
+   * In this transaction rather than after it, because a redelivered job finds
+   * the row `UNDELIVERABLE` and stops: a notice written afterwards and lost to a
+   * crash would never be written at all.
+   *
+   * Only when an account was actually marked. No `telegram_account` row means a
+   * seed or an unlinked account, which has blocked nothing, and «X blocked the
+   * bot» would be a lie about them.
+   */
   async markUndeliverable(id: string, userId: string): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.notification.update({
+    await this.prisma.$transaction(async (tx) => {
+      const notification = await tx.notification.update({
         where: { id },
         data: { status: 'UNDELIVERABLE', attempts: { increment: 1 } },
-      }),
-      this.prisma.telegramAccount.updateMany({
+        select: { templateKey: true, payload: true },
+      });
+      const marked = await tx.telegramAccount.updateMany({
         where: { userId },
         data: { botBlocked: true },
-      }),
-    ]);
+      });
+      if (marked.count === 0) return;
+
+      const notice = await blockedCounterpartEvent(tx, {
+        notificationId: id,
+        blockedUserId: userId,
+        templateKey: notification.templateKey,
+        payload: notification.payload,
+      });
+      if (notice !== null) await this.outbox.emit(notice, tx);
+    });
   }
 }

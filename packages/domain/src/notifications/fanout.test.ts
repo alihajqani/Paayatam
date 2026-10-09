@@ -19,6 +19,21 @@ function row(eventType: string, payload: Record<string, unknown>) {
   return { id: 'outbox-1', aggregateId: 'agg-1', eventType, payload };
 }
 
+describe('a counterpart blocked the bot (v0.24.0)', () => {
+  it('tells the sender, and nobody else', () => {
+    const planned = planNotifications(
+      row('delivery.counterpart_blocked', { senderUserPublicId: GUEST, reason: 'JOIN_REQUEST' }),
+    );
+
+    expect(planned).toEqual([
+      expect.objectContaining({
+        userPublicId: GUEST,
+        templateKey: TEMPLATES.COUNTERPART_BLOCKED_BOT,
+      }),
+    ]);
+  });
+});
+
 describe('single-recipient events', () => {
   it.each([
     ['participation.accepted', TEMPLATES.PARTICIPATION_ACCEPTED],

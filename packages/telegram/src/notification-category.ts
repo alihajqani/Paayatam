@@ -75,6 +75,12 @@ const CATEGORY: Record<string, NotificationCategory> = {
   // activity, and somebody has read what you wrote.
   [TEMPLATES.DIRECT_MESSAGE_RECEIVED]: 'chat',
   [TEMPLATES.DIRECT_MESSAGE_SEEN]: 'chat',
+  /**
+   * `essential`, by the causation rule: it is the answer to something the reader
+   * just did (asked to join, wrote, accepted). Silencing it would leave them
+   * waiting on a reply that cannot come, which is the bot looking broken.
+   */
+  [TEMPLATES.COUNTERPART_BLOCKED_BOT]: 'essential',
 
   // ── Things somebody is entitled to know ───────────────────────────────────
   [TEMPLATES.NO_SHOW_RECORDED]: 'essential',
