@@ -14,6 +14,95 @@ what a rollback would be undoing.
 This file starts at v0.6.5. Earlier releases are in the git history and were not
 reconstructed — the entries below are written from the commits they ship.
 
+## [v0.25.0] — 2026-10-12
+
+The panel can now say what people do in the bot. The product knew which link created an account
+and which states changed, and nothing in between: not how often a link is followed by people who
+already have an account, not which buttons are pressed, not where a form loses people, not what
+somebody was looking at before they blocked the bot. Every update the bot handles now leaves one
+row, and a new page, «رفتار کاربران», reads those rows six ways.
+
+**Two migrations, additive.** 0065 adds the `bot_interaction` table and two enum types; 0066 adds
+one nullable column to it, `finished_wizard`. They ship together on purpose: 0066 changes what
+`wizard_step` means, so no production row is ever written under the old meaning. **No setting
+change. The bot's command menu does not change. Nothing a person sees in the bot changes.**
+
+### ⚠️ What a deploy changes for people
+
+- **Nothing in the bot.** No text, button or flow is different.
+- **From the deploy on, every tap, command and message is recorded**: the name of what was
+  pressed, the public id it pointed at, the screen and the form step the person was left on, how
+  the bot answered, and how long it took. **Never the text of a message, and never a Telegram
+  id.** Rows are purged after 180 days, the window notifications already have.
+- **The privacy notice does not mention these records yet.** Publishing a new version of a
+  required document sends every existing user back through the consent gate, so the sentence is
+  meant to ride along with the notice's next revision rather than force a re-acceptance of its
+  own. When to publish it is the operator's call.
+- **The reports start empty.** Nothing before the deploy is backfilled. «قیف‌ها», «نقطه‌های ریزش»
+  and «بازگشت» need days of data before they say anything: «هنوز زود است» on a young cohort is the
+  honest answer, not a fault.
+- **Staff are in no total.** An account linked to a panel login is left out of every aggregate,
+  so the operator testing a release does not move the numbers. Its own trail is still readable.
+- The usual release broadcast goes to every user once.
+
+### Added
+
+- **«رفتار کاربران»** in the panel sidebar (under «نمای کلی», `dashboard.read`), over a window of
+  7, 30, 90 or 180 days. Every number counts people rather than attempts. Six tabs:
+  - **«نمای کلی»**: active people per day; interactions, visits and steps per visit (a visit ends
+    after 30 minutes of silence); the share of new accounts that did nothing after `/start`; the
+    breakdown by kind; the hour of day in Tehran time.
+  - **«لینک‌ها»**: for each link, taps, distinct people, accounts created and returning people. An
+    event link is shown by the event's title.
+  - **«دکمه‌ها و دستورها»**: for each button and command, how often it was used, by how many
+    people, how often it was refused, and the commonest refusal.
+  - **«قیف‌ها»**: how far the accounts a window created got, by source, and for each form how many
+    people reached each step and how many were left on it.
+  - **«نقطه‌های ریزش»**: the last screen of people who went a week without coming back, what the
+    product refused, who was sent back to a sign-up step, dead buttons, the bot's own failures,
+    text nothing claimed, and how soon people blocked the bot and what they had been shown.
+  - **«بازگشت»**: who was still using the bot a day, a week and a month after arriving, by source,
+    and which of the messages the product sends on its own were followed by a tap. Each share has
+    its own denominator: "came back after a week" is of the accounts old enough to be asked.
+- **«مسیر در ربات»** on a person's file (`user.read`): that person's interactions, newest first,
+  paginated. A submission the product refused reads «فرستاد و پذیرفته نشد», not «ثبت شد».
+- **`bot_interaction`** (migrations 0065, 0066): one row per Telegram update. `BotService.dispatch`
+  opens an interaction context, the handlers' existing choke points annotate it (`reply`,
+  `repaint`, `drawWizard`, `refuse`, the gates), and `dispatch` writes the row in its `finally`,
+  inside its own `try`: recording can cost a row and never an update. A redelivered update
+  conflicts on `update_id` and is not counted twice.
+- **"No message text" is held by the database, not only by the writer.** Every text column
+  carries a CHECK that admits only the alphabet a name is written in, so a writer that one day
+  passes a typed sentence loses the row instead of storing it. The six constraints and the UNIQUE
+  index are on CI's hand-written allowlist.
+- `InteractionService.record()` (`packages/domain/src/interaction/`), the only writer, and
+  `describeIntent`, which names an update with every id removed (`ev:show`, `cmd:discover`,
+  `start:campaign`) and puts the public id or campaign tag it pointed at in `ref`. An unknown
+  button family is counted under its prefix, so a new button is never lost, only unnamed.
+- `InteractionReportService` and `InteractionJourneyReportService`
+  (`packages/domain/src/adminaccess/`). Both take "who is staff" and "what counts as activity"
+  from `interaction-report.sql.ts`, so six tabs of one page cannot disagree about who is counted.
+- Admin API: `GET /admin/v1/interactions/{overview,links,actions,funnels,dropoff,return}`
+  (`dashboard.read`) and `GET /admin/v1/users/:publicId/interactions` (`user.read`), each asserted
+  in the service and registered in the response-leak scan.
+- `RETENTION.INTERACTION_DAYS = 180`, purged in `RetentionService.purge()` and counted in the
+  worker's purge log line.
+- The design, with what the build changed and why:
+  `docs/superpowers/specs/2026-10-12-bot-interaction-tracking-design.md`.
+
+### Changed
+
+- `UserService.arriveByTelegram` returns `{ user, created }` and `findOrCreateByTelegram`
+  delegates to it. That is how `/start` learns it created the account.
+- `BotService.repaint` takes the screen it redraws as a required argument. An edit writes no
+  `notification` row, so nothing else says what was drawn. Fifteen call sites name the template
+  the same screen is sent with.
+
+### Not measured, and not measurable
+
+Telegram does not tell a bot about somebody who opens a `t.me` link and never presses Start, a
+tap on a URL button (a channel join link, the share sheet), or whether a message was read.
+
 ## [v0.24.0] — 2026-10-09
 
 Two things the other side of an activity now tells you. A join request, a direct message or an
