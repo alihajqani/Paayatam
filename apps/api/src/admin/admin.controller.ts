@@ -18,6 +18,8 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   AcquisitionReportService,
+  InteractionReportService,
+  InteractionJourneyReportService,
   AdminAccessService,
   AdminInsightService,
   BugReportService,
@@ -97,6 +99,8 @@ import {
   adminUserListQuery,
   foundingMemberListQuery,
   acquisitionReportQuery,
+  interactionWindowQuery,
+  userInteractionsQuery,
   analyticsWindowQuery,
   bulkCreateGiftCodesRequest,
   createGiftCodeRequest,
@@ -184,6 +188,15 @@ import {
   type FoundingReportResponse,
   type AcquisitionReportQuery,
   type AcquisitionReportResponse,
+  type InteractionWindowQuery,
+  type InteractionOverviewResponse,
+  type InteractionLinksResponse,
+  type InteractionActionsResponse,
+  type InteractionFunnelsResponse,
+  type InteractionDropoffResponse,
+  type InteractionReturnResponse,
+  type UserInteractionsQuery,
+  type UserInteractionsResponse,
   type EconomyReportResponse,
   type AdminEventListQuery,
   type AdminEventListResponse,
@@ -295,6 +308,10 @@ export class AdminController {
     private readonly founding: FoundingAdminService,
     /** Where users come from. Read-only: its only input is a link on an ad. */
     private readonly acquisition: AcquisitionReportService,
+    /** What people do in the bot (migration 0065). Read-only: the bot writes it. */
+    private readonly interactions: InteractionReportService,
+    /** Funnels, drop-off and return over the same rows. Read-only. */
+    private readonly journeys: InteractionJourneyReportService,
     /**
      * The coin economy's health. Read-only for the same reason, and doubly so:
      * every lever on it is a row in `app_setting` with a screen of its own.
@@ -1049,6 +1066,176 @@ export class AdminController {
       rows: report.rows,
       omittedRows: report.omittedRows,
       botUsername: report.botUsername,
+    };
+  }
+
+  // ── What people do in the bot ──────────────────────────────────────────────
+
+  /**
+   * Activity in the window: people, visits, steps per visit, and how many new
+   * accounts never went past `/start` (migration 0065).
+   *
+   * `dashboard.read`, asserted in the service: every number is a count. Staff —
+   * accounts linked to an admin — are in none of them, which the service owns
+   * too, so the exclusion cannot be skipped by a second caller.
+   */
+  @Get('interactions/overview')
+  async interactionOverview(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionOverviewResponse> {
+    const overview = await this.interactions.overview(admin, query.days);
+    return {
+      windowDays: overview.windowDays,
+      since: overview.since.toISOString(),
+      trackingSince: overview.trackingSince?.toISOString() ?? null,
+      totals: overview.totals,
+      byDay: overview.byDay,
+      byKind: overview.byKind,
+      byOutcome: overview.byOutcome,
+      byHour: overview.byHour,
+    };
+  }
+
+  /**
+   * Every link, and every time it was followed — by new people and by members.
+   *
+   * The companion to `GET acquisition`, which counts only the `/start` that
+   * created an account. A `ref` here is a campaign tag or a public id, the same
+   * two things that report already returns.
+   */
+  @Get('interactions/links')
+  async interactionLinks(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionLinksResponse> {
+    const links = await this.interactions.links(admin, query.days);
+    return {
+      windowDays: links.windowDays,
+      since: links.since.toISOString(),
+      rows: links.rows,
+      omittedRows: links.omittedRows,
+    };
+  }
+
+  /** What was pressed, most pressed first, with how often each was refused and why. */
+  @Get('interactions/actions')
+  async interactionActions(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionActionsResponse> {
+    const actions = await this.interactions.actions(admin, query.days);
+    return {
+      windowDays: actions.windowDays,
+      since: actions.since.toISOString(),
+      rows: actions.rows,
+      omittedRows: actions.omittedRows,
+    };
+  }
+
+  /**
+   * How far the window's new accounts got, by source, and where each form
+   * loses the people who start it.
+   *
+   * `dashboard.read`, asserted in the service. Counted in people, not attempts,
+   * so a form opened three times and finished once is one person who finished.
+   */
+  @Get('interactions/funnels')
+  async interactionFunnels(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionFunnelsResponse> {
+    const funnels = await this.journeys.funnels(admin, query.days);
+    return {
+      windowDays: funnels.windowDays,
+      since: funnels.since.toISOString(),
+      onboarding: funnels.onboarding,
+      forms: funnels.forms,
+    };
+  }
+
+  /**
+   * Where people stopped: the last screen of those who went quiet, what the
+   * product refused, and what somebody was looking at before they blocked.
+   *
+   * Every row is a count of people and names none of them. Whoever needs the
+   * person opens their file, which is behind `user.read`.
+   */
+  @Get('interactions/dropoff')
+  async interactionDropoff(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionDropoffResponse> {
+    const dropoff = await this.journeys.dropoff(admin, query.days);
+    return {
+      windowDays: dropoff.windowDays,
+      since: dropoff.since.toISOString(),
+      quietDays: dropoff.quietDays,
+      quietUsers: dropoff.quietUsers,
+      lastSeen: dropoff.lastSeen,
+      refusals: dropoff.refusals,
+      gates: dropoff.gates,
+      stale: dropoff.stale,
+      failures: dropoff.failures,
+      unclaimedText: dropoff.unclaimedText,
+      unsupported: dropoff.unsupported,
+      blocks: dropoff.blocks,
+    };
+  }
+
+  /**
+   * Who came back after a day, a week and a month, by source, and which of the
+   * messages the product sent on its own were followed by anything.
+   */
+  @Get('interactions/return')
+  async interactionReturn(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionReturnResponse> {
+    const result = await this.journeys.returning(admin, query.days);
+    return {
+      windowDays: result.windowDays,
+      since: result.since.toISOString(),
+      cohorts: result.cohorts,
+      notifications: result.notifications,
+    };
+  }
+
+  /**
+   * One person's trail through the bot, newest first.
+   *
+   * `user.read`, asserted in the service — not `dashboard.read`: this is a list
+   * about a person, and it needs what the rest of their file needs. Each item is
+   * mapped field by field, so a column added to `bot_interaction` later does not
+   * reach this response by being there.
+   */
+  @Get('users/:publicId/interactions')
+  async userInteractions(
+    @Param('publicId') publicId: string,
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(userInteractionsQuery)) query: UserInteractionsQuery,
+  ): Promise<UserInteractionsResponse> {
+    const trail = await this.interactions.timeline(
+      admin,
+      publicId,
+      query.before === undefined ? undefined : new Date(query.before),
+    );
+    return {
+      items: trail.items.map((item) => ({
+        id: item.id,
+        at: item.at.toISOString(),
+        kind: item.kind,
+        action: item.action,
+        ref: item.ref,
+        outcome: item.outcome,
+        detail: item.detail,
+        screen: item.screen,
+        wizardKind: item.wizardKind,
+        wizardStep: item.wizardStep,
+        finishedWizard: item.finishedWizard,
+        durationMs: item.durationMs,
+      })),
+      nextBefore: trail.nextBefore?.toISOString() ?? null,
     };
   }
 

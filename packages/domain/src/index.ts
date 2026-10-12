@@ -15,6 +15,12 @@ export type { CurrentPolicy, ConsentContextInfo, PolicyStanding } from './identi
 
 export { IdentityModule, INIT_DATA_VALIDATOR } from './identity/identity.module';
 
+export { describeIntent } from './interaction/describe-intent';
+export type { IntentDescription } from './interaction/describe-intent';
+export { InteractionService } from './interaction/interaction.service';
+export type { InteractionRecord } from './interaction/interaction.service';
+export { InteractionModule } from './interaction/interaction.module';
+
 export { AuditService } from './audit/audit.service';
 export type { AuditEntry } from './audit/audit.service';
 export { AuditModule } from './audit/audit.module';
@@ -409,6 +415,25 @@ export type {
   AcquisitionReport,
   AcquisitionReportRow,
 } from './adminaccess/acquisition-report.service';
+export {
+  InteractionReportService,
+  TIMELINE_PAGE_SIZE,
+} from './adminaccess/interaction-report.service';
+export type {
+  InteractionOverview,
+  InteractionLink,
+  InteractionLinks,
+  InteractionAction,
+  InteractionActions,
+  InteractionTimeline,
+  TimelineItem,
+} from './adminaccess/interaction-report.service';
+export { InteractionJourneyReportService } from './adminaccess/interaction-journey-report.service';
+export type {
+  InteractionFunnels,
+  InteractionDropoff,
+  InteractionReturn,
+} from './adminaccess/interaction-journey-report.service';
 export { EconomyReportService } from './adminaccess/economy-report.service';
 export type {
   EconomyReport,

@@ -7,6 +7,8 @@ export interface PurgeResult {
   chats: number;
   directMessages: number;
   notifications: number;
+  /** `bot_interaction` rows: what people did in the bot (migration 0065). */
+  interactions: number;
   auditRows: number;
   outboxRows: number;
   idempotencyKeys: number;
@@ -53,6 +55,18 @@ export const RETENTION = {
    * in one sentence is worth more than one that keeps a live thread whole.
    */
   DIRECT_MESSAGE_DAYS: 180,
+  /**
+   * What somebody did in the bot — which buttons, which screens — 180 days
+   * after it happened (migration 0065).
+   *
+   * The same number as notifications, on purpose: the two are the outbound and
+   * the inbound half of one conversation with the bot, a report joins them, and
+   * a privacy notice that gives one retention period for both is one a person
+   * can actually hold in their head. `INTERACTION_MAX_WINDOW_DAYS` in
+   * `@payetam/shared` is the same number for the same reason — a report window
+   * longer than this would read rows that are no longer there.
+   */
+  INTERACTION_DAYS: 180,
   /** §8: the audit trail, 24 months. */
   AUDIT_DAYS: 730,
   /**
@@ -108,6 +122,7 @@ export class RetentionService {
       chats: 0,
       directMessages: 0,
       notifications: 0,
+      interactions: 0,
       auditRows: 0,
       outboxRows: 0,
       idempotencyKeys: 0,
@@ -208,12 +223,27 @@ export class RetentionService {
       await this.prisma.requestIdempotency.deleteMany({ where: { expiresAt: { lte: now } } })
     ).count;
 
+    /**
+     * What people did in the bot, by age (migration 0065).
+     *
+     * One statement on the `created_at` index. Nothing references the table, so
+     * there is no order to respect; and rows with no user — taps from senders
+     * the bot did not know — expire with the rest, because the rule is about
+     * how old a record is and not about whose it is.
+     */
+    result.interactions = (
+      await this.prisma.botInteraction.deleteMany({
+        where: { createdAt: { lte: daysAgo(now, RETENTION.INTERACTION_DAYS) } },
+      })
+    ).count;
+
     result.auditRows = await this.purgeAuditLog(daysAgo(now, RETENTION.AUDIT_DAYS));
 
     this.logger.log(
       `Purge: ${String(result.chatMessages)} messages, ${String(result.chats)} chats, ` +
         `${String(result.directMessages)} direct, ` +
-        `${String(result.notifications)} notifications, ${String(result.outboxRows)} outbox, ` +
+        `${String(result.notifications)} notifications, ` +
+        `${String(result.interactions)} interactions, ${String(result.outboxRows)} outbox, ` +
         `${String(result.idempotencyKeys)} idempotency, ${String(result.auditRows)} audit`,
     );
     return result;

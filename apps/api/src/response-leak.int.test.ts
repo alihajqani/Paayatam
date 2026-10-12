@@ -238,6 +238,40 @@ beforeAll(async () => {
   });
   hostPublicId = host.publicId;
 
+  /**
+   * What the scanned host did in the bot (migration 0065), so the interaction
+   * reports and the host's own trail have rows to project rather than empty
+   * lists to pass on. One arrival and one refused tap: between them every
+   * column the trail returns is populated.
+   */
+  await prisma.botInteraction.createMany({
+    data: [
+      {
+        updateId: 910_001n,
+        userId: host.id,
+        kind: 'START',
+        action: 'start:campaign',
+        ref: 'leak_scan',
+        createdAccount: true,
+        screen: 'bot.welcome',
+      },
+      {
+        updateId: 910_002n,
+        userId: host.id,
+        kind: 'CALLBACK',
+        action: 'ev:join',
+        messageId: 77,
+        wizardKind: 'CREATE_EVENT',
+        wizardStep: 'title',
+        finishedWizard: 'ACCEPT_POLICIES',
+        outcome: 'REFUSED',
+        detail: 'EVENT_FULL',
+        screen: 'bot.event_detail',
+        durationMs: 12,
+      },
+    ],
+  });
+
   const user = await prisma.user.create({
     data: {
       onboardingState: 'PROFILE_COMPLETE',
@@ -1145,6 +1179,35 @@ beforeAll(async () => {
      */
     { method: 'GET', url: '/admin/v1/acquisition', admin: true },
     { method: 'GET', url: '/admin/v1/acquisition?days=7', admin: true },
+
+    /**
+     * What people do in the bot (migration 0065).
+     *
+     * The three aggregates exclude staff by a subquery that joins
+     * `telegram_account` to `admin_telegram_link` **on the Telegram id** — the
+     * closest any report comes to the column this scan exists for. It selects
+     * nothing from either table, and this is what holds it to that.
+     *
+     * The fourth is one person's trail: a list of rows keyed, in the table, by
+     * the internal user id and Telegram's own update and message ids. The
+     * response is an allowlist that names none of the three.
+     */
+    { method: 'GET', url: '/admin/v1/interactions/overview', admin: true },
+    { method: 'GET', url: '/admin/v1/interactions/overview?days=7', admin: true },
+    { method: 'GET', url: '/admin/v1/interactions/links', admin: true },
+    { method: 'GET', url: '/admin/v1/interactions/actions?days=90', admin: true },
+    /**
+     * Funnels, drop-off and return (release 2). Aggregates again, and the ones
+     * that read the most of a person: the last screen somebody was left on,
+     * what they were shown before they blocked the bot, which notification
+     * they pressed. Each answer is a count of people and names none of them —
+     * the return report also excludes staff by the same Telegram-id join, this
+     * time from `notification`.
+     */
+    { method: 'GET', url: '/admin/v1/interactions/funnels?days=90', admin: true },
+    { method: 'GET', url: '/admin/v1/interactions/dropoff', admin: true },
+    { method: 'GET', url: '/admin/v1/interactions/return?days=90', admin: true },
+    { method: 'GET', url: `/admin/v1/users/${hostPublicId}/interactions`, admin: true },
 
     /**
      * M19's referral review. The queue is a screen full of *other people's*
