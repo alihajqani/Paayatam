@@ -42,6 +42,25 @@ export class UserService {
     telegramUser: InitDataUser,
     acquisition?: Acquisition,
   ): Promise<PublicUser> {
+    return (await this.arriveByTelegram(telegramUser, acquisition)).user;
+  }
+
+  /**
+   * `findOrCreateByTelegram`, saying which of the two it did.
+   *
+   * `created` is true only for the call that inserted the account — the loser
+   * of the insert race created nothing and says so. The bot records it on the
+   * `/start` it handled (`bot_interaction.created_account`), which is what lets
+   * a link's report tell the people it brought from the members who followed it.
+   *
+   * A second method rather than a wider return type on the first, because that
+   * one's result is a `PublicUser` that sign-in hands straight to a mapper, and
+   * a flag riding along on it is a flag one spread away from a response.
+   */
+  async arriveByTelegram(
+    telegramUser: InitDataUser,
+    acquisition?: Acquisition,
+  ): Promise<{ user: PublicUser; created: boolean }> {
     const now = this.clock.now();
 
     const existing = await this.prisma.telegramAccount.findUnique({
@@ -61,7 +80,7 @@ export class UserService {
           botBlocked: false,
         },
       });
-      return this.assertUsable(toPublicUser(existing.user));
+      return { user: this.assertUsable(toPublicUser(existing.user)), created: false };
     }
 
     try {
@@ -83,7 +102,7 @@ export class UserService {
             : {}),
         },
       });
-      return this.assertUsable(toPublicUser(created));
+      return { user: this.assertUsable(toPublicUser(created)), created: true };
     } catch (error) {
       // Lost the insert race. The other request created the account; read it.
       if (isUniqueViolation(error)) {
@@ -92,7 +111,7 @@ export class UserService {
           include: { user: true },
         });
         if (raced) {
-          return this.assertUsable(toPublicUser(raced.user));
+          return { user: this.assertUsable(toPublicUser(raced.user)), created: false };
         }
       }
       throw error;

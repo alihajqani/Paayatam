@@ -2,6 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DEFAULT_BOT_USERNAME, type Env } from '@payetam/config';
 import {
   acquisitionFor,
+  describeIntent,
+  InteractionService,
+  type IntentDescription,
   CatalogService,
   ChannelMembershipService,
   ConsentService,
@@ -82,6 +85,8 @@ import {
   ErrorCode,
   isUnlimitedCapacity,
   resolveVersion,
+  INTERACTION_WIZARD_MARKS,
+  type InteractionGate,
 } from '@payetam/shared';
 import {
   TEMPLATES,
@@ -238,6 +243,13 @@ import {
   type WizardScreen,
 } from '@payetam/telegram';
 import type { ButtonStyle, MenuCallback } from '@payetam/telegram';
+import {
+  newInteractionNotes,
+  noteInteraction,
+  noteOutcome,
+  runWithInteraction,
+  type InteractionNotes,
+} from './interaction-context';
 
 /**
  * What a reply interpolates.
@@ -371,6 +383,34 @@ function policyTitle(policy: { type: PolicyType; titleFa: string | null }): stri
     : POLICY_DEFAULT_TITLE[policy.type];
 }
 
+/**
+ * Which form is open and which step is on screen, for `bot_interaction`.
+ *
+ * What is recorded is where the person was **left**, not where they came from:
+ * the last row of a form nobody finished then names the question it was
+ * abandoned on, which is the whole of the drop-off report.
+ *
+ * A cancelled form no longer says what kind it was — `ConversationService` has
+ * already cleared it — so the kind is null and a reader takes it from the row
+ * before.
+ */
+function wizardPosition(
+  outcome: ConversationOutcome,
+): Pick<InteractionNotes, 'wizardKind' | 'wizardStep'> {
+  switch (outcome.kind) {
+    case 'step':
+      return { wizardKind: outcome.snapshot.kind, wizardStep: outcome.step.key };
+    case 'summary':
+      return { wizardKind: outcome.snapshot.kind, wizardStep: INTERACTION_WIZARD_MARKS.SUMMARY };
+    case 'submit':
+      return { wizardKind: outcome.snapshot.kind, wizardStep: INTERACTION_WIZARD_MARKS.SUBMITTED };
+    case 'cancelled':
+      return { wizardKind: null, wizardStep: INTERACTION_WIZARD_MARKS.CANCELLED };
+    case 'redelivery':
+      return { wizardKind: outcome.snapshot.kind, wizardStep: null };
+  }
+}
+
 function answersAForm(intent: ParsedUpdate['intent']): boolean {
   switch (intent.kind) {
     case 'TEXT':
@@ -467,10 +507,43 @@ export class BotService {
     private readonly noShowClaims: NoShowClaimService,
     /** The in-bot guide behind `/help` and «📖 راهنما» (migration 0063). */
     private readonly guides: HelpGuideService,
+    /** What people do in the bot, one row per update (migration 0065). */
+    private readonly interactions: InteractionService,
   ) {}
 
   /**
-   * Handle one update.
+   * Handle one update, then record that it happened.
+   *
+   * ── The record comes second, and cannot undo the first ──────────────────────
+   *
+   * `bot_interaction` is what the «رفتار کاربران» reports read: one row per
+   * update, saying what was pressed and how the bot answered. It is written
+   * after the handler has finished, because half of it — who it was, which
+   * screen they were left on, whether the product said no — does not exist
+   * until then. And it is written inside its own `try`, because a counter that
+   * could turn an answered update into a failed webhook call would be the
+   * report breaking the product it reports on.
+   *
+   * The handler runs inside an interaction context (`interaction-context.ts`),
+   * which is how `reply`, `refuse`, `drawWizard` and the gates add what they
+   * know without any of the handlers between here and there carrying a
+   * parameter for it.
+   *
+   * An edit is the one update with no row: the bot ignores edits, and Telegram
+   * sends one for every edit in the chat.
+   */
+  async dispatch(update: ParsedUpdate): Promise<void> {
+    const described = describeIntent(update.intent);
+    if (described === null) return this.handle(update);
+
+    const notes = newInteractionNotes();
+    const startedAt = performance.now();
+    await runWithInteraction(notes, () => this.handle(update));
+    await this.recordInteraction(update.updateId, described, notes, performance.now() - startedAt);
+  }
+
+  /**
+   * Run the handler for one update.
    *
    * Every failure is caught here. The webhook answers 200 by contract (ADR-0004),
    * so a throw escaping this method would become an unhandled rejection and nothing
@@ -478,14 +551,17 @@ export class BotService {
    * something, and the refusal has already been relayed in Persian by whoever
    * caught it closer to the action.
    */
-  async dispatch(update: ParsedUpdate): Promise<void> {
+  private async handle(update: ParsedUpdate): Promise<void> {
     try {
       await this.route(update);
     } catch (error) {
       if (error instanceof AppError) {
+        // Nobody closer to the action caught it, so nobody has recorded it.
+        noteOutcome('REFUSED', error.code);
         this.logger.log(`Update ${String(update.updateId)} refused: ${error.code}`);
         return;
       }
+      noteOutcome('FAILED');
       // The message is logged; the update is not. It carries a Telegram id and a
       // message body, and neither belongs in a log line (invariant 7, T15).
       this.logger.error(
@@ -493,6 +569,42 @@ export class BotService {
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );
+    }
+  }
+
+  /**
+   * Write the row for one handled update.
+   *
+   * `InteractionService.record` already answers `false` rather than throwing.
+   * The `try` here is the second of two, deliberately: this is the last line of
+   * a method the webhook awaits, and "the service promises not to throw" is a
+   * property of another package that this one should not have to trust in order
+   * to keep answering 200.
+   */
+  private async recordInteraction(
+    updateId: number,
+    described: IntentDescription,
+    notes: InteractionNotes,
+    durationMs: number,
+  ): Promise<void> {
+    try {
+      await this.interactions.record({
+        updateId,
+        userId: notes.userId,
+        kind: described.kind,
+        action: notes.action ?? described.action,
+        ref: described.ref,
+        createdAccount: notes.createdAccount,
+        messageId: described.messageId,
+        wizardKind: notes.wizardKind,
+        wizardStep: notes.wizardStep,
+        outcome: notes.outcome,
+        detail: notes.detail,
+        screen: notes.screen,
+        durationMs,
+      });
+    } catch {
+      this.logger.error(`Interaction for update ${String(updateId)} was not recorded`);
     }
   }
 
@@ -510,6 +622,9 @@ export class BotService {
         // retrying against somebody who is gone; unblocking clears it, and so does
         // any later `/start`.
         await this.users.markBotBlocked(intent.from.telegramUserId, intent.blocked);
+        // Resolved only so the block is recorded against somebody: «which screen
+        // were they on when they left» needs to know whose trail to read.
+        await this.knownUser(intent.from);
         return;
 
       case 'CALLBACK':
@@ -565,6 +680,7 @@ export class BotService {
           onboarding === 'clear' &&
           (await this.appAccessBlocked(update.updateId, user, intent))
         ) {
+          noteOutcome('GATED', 'app_access');
           return;
         }
 
@@ -793,16 +909,31 @@ export class BotService {
   ): Promise<boolean> {
     if (!this.onboardingOwed(user)) return false;
 
+    /**
+     * `gate` is the lead for somebody who asked for something else and was sent
+     * here instead, which is what `bot_interaction` calls `GATED` — and the
+     * step they owe is what its report counts. The other two leads are people
+     * arriving at this step in order, and are not recorded as turned back.
+     */
+    const turnedBack = (owed: InteractionGate): void => {
+      if (lead === 'gate') noteOutcome('GATED', owed);
+    };
+
     if (user.onboardingState === 'NEW') {
       if ((await this.consent.requiredPolicies()).length === 0) return false;
+      turnedBack('terms');
       if (lead !== null) await this.notice(updateId, user, ONBOARDING_LEAD_FA[lead].terms);
       const outcome = await this.conversations.start(user.id, 'ACCEPT_POLICIES', updateId);
       await this.drawWizard(updateId, user, outcome);
       return true;
     }
 
-    if (await this.channelsBlock(updateId, user)) return true;
+    if (await this.channelsBlock(updateId, user)) {
+      turnedBack('channel');
+      return true;
+    }
 
+    turnedBack('profile');
     if (lead !== null) await this.notice(updateId, user, ONBOARDING_LEAD_FA[lead].profile);
     const open = await this.conversations.resume(user.id);
     if (open?.kind === 'step' && open.snapshot.kind === 'EDIT_PROFILE') {
@@ -1562,8 +1693,12 @@ export class BotService {
   private async onStart(updateId: number, from: BotSender, payload: string | null): Promise<void> {
     // Where they came from, recorded only if this tap is what creates the
     // account — `findOrCreateByTelegram` writes it in the same INSERT.
-    const created = await this.users.findOrCreateByTelegram(from, acquisitionFor(payload));
+    const arrival = await this.users.arriveByTelegram(from, acquisitionFor(payload));
+    const created = arrival.user;
     const userId = await this.users.resolveInternalId(created.publicId);
+    // Whether this `/start` made the account is what separates a link's new
+    // people from the members who followed it (`bot_interaction.created_account`).
+    noteInteraction({ userId, createdAccount: arrival.created });
     const user: BotUser = {
       id: userId,
       publicId: created.publicId,
@@ -1728,6 +1863,7 @@ export class BotService {
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
         refusal = error.code;
+        noteOutcome('REFUSED', error.code);
       }
     }
 
@@ -1937,6 +2073,8 @@ export class BotService {
         value: message.text,
       });
       if (wizard !== null) {
+        // A form took it, so it is an answer — which is all the record says of it.
+        noteInteraction({ action: 'text:answer' });
         /**
          * The answer is in the form now, so it comes out of the chat.
          *
@@ -2171,6 +2309,7 @@ export class BotService {
     }
 
     if (onboarding === 'clear' && (await this.channelsBlock(update.updateId, user, 'APP_ACCESS'))) {
+      noteOutcome('GATED', 'app_access');
       await this.answer(callbackQueryId, 'برای ادامه باید عضو کانال‌هایی که گفتیم بشی.');
       return;
     }
@@ -2193,7 +2332,7 @@ export class BotService {
           : `جنسیتت قبلاً ثبت شده: ${genderLabel(chosen.gender)}.\n\n` +
             `<i>برای تغییرش باید به پشتیبانی پیام بدی.</i>`;
       if (messageId !== undefined) {
-        return this.repaint(update.updateId, user, messageId, text, []);
+        return this.repaint(update.updateId, user, messageId, text, [], TEMPLATES.BOT_NOTICE);
       }
       return this.notice(update.updateId, user, text);
     }
@@ -2242,6 +2381,7 @@ export class BotService {
       };
       const outcome = await this.conversations.handle(user.id, update.updateId, input);
       if (outcome === null) {
+        noteOutcome('STALE');
         await this.answer(callbackQueryId, 'این فرم دیگه باز نیست.');
         return;
       }
@@ -2291,6 +2431,7 @@ export class BotService {
     if (adminCallback !== null) {
       const session = await this.adminTelegram.sessionFor(user.telegramUserId);
       if (session === null) {
+        noteOutcome('STALE');
         await this.answer(callbackQueryId, 'این دکمه دیگه کار نمی‌کنه.');
         return;
       }
@@ -2545,6 +2686,7 @@ export class BotService {
         }
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
+        noteOutcome('REFUSED', error.code);
         await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
       }
       return;
@@ -2570,6 +2712,7 @@ export class BotService {
     if (callback === null) {
       // An old build's button, or a tampered one. Indistinguishable to the person
       // who pressed it, and the same sentence serves both.
+      noteOutcome('STALE');
       await this.answer(callbackQueryId, 'این دکمه دیگه کار نمی‌کنه.');
       return;
     }
@@ -2597,6 +2740,7 @@ export class BotService {
       }
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
+      noteOutcome('REFUSED', error.code);
       await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
       /**
        * A refused decision seals the notification too.
@@ -2657,7 +2801,7 @@ export class BotService {
           : '<b>این درخواست دیگه باز نیست</b>\n\n' +
             'یا قبلاً تصمیمش گرفته شده، یا پس گرفته شده، یا وقتش گذشته.';
 
-    await this.repaint(updateId, user, messageId, text, []);
+    await this.repaint(updateId, user, messageId, text, [], TEMPLATES.BOT_NOTICE);
   }
 
   /**
@@ -3167,6 +3311,7 @@ export class BotService {
       );
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
+      noteOutcome('REFUSED', error.code);
       await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
     }
   }
@@ -3397,7 +3542,7 @@ export class BotService {
     const text = formatAdminQueue(lines);
 
     if (editMessageId !== undefined) {
-      return this.repaint(updateId, user, editMessageId, text, rows);
+      return this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_ADMIN_CASES);
     }
 
     await this.reply(updateId, user.id, TEMPLATES.BOT_ADMIN_CASES, {
@@ -3820,7 +3965,7 @@ export class BotService {
       return;
     }
 
-    await this.repaint(updateId, user, editMessageId, text, rows);
+    await this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_MY_EVENTS);
   }
 
   /**
@@ -4006,7 +4151,7 @@ export class BotService {
       .filter((row) => row.length > 0);
 
     if (editMessageId !== undefined) {
-      return this.repaint(updateId, user, editMessageId, text, rows);
+      return this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_PARTICIPANTS);
     }
 
     await this.reply(updateId, user.id, TEMPLATES.BOT_PARTICIPANTS, {
@@ -4458,6 +4603,7 @@ export class BotService {
         await this.profiles.update(user.id, { inviteOptOut: !callback.value });
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
+        noteOutcome('REFUSED', error.code);
         await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
         return this.drawSettings(updateId, user, editMessageId);
       }
@@ -4883,7 +5029,7 @@ export class BotService {
     ];
 
     if (editMessageId !== undefined) {
-      return this.repaint(updateId, user, editMessageId, text, keyboard);
+      return this.repaint(updateId, user, editMessageId, text, keyboard, TEMPLATES.BOT_WALLET);
     }
 
     return this.reply(updateId, user.id, TEMPLATES.BOT_WALLET, {
@@ -5001,7 +5147,14 @@ export class BotService {
     ];
 
     if (editMessageId !== undefined) {
-      return this.repaint(updateId, user, editMessageId, text, keyboard);
+      return this.repaint(
+        updateId,
+        user,
+        editMessageId,
+        text,
+        keyboard,
+        TEMPLATES.BOT_COIN_PACKAGES,
+      );
     }
 
     return this.reply(updateId, user.id, TEMPLATES.BOT_COIN_PACKAGES, {
@@ -5037,7 +5190,7 @@ export class BotService {
     const keyboard = trustPageRow(page, hasNext);
 
     if (editMessageId !== undefined) {
-      return this.repaint(updateId, user, editMessageId, text, keyboard);
+      return this.repaint(updateId, user, editMessageId, text, keyboard, TEMPLATES.BOT_TRUST);
     }
 
     return this.reply(updateId, user.id, TEMPLATES.BOT_TRUST, {
@@ -5076,7 +5229,7 @@ export class BotService {
       });
       return;
     }
-    await this.repaint(updateId, user, editMessageId, text, rows);
+    await this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_SETTINGS);
   }
 
   private async drawSettings(
@@ -5128,7 +5281,7 @@ export class BotService {
       return;
     }
 
-    await this.repaint(updateId, user, editMessageId, text, rows);
+    await this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_SETTINGS);
   }
 
   /**
@@ -5307,7 +5460,7 @@ export class BotService {
       return;
     }
 
-    await this.repaint(updateId, user, editMessageId, text, rows);
+    await this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_DISCOVER);
   }
 
   /**
@@ -5360,6 +5513,7 @@ export class BotService {
         messageId,
         menuRootText(await this.menuStatus(user)),
         menuRootKeyboard(),
+        TEMPLATES.BOT_MENU,
       );
     }
 
@@ -5377,6 +5531,7 @@ export class BotService {
       messageId,
       menuGroupText(group),
       menuGroupKeyboard(group),
+      TEMPLATES.BOT_MENU,
     );
   }
 
@@ -5408,7 +5563,16 @@ export class BotService {
     messageId: number,
     text: string,
     keyboard: readonly (readonly { text: string; callbackData?: string; url?: string }[])[],
+    /**
+     * Which screen this is, by the template the same screen is *sent* with.
+     *
+     * An edit writes no `notification` row, so nothing else says what was drawn
+     * (`bot_interaction.screen`). Required rather than optional: a redraw that
+     * forgot to name itself would be a screen the drop-off report cannot see.
+     */
+    screen: string,
   ): Promise<void> {
+    noteInteraction({ screen });
     await this.queues.enqueue(
       QUEUES.TELEGRAM_SEND,
       JOBS.BOT_EDIT_MESSAGE,
@@ -5731,6 +5895,8 @@ export class BotService {
     /** The typed message that produced this outcome, when a direct message keeps it. */
     typedMessageId?: number,
   ): Promise<void> {
+    noteInteraction(wizardPosition(outcome));
+
     switch (outcome.kind) {
       case 'cancelled':
         /**
@@ -5783,8 +5949,16 @@ export class BotService {
          * The consent gate has nothing to review: it collects one decision, and
          * the decision *is* the submission. Falling through to a summary screen
          * would show somebody a «بازبینی نهایی» of a form with no fields.
+         *
+         * `submittedHere` is the same fact for `bot_interaction`: the four forms
+         * below are submitted by reaching this point, and a record that left
+         * them at "summary" would count every one of them as abandoned.
          */
+        const submittedHere = (): void =>
+          noteInteraction({ wizardStep: INTERACTION_WIZARD_MARKS.SUBMITTED });
+
         if (outcome.snapshot.kind === 'ACCEPT_POLICIES') {
+          submittedHere();
           return this.finishConsent(updateId, user);
         }
         /**
@@ -5795,6 +5969,7 @@ export class BotService {
          * submission.
          */
         if (outcome.snapshot.kind === 'REDEEM_CODE') {
+          submittedHere();
           return this.submitCode(updateId, user, outcome.snapshot.form);
         }
         /**
@@ -5805,10 +5980,12 @@ export class BotService {
          * the natural gesture after writing a message is that it is sent.
          */
         if (outcome.snapshot.kind === 'DIRECT_MESSAGE') {
+          submittedHere();
           return this.submitDirectMessage(updateId, user, outcome.snapshot, typedMessageId);
         }
         // One field, still on screen — the same reason as the two above (plan 08).
         if (outcome.snapshot.kind === 'NO_SHOW_CLAIM') {
+          submittedHere();
           return this.submitNoShowClaim(updateId, user, outcome.snapshot);
         }
         if (outcome.snapshot.kind === 'EDIT_PROFILE') {
@@ -6215,7 +6392,7 @@ export class BotService {
     rows: readonly (readonly { text: string; callbackData?: string; url?: string }[])[],
   ): Promise<void> {
     if (editMessageId !== undefined) {
-      return this.repaint(updateId, user, editMessageId, text, rows);
+      return this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_HELP);
     }
     await this.reply(updateId, user.id, TEMPLATES.BOT_HELP, {
       text,
@@ -6232,7 +6409,7 @@ export class BotService {
     rows: readonly (readonly { text: string; callbackData?: string; url?: string }[])[],
   ): Promise<void> {
     if (editMessageId !== undefined) {
-      return this.repaint(updateId, user, editMessageId, text, rows);
+      return this.repaint(updateId, user, editMessageId, text, rows, TEMPLATES.BOT_TERMS_STANDING);
     }
     await this.reply(updateId, user.id, TEMPLATES.BOT_TERMS_STANDING, {
       text,
@@ -6432,6 +6609,8 @@ export class BotService {
       return;
     }
 
+    // An edit writes no notification row; the screen is named here instead.
+    noteInteraction({ screen: TEMPLATES.BOT_WIZARD });
     await this.queues.enqueue(
       QUEUES.TELEGRAM_SEND,
       JOBS.BOT_EDIT_MESSAGE,
@@ -6900,6 +7079,7 @@ export class BotService {
       await this.notice(updateId, user, `نظرت کامل شد ✅\n\n${REVIEW_BLIND_NOTE_FA}`);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
+      noteOutcome('REFUSED', error.code);
       await this.notice(updateId, user, `امتیازت ثبت شده. ${ERROR_MESSAGES_FA[error.code]}`);
     }
   }
@@ -7102,6 +7282,9 @@ export class BotService {
     templateKey: string,
     payload: ReplyPayload,
   ): Promise<void> {
+    // The last one stands: an update that sends a notice and then a screen
+    // leaves the person looking at the screen.
+    noteInteraction({ screen: templateKey });
     const queued = await this.notifications.queue({
       userId,
       templateKey,
@@ -7166,6 +7349,7 @@ export class BotService {
    * One place, so a handler stays a one-liner and no branch has to remember.
    */
   private async refuse(updateId: number, user: BotUser, error: AppError): Promise<void> {
+    noteOutcome('REFUSED', error.code);
     if (await this.handledChannelRefusal(updateId, user, error)) return;
 
     /**
@@ -7227,6 +7411,7 @@ export class BotService {
     callbackQueryId: string,
     error: AppError,
   ): Promise<void> {
+    noteOutcome('REFUSED', error.code);
     await this.answer(callbackQueryId, ERROR_MESSAGES_FA[error.code]);
     if (error.code === ErrorCode.CHANNEL_MEMBERSHIP_REQUIRED) {
       await this.handledChannelRefusal(updateId, user, error);
@@ -7291,10 +7476,18 @@ export class BotService {
    */
   private async knownUser(from: BotSender): Promise<BotUser | null> {
     const user = await this.users.findByTelegramId(from.telegramUserId);
-    if (!user || user.status === 'BANNED' || user.status === 'DELETED') return null;
+    if (!user || user.status === 'BANNED' || user.status === 'DELETED') {
+      noteOutcome('NO_ACCOUNT');
+      return null;
+    }
+
+    const id = await this.users.resolveInternalId(user.publicId);
+    // The internal id, and only that: this is the one identifier
+    // `bot_interaction` holds, and it never leaves the backend.
+    noteInteraction({ userId: id });
 
     return {
-      id: await this.users.resolveInternalId(user.publicId),
+      id,
       publicId: user.publicId,
       telegramUserId: from.telegramUserId,
       // Carried rather than re-read: `mayWrite` needs it on every write, and a
