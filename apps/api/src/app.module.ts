@@ -15,6 +15,7 @@ import {
   MessagingModule,
   ReviewsModule,
   IdentityModule,
+  InteractionModule,
   ModerationModule,
   NotificationsModule,
   OutboxModule,
@@ -110,6 +111,8 @@ import { VersionController } from './version/version.controller';
     // from here — the API enqueues and never processes (ADR-0005).
     NotificationsModule,
     PrivacyModule,
+    // What people do in the bot (migration 0065). `BotService` is its one caller.
+    InteractionModule,
     HealthModule,
     // The registry itself is @Global(); this is the API's scrape endpoint and the
     // collectors that need Prisma and BullMQ to answer (M16).

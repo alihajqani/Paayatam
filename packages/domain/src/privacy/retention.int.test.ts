@@ -544,6 +544,41 @@ describe('expired Idempotency-Key claims', () => {
   });
 });
 
+/**
+ * What people did in the bot (migration 0065). By age, like notifications and
+ * for the same length of time, so the privacy notice states one number for
+ * both.
+ */
+describe('bot interactions, six months', () => {
+  beforeEach(async () => {
+    const row = { userId: guestId, kind: 'CALLBACK', action: 'ev:show' } as const;
+    await prisma.botInteraction.createMany({
+      data: [
+        { ...row, updateId: 1n, createdAt: daysAgo(RETENTION.INTERACTION_DAYS + 1) },
+        { ...row, updateId: 2n, createdAt: daysAgo(RETENTION.INTERACTION_DAYS - 1) },
+        { ...row, updateId: 3n, createdAt: daysAgo(1) },
+        // Nobody's row: a tap from a sender with no account expires like any other.
+        { ...row, userId: null, updateId: 4n, createdAt: daysAgo(RETENTION.INTERACTION_DAYS + 30) },
+      ],
+    });
+  });
+
+  it('deletes only those past the window', async () => {
+    const result = await retention.purge();
+
+    expect(result.interactions).toBe(2);
+    expect(
+      (await prisma.botInteraction.findMany({ orderBy: { updateId: 'asc' } })).map(
+        (interaction) => interaction.updateId,
+      ),
+    ).toEqual([2n, 3n]);
+  });
+
+  it('keeps the same window the notifications have', () => {
+    expect(RETENTION.INTERACTION_DAYS).toBe(RETENTION.NOTIFICATION_DAYS);
+  });
+});
+
 describe('running it on an empty database', () => {
   it('deletes nothing and reports nothing', async () => {
     expect(await retention.purge()).toEqual({
@@ -551,6 +586,7 @@ describe('running it on an empty database', () => {
       chats: 0,
       directMessages: 0,
       notifications: 0,
+      interactions: 0,
       auditRows: 0,
       outboxRows: 0,
       idempotencyKeys: 0,
@@ -570,6 +606,7 @@ describe('running it on an empty database', () => {
       chats: 0,
       directMessages: 0,
       notifications: 0,
+      interactions: 0,
       auditRows: 0,
       outboxRows: 0,
       idempotencyKeys: 0,
@@ -619,6 +656,9 @@ describe('the retention windows themselves', () => {
       NOTIFICATION_DAYS: 180,
       // ADR-0020: what the privacy notice promises for direct messages.
       DIRECT_MESSAGE_DAYS: 180,
+      // Migration 0065: what the privacy notice must say about button and
+      // command records. Operator's decision, 2026-10-12.
+      INTERACTION_DAYS: 180,
       AUDIT_DAYS: 730,
       OUTBOX_DAYS: 7,
     });

@@ -757,6 +757,7 @@ export class Processors implements OnModuleInit {
           `Retention purge: ${String(purged.chatMessages)} messages, ` +
             `${String(purged.chats)} chats, ${String(purged.directMessages)} direct, ` +
             `${String(purged.notifications)} notifications, ` +
+            `${String(purged.interactions)} interactions, ` +
             `${String(purged.outboxRows)} outbox, ${String(purged.auditRows)} audit`,
         );
         return;

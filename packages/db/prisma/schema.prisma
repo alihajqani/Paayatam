@@ -112,6 +112,7 @@ model User {
   noShowClaims        NoShowClaim[]        @relation("NoShowClaimsAuthored")
   seedConfigsHosted   CitySeedConfig[]
   acquisition         UserAcquisition?
+  interactions        BotInteraction[]
 
   @@index([status])
   @@index([createdAt])
@@ -184,6 +185,93 @@ model UserAcquisition {
   /// "How did campaign X do?" — the report groups on exactly these two.
   @@index([source, ref])
   @@map("user_acquisition")
+}
+
+/// What kind of update an interaction was. `KEYBOARD` is a tap on the
+/// persistent reply keyboard, which Telegram delivers as ordinary text.
+enum BotInteractionKind {
+  START
+  COMMAND
+  CALLBACK
+  KEYBOARD
+  TEXT
+  PHOTO
+  UNSUPPORTED
+  BLOCKED
+  UNBLOCKED
+
+  @@map("bot_interaction_kind")
+}
+
+/// How the bot answered. See `@payetam/shared`'s `INTERACTION_OUTCOMES`.
+enum BotInteractionOutcome {
+  OK
+  REFUSED
+  GATED
+  STALE
+  FAILED
+  NO_ACCOUNT
+
+  @@map("bot_interaction_outcome")
+}
+
+/// One Telegram update the bot handled (migration 0065).
+///
+/// Where `user_acquisition` is first touch and written once, this is every
+/// touch: it is what says how often a link is followed by people who already
+/// have an account, which buttons are pressed, and what refused somebody when
+/// they stopped.
+///
+/// **No message text and no Telegram id.** Every text column is a *name* — a
+/// codec's verb, a template key, an error code — and a CHECK per column holds
+/// that in the database, so a writer that one day passes a typed sentence loses
+/// the row rather than storing the sentence.
+///
+/// Append-only by convention, not by trigger: the retention purge deletes rows
+/// 180 days old (`RETENTION.INTERACTION_DAYS`), which a trigger would refuse.
+model BotInteraction {
+  id       String  @id @default(uuid(7))
+  /// Telegram's update id. UNIQUE, so a redelivered update is counted once.
+  updateId BigInt  @unique @map("update_id")
+  /// Null when the sender has no usable account.
+  userId   String? @map("user_id")
+
+  kind   BotInteractionKind
+  /// `ev:show`, `cmd:discover`, `start:campaign` — never an id, never text.
+  action String
+  /// The public id, campaign tag or guide slug the action named.
+  ref    String?
+
+  /// True on the `/start` that created the account.
+  createdAccount Boolean @default(false) @map("created_account")
+  /// The message the tapped button sits on. A per-chat counter, the same value
+  /// `notification.telegram_message_id` holds.
+  messageId      Int?    @map("message_id")
+
+  /// The form open once this update was handled, and the step now on screen —
+  /// or `$summary`, `$submitted`, `$cancelled`. Text, not an enum, for the
+  /// reason `conversation_state.step` is: a new step is not a migration.
+  wizardKind String? @map("wizard_kind")
+  wizardStep String? @map("wizard_step")
+
+  outcome BotInteractionOutcome @default(OK)
+  /// The error code for `REFUSED`; which gate for `GATED`.
+  detail  String?
+  /// The template key of the last screen drawn in answer.
+  screen  String?
+
+  durationMs Int      @default(0) @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// One person's trail, and the window function that cuts it into visits.
+  @@index([userId, createdAt])
+  /// Every report's window, and the retention purge.
+  @@index([createdAt])
+  /// "How often was this pressed?"
+  @@index([action, createdAt])
+  @@map("bot_interaction")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -329,6 +329,17 @@ jobs:
           check_constraint event_suggestion_capacity_range
           check_constraint event_suggestion_cost_amount_matches_type
           check_constraint event_suggestion_external_link_https
+          # Interaction tracking (migration 0065). The UNIQUE index is what counts
+          # a redelivered update once. The CHECKs are the "no message text" rule
+          # held by the database: every text column is constrained to the
+          # alphabet a name is written in, so a writer that one day passes a
+          # typed sentence loses the row instead of storing it.
+          check_index      bot_interaction_update_id_key
+          check_constraint bot_interaction_action_is_a_name
+          check_constraint bot_interaction_ref_is_an_id
+          check_constraint bot_interaction_wizard_is_a_name
+          check_constraint bot_interaction_detail_is_a_code
+          check_constraint bot_interaction_screen_is_a_template
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

@@ -147,6 +147,16 @@ describe('a session that cannot open a page', () => {
 
     expect(router.currentRoute.value.name).toBe('acquisition');
   });
+
+  /**
+   * What people do in the bot: counts, with staff in none of them. One person's
+   * trail is on their own file, which this role cannot open.
+   */
+  it('opens the interaction report, which is aggregates', async () => {
+    await router.push('/interactions');
+
+    expect(router.currentRoute.value.name).toBe('interactions');
+  });
 });
 
 describe('a signed-in operator', () => {
@@ -171,6 +181,7 @@ describe('a signed-in operator', () => {
       '/',
       '/campaign',
       '/acquisition',
+      '/interactions',
       '/users',
       '/events',
       '/reports',

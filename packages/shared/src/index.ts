@@ -33,6 +33,47 @@ export type {
 } from './contracts/acquisition';
 
 export {
+  INTERACTION_KINDS,
+  INTERACTION_KIND_FA,
+  INTERACTION_OUTCOMES,
+  INTERACTION_OUTCOME_FA,
+  INTERACTION_GATES,
+  INTERACTION_GATE_FA,
+  INTERACTION_WIZARD_MARKS,
+  INTERACTION_SESSION_GAP_MINUTES,
+  INTERACTION_MAX_WINDOW_DAYS,
+  interactionActionLabel,
+  interactionWizardLabel,
+  interactionStepLabel,
+  interactionScreenLabel,
+  interactionKind,
+  interactionOutcome,
+  interactionWindowQuery,
+  interactionOverviewResponse,
+  interactionLinkRow,
+  interactionLinksResponse,
+  interactionActionRow,
+  interactionActionsResponse,
+  userInteractionsQuery,
+  userInteractionItem,
+  userInteractionsResponse,
+} from './contracts/interaction';
+export type {
+  InteractionKind,
+  InteractionOutcome,
+  InteractionGate,
+  InteractionWindowQuery,
+  InteractionOverviewResponse,
+  InteractionLinkRow,
+  InteractionLinksResponse,
+  InteractionActionRow,
+  InteractionActionsResponse,
+  UserInteractionsQuery,
+  UserInteractionItem,
+  UserInteractionsResponse,
+} from './contracts/interaction';
+
+export {
   telegramAuthRequest,
   refreshRequest,
   onboardingState,

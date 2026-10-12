@@ -84,6 +84,21 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'منابع ورود', permission: PERMISSIONS.DASHBOARD_READ, group: 'overview' },
   },
   {
+    /**
+     * What people do in the bot (migration 0065).
+     *
+     * Beside «منابع ورود» because it is the second half of the same question:
+     * that page says who came and from where, this one says what they did once
+     * they were in. `dashboard.read` for the same reason — every number here is
+     * a count, and staff are in none of them. One person's trail is not on this
+     * page; it is on their own file, behind `user.read`.
+     */
+    path: '/interactions',
+    name: 'interactions',
+    component: () => import('@/views/InteractionsView.vue'),
+    meta: { title: 'رفتار کاربران', permission: PERMISSIONS.DASHBOARD_READ, group: 'overview' },
+  },
+  {
     path: '/users',
     name: 'users',
     component: () => import('@/views/UsersView.vue'),

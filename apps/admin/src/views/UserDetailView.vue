@@ -13,6 +13,7 @@ import {
 } from '@payetam/shared';
 import { messageOf, newIdempotencyKey, request } from '@/api/client';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import InteractionTrail from '@/components/InteractionTrail.vue';
 import ParticipationList from '@/components/ParticipationList.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import StatusPill from '@/components/StatusPill.vue';
@@ -976,6 +977,23 @@ onMounted(load);
         </div>
         <div class="mt-3">
           <ParticipationList :user-public-id="detail.publicId" />
+        </div>
+      </section>
+
+      <!--
+        What this person did in the bot, step by step (migration 0065). The
+        lists above say what they ended up with; this says how they got there
+        and where they stopped — which is what «ربات کار نمی‌کند» is usually
+        about. Whoever can open this page holds `user.read`, which is the
+        permission the trail needs.
+      -->
+      <section class="rounded-xl border border-line bg-surface p-4">
+        <h2 class="text-sm font-semibold">مسیر در ربات</h2>
+        <p class="mt-1 text-xs text-ink-faint">
+          هر پیام، دستور و دکمه، از تازه‌ترین. متن پیام‌ها ذخیره نمی‌شود.
+        </p>
+        <div class="mt-3">
+          <InteractionTrail :user-public-id="detail.publicId" />
         </div>
       </section>
       <p v-if="session.can(PERMISSIONS.LEDGER_READ)" class="text-sm">
