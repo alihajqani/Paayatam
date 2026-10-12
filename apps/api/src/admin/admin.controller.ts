@@ -1158,6 +1158,7 @@ export class AdminController {
         screen: item.screen,
         wizardKind: item.wizardKind,
         wizardStep: item.wizardStep,
+        finishedWizard: item.finishedWizard,
         durationMs: item.durationMs,
       })),
       nextBefore: trail.nextBefore?.toISOString() ?? null,

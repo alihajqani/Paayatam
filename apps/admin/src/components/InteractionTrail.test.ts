@@ -38,6 +38,7 @@ function item(overrides: Partial<UserInteractionItem>): UserInteractionItem {
     screen: null,
     wizardKind: null,
     wizardStep: null,
+    finishedWizard: null,
     durationMs: 12,
     ...overrides,
   };
@@ -119,7 +120,7 @@ describe('InteractionTrail', () => {
           wizardKind: 'CREATE_EVENT',
           wizardStep: 'title',
         }),
-        item({ action: 'wz:confirm', wizardKind: 'CREATE_EVENT', wizardStep: '$submitted' }),
+        item({ action: 'wz:confirm', finishedWizard: 'CREATE_EVENT' }),
       ],
       nextBefore: null,
     });
@@ -129,8 +130,53 @@ describe('InteractionTrail', () => {
 
     expect(rows[0]).toContain('ساختن برنامه');
     expect(rows[0]).toContain('title');
+    expect(rows[1]).toContain('ساختن برنامه');
     expect(rows[1]).toContain('ثبت شد');
-    expect(rows.join(' ')).not.toMatch(/CREATE_EVENT|\$submitted/);
+    expect(rows.join(' ')).not.toMatch(/CREATE_EVENT/);
+  });
+
+  /**
+   * «می‌پذیرم» sends the terms and opens the profile form in one update, and
+   * the row says both: one form finished, another now on screen.
+   */
+  it('shows a form that was sent and the next one it opened, on the same row', async () => {
+    const root = await mount({
+      items: [
+        item({
+          action: 'wz:agree',
+          finishedWizard: 'ACCEPT_POLICIES',
+          wizardKind: 'EDIT_PROFILE',
+          wizardStep: 'name',
+        }),
+      ],
+      nextBefore: null,
+    });
+    const row = root.querySelector('[data-testid="trail-item"]')?.textContent ?? '';
+
+    expect(row).toContain('پذیرش قوانین');
+    expect(row).toContain('ثبت شد');
+    expect(row).toContain('فرم پروفایل');
+    expect(row).toContain('name');
+  });
+
+  /** Pressing «ثبت» and being told no is not a finished form. */
+  it('does not call a refused submission «ثبت شد»', async () => {
+    const root = await mount({
+      items: [
+        item({
+          action: 'wz:confirm',
+          finishedWizard: 'CREATE_EVENT',
+          outcome: 'REFUSED',
+          detail: 'PROFILE_INCOMPLETE',
+        }),
+      ],
+      nextBefore: null,
+    });
+    const row = root.querySelector('[data-testid="trail-item"]')?.textContent ?? '';
+
+    expect(row).toContain('ساختن برنامه');
+    expect(row).toContain('فرستاد و پذیرفته نشد');
+    expect(row).not.toContain('ثبت شد');
   });
 
   /**

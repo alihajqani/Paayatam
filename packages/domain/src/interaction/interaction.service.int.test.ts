@@ -30,6 +30,7 @@ function row(overrides: Partial<InteractionRecord> = {}): InteractionRecord {
     messageId: 42,
     wizardKind: null,
     wizardStep: null,
+    finishedWizard: null,
     outcome: 'OK',
     detail: null,
     screen: 'bot.event_detail',
@@ -53,6 +54,7 @@ describe('InteractionService.record', () => {
       row({
         wizardKind: 'CREATE_EVENT',
         wizardStep: 'title',
+        finishedWizard: 'ACCEPT_POLICIES',
         outcome: 'REFUSED',
         detail: 'EVENT_FULL',
       }),
@@ -71,6 +73,7 @@ describe('InteractionService.record', () => {
       messageId: 42,
       wizardKind: 'CREATE_EVENT',
       wizardStep: 'title',
+      finishedWizard: 'ACCEPT_POLICIES',
       outcome: 'REFUSED',
       detail: 'EVENT_FULL',
       screen: 'bot.event_detail',
@@ -110,6 +113,7 @@ describe('InteractionService.record', () => {
     ['detail', { detail: 'my phone is 0912' }],
     ['screen', { screen: 'Hello there' }],
     ['wizard step', { wizardKind: 'CREATE_EVENT', wizardStep: 'یک جواب' }],
+    ['finished wizard', { finishedWizard: 'my form' }],
   ] as const)('refuses typed text in %s, and does not throw', async (_column, overrides) => {
     expect(await interactions.record(row(overrides))).toBe(false);
     expect(await prisma.botInteraction.count()).toBe(0);

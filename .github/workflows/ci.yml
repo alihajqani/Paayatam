@@ -340,6 +340,8 @@ jobs:
           check_constraint bot_interaction_wizard_is_a_name
           check_constraint bot_interaction_detail_is_a_code
           check_constraint bot_interaction_screen_is_a_template
+          # Migration 0066: the form an update submitted, held to the same rule.
+          check_constraint bot_interaction_finished_wizard_is_a_name
           exit $missing
         env:
           DATABASE_URL: postgresql://payetam:ci@localhost:5432/payetam

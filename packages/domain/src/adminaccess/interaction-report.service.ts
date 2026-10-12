@@ -79,6 +79,7 @@ export interface TimelineItem {
   screen: string | null;
   wizardKind: string | null;
   wizardStep: string | null;
+  finishedWizard: string | null;
   durationMs: number;
 }
 
@@ -450,6 +451,7 @@ export class InteractionReportService {
         screen: true,
         wizardKind: true,
         wizardStep: true,
+        finishedWizard: true,
         durationMs: true,
       },
     });
@@ -469,6 +471,7 @@ export class InteractionReportService {
         screen: row.screen,
         wizardKind: row.wizardKind,
         wizardStep: row.wizardStep,
+        finishedWizard: row.finishedWizard,
         durationMs: row.durationMs,
       })),
       nextBefore: rows.length > TIMELINE_PAGE_SIZE && last !== undefined ? last.createdAt : null,

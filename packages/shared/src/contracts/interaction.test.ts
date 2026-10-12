@@ -47,7 +47,6 @@ describe('interaction labels', () => {
 
   it('names where a form stands', () => {
     expect(interactionStepLabel(INTERACTION_WIZARD_MARKS.SUMMARY)).toBe('بازبینی نهایی');
-    expect(interactionStepLabel(INTERACTION_WIZARD_MARKS.SUBMITTED)).toBe('ثبت شد');
     expect(interactionStepLabel(INTERACTION_WIZARD_MARKS.CANCELLED)).toBe('بسته شد');
     expect(interactionStepLabel('title')).toBe('قدم title');
   });

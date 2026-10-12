@@ -91,13 +91,15 @@ export const INTERACTION_GATE_FA: Record<InteractionGate, string> = {
  * step key (the wizard codec allows `a-z0-9_`), so a form that one day names a
  * step `summary` does not collide with the screen that summarises it.
  *
- * `SUBMITTED` with an `OK` outcome is a finished form. With `REFUSED` it is a
- * form somebody tried to finish and the product declined — the draft survives,
- * and the next row says whether they tried again.
+ * **Submitting is not one of them.** A form that was sent is recorded in
+ * `finished_wizard` (migration 0066), because the same update can open the
+ * next form and `wizard_step` has room for only one. With an `OK` outcome that
+ * is a finished form; with `REFUSED`, one somebody tried to finish and the
+ * product declined — the draft survives, and the next row says whether they
+ * tried again.
  */
 export const INTERACTION_WIZARD_MARKS = {
   SUMMARY: '$summary',
-  SUBMITTED: '$submitted',
   CANCELLED: '$cancelled',
 } as const;
 
@@ -295,7 +297,7 @@ export function interactionWizardLabel(kind: string): string {
 }
 
 /**
- * Where a form stands: one of the three marks, or the step somebody was left on.
+ * Where a form stands: one of the two marks, or the step somebody was left on.
  *
  * A step is shown by its key. The questions themselves live in the wizard
  * definitions, in `@payetam/domain`, which the panel does not depend on — and a
@@ -303,7 +305,6 @@ export function interactionWizardLabel(kind: string): string {
  */
 export function interactionStepLabel(step: string): string {
   if (step === INTERACTION_WIZARD_MARKS.SUMMARY) return 'بازبینی نهایی';
-  if (step === INTERACTION_WIZARD_MARKS.SUBMITTED) return 'ثبت شد';
   if (step === INTERACTION_WIZARD_MARKS.CANCELLED) return 'بسته شد';
   return `قدم ${step}`;
 }
@@ -472,6 +473,8 @@ export const userInteractionItem = z.object({
   screen: z.string().nullable(),
   wizardKind: z.string().nullable(),
   wizardStep: z.string().nullable(),
+  /** The form this update submitted; `outcome` says whether it was accepted. */
+  finishedWizard: z.string().nullable(),
   durationMs: count,
 });
 export type UserInteractionItem = z.infer<typeof userInteractionItem>;

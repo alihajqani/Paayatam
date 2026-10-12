@@ -15,6 +15,8 @@ export interface InteractionRecord {
   messageId: number | null;
   wizardKind: string | null;
   wizardStep: string | null;
+  /** The form this update submitted, whatever was drawn afterwards. */
+  finishedWizard: string | null;
   outcome: InteractionOutcome;
   detail: string | null;
   screen: string | null;
@@ -66,6 +68,7 @@ export class InteractionService {
             messageId: interaction.messageId,
             wizardKind: interaction.wizardKind,
             wizardStep: interaction.wizardStep,
+            finishedWizard: interaction.finishedWizard,
             outcome: interaction.outcome,
             detail: interaction.detail,
             screen: interaction.screen,

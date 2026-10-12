@@ -76,7 +76,8 @@ ordinary update.
 | `created_account` | boolean | true on the `/start` that created the account |
 | `message_id` | int, nullable | the message the tapped button sits on. A per-chat counter, already stored in `notification.telegram_message_id` |
 | `wizard_kind` | text, nullable | the form open after this update was handled |
-| `wizard_step` | text, nullable | the step now on screen, or `$summary`, `$submitted`, `$cancelled` |
+| `wizard_step` | text, nullable | the step now on screen, or `$summary`, `$cancelled` |
+| `finished_wizard` | text, nullable | the form this update submitted (migration 0066; see "as built" 11) |
 | `outcome` | enum `bot_interaction_outcome` | `OK`, `REFUSED`, `GATED`, `STALE`, `FAILED`, `NO_ACCOUNT` |
 | `detail` | text, nullable | the `ErrorCode` for `REFUSED`; `terms`, `channel`, `profile` or `app_access` for `GATED` |
 | `screen` | text, nullable | the template key of the last screen drawn in answer |
@@ -264,9 +265,15 @@ What the implementation changed, found, or decided that the design above did not
    indexed reads on a rare update.
 10. **A cancelled form has no `wizard_kind`.** `ConversationService` has cleared the draft
     by the time the outcome is known. A reader takes the kind from the row before.
-11. **Four forms are `$submitted` when they reach the summary** (`ACCEPT_POLICIES`,
-    `REDEEM_CODE`, `DIRECT_MESSAGE`, `NO_SHOW_CLAIM`): they have no summary screen, and
-    leaving them at `$summary` would count every one as abandoned.
+11. **A submitted form is recorded in `finished_wizard`, not as a `$submitted` step**
+    (migration 0066, found while building release 2). `wizard_kind` and `wizard_step` are
+    the form and step *left on screen*, and one update can submit a form and open the
+    next: «می‌پذیرم» writes the acceptance and draws the profile form's first question.
+    With a `$submitted` mark the second form overwrote the first, so the terms read as a
+    form everybody starts and nobody finishes. Now the position is cleared on submit and
+    `finished_wizard` names what was sent; `outcome` says whether it was accepted. Four
+    forms (`ACCEPT_POLICIES`, `REDEEM_CODE`, `DIRECT_MESSAGE`, `NO_SHOW_CLAIM`) are
+    submitted by reaching their summary, because they have no summary screen.
 12. **The timeline is not windowed and not audited.** It mirrors `GET users/:publicId`,
     which asserts `user.read` and writes no audit row. Staff are excluded from totals
     only; their own trail is readable.

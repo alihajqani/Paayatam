@@ -249,10 +249,16 @@ model BotInteraction {
   messageId      Int?    @map("message_id")
 
   /// The form open once this update was handled, and the step now on screen —
-  /// or `$summary`, `$submitted`, `$cancelled`. Text, not an enum, for the
-  /// reason `conversation_state.step` is: a new step is not a migration.
+  /// or `$summary`, or `$cancelled`. Text, not an enum, for the reason
+  /// `conversation_state.step` is: a new step is not a migration.
   wizardKind String? @map("wizard_kind")
   wizardStep String? @map("wizard_step")
+  /// The form this update **submitted**, whatever was drawn afterwards
+  /// (migration 0066). Separate from the two above because one update can
+  /// submit a form and open the next — accepting the terms opens the profile
+  /// form — and "left on screen" has room for only one of them. `outcome` says
+  /// whether the product accepted the submission.
+  finishedWizard String? @map("finished_wizard")
 
   outcome BotInteractionOutcome @default(OK)
   /// The error code for `REFUSED`; which gate for `GATED`.

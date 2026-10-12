@@ -16,8 +16,16 @@ export interface InteractionNotes {
   createdAccount: boolean;
   /** Replaces the described action, for the one case only a handler knows: `text:answer`. */
   action: string | null;
+  /** The form and step left on screen. Each `drawWizard` replaces them. */
   wizardKind: string | null;
   wizardStep: string | null;
+  /**
+   * The form this update submitted.
+   *
+   * Apart from the two above, and never replaced by them: an update can submit
+   * one form and draw the first step of the next, and both are true.
+   */
+  finishedWizard: string | null;
   outcome: InteractionOutcome;
   /** The error code for `REFUSED`; which gate for `GATED`. */
   detail: string | null;
@@ -32,6 +40,7 @@ export function newInteractionNotes(): InteractionNotes {
     action: null,
     wizardKind: null,
     wizardStep: null,
+    finishedWizard: null,
     outcome: 'OK',
     detail: null,
     screen: null,

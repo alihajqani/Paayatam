@@ -393,17 +393,26 @@ function policyTitle(policy: { type: PolicyType; titleFa: string | null }): stri
  * A cancelled form no longer says what kind it was — `ConversationService` has
  * already cleared it — so the kind is null and a reader takes it from the row
  * before.
+ *
+ * ── A submission is a different fact, in a different column ─────────────────
+ *
+ * Sending a form leaves no form on screen, so the position is cleared and
+ * `finishedWizard` names what was sent (migration 0066). They are apart
+ * because one update can do both: «می‌پذیرم» submits the terms and
+ * `finishConsent` draws the profile form's first question. A later `step`
+ * replaces the position and — by not mentioning it — leaves `finishedWizard`
+ * standing, which is the whole point of the second column.
  */
 function wizardPosition(
   outcome: ConversationOutcome,
-): Pick<InteractionNotes, 'wizardKind' | 'wizardStep'> {
+): Partial<Pick<InteractionNotes, 'wizardKind' | 'wizardStep' | 'finishedWizard'>> {
   switch (outcome.kind) {
     case 'step':
       return { wizardKind: outcome.snapshot.kind, wizardStep: outcome.step.key };
     case 'summary':
       return { wizardKind: outcome.snapshot.kind, wizardStep: INTERACTION_WIZARD_MARKS.SUMMARY };
     case 'submit':
-      return { wizardKind: outcome.snapshot.kind, wizardStep: INTERACTION_WIZARD_MARKS.SUBMITTED };
+      return { wizardKind: null, wizardStep: null, finishedWizard: outcome.snapshot.kind };
     case 'cancelled':
       return { wizardKind: null, wizardStep: INTERACTION_WIZARD_MARKS.CANCELLED };
     case 'redelivery':
@@ -598,6 +607,7 @@ export class BotService {
         messageId: described.messageId,
         wizardKind: notes.wizardKind,
         wizardStep: notes.wizardStep,
+        finishedWizard: notes.finishedWizard,
         outcome: notes.outcome,
         detail: notes.detail,
         screen: notes.screen,
@@ -5955,7 +5965,11 @@ export class BotService {
          * them at "summary" would count every one of them as abandoned.
          */
         const submittedHere = (): void =>
-          noteInteraction({ wizardStep: INTERACTION_WIZARD_MARKS.SUBMITTED });
+          noteInteraction({
+            wizardKind: null,
+            wizardStep: null,
+            finishedWizard: outcome.snapshot.kind,
+          });
 
         if (outcome.snapshot.kind === 'ACCEPT_POLICIES') {
           submittedHere();

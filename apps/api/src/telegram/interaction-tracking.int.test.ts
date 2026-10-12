@@ -374,6 +374,67 @@ describe('forms', () => {
   });
 });
 
+describe('a form that is finished', () => {
+  /**
+   * Accepting the terms opens the profile form **in the same update**. The row
+   * has one place for "the form now on screen", and the second form took it —
+   * so the first was recorded as never finished, and the terms looked like a
+   * form nobody completes. `finished_wizard` is the other fact: which form
+   * this update submitted, whatever was drawn afterwards.
+   */
+  it('is recorded as finished even when the same update opens the next form', async () => {
+    await prisma.policyVersion.create({
+      data: {
+        type: 'TERMS',
+        version: 9,
+        status: 'PUBLISHED',
+        isCurrent: true,
+        titleFa: 'قوانین',
+        summaryFa: 'خلاصه',
+        contentMd: '# سند',
+      },
+    });
+
+    await post(typed(NEWCOMER_TELEGRAM_ID, '/start'));
+    await post(tapped(NEWCOMER_TELEGRAM_ID, 'wz:agree:'));
+
+    const rows = await recorded();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      action: 'start:direct',
+      wizardKind: 'ACCEPT_POLICIES',
+      finishedWizard: null,
+    });
+    expect(rows[1]).toMatchObject({
+      action: 'wz:agree',
+      finishedWizard: 'ACCEPT_POLICIES',
+      wizardKind: 'EDIT_PROFILE',
+      outcome: 'OK',
+    });
+    expect(rows[1]?.wizardStep).toMatch(/^[a-z0-9_]+$/);
+  });
+
+  /** Nothing is on screen after a form is sent, and the record says exactly that. */
+  it('is recorded as finished with no form left on screen', async () => {
+    await seedMember(GUEST_TELEGRAM_ID);
+
+    await post(typed(GUEST_TELEGRAM_ID, '/bug'));
+    await post(typed(GUEST_TELEGRAM_ID, 'دکمهٔ ثبت کار نمی‌کند'));
+    await post(tapped(GUEST_TELEGRAM_ID, 'wz:skip:'));
+    await post(tapped(GUEST_TELEGRAM_ID, 'wz:confirm:'));
+
+    const rows = await recorded();
+    expect(rows.map((row) => [row.wizardStep, row.finishedWizard])).toEqual([
+      ['what', null],
+      ['shots', null],
+      ['$summary', null],
+      [null, 'BUG_REPORT'],
+    ]);
+    expect(rows[3]).toMatchObject({ action: 'wz:confirm', wizardKind: null, outcome: 'OK' });
+    expect(await prisma.bugReport.count()).toBe(1);
+  });
+});
+
 describe('what is never kept', () => {
   it('records that something was typed, and nothing of what', async () => {
     await seedMember(GUEST_TELEGRAM_ID);

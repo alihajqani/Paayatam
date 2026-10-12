@@ -263,6 +263,7 @@ beforeAll(async () => {
         messageId: 77,
         wizardKind: 'CREATE_EVENT',
         wizardStep: 'title',
+        finishedWizard: 'ACCEPT_POLICIES',
         outcome: 'REFUSED',
         detail: 'EVENT_FULL',
         screen: 'bot.event_detail',

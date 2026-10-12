@@ -143,6 +143,16 @@ watch(() => props.userPublicId, reload);
           </p>
           <p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-faint">
             <span>{{ INTERACTION_KIND_FA[row.item.kind] }}</span>
+            <!--
+              A form this update sent, apart from the form it left on screen:
+              «می‌پذیرم» does both, and the row has to say both. «ثبت شد» only
+              when the product accepted it — pressing «ثبت» and being refused
+              is not a finished form.
+            -->
+            <span v-if="row.item.finishedWizard">
+              فرم «{{ interactionWizardLabel(row.item.finishedWizard) }}»:
+              {{ row.item.outcome === 'OK' ? 'ثبت شد' : 'فرستاد و پذیرفته نشد' }}
+            </span>
             <span v-if="row.item.wizardStep">
               فرم<template v-if="row.item.wizardKind">
                 «{{ interactionWizardLabel(row.item.wizardKind) }}»</template
