@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { acquisitionSource } from './acquisition';
 
 /**
  * What people do in the bot — one row per Telegram update (migration 0065).
@@ -108,6 +109,28 @@ export const INTERACTION_SESSION_GAP_MINUTES = 30;
 
 /** Raw rows are kept this long, so a window cannot reach further back. */
 export const INTERACTION_MAX_WINDOW_DAYS = 180;
+
+/**
+ * How long somebody has to be gone before the drop-off report says they left.
+ *
+ * A week, because the product is about weekend plans: somebody who has not
+ * opened the bot across one whole week has skipped a full cycle of what it
+ * offers. Shorter would count people who are merely between plans.
+ */
+export const INTERACTION_QUIET_DAYS = 7;
+
+/**
+ * The screens two funnel steps are read from.
+ *
+ * "Opened the list" and "opened an event" are facts about what was **drawn**,
+ * not about what was pressed: `/start event_…` from somebody who still owes a
+ * sign-up step is a tap on an event link that shows them the terms. The
+ * `screen` column is what tells the two apart, so the funnel reads it.
+ */
+export const INTERACTION_FUNNEL_SCREENS = {
+  DISCOVERY: 'bot.discover',
+  EVENT: 'bot.event_detail',
+} as const;
 
 // ── Names ───────────────────────────────────────────────────────────────────
 
@@ -357,6 +380,49 @@ export function interactionScreenLabel(templateKey: string): string {
   return SCREEN_FA[templateKey] ?? templateKey;
 }
 
+/**
+ * Messages the product sends on its own initiative, by what they tell somebody.
+ *
+ * These are not screens anybody navigated to — they arrive — and the return
+ * report asks which of them bring people back.
+ */
+const NOTIFICATION_FA: Readonly<Record<string, string>> = {
+  'participation.requested.host': 'میزبان: درخواست تازه رسید',
+  'participation.requested.guest': 'مهمان: درخواستت ثبت شد',
+  'participation.accepted': 'مهمان: درخواستت پذیرفته شد',
+  'participation.rejected': 'مهمان: درخواستت رد شد',
+  'participation.cancelled.host': 'میزبان: یک مهمان انصراف داد',
+  'participation.expired': 'مهمان: درخواستت بی‌جواب ماند',
+  'waitlist.promoted.guest': 'مهمان: از صف انتظار جا باز شد',
+  'waitlist.promoted.host': 'میزبان: یک نفر از صف انتظار آمد',
+  'event.cancelled': 'برنامه لغو شد',
+  'event.reminder_guest': 'مهمان: یادآور برنامه',
+  'event.reminder_host': 'میزبان: یادآور برنامه',
+  'event.attendance_prompt': 'میزبان: «همه آمدند؟»',
+  'review.window_open': 'وقت نظر دادن است',
+  'review.revealed': 'نظرها باز شد',
+  'participation.no_show': 'مهمان: غیبت برایت ثبت شد',
+  'participation.no_show_dispute_offer': 'مهمان: می‌توانی به غیبت اعتراض کنی',
+  'no_show.host_absent_reported': 'میزبان: گزارش «میزبان نیامد»',
+  'no_show.claim_decided': 'نتیجهٔ اعتراض به غیبت',
+  'moderation.content_hidden': 'محتوایت پنهان شد',
+  'moderation.content_restored': 'محتوایت برگشت',
+  'direct.message_received': 'پیام مستقیم تازه',
+  'direct.message_seen': 'پیامت دیده شد',
+  'account.blocked': 'حساب مسدود شد',
+  'referral.qualified.referrer': 'پاداش دعوت دوست',
+  'referral.qualified.referrer_capped': 'دعوت دوست، بدون پاداش (سقف پر شده)',
+  'referral.qualified.referred': 'پاداش ورود با دعوت',
+  'host.settled': 'میزبان: تسویهٔ برنامه',
+  'economy.comeback_granted': 'سکهٔ بازگشت',
+  'profile.gender_request': 'درخواست انتخاب جنسیت',
+};
+
+/** A message the product sent, as the panel calls it. Its key when unnamed. */
+export function interactionNotificationLabel(templateKey: string): string {
+  return NOTIFICATION_FA[templateKey] ?? SCREEN_FA[templateKey] ?? templateKey;
+}
+
 // ── Reports ─────────────────────────────────────────────────────────────────
 
 /**
@@ -485,3 +551,176 @@ export const userInteractionsResponse = z.object({
   nextBefore: z.string().nullable(),
 });
 export type UserInteractionsResponse = z.infer<typeof userInteractionsResponse>;
+
+// ── Funnels ─────────────────────────────────────────────────────────────────
+
+/**
+ * How far the accounts a window created got.
+ *
+ * Every column after `arrived` counts the same people again, so each is read
+ * as a share of `arrived`. It is a funnel in the order somebody normally goes,
+ * and **not a strict one**: a person can open an event from a link before they
+ * have ever seen the list.
+ *
+ * Two of the columns are facts about the account (`termsAccepted`,
+ * `profileComplete`) and one about the product (`requested`); the other three
+ * are read from what the bot recorded. That mix is deliberate: the report
+ * should say what is true, and a state is truer than a tap that led to it.
+ */
+export const interactionOnboardingFunnel = z.object({
+  arrived: count,
+  /** Did anything at all after `/start`. */
+  pressedAnything: count,
+  termsAccepted: count,
+  profileComplete: count,
+  /** Was shown the list of events at least once. */
+  openedDiscovery: count,
+  /** Was shown an event's own page at least once. */
+  openedEvent: count,
+  /** Asked to join at least one event, whatever became of the request. */
+  requested: count,
+});
+export type InteractionOnboardingFunnel = z.infer<typeof interactionOnboardingFunnel>;
+
+export const interactionOnboardingRow = interactionOnboardingFunnel.extend({
+  /** Null is an account with no attribution row. */
+  source: acquisitionSource.nullable(),
+});
+export type InteractionOnboardingRow = z.infer<typeof interactionOnboardingRow>;
+
+/**
+ * One form, by how many people reached each of its steps.
+ *
+ * Counted in **people, not attempts**: somebody who opens the profile form
+ * three times and finishes it once is one person who started and one who
+ * finished. `leftHere` is where the people who never finished were last seen —
+ * the question that lost them.
+ */
+export const interactionFormFunnel = z.object({
+  kind: z.string(),
+  started: count,
+  /** Submitted, and the product accepted it. */
+  submitted: count,
+  cancelled: count,
+  /** In the order people typically meet them. */
+  steps: z.array(
+    z.object({
+      /** A step key, or `$summary` for the review screen. */
+      step: z.string(),
+      users: count,
+      /** Never finished, and this was the last step they were shown. */
+      leftHere: count,
+    }),
+  ),
+});
+export type InteractionFormFunnel = z.infer<typeof interactionFormFunnel>;
+
+export const interactionFunnelsResponse = z.object({
+  windowDays: z.number().int().positive(),
+  since: z.string(),
+  onboarding: z.object({
+    totals: interactionOnboardingFunnel,
+    rows: z.array(interactionOnboardingRow),
+  }),
+  /** Most started first. */
+  forms: z.array(interactionFormFunnel),
+});
+export type InteractionFunnelsResponse = z.infer<typeof interactionFunnelsResponse>;
+
+// ── Drop-off ────────────────────────────────────────────────────────────────
+
+const countAndUsers = z.object({ count, users: count });
+
+export const interactionDropoffResponse = z.object({
+  windowDays: z.number().int().positive(),
+  since: z.string(),
+  /** How many days of silence count as having left. */
+  quietDays: z.number().int().positive(),
+  /** People whose last interaction is inside the window and at least `quietDays` old. */
+  quietUsers: count,
+  /**
+   * Where those people were last seen: the screen they were left on, and the
+   * form and step when they were in the middle of one.
+   */
+  lastSeen: z.array(
+    z.object({
+      screen: z.string().nullable(),
+      wizardKind: z.string().nullable(),
+      wizardStep: z.string().nullable(),
+      users: count,
+    }),
+  ),
+  /** What the product said no to, by what was being attempted. */
+  refusals: z.array(
+    z.object({ action: z.string(), detail: z.string().nullable(), count, users: count }),
+  ),
+  /** People sent back to a sign-up step they owed. */
+  gates: z.array(z.object({ gate: z.string(), count, users: count })),
+  /** Buttons the bot no longer honours. */
+  stale: z.array(z.object({ action: z.string(), count, users: count })),
+  /** The bot's own bugs, by what was being attempted. */
+  failures: z.array(z.object({ action: z.string(), count })),
+  /** Typed text no form was waiting for. */
+  unclaimedText: countAndUsers,
+  /** Stickers, voice notes, files: things the bot refuses. */
+  unsupported: countAndUsers,
+  blocks: z.object({
+    total: count,
+    /** Blocked within five minutes of creating the account. */
+    withinFiveMinutes: count,
+    withinDay: count,
+    /** The last screen each of them had been shown; null when nothing was recorded. */
+    lastScreens: z.array(z.object({ screen: z.string().nullable(), blocks: count })),
+  }),
+});
+export type InteractionDropoffResponse = z.infer<typeof interactionDropoffResponse>;
+
+// ── Return ──────────────────────────────────────────────────────────────────
+
+/**
+ * Of the accounts a window created, how many were still using the bot later.
+ *
+ * `returnedDayN` is somebody who did something at least N days after they
+ * arrived. `eligibleDayN` is how many arrived long enough ago to be asked the
+ * question at all — the denominator. Dividing by `arrived` instead would make
+ * every recent sign-up look like somebody who never came back.
+ */
+export const interactionReturnCohort = z.object({
+  arrived: count,
+  eligibleDay1: count,
+  returnedDay1: count,
+  eligibleDay7: count,
+  returnedDay7: count,
+  eligibleDay30: count,
+  returnedDay30: count,
+});
+export type InteractionReturnCohort = z.infer<typeof interactionReturnCohort>;
+
+export const interactionReturnRow = interactionReturnCohort.extend({
+  source: acquisitionSource.nullable(),
+});
+export type InteractionReturnRow = z.infer<typeof interactionReturnRow>;
+
+export const interactionReturnResponse = z.object({
+  windowDays: z.number().int().positive(),
+  since: z.string(),
+  cohorts: z.object({
+    totals: interactionReturnCohort,
+    rows: z.array(interactionReturnRow),
+  }),
+  /**
+   * Messages the product sent on its own, and what followed. `tapped` is a
+   * button on that very message; `followedWithinDay` is anything at all in the
+   * next twenty-four hours, which a message can only take part of the credit for.
+   */
+  notifications: z.array(
+    z.object({
+      templateKey: z.string(),
+      sent: count,
+      recipients: count,
+      tapped: count,
+      followedWithinDay: count,
+    }),
+  ),
+});
+export type InteractionReturnResponse = z.infer<typeof interactionReturnResponse>;

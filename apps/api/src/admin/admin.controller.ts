@@ -19,6 +19,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   AcquisitionReportService,
   InteractionReportService,
+  InteractionJourneyReportService,
   AdminAccessService,
   AdminInsightService,
   BugReportService,
@@ -191,6 +192,9 @@ import {
   type InteractionOverviewResponse,
   type InteractionLinksResponse,
   type InteractionActionsResponse,
+  type InteractionFunnelsResponse,
+  type InteractionDropoffResponse,
+  type InteractionReturnResponse,
   type UserInteractionsQuery,
   type UserInteractionsResponse,
   type EconomyReportResponse,
@@ -306,6 +310,8 @@ export class AdminController {
     private readonly acquisition: AcquisitionReportService,
     /** What people do in the bot (migration 0065). Read-only: the bot writes it. */
     private readonly interactions: InteractionReportService,
+    /** Funnels, drop-off and return over the same rows. Read-only. */
+    private readonly journeys: InteractionJourneyReportService,
     /**
      * The coin economy's health. Read-only for the same reason, and doubly so:
      * every lever on it is a row in `app_setting` with a screen of its own.
@@ -1124,6 +1130,74 @@ export class AdminController {
       since: actions.since.toISOString(),
       rows: actions.rows,
       omittedRows: actions.omittedRows,
+    };
+  }
+
+  /**
+   * How far the window's new accounts got, by source, and where each form
+   * loses the people who start it.
+   *
+   * `dashboard.read`, asserted in the service. Counted in people, not attempts,
+   * so a form opened three times and finished once is one person who finished.
+   */
+  @Get('interactions/funnels')
+  async interactionFunnels(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionFunnelsResponse> {
+    const funnels = await this.journeys.funnels(admin, query.days);
+    return {
+      windowDays: funnels.windowDays,
+      since: funnels.since.toISOString(),
+      onboarding: funnels.onboarding,
+      forms: funnels.forms,
+    };
+  }
+
+  /**
+   * Where people stopped: the last screen of those who went quiet, what the
+   * product refused, and what somebody was looking at before they blocked.
+   *
+   * Every row is a count of people and names none of them. Whoever needs the
+   * person opens their file, which is behind `user.read`.
+   */
+  @Get('interactions/dropoff')
+  async interactionDropoff(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionDropoffResponse> {
+    const dropoff = await this.journeys.dropoff(admin, query.days);
+    return {
+      windowDays: dropoff.windowDays,
+      since: dropoff.since.toISOString(),
+      quietDays: dropoff.quietDays,
+      quietUsers: dropoff.quietUsers,
+      lastSeen: dropoff.lastSeen,
+      refusals: dropoff.refusals,
+      gates: dropoff.gates,
+      stale: dropoff.stale,
+      failures: dropoff.failures,
+      unclaimedText: dropoff.unclaimedText,
+      unsupported: dropoff.unsupported,
+      blocks: dropoff.blocks,
+    };
+  }
+
+  /**
+   * Who came back after a day, a week and a month, by source, and which of the
+   * messages the product sent on its own were followed by anything.
+   */
+  @Get('interactions/return')
+  async interactionReturn(
+    @CurrentAdmin() admin: AdminSession,
+    @Query(new ZodValidationPipe(interactionWindowQuery)) query: InteractionWindowQuery,
+  ): Promise<InteractionReturnResponse> {
+    const result = await this.journeys.returning(admin, query.days);
+    return {
+      windowDays: result.windowDays,
+      since: result.since.toISOString(),
+      cohorts: result.cohorts,
+      notifications: result.notifications,
     };
   }
 

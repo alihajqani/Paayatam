@@ -1196,6 +1196,17 @@ beforeAll(async () => {
     { method: 'GET', url: '/admin/v1/interactions/overview?days=7', admin: true },
     { method: 'GET', url: '/admin/v1/interactions/links', admin: true },
     { method: 'GET', url: '/admin/v1/interactions/actions?days=90', admin: true },
+    /**
+     * Funnels, drop-off and return (release 2). Aggregates again, and the ones
+     * that read the most of a person: the last screen somebody was left on,
+     * what they were shown before they blocked the bot, which notification
+     * they pressed. Each answer is a count of people and names none of them —
+     * the return report also excludes staff by the same Telegram-id join, this
+     * time from `notification`.
+     */
+    { method: 'GET', url: '/admin/v1/interactions/funnels?days=90', admin: true },
+    { method: 'GET', url: '/admin/v1/interactions/dropoff', admin: true },
+    { method: 'GET', url: '/admin/v1/interactions/return?days=90', admin: true },
     { method: 'GET', url: `/admin/v1/users/${hostPublicId}/interactions`, admin: true },
 
     /**

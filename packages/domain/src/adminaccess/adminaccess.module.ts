@@ -7,6 +7,7 @@ import { IdentityModule } from '../identity/identity.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { ProfileModule } from '../profile/profile.module';
 import { AcquisitionReportService } from './acquisition-report.service';
+import { InteractionJourneyReportService } from './interaction-journey-report.service';
 import { InteractionReportService } from './interaction-report.service';
 import { AdminAccessService } from './admin-access.service';
 import { AdminCredentials } from './admin-credentials';
@@ -68,6 +69,7 @@ import { SuggestionAdminService } from './suggestion-admin.service';
     FoundingAdminService,
     AcquisitionReportService,
     InteractionReportService,
+    InteractionJourneyReportService,
     EconomyReportService,
     GiftCodeAdminService,
     ReferralAdminService,
@@ -92,6 +94,7 @@ import { SuggestionAdminService } from './suggestion-admin.service';
     FoundingAdminService,
     AcquisitionReportService,
     InteractionReportService,
+    InteractionJourneyReportService,
     EconomyReportService,
     GiftCodeAdminService,
     ReferralAdminService,

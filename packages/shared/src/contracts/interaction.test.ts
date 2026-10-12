@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   INTERACTION_WIZARD_MARKS,
   interactionActionLabel,
+  interactionNotificationLabel,
   interactionScreenLabel,
   interactionStepLabel,
   interactionWizardLabel,
@@ -54,6 +55,23 @@ describe('interaction labels', () => {
   it('names a screen by what is on it, and falls back to the template key', () => {
     expect(interactionScreenLabel('bot.event_detail')).toBe('صفحهٔ برنامه');
     expect(interactionScreenLabel('participation.accepted')).toBe('participation.accepted');
+  });
+
+  /**
+   * A message the product sent on its own is named by what it tells somebody,
+   * and by who it tells — the same event reaches a host and a guest as two
+   * different messages, and the return report compares them.
+   */
+  it('names a message the product sent, and falls back to its key', () => {
+    expect(interactionNotificationLabel('participation.accepted')).toBe(
+      'مهمان: درخواستت پذیرفته شد',
+    );
+    expect(interactionNotificationLabel('participation.requested.host')).toBe(
+      'میزبان: درخواست تازه رسید',
+    );
+    // A reply template is a screen, and is still named rather than shown raw.
+    expect(interactionNotificationLabel('bot.welcome')).toBe('خوش‌آمد');
+    expect(interactionNotificationLabel('some.new_template')).toBe('some.new_template');
   });
 });
 

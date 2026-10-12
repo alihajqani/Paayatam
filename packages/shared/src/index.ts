@@ -42,10 +42,13 @@ export {
   INTERACTION_WIZARD_MARKS,
   INTERACTION_SESSION_GAP_MINUTES,
   INTERACTION_MAX_WINDOW_DAYS,
+  INTERACTION_QUIET_DAYS,
+  INTERACTION_FUNNEL_SCREENS,
   interactionActionLabel,
   interactionWizardLabel,
   interactionStepLabel,
   interactionScreenLabel,
+  interactionNotificationLabel,
   interactionKind,
   interactionOutcome,
   interactionWindowQuery,
@@ -57,6 +60,14 @@ export {
   userInteractionsQuery,
   userInteractionItem,
   userInteractionsResponse,
+  interactionOnboardingFunnel,
+  interactionOnboardingRow,
+  interactionFormFunnel,
+  interactionFunnelsResponse,
+  interactionDropoffResponse,
+  interactionReturnCohort,
+  interactionReturnRow,
+  interactionReturnResponse,
 } from './contracts/interaction';
 export type {
   InteractionKind,
@@ -71,6 +82,14 @@ export type {
   UserInteractionsQuery,
   UserInteractionItem,
   UserInteractionsResponse,
+  InteractionOnboardingFunnel,
+  InteractionOnboardingRow,
+  InteractionFormFunnel,
+  InteractionFunnelsResponse,
+  InteractionDropoffResponse,
+  InteractionReturnCohort,
+  InteractionReturnRow,
+  InteractionReturnResponse,
 } from './contracts/interaction';
 
 export {

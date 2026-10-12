@@ -1,8 +1,10 @@
 # Bot interaction tracking and the «رفتار کاربران» report
 
-- **Status:** Release 1 implemented on `feat/bot-interaction-tracking` (2026-10-12),
-  not merged and not deployed. Release 2 is not started. Where the code and the
-  design below disagree, "Release 1 as built" at the end says which won and why.
+- **Status:** Both releases implemented (2026-10-12): release 1 on
+  `feat/bot-interaction-tracking`, release 2 and the `finished_wizard` fix on
+  `feat/bot-interaction-journeys`. Not deployed. Where the code and the design below
+  disagree, "Release 1 as built" and "Release 2 as built" at the end say which won and
+  why.
 - **Scope:** one new table (`bot_interaction`, migration 0065), a capture hook in
   `BotService.dispatch`, a naming function, a writer and a report service in
   `packages/domain`, one retention rule, a new admin page and one new section on the
@@ -294,6 +296,50 @@ routes in `response-leak.int.test.ts`, `interaction.test.ts` in shared (9),
 `InteractionsView.test.ts` (13), `InteractionTrail.test.ts` (8), one case in
 `router.test.ts`.
 
+## Release 2 as built
+
+Three more tabs on «رفتار کاربران», three more routes (`interactions/funnels`,
+`interactions/dropoff`, `interactions/return`), one more service
+(`InteractionJourneyReportService`). No schema change beyond migration 0066, which is
+the fix described in "Release 1 as built" 11.
+
+1. **A second service, because every question is about order.** The first one counts;
+   this one asks which step came last, what was on screen before a block, whether
+   anything happened a week later. Both take "who is staff" and "what is activity" from
+   `interaction-report.sql.ts`, so six tabs of one page cannot disagree about who is
+   counted.
+2. **Everything counts people, not attempts.** Somebody who opens the profile form three
+   times and finishes it once is one person who started and one who finished.
+3. **The onboarding funnel uses the truest evidence for each step.** Terms and profile
+   are `user.onboarding_state`; "asked to join" is `event_participant`; "was shown the
+   list" and "was shown an event" are read from `screen`, not from the tap, because
+   `/start event_…` from somebody who owes a sign-up step shows the terms. The channel
+   step is not a column: membership is probed live and has no stored state to count.
+   People turned back for it are in the drop-off tab's gates instead.
+4. **A form's steps are ordered without knowing its definition.** A step's place is the
+   average of where it fell in each person's own run, so an optional step some people
+   skip is still listed where the rest met it.
+5. **"Left here" is the last step shown to somebody who never sent the form.** A refused
+   submission does not count as sent: the draft survives and the person is still on the
+   review screen. A cancel is counted in the form's totals and on no step.
+6. **"Stopped coming" is a week of silence** (`INTERACTION_QUIET_DAYS`). The last action
+   is read over all time, so somebody active yesterday is not listed by an older row. A
+   seven-day window therefore always shows this list empty, and the page says so.
+7. **A block's age is measured from `user.created_at`**, not from the first recorded
+   interaction: an account older than the table has no arrival row, and measuring from
+   its first recorded tap would file a long-standing member under "left within five
+   minutes".
+8. **Each "came back after N days" has its own denominator**: the accounts that arrived
+   at least N days ago. A cell with nobody old enough says «هنوز زود است», not «۰٪».
+9. **A notification is "the product's own" when its `dedupe_key` does not start with
+   `bot:`.** Replies to somebody's own update are keyed that way by `BotService.reply`.
+   `tapped` is exact (a button on that message, by message id); `followedWithinDay` is
+   anything in the next 24 hours and is labelled as shared credit.
+
+Tests added: `interaction-journey-report.int.test.ts` (16), three routes in
+`response-leak.int.test.ts`, `InteractionsView.journeys.test.ts` (14), two cases in
+`interaction-tracking.int.test.ts` and three in `InteractionTrail.test.ts` for the fix.
+
 ## Open questions for the operator
 
 1. **The privacy notice — answered, and it needs a decision.** Publishing a new current
@@ -305,6 +351,8 @@ routes in `response-leak.int.test.ts`, `interaction.test.ts` in shared (9),
    publish is the operator's call.
 2. **Staff exclusion.** Excluded by default (decision 8). Say so if the operator's own
    taps should count.
-3. **Not yet applied anywhere but the test database.** Migration 0065 has been applied to
-   `payetam_test` only. The development database gets it on the next `pnpm db:migrate`,
-   production on the next deploy.
+3. **Not yet applied anywhere but the test database.** Migrations 0065 and 0066 have been
+   applied to `payetam_test` only. The development database gets them on the next
+   `pnpm db:migrate`, production on the next deploy. They should ship in the same
+   release: 0066 changes what `wizard_step` means, and no production row should be
+   written under the old meaning.

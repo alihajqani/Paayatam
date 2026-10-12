@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Env } from '@payetam/config';
-import { Prisma, PrismaService } from '@payetam/db';
+import { PrismaService } from '@payetam/db';
 import { CLOCK, ENV, type Clock } from '@payetam/platform';
 import {
   AppError,
@@ -10,6 +10,7 @@ import {
   type InteractionOutcome,
 } from '@payetam/shared';
 import { AdminAccessService, type AdminSession } from './admin-access.service';
+import { IS_ACTIVITY, NOT_STAFF } from './interaction-report.sql';
 import { PERMISSIONS } from './permissions';
 
 export interface InteractionOverview {
@@ -96,36 +97,6 @@ const MAX_ROWS = 200;
 export const TIMELINE_PAGE_SIZE = 50;
 
 /**
- * Staff are in no total.
- *
- * At this size the operator pressing buttons after a release is a visible share
- * of all traffic, and a report that counted it would be measuring the testing.
- * An account is staff when its Telegram id is linked to an admin (ADR-0018).
- *
- * The subquery reads `telegram_account` to make that match and **selects
- * nothing from it** — the pattern `AcquisitionReportService` documents for
- * `bot_blocked`. No Telegram id reaches a result row, so none can reach a
- * response (ADR-0009, invariant 7). A row with no user passes: `NULL = …` is
- * never true, so nobody is found to exclude it.
- */
-const NOT_STAFF = Prisma.sql`NOT EXISTS (
-  SELECT 1
-  FROM "telegram_account" staff_account
-  JOIN "admin_telegram_link" staff_link
-    ON staff_link."telegram_user_id" = staff_account."telegram_user_id"
-  WHERE staff_account."user_id" = i."user_id"
-)`;
-
-/**
- * Something a person did, as opposed to something that happened to the bot.
- *
- * A block and an unblock are recorded so the drop-off report can ask what came
- * before them. They are not a step anybody took *in* the bot, and counting
- * them as activity would make blocking the bot look like using it.
- */
-const IS_ACTIVITY = Prisma.sql`i."kind" NOT IN ('BLOCKED', 'UNBLOCKED')`;
-
-/**
  * What people do in the bot (migration 0065) — the «رفتار کاربران» page.
  *
  * ── What these answer that nothing else did ─────────────────────────────────
@@ -145,8 +116,9 @@ const IS_ACTIVITY = Prisma.sql`i."kind" NOT IN ('BLOCKED', 'UNBLOCKED')`;
  *
  * ── Every statement is one tagged template ──────────────────────────────────
  *
- * Nothing is built at runtime; the two shared conditions above are `Prisma.sql`
- * fragments, which are parameterised like the templates they are placed in. CI
+ * Nothing is built at runtime; the two shared conditions — who is staff, what
+ * counts as activity — are `Prisma.sql` fragments in `interaction-report.sql.ts`,
+ * which are parameterised like the templates they are placed in. CI
  * fails the build on `$queryRawUnsafe` because a built string reads like
  * injection, and nothing here needs one.
  *

@@ -428,6 +428,12 @@ export type {
   InteractionTimeline,
   TimelineItem,
 } from './adminaccess/interaction-report.service';
+export { InteractionJourneyReportService } from './adminaccess/interaction-journey-report.service';
+export type {
+  InteractionFunnels,
+  InteractionDropoff,
+  InteractionReturn,
+} from './adminaccess/interaction-journey-report.service';
 export { EconomyReportService } from './adminaccess/economy-report.service';
 export type {
   EconomyReport,

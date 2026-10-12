@@ -10,13 +10,20 @@ import {
 } from '@payetam/shared';
 import type {
   InteractionActionsResponse,
+  InteractionDropoffResponse,
+  InteractionFunnelsResponse,
   InteractionLinkRow,
   InteractionLinksResponse,
   InteractionOverviewResponse,
+  InteractionReturnResponse,
 } from '@payetam/shared';
 import { messageOf, request } from '@/api/client';
+import DropoffPanel from '@/components/interactions/DropoffPanel.vue';
+import FunnelsPanel from '@/components/interactions/FunnelsPanel.vue';
+import ReturnPanel from '@/components/interactions/ReturnPanel.vue';
 import StateBlock from '@/components/StateBlock.vue';
 import { formatDate, formatNumber, toPersianDigits } from '@/format/fa';
+import { share } from '@/format/share';
 
 /**
  * What people do in the bot (migration 0065).
@@ -28,24 +35,35 @@ import { formatDate, formatNumber, toPersianDigits } from '@/format/fa';
  * buttons they press, or what refused them — and those are the questions an
  * operator brings when the sign-up numbers look fine and the product does not.
  *
- * ── Three tabs, each fetched when it is opened ──────────────────────────────
+ * ── Six tabs, each fetched when it is opened ────────────────────────────────
  *
- * The overview is seven statements, one of them a window function over every
- * row in the window. Loading all three reports to show one would triple that
- * for no reason, so a tab asks for its own data the first time it is shown and
- * again when the window has changed since.
+ * The overview alone is seven statements, one of them a window function over
+ * every row in the window, and the three journey reports are heavier still.
+ * Loading all six to show one would multiply that for no reason, so a tab asks
+ * for its own data the first time it is shown and again when the window has
+ * changed since.
+ *
+ * The first three say **how much** — people, links, buttons. The second three
+ * say **in what order**: how far people get, where they stop, whether they come
+ * back. Those three are drawn by their own components
+ * (`components/interactions/`), each of which explains its own denominators;
+ * this file only fetches for them.
  *
  * ── Read-only ───────────────────────────────────────────────────────────────
  *
  * Nothing on this page writes. The rows are written by the bot.
  */
 
-type Tab = 'overview' | 'links' | 'actions';
+/** Also the last segment of each report's path: `/interactions/<tab>`. */
+type Tab = 'overview' | 'links' | 'actions' | 'funnels' | 'dropoff' | 'return';
 
 const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'overview', label: 'نمای کلی' },
   { key: 'links', label: 'لینک‌ها' },
   { key: 'actions', label: 'دکمه‌ها و دستورها' },
+  { key: 'funnels', label: 'قیف‌ها' },
+  { key: 'dropoff', label: 'نقطه‌های ریزش' },
+  { key: 'return', label: 'بازگشت' },
 ];
 
 /** No «همه»: rows older than the retention period are gone, not merely hidden. */
@@ -73,12 +91,18 @@ const slots = reactive({
   overview: { data: null, days: null, error: null } as Slot<InteractionOverviewResponse>,
   links: { data: null, days: null, error: null } as Slot<InteractionLinksResponse>,
   actions: { data: null, days: null, error: null } as Slot<InteractionActionsResponse>,
+  funnels: { data: null, days: null, error: null } as Slot<InteractionFunnelsResponse>,
+  dropoff: { data: null, days: null, error: null } as Slot<InteractionDropoffResponse>,
+  return: { data: null, days: null, error: null } as Slot<InteractionReturnResponse>,
 });
 
 const ERRORS: Record<Tab, string> = {
   overview: 'نمای کلی رفتار کاربران بارگذاری نشد.',
   links: 'گزارش لینک‌ها بارگذاری نشد.',
   actions: 'گزارش دکمه‌ها و دستورها بارگذاری نشد.',
+  funnels: 'گزارش قیف‌ها بارگذاری نشد.',
+  dropoff: 'گزارش نقطه‌های ریزش بارگذاری نشد.',
+  return: 'گزارش بازگشت بارگذاری نشد.',
 };
 
 async function load(which: Tab): Promise<void> {
@@ -125,11 +149,6 @@ const overviewEmptyText = computed(() =>
     ? 'هنوز چیزی ثبت نشده است. ثبت از اولین پیامی شروع می‌شود که پس از انتشار این نسخه به ربات برسد.'
     : 'در این بازه چیزی ثبت نشده است.',
 );
-
-function share(part: number, whole: number): string {
-  if (whole === 0) return '—';
-  return `${toPersianDigits(Math.round((part / whole) * 100))}٪`;
-}
 
 /** `۳٫۷` — one decimal, with the Persian decimal mark rather than a Latin dot. */
 function formatDecimal(value: number): string {
@@ -181,6 +200,47 @@ const actionsState = computed(() => stateOf('actions', (actions.value?.rows.leng
 function refusalText(code: string): string {
   return (ERROR_MESSAGES_FA as Record<string, string>)[code] ?? code;
 }
+
+// ── Funnels, drop-off, return ───────────────────────────────────────────────
+
+const funnels = computed(() => slots.funnels.data);
+const funnelsState = computed(() =>
+  stateOf(
+    'funnels',
+    funnels.value !== null &&
+      funnels.value.onboarding.totals.arrived === 0 &&
+      funnels.value.forms.length === 0,
+  ),
+);
+
+const dropoff = computed(() => slots.dropoff.data);
+
+/** Empty only when every one of its lists is: one refusal is worth showing the page for. */
+const dropoffState = computed(() => {
+  const data = dropoff.value;
+  return stateOf(
+    'dropoff',
+    data !== null &&
+      data.quietUsers === 0 &&
+      data.refusals.length === 0 &&
+      data.gates.length === 0 &&
+      data.stale.length === 0 &&
+      data.failures.length === 0 &&
+      data.unclaimedText.count === 0 &&
+      data.unsupported.count === 0 &&
+      data.blocks.total === 0,
+  );
+});
+
+const returning = computed(() => slots.return.data);
+const returnState = computed(() =>
+  stateOf(
+    'return',
+    returning.value !== null &&
+      returning.value.cohorts.totals.arrived === 0 &&
+      returning.value.notifications.length === 0,
+  ),
+);
 </script>
 
 <template>
@@ -477,7 +537,7 @@ function refusalText(code: string): string {
 
     <!-- ── Buttons and commands ─────────────────────────────────────────── -->
     <StateBlock
-      v-else
+      v-else-if="tab === 'actions'"
       :state="actionsState"
       :error-text="slots.actions.error"
       :rows="8"
@@ -568,6 +628,42 @@ function refusalText(code: string): string {
           هنوز برایش نام فارسی نوشته نشده است.
         </p>
       </div>
+    </StateBlock>
+
+    <!-- ── Funnels ──────────────────────────────────────────────────────── -->
+    <StateBlock
+      v-else-if="tab === 'funnels'"
+      :state="funnelsState"
+      :error-text="slots.funnels.error"
+      :rows="8"
+      empty-text="در این بازه حساب تازه‌ای ساخته نشده و کسی فرمی باز نکرده است."
+      @retry="load('funnels')"
+    >
+      <FunnelsPanel v-if="funnels" :data="funnels" />
+    </StateBlock>
+
+    <!-- ── Drop-off ─────────────────────────────────────────────────────── -->
+    <StateBlock
+      v-else-if="tab === 'dropoff'"
+      :state="dropoffState"
+      :error-text="slots.dropoff.error"
+      :rows="8"
+      empty-text="در این بازه چیزی برای گزارش نیست: کسی رد نشده، برنگردانده نشده و بلاک نکرده است."
+      @retry="load('dropoff')"
+    >
+      <DropoffPanel v-if="dropoff" :data="dropoff" />
+    </StateBlock>
+
+    <!-- ── Return ───────────────────────────────────────────────────────── -->
+    <StateBlock
+      v-else
+      :state="returnState"
+      :error-text="slots.return.error"
+      :rows="6"
+      empty-text="در این بازه حساب تازه‌ای ساخته نشده و پیامی فرستاده نشده است."
+      @retry="load('return')"
+    >
+      <ReturnPanel v-if="returning" :data="returning" />
     </StateBlock>
   </div>
 </template>
